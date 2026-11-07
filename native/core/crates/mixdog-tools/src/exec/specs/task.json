@@ -1,0 +1,48 @@
+{
+  "name": "task",
+  "title": "Task",
+  "annotations": {
+    "title": "Task",
+    "readOnlyHint": false,
+    "destructiveHint": false,
+    "idempotentHint": false,
+    "openWorldHint": false
+  },
+  "description": "Manage shell tasks. Completion is delivered automatically; wait only when you need the result now, never poll with read. wait returns when the task finishes, or when new user input or any task notification arrives (the task keeps running). read/wait return new output, prioritizing the tail on completion. Use read on the log path for omitted content.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "task_id": {
+        "type": "string",
+        "description": "Shell task_id; required for read/wait/cancel."
+      },
+      "action": {
+        "type": "string",
+        "enum": [
+          "list",
+          "read",
+          "wait",
+          "cancel"
+        ],
+        "description": "list all; read next output; wait for completion and next output; cancel task."
+      },
+      "timeout_ms": {
+        "type": "integer",
+        "minimum": 0,
+        "description": "Wait ceiling in ms; else current output at the ceiling. Default 300000; clamped to 10000-3600000."
+      },
+      "output": {
+        "type": "string",
+        "enum": [
+          "new",
+          "tail"
+        ],
+        "description": "read/wait only. Default new; tail re-reads recent output without advancing the cursor, after an interruption or context loss. Up to 8 KiB per stream while running, 12 KiB on completion or replay; original logs are preserved."
+      }
+    },
+    "required": [
+      "action"
+    ],
+    "additionalProperties": false
+  }
+}

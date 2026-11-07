@@ -204,7 +204,7 @@ impl ContextWorld for LiveContextWorld {
             model,
             context_window: route.get("contextWindow").cloned().unwrap_or(Value::Null),
             cwd: Value::String(text(&header, "cwd")),
-            mode: Value::String(self.host.mode()),
+            mode: Value::String(self.host.mode(Some(&header))),
             messages,
             active,
             request_native,
@@ -323,11 +323,11 @@ mod tests {
 
     #[async_trait]
     impl SurfaceHost for Live {
-        fn mode(&self) -> String {
+        fn mode(&self, _: Option<&serde_json::Map<String, Value>>) -> String {
             self.case["mode"].as_str().expect("mode").to_owned()
         }
-        fn preview(&self) -> StatusSurface {
-            StatusSurface::default()
+        async fn preview(&self) -> Result<StatusSurface, CoreError> {
+            Ok(StatusSurface::default())
         }
         async fn reconcile_empty(&self, _: &ThreadId) -> Result<(), CoreError> {
             Ok(())

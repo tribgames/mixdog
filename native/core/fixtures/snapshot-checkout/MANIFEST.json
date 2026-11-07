@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-snapshot-checkout.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 585,
+      "path": "golden.json",
+      "sha256": "a2ccab64f5077278a6cdaec2fd46bcd597414b9a76cfb4b8b00fd77f7ba1f345"
+    }
+  ],
+  "product": {
+    "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
+    "commit": "2ff3481115ea60cd33b9bab614f26735a7f829ce",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "2ff3481115ea60cd33b9bab614f26735a7f829ce",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-snapshot-checkout.mjs",
+  "set": "snapshot-checkout",
+  "totalBytes": 585
+}

@@ -21,7 +21,6 @@ use mixdog_core_api::domain::process::ProcessExit;
 use mixdog_core_api::domain::process::ProcessOwner;
 use mixdog_core_api::domain::process::SpawnRequest;
 use mixdog_core_api::domain::tool::Tool;
-use mixdog_core_api::domain::tool::ToolAnnotations;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolErrorCode;
@@ -52,6 +51,7 @@ use super::delivery::render_shell_output_body;
 use super::delivery::shell_text_piece;
 use super::env::ShellEnv;
 use super::env::env_flag;
+use crate::orch::util::spec_from_def;
 use super::env::session_scratch_dir;
 use super::env::shell_env;
 use super::jobs::ExecRuntime;
@@ -144,40 +144,56 @@ pub struct ShellTool {
     runtime: Arc<ExecRuntime>,
 }
 
+/// The definitions Node sends (`buildShellDescription` / `buildShellCommandDescription`, written for
+/// the shell kind) with background tasks on, and with `MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS`
+/// (foreground only, the hold text gone).
+const POSIX: &str = include_str!("specs/shell.posix.json");
+const POWERSHELL: &str = include_str!("specs/shell.powershell.json");
+const POSIX_FOREGROUND: &str = include_str!("specs/shell.posix.foreground.json");
+const POWERSHELL_FOREGROUND: &str = include_str!("specs/shell.powershell.foreground.json");
+
+/// The kind of shell the tool text is written for (`shellType`).
+///
+/// Node binds the text where a session's tool list is assembled, from the kind of the shell it
+/// resolves (`resolveShellFor('default').shellType`) at that moment. That kind is the platform's
+/// whatever the "system shell" setting or `MIXDOG_SHELL` holds: a PowerShell program is the choice
+/// on Windows only, a POSIX shell is never the choice there, and off Windows the default is
+/// used (`chosen_shell`; the recorded `shell_choice.json` has the platform's kind in all 124 cases).
+/// So the live setting cannot change the text, and the kind is read from the platform.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ShellKind {
+    Posix,
+    PowerShell,
+}
+
+impl ShellKind {
+    pub(crate) fn of(windows: bool) -> Self {
+        if windows { Self::PowerShell } else { Self::Posix }
+    }
+}
+
+/// The one builder of the `shell` definition: Node's text for `kind`, with background tasks
+/// `background` or not.
+pub(crate) fn shell_spec(kind: ShellKind, background: bool) -> ToolSpec {
+    let def = match (kind, background) {
+        (ShellKind::Posix, true) => POSIX,
+        (ShellKind::PowerShell, true) => POWERSHELL,
+        (ShellKind::Posix, false) => POSIX_FOREGROUND,
+        (ShellKind::PowerShell, false) => POWERSHELL_FOREGROUND,
+    };
+    spec_from_def(def, false, &[])
+}
+
 impl ShellTool {
+    /// The text is written for the platform's shell kind and fixed when the tool is built.
     pub fn new(runtime: Arc<ExecRuntime>) -> Self {
-        let spec = ToolSpec {
-            name: "shell".into(),
-            aliases: Vec::new(),
-            description: "Run a shell command. The call waits up to wait_ms, then the command \
-                          keeps running in the background and its result is delivered when it \
-                          finishes."
-                .into(),
-            input_schema: serde_json::json!({
-                "type": "object",
-                "properties": {
-                    "command": {"type": "string"},
-                    "cwd": {"type": "string"},
-                    "timeout_ms": {"type": "integer", "minimum": 0},
-                    "wait_ms": {"type": "integer", "minimum": 1000, "maximum": 600000},
-                    "background": {"type": "boolean"}
-                },
-                "required": ["command"],
-                "additionalProperties": false
-            }),
-            annotations: ToolAnnotations {
-                title: Some("Shell".into()),
-                read_only_hint: Some(false),
-                destructive_hint: Some(true),
-                idempotent_hint: Some(false),
-                open_world_hint: Some(true),
-                compressible: Some(true),
-                ..ToolAnnotations::default()
-            },
-            parallel_safe: false,
-            exclusive_with: Vec::new(),
-        };
-        Self { spec, runtime }
+        Self::with_background(runtime, !env_flag("MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS", false))
+    }
+
+    /// The tool with its text written for background tasks `enabled` or not (`new` reads
+    /// `MIXDOG_SHELL_DISABLE_BACKGROUND_TASKS`).
+    pub fn with_background(runtime: Arc<ExecRuntime>, enabled: bool) -> Self {
+        Self { spec: shell_spec(ShellKind::of(runtime.config.windows), enabled), runtime }
     }
 }
 

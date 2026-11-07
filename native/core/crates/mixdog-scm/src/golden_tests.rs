@@ -721,6 +721,69 @@ impl crate::worktree::manager::Retention for NoRetention {
     fn retained(&self, _: &crate::worktree::registry::WorktreeRecord) -> bool { false }
 }
 
+/// Node's `createSnapshotWorktree` over a real repository (`record-snapshot-checkout.mjs`): the
+/// record and its ledger, the lock git lists, the owner lease.
+#[tokio::test]
+async fn a_snapshot_is_locked_for_its_holder_and_leased_as_nodes_is() {
+    use crate::worktree::manager::Worktrees;
+    let golden: Value = serde_json::from_str(include_str!("../../../fixtures/snapshot-checkout/golden.json")).unwrap();
+    let node = &golden["created"];
+    let (_guard, repo, _head) = fixture_repo();
+    let data = tempfile::tempdir().unwrap();
+    let cancel = CancellationToken::new();
+    let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
+    let holder = crate::worktree::ownership::Owner { session_id: "holder-1".into(), runtime_token: "runtime-1".into(), pid: Some(std::process::id()) };
+    let record = worktrees.snapshot_held(&repo, &holder, "HEAD", "tx-1", false, &cancel).await.unwrap();
+    let resources = &record.extra["resources"];
+    assert_eq!(
+        serde_json::json!({
+            "kind": record.extra["kind"],
+            "state": record.state,
+            "existingBranch": record.extra["existingBranch"],
+            "disposable": record.extra["disposable"],
+            "ownerSessionId": record.owner_session_id,
+            "holderIsTheSession": record.extra["holderSessionId"] == "holder-1",
+            "resources": { "worktree": resources["worktree"], "lock": resources["lock"], "owner": resources["owner"] },
+        }),
+        node["record"]
+    );
+    let listing = git(&repo, &["worktree", "list", "--porcelain"]);
+    let lock = listing.lines().find(|line| line.starts_with("locked")).unwrap_or("").replace("holder-1", "<holder>");
+    assert_eq!(lock, node["lockReason"].as_str().unwrap());
+    let lease = worktrees.read_owner_lease(&record, &cancel).await.unwrap().expect("the holder's lease");
+    assert_eq!(
+        serde_json::json!({ "sessionIsTheHolder": lease.owner.session_id == "holder-1", "runtimeTokenIsTheHolders": lease.owner.runtime_token == "runtime-1" }),
+        node["lease"]
+    );
+    assert_eq!(listing.lines().filter(|line| line.starts_with("worktree ")).count() as u64, node["worktrees"].as_u64().unwrap());
+}
+
+#[tokio::test]
+async fn a_snapshot_whose_lease_cannot_be_written_is_rolled_back_whole() {
+    use crate::worktree::manager::Worktrees;
+    let golden: Value = serde_json::from_str(include_str!("../../../fixtures/snapshot-checkout/golden.json")).unwrap();
+    let node = &golden["failed"];
+    let (_guard, repo, _head) = fixture_repo();
+    let data = tempfile::tempdir().unwrap();
+    let cancel = CancellationToken::new();
+    let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
+    let facts = worktrees.inspect_repo(&repo, &cancel).await.unwrap();
+    let root = crate::worktree::names::managed_root(data.path(), &facts.common_dir);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join(".owners"), "in the way").unwrap();
+    let holder = crate::worktree::ownership::Owner { session_id: "holder-1".into(), runtime_token: "runtime-1".into(), pid: Some(std::process::id()) };
+    let failed = worktrees.snapshot_held(&repo, &holder, "HEAD", "tx-1", false, &cancel).await.is_err();
+    let ids: Vec<String> = worktrees.list(None, &NoRetention, &cancel).await.unwrap().iter().map(|row| row["id"].as_str().unwrap().to_owned()).collect();
+    assert_eq!(
+        serde_json::json!({
+            "threw": failed,
+            "registryIds": ids,
+            "worktrees": git(&repo, &["worktree", "list", "--porcelain"]).lines().filter(|line| line.starts_with("worktree ")).count(),
+        }),
+        *node
+    );
+}
+
 #[tokio::test]
 async fn a_managed_worktree_is_created_refused_while_unmerged_then_merged_and_removed() {
     use crate::worktree::errors::WORKTREE_UNMERGED;
@@ -1405,4 +1468,119 @@ async fn a_failed_creation_is_rolled_back_whole_and_its_own_failure_is_the_one_s
     assert_eq!(git(&repo, &["worktree", "list", "--porcelain"]).matches("worktree ").count(), 1, "only the main checkout is left");
     assert!(!root.join("doomed").exists());
     assert!(worktrees.list(None, &NoRetention, &cancel).await.unwrap().is_empty(), "the record is gone");
+}
+
+
+/// Another process taking the worktree folder after the name was reserved and before git's checkout
+/// add (the first `n` adds find it taken), over the real process manager.
+struct TakesTheFolder {
+    inner: std::sync::Arc<dyn mixdog_core_api::domain::process::ProcessManager>,
+    left: std::sync::atomic::AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl mixdog_core_api::domain::process::ProcessManager for TakesTheFolder {
+    async fn spawn(&self, request: mixdog_core_api::domain::process::SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+        use std::sync::atomic::Ordering::SeqCst;
+        if let mixdog_core_api::domain::process::CommandSpec::Argv { args, .. } = &request.command
+            && let Some(add) = args.windows(2).position(|pair| pair[0] == "worktree" && pair[1] == "add")
+            && self.left.fetch_update(SeqCst, SeqCst, |n| n.checked_sub(1)).is_ok()
+        {
+            let rest = &args[add + 2..];
+            let target = if rest.first().map(String::as_str) == Some("-b") { &rest[2] } else { &rest[0] };
+            std::fs::create_dir_all(target).unwrap();
+            std::fs::write(Path::new(target).join("taken-by-another-process.txt"), "x").unwrap();
+        }
+        self.inner.spawn(request).await
+    }
+    fn subscribe(
+        &self,
+        handle: &mixdog_protocol::ProcessHandle,
+        from_seq: Option<u64>,
+    ) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>, mixdog_core_api::domain::process::ProcessError> {
+        self.inner.subscribe(handle, from_seq)
+    }
+    async fn write_stdin(&self, handle: &mixdog_protocol::ProcessHandle, bytes: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        self.inner.write_stdin(handle, bytes).await
+    }
+    fn close_stdin(&self, handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        self.inner.close_stdin(handle)
+    }
+    fn resize_pty(&self, handle: &mixdog_protocol::ProcessHandle, size: mixdog_core_api::domain::process::PtySize) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        self.inner.resize_pty(handle, size)
+    }
+    fn kill(&self, handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        self.inner.kill(handle)
+    }
+    fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
+        self.inner.list()
+    }
+}
+
+struct MixdogPrefix;
+#[async_trait::async_trait]
+impl crate::worktree::settings::SettingsSource for MixdogPrefix {
+    async fn worktree_settings(&self) -> crate::worktree::settings::WorktreeSettings {
+        crate::worktree::settings::WorktreeSettings { branch_prefix: "mixdog/".into(), ..Default::default() }
+    }
+}
+
+/// What Node's `createManagedWorktree` leaves behind when the folder was taken after the name was
+/// reserved (`record-worktree-add-retry.mjs`: the real manager over a real repository).
+async fn taken_folder_outcome(clashes: usize, branch: Option<&str>) -> Value {
+    use crate::worktree::manager::CreateRequest;
+    use crate::worktree::manager::Worktrees;
+    let (_guard, repo, _head) = fixture_repo();
+    let data = tempfile::tempdir().unwrap();
+    let cancel = CancellationToken::new();
+    let processes = std::sync::Arc::new(TakesTheFolder { inner: TestProcesses::shared(), left: clashes.into() });
+    let scm = Scm::new(processes, mixdog_rt::testing::tokens().maintenance_io, std::env::temp_dir().join(format!("mixdog-scm-test-{}", std::process::id())));
+    let worktrees = Worktrees::new(scm, data.path().to_path_buf()).with_settings(std::sync::Arc::new(MixdogPrefix));
+    let request = CreateRequest {
+        project_path: repo.clone(),
+        session_id: "s1".into(),
+        runtime_token: "rt".into(),
+        tx_id: "t1".into(),
+        name_hint: "Fix the login page".into(),
+        branch: branch.map(str::to_owned),
+        ..CreateRequest::default()
+    };
+    let outcome = match worktrees.create_full(request, &cancel).await {
+        Ok(created) => serde_json::json!({ "created": true, "id": created.record.id, "branch": created.record.branch, "state": created.record.state }),
+        Err(failure) => {
+            let text = failure.to_string().to_lowercase();
+            serde_json::json!({ "created": false, "alreadyExists": text.contains("already exists") || text.contains("exists; cannot create") })
+        }
+    };
+    let heads = |prefix: &str| git(&repo, &["for-each-ref", "--format=%(refname:short)", prefix]).lines().filter(|l| !l.is_empty()).map(str::to_owned).collect::<Vec<_>>();
+    let mut branches = heads("refs/heads/mixdog/");
+    branches.extend(heads("refs/heads/feature/"));
+    branches.sort();
+    let mut ids: Vec<String> = worktrees.list(None, &NoRetention, &cancel).await.unwrap().iter().map(|row| row["id"].as_str().unwrap().to_owned()).collect();
+    ids.sort();
+    serde_json::json!({
+        "outcome": outcome,
+        "branches": branches,
+        "registryIds": ids,
+        "worktrees": git(&repo, &["worktree", "list", "--porcelain"]).lines().filter(|line| line.starts_with("worktree ")).count(),
+    })
+}
+
+fn add_retry_golden() -> Value {
+    serde_json::from_str(include_str!("../../../fixtures/worktree-add-retry/golden.json")).unwrap()
+}
+
+#[tokio::test]
+async fn a_taken_folder_reserves_the_next_free_name_once_as_nodes_creation_does() {
+    assert_eq!(taken_folder_outcome(1, None).await, add_retry_golden()["retry"]);
+}
+
+#[tokio::test]
+async fn a_second_taken_folder_fails_the_creation_and_rolls_the_second_name_back() {
+    assert_eq!(taken_folder_outcome(2, None).await, add_retry_golden()["twice"]);
+}
+
+#[tokio::test]
+async fn a_branch_asked_for_by_name_is_not_retried() {
+    assert_eq!(taken_folder_outcome(1, Some("feature/login")).await, add_retry_golden()["exactBranch"]);
 }

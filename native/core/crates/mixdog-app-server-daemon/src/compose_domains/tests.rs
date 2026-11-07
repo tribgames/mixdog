@@ -58,6 +58,8 @@ use mixdog_services::media::MediaFailure;
 use mixdog_services::media::MediaGenerator;
 use mixdog_services::media::ResolvedMedia;
 use mixdog_services::voice::Missing;
+use mixdog_services::voice::ProgressHint;
+use mixdog_services::voice::ProgressHints;
 use mixdog_services::voice::VoiceInstaller;
 use serde_json::Value;
 use serde_json::json;
@@ -172,8 +174,20 @@ impl MediaUsageLedger for Quiet {
 
 #[async_trait]
 impl VoiceInstaller for Quiet {
-    async fn install(&self, _: Missing) -> Result<(), String> {
+    async fn install(&self, _: Missing, _: Option<mixdog_services::model_install::ProgressSink>) -> Result<(), String> {
         Ok(())
+    }
+}
+
+#[async_trait]
+impl ProgressHint for Quiet {
+    fn show(&self, _: String, _: Option<u8>) {}
+    async fn clear(&self) {}
+}
+
+impl ProgressHints for Quiet {
+    fn hint_for(&self, _: &ThreadId) -> Arc<dyn ProgressHint> {
+        Arc::new(Quiet)
     }
 }
 
@@ -471,6 +485,7 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
     let held = local_provider.clone();
     let inputs = DomainInputs {
         tokens,
+        voice_manifest: serde_json::from_str(include_str!("../../../../../../src/runtime/channels/data/voice-runtime-manifest.json")).unwrap(),
         paths: DomainPaths {
             data_dir: dir.path().to_path_buf(),
             user_data_dir: dir.path().join("userdata"),
@@ -503,9 +518,9 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
             settings_effects: quiet.clone(),
             feature_effects: quiet.clone(),
             local: LocalSeams {
-                import_sessions: quiet.clone(),
                 media_generator: quiet.clone(),
             media_ledger: quiet.clone(),
+        voice_progress: quiet.clone(),
                 voice_installer: quiet.clone(),
             },
             user_activity: UserActivity::new(
@@ -545,7 +560,7 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
     assert_eq!(read, ["autoclear", "compaction", "developer", "shell", "update", "worktree", "network-proxy", "output-style", "local-provider", "memory", "profile", "websearch", "onboarding", "workflow", "features", "summary", "model", "media"]);
     let composed = crate::compose_domains::compose_domains_post(
         &inputs,
-        crate::compose_domains::PostSeams { session_attachments: quiet.clone(), doctor: quiet.clone() },
+        crate::compose_domains::PostSeams { session_attachments: quiet.clone(), doctor: quiet.clone(), import_sessions: quiet.clone() },
         pre,
     )
     .await

@@ -14,12 +14,14 @@ pub mod wav;
 pub mod whisper_owner;
 pub mod whisper_server;
 #[cfg(test)]
+mod hint_twin_tests;
+#[cfg(test)]
 mod whisper_twin_tests;
 
 pub use installer::{InstallerParts, ManagedVoiceInstaller, VariantEnv, detect_variant_env, release_held_locks};
 pub use pipeline::{AudioTools, ServerContract, VoiceError, VoicePipeline, VoiceSettings, VoiceSettingsSource, WhisperEngine};
 pub use runtime::{RuntimeManifest, VoiceRuntime, resolve_voice_runtime, voice_runtime_info};
-pub use service::VoiceService;
+pub use service::{ProgressHints, VoiceService};
 pub use setup_action::{set_voice_enabled, voice_feature_status};
-pub use setup::{Missing, ToggleResult, VoiceEnabledStore, VoiceInstaller, VoiceSetup};
+pub use setup::{Missing, ProgressHint, ToggleResult, VoiceEnabledStore, VoiceInstaller, VoiceSetup};
 pub use whisper_server::{ProcessAudioTools, WhisperServer};

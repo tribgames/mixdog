@@ -100,6 +100,14 @@ const OP_SCOPES: [&str; 15] = [
 
 #[derive(Debug, thiserror::Error)]
 pub enum ComposeError {
+    #[error("opening the session catalog index: {0}")]
+    CatalogIndex(String),
+    #[error("resolving the OpenAI OAuth credential file: {0}")]
+    AccountFile(String),
+    #[error("starting the core folder watcher: {0}")]
+    Watcher(String),
+    #[error("starting the memory stack: {0}")]
+    MemoryRuntime(String),
     #[error("starting the provider catalog: {0}")]
     Catalog(CatalogError),
     #[error("writing the skill launchers: {0}")]
@@ -141,11 +149,25 @@ impl ThreadOpGates for NoThreadGates {
     }
 }
 
+/// Why the core is stopping, as Node words it; written once ([`ComposedCore::set_stop_reason`]).
+#[derive(Default)]
+pub struct StopReasonCell(std::sync::OnceLock<String>);
+
+impl StopReasonCell {
+    /// `None` only before the release (or a `stop`) has said why.
+    pub fn get(&self) -> Option<&str> {
+        self.0.get().map(String::as_str)
+    }
+}
+
 pub struct ComposedCore {
     base: MockCore,
     /// The real [HostMediaSink]; the browser view binds its stream targets here.
     host_media: Arc<HostMedia>,
     app_feed: Arc<CoreFeed>,
+    /// The app feed's one section state, built here: `serving::start` takes it (a second one over the same feed would split the lifecycle's sections
+    /// from the session deletion's notifications), and the real core's `SessionDeletion` holds it.
+    sections: Arc<mixdog_core_base::state::SectionFeedState>,
     /// Every scoped feed a service created, found by id for `feed/subscribe`.
     feed_index: Arc<CoreScopedFeeds>,
     ops: CoreOpIndex,
@@ -169,6 +191,8 @@ pub struct ComposedCore {
     /// The daemon log and the run token it holds: the stop procedure flushes the one, then cancels the other.
     log: crate::daemon_log::DaemonLog,
     stop: tokio_util::sync::CancellationToken,
+    /// Node's text of why the core is stopping (`daemon.mjs:272` `shutdown(reason)`), set once by the release before its first step; the stop steps read it.
+    stop_reason: Arc<StopReasonCell>,
 }
 
 type StopStep = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
@@ -306,9 +330,21 @@ impl ComposedCore {
     /// The one stop procedure of the core, for the daemon and the in-process server alike: closes
     /// the extension host, then runs each registered step in order. Returns once all of it is
     /// done; a second call finds nothing left to run.
-    pub async fn stop(&self) {
+    pub async fn stop(&self, reason: &str) {
+        self.set_stop_reason(reason);
         self.close_ext_host().await;
         self.run_stop_steps().await;
+    }
+
+    /// Records Node's text of this stop (`daemon.mjs:272` `shutdown(reason)`) for the stop steps; the first one wins, so the release and a
+    /// later `stop` agree on one reason.
+    pub fn set_stop_reason(&self, reason: &str) {
+        let _ = self.stop_reason.0.set(reason.to_owned());
+    }
+
+    /// The cell the stop steps read (`Real::session_shutdown_step`): it is filled by the time any step runs.
+    pub fn stop_reason(&self) -> Arc<StopReasonCell> {
+        self.stop_reason.clone()
     }
 
     /// The daemon log written out: the release procedure runs it right before the process ends, on every path, because a stuck step skips
@@ -357,6 +393,11 @@ impl ComposedCore {
     /// and SessionContextSwitch.
     pub fn shells(&self) -> Arc<dyn mixdog_core_session::session::shell_jobs::OwnedShells> {
         self.shell_control.clone()
+    }
+
+    /// The app feed's one section state (see the field).
+    pub fn sections(&self) -> &Arc<mixdog_core_base::state::SectionFeedState> {
+        &self.sections
     }
 
     /// The app feed, for the state publisher (`SectionFeedState::new`).
@@ -591,6 +632,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
     Ok(ComposedCore {
         base: MockCore::new(&[], MockLimits::default()),
         host_media: HostMedia::new(Limits::default().max_media_frame_bytes),
+        sections: Arc::new(mixdog_core_base::state::SectionFeedState::new(app_feed.clone())),
         app_feed,
         feed_index,
         ops: CoreOpIndex::new(gates, Arc::new(NoThreadGates)),
@@ -610,6 +652,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
         final_barriers: std::sync::Mutex::new(Vec::new()),
         log,
         stop,
+        stop_reason: Arc::default(),
     })
 }
 

@@ -118,7 +118,6 @@ fn installer(data: &Path, manifest: &Value, platform: &str) -> ManagedVoiceInsta
         durability: tokens.durability_io,
         bulk: tokens.cpu_bulk,
         now: Arc::new(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64),
-        progress: None,
     })
 }
 
@@ -204,12 +203,11 @@ async fn installs_match_nodes_recording() {
             durability: tokens.durability_io,
             bulk: tokens.cpu_bulk,
             now: Arc::new(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64),
-            progress: None,
         });
         let op = scenario["op"].as_str().unwrap();
         let missing = Missing { whisper: op == "whisper", model: op == "model", ffmpeg: op == "ffmpeg" };
         log.lock().unwrap().clear();
-        let outcome = installer.install(missing).await;
+        let outcome = installer.install(missing, None).await;
         match (outcome, scenario.get("error").and_then(Value::as_str)) {
             (Ok(()), None) => {}
             (Err(got), Some(want)) if name == "whisper-corrupt-zip" => {
@@ -244,7 +242,7 @@ async fn a_toggle_on_installs_every_missing_piece_and_cleans_up_after_itself() {
     std::fs::write(data.join("voice/models/old.bin"), "old").unwrap();
     std::fs::write(data.join("voice/models/.staging-1-2-m.bin"), "partial").unwrap();
 
-    installer(data, &world.manifest, "test-x64").install(ALL).await.unwrap();
+    installer(data, &world.manifest, "test-x64").install(ALL, None).await.unwrap();
 
     let manifest = RuntimeManifest::from_json(&world.manifest, "test-x64", "standard").unwrap();
     let runtime = resolve_voice_runtime(data, &manifest);
@@ -258,7 +256,7 @@ async fn a_toggle_on_installs_every_missing_piece_and_cleans_up_after_itself() {
 
     // Nothing missing: nothing is fetched again.
     let before = world.log.lock().unwrap().len();
-    installer(data, &world.manifest, "test-x64").install(ALL).await.unwrap();
+    installer(data, &world.manifest, "test-x64").install(ALL, None).await.unwrap();
     assert_eq!(world.log.lock().unwrap().len(), before, "an installed component is never re-fetched ({})", world.base);
 }
 
@@ -266,7 +264,7 @@ async fn a_toggle_on_installs_every_missing_piece_and_cleans_up_after_itself() {
 async fn a_digest_that_does_not_match_fails_the_install_and_removes_the_partial_file() {
     let world = world(Some(&"0".repeat(64))).await;
     let dir = tempfile::tempdir().unwrap();
-    let error = installer(dir.path(), &world.manifest, "test-x64").install(Missing { whisper: false, model: true, ffmpeg: false }).await.unwrap_err();
+    let error = installer(dir.path(), &world.manifest, "test-x64").install(Missing { whisper: false, model: true, ffmpeg: false }, None).await.unwrap_err();
     assert!(error.starts_with("[voice-runtime] sha256 mismatch for "), "{error}");
     assert!(error.contains(&format!("expected {}", "0".repeat(64))), "{error}");
     assert!(names(&dir.path().join("voice/models")).is_empty(), "no staging file and no lock stay behind");
@@ -277,7 +275,7 @@ async fn a_missing_asset_fails_with_the_http_status_and_leaves_no_staging_direct
     let mut world = world(None).await;
     world.manifest["platforms"]["test-x64"]["variants"][0]["url"] = json!(format!("{}/gone.zip", world.base));
     let dir = tempfile::tempdir().unwrap();
-    let error = installer(dir.path(), &world.manifest, "test-x64").install(Missing { whisper: true, model: false, ffmpeg: false }).await.unwrap_err();
+    let error = installer(dir.path(), &world.manifest, "test-x64").install(Missing { whisper: true, model: false, ffmpeg: false }, None).await.unwrap_err();
     assert!(error.contains("404"), "{error}");
     assert!(names(&dir.path().join("voice-runtime")).is_empty(), "{:?}", names(&dir.path().join("voice-runtime")));
 }
@@ -286,7 +284,7 @@ async fn a_missing_asset_fails_with_the_http_status_and_leaves_no_staging_direct
 async fn a_platform_the_manifest_does_not_list_is_named() {
     let world = world(None).await;
     let dir = tempfile::tempdir().unwrap();
-    let error = installer(dir.path(), &world.manifest, "nope-x1").install(ALL).await.unwrap_err();
+    let error = installer(dir.path(), &world.manifest, "nope-x1").install(ALL, None).await.unwrap_err();
     assert_eq!(error, "voice runtime not supported on nope-x1 — voice transcription is unavailable on this platform");
 }
 

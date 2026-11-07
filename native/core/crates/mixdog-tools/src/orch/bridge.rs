@@ -506,10 +506,9 @@ pub struct LoadTool {
 
 impl LoadTool {
     pub fn new(catalog: Arc<dyn CatalogView>) -> Self {
-        let mut spec = spec_from_def(include_str!("defs/load_tool.json"), true, &[]);
         // Loading mutates the active tool surface and must run on every explicit call so a
-        // repeat can report what is already active: never deduplicated.
-        spec.annotations.idempotent_hint = Some(false);
+        // repeat can report what is already active: the loop never deduplicates it by name.
+        let spec = spec_from_def(include_str!("defs/load_tool.json"), true, &[]);
         Self { spec, catalog }
     }
 }
@@ -633,10 +632,12 @@ mod tests {
         ThreadId("t".into())
     }
 
+    /// `load_tool` is declared as Node declares it (read-only, idempotent); the loop leaves it out
+    /// of the dedup by name (`dedup_eligible`).
     #[test]
-    fn load_tool_is_never_deduplicated() {
+    fn load_tool_carries_nodes_own_hints() {
         let tool = LoadTool::new(Arc::new(catalog()));
-        assert_eq!(tool.spec().annotations.idempotent_hint, Some(false));
+        assert_eq!(tool.spec().annotations.idempotent_hint, Some(true));
         assert_eq!(tool.spec().annotations.read_only_hint, Some(true));
     }
 

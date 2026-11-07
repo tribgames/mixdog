@@ -36,6 +36,9 @@ use mixdog_tools::fs::read_state_key;
 use mixdog_tools::fs::write_failure_message;
 use tokio_util::sync::CancellationToken;
 
+use crate::run_host::native_tools::NativeTool;
+use crate::run_host::native_tools::NativeToolPaths;
+
 /// `PATCH_EDIT_MAX_BYTES`: the largest side the turn review keeps (the review tracker's own
 /// constant is private to its crate).
 const PATCH_EDIT_MAX_BYTES: usize = 64 * 1024 * 1024;
@@ -110,7 +113,9 @@ impl WriteHost for ReviewedWriteHost {
 /// and network fetcher, each built where the rest of the process builds it.
 pub struct ProcessTidyHost {
     pub plugin_data: PathBuf,
-    pub graph_binary: Option<PathBuf>,
+    /// The one resolver of the process (`graphBinaryPath()` is asked at each tidy call, so a
+    /// binary the code-graph tool downloaded later is found without a restart).
+    pub native: Arc<NativeToolPaths>,
     pub write_host: Arc<dyn WriteHost>,
     pub outline_source: Arc<dyn OutlineSource>,
     pub fetcher: Arc<dyn Fetcher>,
@@ -121,8 +126,8 @@ impl TidyHost for ProcessTidyHost {
     fn plugin_data(&self) -> PathBuf {
         self.plugin_data.clone()
     }
-    fn graph_binary(&self) -> Option<PathBuf> {
-        self.graph_binary.clone()
+    async fn graph_binary(&self) -> Option<PathBuf> {
+        self.native.resolve(NativeTool::Graph).await
     }
     fn write_host(&self) -> Arc<dyn WriteHost> {
         self.write_host.clone()
@@ -137,7 +142,51 @@ impl TidyHost for ProcessTidyHost {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::Ordering;
+
+    use mixdog_services::local_provider::assets::ReqwestFetcher;
+    use mixdog_services::tidy::graph_outline::GraphOutlineSource;
+
     use super::*;
+    use crate::run_host::native_tools::PathExists;
+
+    struct Appears(Arc<AtomicBool>);
+
+    #[async_trait]
+    impl PathExists for Appears {
+        async fn exists(&self, _: &Path) -> bool {
+            self.0.load(Ordering::SeqCst)
+        }
+    }
+
+    struct NoWrite;
+
+    #[async_trait]
+    impl WriteHost for NoWrite {
+        async fn atomic_write(&self, _: &Path, _: &[u8], _: Option<&str>, _: Option<&CancellationToken>) -> Result<(), String> {
+            Ok(())
+        }
+        async fn note_written(&self, _: &[PathBuf], _: Option<&str>) {}
+        async fn record_changes(&self, _: &Path, _: &str, _: Vec<FileChange>) {}
+    }
+
+    /// Node asks `graphBinaryPath()` at each tidy call, so a binary that appears after the host
+    /// was built (the code-graph tool's download) is found by the next call.
+    #[tokio::test]
+    async fn the_graph_binary_is_looked_up_at_each_call() {
+        let present = Arc::new(AtomicBool::new(false));
+        let host = ProcessTidyHost {
+            plugin_data: PathBuf::new(),
+            native: Arc::new(NativeToolPaths::new(Arc::new(|_| None), PathBuf::from("/pkg"), Arc::new(Appears(present.clone())), None)),
+            write_host: Arc::new(NoWrite),
+            outline_source: Arc::new(GraphOutlineSource::new(mixdog_rt::testing::tokens().cpu_bulk)),
+            fetcher: Arc::new(ReqwestFetcher::default()),
+        };
+        assert_eq!(host.graph_binary().await, None);
+        present.store(true, Ordering::SeqCst);
+        assert!(host.graph_binary().await.is_some());
+    }
 
     #[test]
     fn a_side_over_the_review_limit_is_an_omitted_marker_never_bytes() {

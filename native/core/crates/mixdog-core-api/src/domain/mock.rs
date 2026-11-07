@@ -691,6 +691,9 @@ impl Default for EchoTool {
         Self {
             spec: ToolSpec {
                 name: "echo".into(),
+                title: None,
+                trigger: None,
+                public: true,
                 aliases: Vec::new(),
                 description: "Returns its arguments.".into(),
                 input_schema: serde_json::json!({"type": "object"}),
@@ -734,6 +737,9 @@ impl Default for FailingMcpTool {
         Self {
             spec: ToolSpec {
                 name: "mcp__mock__fail".into(),
+                title: None,
+                trigger: None,
+                public: true,
                 aliases: Vec::new(),
                 description: "Always fails on the server.".into(),
                 input_schema: serde_json::json!({"type": "object"}),
@@ -774,6 +780,9 @@ impl Default for FailingTool {
         Self {
             spec: ToolSpec {
                 name: "mock_run".into(),
+                title: None,
+                trigger: None,
+                public: true,
                 aliases: Vec::new(),
                 description: "Runs and always fails.".into(),
                 input_schema: serde_json::json!({"type": "object"}),

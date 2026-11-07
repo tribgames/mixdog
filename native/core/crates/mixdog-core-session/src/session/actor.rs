@@ -237,7 +237,7 @@ pub(crate) enum JobDone {
     /// A prompt-history append job ended: the list as the writer saw it, and the appends that did
     /// not land (the write failed, or the lane refused or dropped the job).
     PromptFlushed { list: Option<Vec<String>>, unwritten: Vec<String> },
-    /// A retry wait of the prompt-history appends ended.
+    /// A wait of the prompt-history appends ended.
     PromptRetryDue(u64),
     ApprovalId {
         turn: TurnId,
@@ -445,7 +445,7 @@ pub(crate) struct SessionActor {
     goal_deferred: bool,
     /// The last Goal runtime call: each waits for the one before.
     goal_tail: Option<tokio::task::JoinHandle<()>>,
-    /// The prompt-history appends not on disk yet, and their retry (`prompt-history-store.mjs`).
+    /// The prompt-history appends not on disk yet, and their write-behind and retry (`prompt-history-store.mjs`).
     prompt_appends: prompt_history::AppendQueue,
     /// Answered once the deleted thread's turn ended.
     delete_closed: Option<oneshot::Sender<Result<(), &'static str>>>,
@@ -952,17 +952,8 @@ impl SessionActor {
                 if let Some(list) = list {
                     self.accept_view(Change::PromptPersisted(list), Vec::new());
                 }
-                match self.prompt_appends.flushed(unwritten) {
-                    prompt_history::Next::Idle => {}
-                    prompt_history::Next::Flush(batch) => self.flush_prompts(batch),
-                    prompt_history::Next::Wait { epoch, delay } => {
-                        let jobs = self.jobs_tx.clone();
-                        drop(tokio::spawn(async move {
-                            tokio::time::sleep(delay).await;
-                            let _ = jobs.send(JobDone::PromptRetryDue(epoch));
-                        }));
-                    }
-                }
+                let next = self.prompt_appends.flushed(unwritten);
+                self.run_prompt_step(next);
             }
             JobDone::PromptRetryDue(epoch) => {
                 if let Some(batch) = self.prompt_appends.due(epoch) {
@@ -1289,7 +1280,9 @@ impl SessionActor {
         }
         let (goals, thread) = (self.deps.goals.clone(), self.id.clone());
         self.goal_call(Box::pin(async move {
-            let _ = goals.archive_completed_on_user_input(&thread).await;
+            if let Err(error) = goals.archive_completed_on_user_input(&thread).await {
+                tracing::warn!("the completed Goal was not archived on user input: {error:?}");
+            }
             JobDone::GoalArchived(archived)
         }));
     }
@@ -1470,7 +1463,7 @@ impl SessionActor {
         }
         let t = &self.id;
         match section {
-            Section::Runtime(_) => self.runtime_note(),
+            Section::Runtime(_) | Section::ProgressHint(_) => self.runtime_note(),
             Section::Route(v) => note("thread/route/updated", t, v),
             Section::Context(v) => note("thread/context/updated", t, v),
             Section::Todo(v) => note("thread/todo/updated", t, v),
@@ -1984,7 +1977,9 @@ impl SessionActor {
         let goal_id = if self.deleting { String::new() } else { mixdog_core_goal::goal::quota::suspended_goal_id(before.as_ref(), settled) };
         let settlement = self.quota.settlement.clone();
         self.quota.call(async move {
-            let _ = settlement.finish_goal(&goal_id).await;
+            if let Err(error) = settlement.finish_goal(&goal_id).await {
+                tracing::warn!("the Goal's quota settlement was not finished: {error:?}");
+            }
         });
     }
 
@@ -2696,9 +2691,12 @@ impl SessionActor {
                 let _ = tx.send(self.resume_check());
             }
             Inbox::QuotaCancelled { tx } => {
+                self.quota_cancel_now();
                 let (settlement, id) = (self.quota.settlement.clone(), self.id.as_str().to_owned());
                 self.quota.call(async move {
-                    let _ = settlement.cancel_resume(&id).await;
+                    if let Err(error) = settlement.cancel_resume(&id).await {
+                        tracing::warn!("a quota resume was cancelled in memory but its entry was not removed: {error:?}");
+                    }
                     let _ = tx.send(());
                 });
             }
@@ -2871,9 +2869,12 @@ impl SessionActor {
             .then(|| prompt_text(&params.input));
         if user_prompt.is_some() {
             // `cancelQuotaResumeOnUserInput`: new user input supersedes the stopped turn.
+            self.quota_cancel_now();
             let (settlement, id) = (self.quota.settlement.clone(), self.id.as_str().to_owned());
             self.quota.call(async move {
-                let _ = settlement.cancel_on_user_input(&id).await;
+                if let Err(error) = settlement.cancel_on_user_input(&id).await {
+                    tracing::warn!("a quota resume was cancelled in memory but its entry was not removed: {error:?}");
+                }
             });
             self.archive_goal_on_user_input();
         }
@@ -3080,9 +3081,12 @@ impl SessionActor {
             records.push((reset, Class::Normal, Display::None, Vec::new()));
         }
         // `supersedeQuotaResume`: a cleared session's wait goes.
+        self.quota_cancel_now();
         let (settlement, id) = (self.quota.settlement.clone(), self.id.as_str().to_owned());
         self.quota.call(async move {
-            let _ = settlement.supersede(&id).await;
+            if let Err(error) = settlement.supersede(&id).await {
+                tracing::warn!("a quota resume was superseded in memory but its entry was not removed: {error:?}");
+            }
         });
         Ok(Plan {
             kind: PlanKind::Records(records, Vec::new()),
@@ -3639,6 +3643,14 @@ impl SessionActor {
         // A session takes moved settings gates at its next turn start (today's
         // `stageToolAvailability`).
         self.refresh_surface();
+        // `admitTurnWorkspace` follows the session's live cwd, the one its header carries.
+        let admission = {
+            let (admission, thread, token) = (self.deps.turn_admission.clone(), self.id.clone(), token.clone());
+            let cell = self.cell.clone();
+            let cwd: super::worktree::Cwd =
+                Arc::new(move || cell.header.load().get("cwd").and_then(Value::as_str).unwrap_or_default().to_owned());
+            async move { admission.admit(thread.as_str(), cwd, &token).await }
+        };
         let future = self.deps.runs.start(RunStart {
             agent_turn,
             skill_selection,
@@ -3666,10 +3678,22 @@ impl SessionActor {
         });
         let ctl = self.cell.ctl_tx.clone();
         mixdog_rt::spawn("session-run", TaskClass::Work, async move {
-            let outcome = future.await;
+            // The turn is admitted to its workspace before its loop runs: no checkout it reads
+            // changes under it until it settles. An abort while it waits ends it unrun; a failed
+            // admission fails it with the refusal's text.
+            let (outcome, admitted) = match admission.await {
+                Ok(guard) => (future.await, Some(guard)),
+                Err(mixdog_scm::error::ScmFailure::Cancelled) => (RunOutcome::Interrupted, None),
+                Err(failure) => {
+                    let message = super::worktree::thrown_message(&failure);
+                    (RunOutcome::Failed(TurnError { message, data: json!({}), provider_error: None }), None)
+                }
+            };
             // The turn's review is sealed before the turn reports settled.
             review.finish(cancel.is_aborted()).await;
             let _ = ctl.send(Ctl::RunEnded { turn, outcome }).await;
+            // `releaseWorkspace()` of `settleTurn`.
+            drop(admitted);
         });
     }
 
@@ -3739,8 +3763,21 @@ impl SessionActor {
         if prompt_history::key(&prompt).is_empty() {
             return;
         }
-        if let Some(batch) = self.prompt_appends.push(prompt) {
-            self.flush_prompts(batch);
+        let next = self.prompt_appends.push(prompt);
+        self.run_prompt_step(next);
+    }
+
+    fn run_prompt_step(&mut self, next: prompt_history::Next) {
+        match next {
+            prompt_history::Next::Idle => {}
+            prompt_history::Next::Flush(batch) => self.flush_prompts(batch),
+            prompt_history::Next::Wait { epoch, delay } => {
+                let jobs = self.jobs_tx.clone();
+                drop(tokio::spawn(async move {
+                    tokio::time::sleep(delay).await;
+                    let _ = jobs.send(JobDone::PromptRetryDue(epoch));
+                }));
+            }
         }
     }
 

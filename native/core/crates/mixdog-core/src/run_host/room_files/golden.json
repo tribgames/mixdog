@@ -1,0 +1,141 @@
+{
+ "chart": {
+  "messages": [
+   {
+    "role": "user",
+    "content": "turn",
+    "meta": {
+     "transcript": {
+      "at": 1000
+     }
+    }
+   },
+   {
+    "role": "assistant",
+    "content": "Here is [the chart](shot.png)."
+   }
+  ],
+  "row": {
+   "id": "s_chart",
+   "kind": "speech",
+   "speaker": "bench",
+   "name": "Bench",
+   "parts": [
+    {
+     "type": "image",
+     "attachmentRef": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581",
+     "mimeType": "image/png",
+     "filename": "shot.png",
+     "sizeBytes": 70
+    }
+   ],
+   "attachments": [
+    {
+     "id": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581",
+     "attachmentRef": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581",
+     "kind": "image",
+     "name": "shot.png",
+     "mimeType": "image/png",
+     "size": 70
+    }
+   ],
+   "text": "see"
+  }
+ },
+ "several": {
+  "messages": [
+   {
+    "role": "user",
+    "content": "older",
+    "meta": {
+     "transcript": {
+      "at": 10
+     }
+    }
+   },
+   {
+    "role": "assistant",
+    "content": "old [x](notes.md)"
+   },
+   {
+    "role": "user",
+    "content": "turn",
+    "meta": {
+     "transcript": {
+      "at": 1000
+     }
+    }
+   },
+   {
+    "role": "assistant",
+    "content": "See [notes](notes.md), [chart](shot.png) and [out](<other>/outside.md) and [gone](missing.png)."
+   }
+  ],
+  "row": {
+   "id": "s_several",
+   "kind": "speech",
+   "speaker": "bench",
+   "name": "Bench",
+   "parts": [
+    {
+     "type": "text",
+     "attachmentRef": "8756865da2e3eeb49046a0e58453f09735a5f8bdd5ff6f06d9f1253b8612e034",
+     "textKind": "file",
+     "mimeType": "text/markdown",
+     "filename": "notes.md",
+     "sizeBytes": 14
+    },
+    {
+     "type": "image",
+     "attachmentRef": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581",
+     "mimeType": "image/png",
+     "filename": "shot.png",
+     "sizeBytes": 70
+    }
+   ],
+   "attachments": [
+    {
+     "id": "8756865da2e3eeb49046a0e58453f09735a5f8bdd5ff6f06d9f1253b8612e034",
+     "attachmentRef": "8756865da2e3eeb49046a0e58453f09735a5f8bdd5ff6f06d9f1253b8612e034",
+     "kind": "text",
+     "name": "notes.md",
+     "mimeType": "text/markdown",
+     "size": 14
+    },
+    {
+     "id": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581",
+     "attachmentRef": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581",
+     "kind": "image",
+     "name": "shot.png",
+     "mimeType": "image/png",
+     "size": 70
+    }
+   ],
+   "text": "see"
+  }
+ },
+ "nothing": {
+  "messages": [
+   {
+    "role": "user",
+    "content": "turn",
+    "meta": {
+     "transcript": {
+      "at": 1000
+     }
+    }
+   },
+   {
+    "role": "assistant",
+    "content": "no files here"
+   }
+  ],
+  "row": {
+   "id": "s_nothing",
+   "kind": "speech",
+   "speaker": "bench",
+   "name": "Bench",
+   "text": "see"
+  }
+ }
+}

@@ -124,6 +124,8 @@ impl EffortTuning for RouteService {
 #[async_trait]
 pub trait ArchiveRetention: Send + Sync {
     async fn note_archived(&self, session_id: &str, archived: bool) -> Result<(), String>;
+    /// `sessionRetention.forget(id)`: a deleted session's restore is dropped.
+    async fn forget(&self, session_id: &str) -> Result<(), String>;
 }
 
 /// `positive(value)` of `session-auto-retention.ts`: a finite number above zero, else none.
@@ -146,12 +148,11 @@ impl ConfigArchiveRetention {
     pub fn new(config: mixdog_core_config::config::Config, now: Arc<dyn Fn() -> i64 + Send + Sync>) -> Self {
         Self { config, now }
     }
-}
 
-#[async_trait]
-impl ArchiveRetention for ConfigArchiveRetention {
-    async fn note_archived(&self, session_id: &str, archived: bool) -> Result<(), String> {
-        let (id, now) = (session_id.to_owned(), (self.now)());
+    /// `update(mutate)`: the normalized `restored` map is handed to `mutate`, which says whether it
+    /// changed it; the record is written when it did or when the stored one has no `enabledAt`.
+    async fn update(&self, mutate: impl FnOnce(&mut Map<String, Value>, i64) -> bool + Send + 'static) -> Result<(), String> {
+        let now = (self.now)();
         self.config
             .update(move |doc| {
                 let current = doc.get("desktop").and_then(|desktop| desktop.get("retentionState"));
@@ -164,14 +165,7 @@ impl ArchiveRetention for ConfigArchiveRetention {
                     .collect();
                 let stored_enabled =
                     current.and_then(|record| record.get("enabledAt")).filter(|at| positive(Some(at)).is_some()).cloned();
-                // An archive clears a restore; a restore records it, which exempts the session
-                // from auto-archive until it is used again.
-                let changed = if archived {
-                    restored.remove(&id).is_some()
-                } else {
-                    restored.insert(id, json!(now));
-                    true
-                };
+                let changed = mutate(&mut restored, now);
                 if !changed && stored_enabled.is_some() {
                     return Ok(());
                 }
@@ -189,6 +183,29 @@ impl ArchiveRetention for ConfigArchiveRetention {
             .await
             .map(drop)
             .map_err(|error| error.to_string())
+    }
+}
+
+#[async_trait]
+impl ArchiveRetention for ConfigArchiveRetention {
+    async fn note_archived(&self, session_id: &str, archived: bool) -> Result<(), String> {
+        let id = session_id.to_owned();
+        // An archive clears a restore; a restore records it, which exempts the session from
+        // auto-archive until it is used again.
+        self.update(move |restored, now| {
+            if archived {
+                restored.remove(&id).is_some()
+            } else {
+                restored.insert(id, json!(now));
+                true
+            }
+        })
+        .await
+    }
+
+    async fn forget(&self, session_id: &str) -> Result<(), String> {
+        let id = session_id.to_owned();
+        self.update(move |restored, _| restored.remove(&id).is_some()).await
     }
 }
 
@@ -714,22 +731,27 @@ impl ThreadSettings {
         self.parts.effort.set_effort(thread, value, session_only).await.map_err(|message| failed(DOMAIN, message))
     }
 
-    /// `setToolMode(mode)`: the normalized mode. An empty, idle session takes the mode's tool
+    /// `setToolMode(mode)`: the normalized mode, which the thread keeps (`toolMode`, Node's
+    /// `rt.mode`, read by the tool status). An empty, idle session also takes the mode's tool
     /// spec (`refreshEmptySessionToolPolicy`); a conversation keeps its tool surface.
     async fn set_tool_mode(&self, thread: &ThreadId, mode: &str) -> Result<Value, CoreError> {
         let mode = normalize_tool_mode(mode);
         let handle = self.open(thread).await?;
-        if handle.cell.run.load().is_some() {
-            return Ok(json!(mode));
-        }
-        let messages = mixdog_core_ports::ports::memory_source::ThreadMessages::messages(&self.threads, thread).await.map_err(port)?;
-        if has_conversation_messages(&messages) {
-            return Ok(json!(mode));
+        let mut frozen = handle.cell.run.load().is_some();
+        if !frozen {
+            let messages = mixdog_core_ports::ports::memory_source::ThreadMessages::messages(&self.threads, thread).await.map_err(port)?;
+            frozen = has_conversation_messages(&messages);
         }
         let spec = tool_spec_for_mode(mode);
-        self.update_header(thread, &["toolSpec"], |header| {
-            let patch = (header.get("toolSpec") != Some(&spec)).then(|| (Map::from_iter([("toolSpec".to_owned(), spec.clone())]), Vec::new()));
-            ((), patch)
+        self.update_header(thread, &["toolMode", "toolSpec"], |header| {
+            let mut set = Map::new();
+            if header.get("toolMode") != Some(&json!(mode)) {
+                set.insert("toolMode".to_owned(), json!(mode));
+            }
+            if !frozen && header.get("toolSpec") != Some(&spec) {
+                set.insert("toolSpec".to_owned(), spec.clone());
+            }
+            ((), (!set.is_empty()).then_some((set, Vec::new())))
         })
         .await?;
         Ok(json!(mode))

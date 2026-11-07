@@ -126,6 +126,10 @@ fn core_wiring(
             let runtime = runtime.clone();
             Arc::new(move || runtime.block_on(core.run_stop_steps()))
         },
+        release_started: {
+            let core = core.clone();
+            Arc::new(move |reason| core.set_stop_reason(reason))
+        },
         flush_log: {
             let core = core.clone();
             Arc::new(move || runtime.block_on(core.flush_log()))
@@ -154,7 +158,7 @@ pub async fn start(
 ) -> Result<Serving, ServingError> {
     let StartIn { runtime_root, exiter, update_text } = given;
     let running = Running::build(core.clone(), outgoing).map_err(ServingError::Limits)?;
-    let sections = Arc::new(SectionFeedState::new(core.app_feed_core().clone()));
+    let sections = core.sections().clone();
     let release = Arc::new(ReleaseSlot::default());
 
     let root = runtime_root;

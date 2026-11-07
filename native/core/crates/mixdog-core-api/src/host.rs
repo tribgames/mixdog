@@ -56,6 +56,57 @@ impl HostCapability {
             Self::Browser | Self::Visualize | Self::Files | Self::Updater | Self::Power | Self::ModelProxy => None,
         }
     }
+
+    /// The liveness a streamed request to this capability keeps (see [`Lease`]); `None` where the
+    /// claimant is not asked to vouch for the request while it works. Enforced by the one streamed
+    /// wait, `Outgoing::request_streamed`.
+    pub const fn lease(self) -> Option<Lease> {
+        match self {
+            Self::ModelProxy => Some(Lease::MODEL_PROXY),
+            _ => None,
+        }
+    }
+}
+
+/// How long a claimant may stay silent on a request it was sent: the claim window until its first
+/// sign of life (a heartbeat or a streamed event), the lease after every one. A request that
+/// outlives either ends as `capabilityUnavailable{desktopHost, notClaimed | leaseLapsed}`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Lease {
+    pub claim: Duration,
+    pub renew: Duration,
+}
+
+impl Lease {
+    /// Node's model proxy channel: `CLAIM_TIMEOUT_MS` 10 s and `MODEL_PROXY_LEASE_MS` 20 s
+    /// (`model-proxy-channel.mjs`); the PC's heartbeat comes every `MODEL_PROXY_HEARTBEAT_MS`
+    /// 5 s, well inside the lease.
+    pub const MODEL_PROXY: Self = Self { claim: Duration::from_secs(10), renew: Duration::from_secs(20) };
+}
+
+/// The detail of a `capabilityUnavailable{desktopHost}` that ended a streamed request: no claimant.
+pub const NO_CLAIMANT: &str = "noClaimant";
+/// The claimant closed before it answered.
+pub const CLAIMANT_CLOSED: &str = "claimantClosed";
+/// The claimant never claimed the request inside [`Lease::claim`].
+pub const NOT_CLAIMED: &str = "notClaimed";
+/// The claimant stopped vouching for a claimed request for longer than [`Lease::renew`].
+pub const LEASE_LAPSED: &str = "leaseLapsed";
+
+/// Node's `ModelProxyUnavailableError` message (`model proxy unavailable: <detail>`) for a
+/// `model/proxy/execute` that got no answer. Every consumer of the model proxy reads a missing PC
+/// through this one table: the broker's server end and the quota channel.
+pub fn model_proxy_unavailable_text(error: &CoreError) -> &'static str {
+    let detail = match error {
+        CoreError::CapabilityUnavailable { detail, .. } => &**detail,
+        _ => CLAIMANT_CLOSED,
+    };
+    match detail {
+        NO_CLAIMANT => "model proxy unavailable: no desktop client is connected to run model calls",
+        NOT_CLAIMED => "model proxy unavailable: the desktop client did not pick up the model call",
+        LEASE_LAPSED => "model proxy unavailable: the desktop client stopped responding",
+        _ => "model proxy unavailable: the desktop client disconnected",
+    }
 }
 
 /// Why a `host/*` request produced no result.
@@ -119,8 +170,10 @@ pub trait HostChannel: Send + Sync {
 
     /// [`HostChannel::request`] whose claimant streams events while it works (`model/proxy/execute`
     /// answers with `model/proxy/event{requestId, event}` notifications ahead of its response).
-    /// Each event reaches `on_event` in the order sent, all of them before the result. A channel
-    /// that carries no streamed request has no claimant for it.
+    /// Each event reaches `on_event` in the order sent, all of them before the result. A
+    /// capability with a [`HostCapability::lease`] must vouch for the request (`stream_alive`, or
+    /// an event) inside it, or the request ends `notClaimed` / `leaseLapsed`. A channel that
+    /// carries no streamed request has no claimant for it.
     async fn request_streamed(
         &self,
         capability: HostCapability,
@@ -140,6 +193,14 @@ pub trait HostChannel: Send + Sync {
     /// has no such request pending, so a stray or late event is dropped by the caller.
     fn stream_event(&self, from: ConnectionId, request: &Value, event: Value) -> bool {
         let _ = (from, request, event);
+        false
+    }
+
+    /// `from` vouches for request `request` (the heartbeat of a streamed request): the first
+    /// claims it, each renews its lease ([`Lease`]). `false` when that connection has no such
+    /// request pending.
+    fn stream_alive(&self, from: ConnectionId, request: &Value) -> bool {
+        let _ = (from, request);
         false
     }
 }

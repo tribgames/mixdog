@@ -35,10 +35,12 @@ use sha2::Sha256;
 
 pub const PROMPT_HISTORY_LIMIT: usize = 50;
 
-/// `WRITE_BEHIND_MS` (`prompt-history-store.mjs:92`): the window Node coalesces appends in, and the
-/// base of its retry delay. This port writes through at once, so only the delay uses it.
+/// `WRITE_BEHIND_MS` (`prompt-history-store.mjs:92`): the window appends are coalesced in, and the
+/// base of the retry delay.
 pub const WRITE_BEHIND_MS: u64 = 250;
-/// `WRITE_RETRY_MAX_MS` (`prompt-history-store.mjs:97`).
+/// `FLUSH_CAP` (:93): this many queued appends flush at once.
+pub const FLUSH_CAP: usize = 5;
+/// `WRITE_RETRY_MAX_MS` (:97).
 pub const WRITE_RETRY_MAX_MS: u64 = 30_000;
 
 /// `writeRetryDelayMs(failures)` (`prompt-history-store.mjs:157-159`): the delay before retry number
@@ -54,36 +56,54 @@ pub enum Next {
     Idle,
     /// Append these now, oldest first.
     Flush(Vec<String>),
-    /// Wake with `due(epoch)` after `delay`.
+    /// Wake with `due(epoch)` after `delay`; any later wait replaces this one.
     Wait { epoch: u64, delay: Duration },
 }
 
-/// The appends not yet on disk (`pendingAppends`, `writeFailures`, `pendingTimers`,
-/// `prompt-history-store.mjs:94-98, 171-197`) of one thread. A flush that did not land puts its
-/// appends back ahead of newer ones and retries after [`write_retry_delay`] of the failures in a
-/// row, for ever; a landed one resets the count. A prompt arriving during the wait does not sit out
-/// the backoff: Node re-arms the timer at its window (`scheduleWriteBehind`, :269), here the flush
-/// starts at once, as for every append.
+/// The appends not yet on disk of one thread (`pendingAppends`, `pendingTimers`, `writeFailures`,
+/// `prompt-history-store.mjs:94-98, 161-197, 255-271`). An append arms the write-behind timer at
+/// [`WRITE_BEHIND_MS`], replacing whatever wait was armed (a backoff included), and
+/// [`FLUSH_CAP`] queued appends flush at once. A flush that did not land puts its appends back ahead
+/// of newer ones and arms the timer at [`write_retry_delay`] of the failures in a row, for ever;
+/// a landed one resets the count. One flush runs at a time here (Node lets them overlap).
 #[derive(Debug, Default)]
 pub struct AppendQueue {
     pending: Vec<String>,
     failures: u32,
     in_flight: bool,
-    wait: Option<u64>,
+    /// The wait whose `due` still counts.
+    timer: Option<u64>,
+    /// A flush came due while one was running: it goes when that one ends.
+    flush_after: bool,
     epoch: u64,
 }
 
 impl AppendQueue {
     fn begin(&mut self) -> Vec<String> {
         self.in_flight = true;
-        self.wait = None;
+        self.timer = None;
+        self.flush_after = false;
         std::mem::take(&mut self.pending)
     }
 
-    /// A prompt to append; `Some(batch)` when a flush starts now.
-    pub fn push(&mut self, text: String) -> Option<Vec<String>> {
+    fn arm(&mut self, delay: Duration) -> Next {
+        self.epoch += 1;
+        self.timer = Some(self.epoch);
+        Next::Wait { epoch: self.epoch, delay }
+    }
+
+    /// A prompt to append.
+    pub fn push(&mut self, text: String) -> Next {
         self.pending.push(text);
-        (!self.in_flight).then(|| self.begin())
+        if self.pending.len() >= FLUSH_CAP {
+            if self.in_flight {
+                self.timer = None;
+                self.flush_after = true;
+                return Next::Idle;
+            }
+            return Next::Flush(self.begin());
+        }
+        self.arm(Duration::from_millis(WRITE_BEHIND_MS))
     }
 
     /// The flush ended; `unwritten` is what did not land (oldest first).
@@ -91,20 +111,27 @@ impl AppendQueue {
         self.in_flight = false;
         if unwritten.is_empty() {
             self.failures = 0;
-            return if self.pending.is_empty() { Next::Idle } else { Next::Flush(self.begin()) };
+            return if self.flush_after && !self.pending.is_empty() { Next::Flush(self.begin()) } else { Next::Idle };
         }
         self.failures += 1;
         let newer = std::mem::take(&mut self.pending);
         self.pending = unwritten;
         self.pending.extend(newer);
-        self.epoch += 1;
-        self.wait = Some(self.epoch);
-        Next::Wait { epoch: self.epoch, delay: write_retry_delay(self.failures) }
+        self.flush_after = false;
+        self.arm(write_retry_delay(self.failures))
     }
 
-    /// The wait `epoch` ended; `Some(batch)` when it is still the current one.
+    /// The wait `epoch` ended; `Some(batch)` when it is still the current one and nothing runs.
     pub fn due(&mut self, epoch: u64) -> Option<Vec<String>> {
-        (self.wait == Some(epoch) && !self.in_flight).then(|| self.begin())
+        if self.timer != Some(epoch) {
+            return None;
+        }
+        self.timer = None;
+        if self.in_flight {
+            self.flush_after = true;
+            return None;
+        }
+        (!self.pending.is_empty()).then(|| self.begin())
     }
 }
 
@@ -499,6 +526,13 @@ mod tests {
         serde_json::from_str(include_str!("../../../../fixtures/prompt-history-retry/golden.json")).expect("golden.json")
     }
 
+    fn wait(next: Next) -> (u64, u64) {
+        match next {
+            Next::Wait { epoch, delay } => (epoch, delay.as_millis() as u64),
+            other => panic!("a wait was expected, got {other:?}"),
+        }
+    }
+
     /// Recorded from Node's own `writeRetryDelayMs` (`record-prompt-history-retry.mjs`).
     #[test]
     fn the_retry_delay_is_nodes() {
@@ -506,38 +540,72 @@ mod tests {
             assert_eq!(write_retry_delay(failures.parse().unwrap()), Duration::from_millis(ms.as_u64().unwrap()), "failures {failures}");
         }
         assert_eq!(write_retry_delay(u32::MAX), Duration::from_millis(WRITE_RETRY_MAX_MS));
+        assert_eq!(golden()["windowMs"].as_u64().unwrap(), WRITE_BEHIND_MS);
     }
 
-    /// Node's real `appendPromptHistory` with an unwritable directory, under a fake clock: the
-    /// waits between its flush attempts, and a prompt arriving during a wait.
+    /// Node's real `appendPromptHistory` with an unwritable directory, under a fake clock: when its
+    /// flush attempts come.
     #[test]
-    fn a_failed_flush_waits_as_nodes_does_and_a_new_prompt_does_not_sit_out_the_backoff() {
+    fn a_failed_flush_waits_as_nodes_does() {
         let golden = golden();
         let recorded: Vec<u64> = golden["scenarioA"]["gapsMs"].as_array().unwrap().iter().map(|g| g.as_u64().unwrap()).collect();
         let mut queue = AppendQueue::default();
-        let mut batch = queue.push("first".into()).expect("a first prompt flushes at once");
+        let (mut epoch, first) = wait(queue.push("first".into()));
+        assert_eq!(first, golden["scenarioA"]["firstAttemptAtMs"].as_u64().unwrap(), "the first flush waits the window");
         let mut waits = Vec::new();
         for _ in &recorded {
-            let Next::Wait { epoch, delay } = queue.flushed(batch.clone()) else { panic!("a failed flush waits") };
-            waits.push(delay.as_millis() as u64);
-            batch = queue.due(epoch).expect("the wait ends in a flush");
+            let batch = queue.due(epoch).expect("the wait ends in a flush");
             assert_eq!(batch, s(&["first"]), "the same append is retried");
+            let (next, delay) = wait(queue.flushed(batch));
+            epoch = next;
+            waits.push(delay);
         }
         assert_eq!(waits, recorded);
-        assert_eq!(queue.flushed(Vec::new()), Next::Idle, "a landed flush ends it");
-        assert_eq!(queue.push("again".into()), Some(s(&["again"])), "and the count starts over");
-        assert_eq!(queue.flushed(s(&["again"])), Next::Wait { epoch: 7, delay: write_retry_delay(1) });
-
-        let mut queue = AppendQueue::default();
-        let batch = queue.push("first".into()).unwrap();
-        let Next::Wait { epoch, .. } = queue.flushed(batch) else { panic!() };
         let batch = queue.due(epoch).unwrap();
-        let Next::Wait { epoch, delay } = queue.flushed(batch) else { panic!() };
-        assert_eq!(delay.as_millis() as u64, golden["scenarioB"]["backoffWouldHaveBeenMs"].as_u64().unwrap());
-        // Node's next attempt after the arrival came a window later, not after the backoff.
-        assert!(golden["scenarioB"]["thirdAttemptAfterSecondAttemptMs"].as_u64().unwrap() < delay.as_millis() as u64);
-        assert_eq!(queue.push("second".into()), Some(s(&["first", "second"])), "the retry goes now, oldest first");
-        assert_eq!(queue.due(epoch), None, "the wait it replaced wakes nothing");
+        assert_eq!(queue.flushed(Vec::new()), Next::Idle, "a landed flush ends it");
+        assert_eq!(batch, s(&["first"]));
+        assert_eq!(wait(queue.push("again".into())).1, WRITE_BEHIND_MS);
+        let batch = queue.due(7 + 1).expect("a new append waits the window again");
+        assert_eq!(wait(queue.flushed(batch)).1, write_retry_delay(1).as_millis() as u64, "and the failure count starts over");
+    }
+
+    /// An append during a backoff wait re-arms the window (Node `scheduleWriteBehind`, :269): the next
+    /// attempt came 350 ms after the second one against a 1000 ms backoff.
+    #[test]
+    fn an_append_during_a_backoff_wait_re_arms_the_window_as_nodes_does() {
+        let golden = golden()["scenarioB"].clone();
+        let mut queue = AppendQueue::default();
+        let (epoch, _) = wait(queue.push("first".into()));
+        let batch = queue.due(epoch).unwrap();
+        let (epoch, delay) = wait(queue.flushed(batch));
+        let batch = queue.due(epoch).unwrap();
+        let (backoff_epoch, backoff) = wait(queue.flushed(batch));
+        assert_eq!(WRITE_BEHIND_MS + delay, golden["secondAttemptAtMs"].as_u64().unwrap(), "the second attempt: the window, then the first backoff");
+        assert_eq!(backoff, golden["backoffWouldHaveBeenMs"].as_u64().unwrap());
+        // 100 ms into the wait a second prompt arrives.
+        let (window_epoch, window) = wait(queue.push("second".into()));
+        assert_eq!(golden["arrivedAfterSecondAttemptMs"].as_u64().unwrap() + window, golden["thirdAttemptAfterSecondAttemptMs"].as_u64().unwrap());
+        assert_eq!(queue.due(backoff_epoch), None, "the backoff wait it replaced wakes nothing");
+        assert_eq!(queue.due(window_epoch), Some(s(&["first", "second"])), "the retry goes with the new prompt, oldest first");
+    }
+
+    /// `FLUSH_CAP` appends flush at once, fewer at the window (the recording of 4 and of 5).
+    #[test]
+    fn the_cap_flushes_at_once_and_fewer_wait_the_window() {
+        let recorded = golden()["scenarioC"].clone();
+        for run in recorded.as_array().unwrap() {
+            let count = run["appends"].as_u64().unwrap() as usize;
+            let mut queue = AppendQueue::default();
+            let mut last = Next::Idle;
+            for n in 0..count {
+                last = queue.push(format!("p{n}"));
+            }
+            match (run["firstAttemptAtMs"].as_u64().unwrap(), last) {
+                (0, Next::Flush(batch)) => assert_eq!(batch.len(), count),
+                (ms, Next::Wait { delay, .. }) => assert_eq!(delay.as_millis() as u64, ms),
+                (ms, other) => panic!("{count} appends flushed at {ms} ms in Node, got {other:?}"),
+            }
+        }
     }
 
     struct Flaky {
@@ -561,7 +629,8 @@ mod tests {
         }
     }
 
-    /// A prompt whose write failed is not lost: the thread retries it on Node's backoff.
+    /// A prompt whose write failed is not lost: the thread flushes it after the window and retries on
+    /// Node's backoff.
     #[tokio::test(start_paused = true)]
     async fn a_prompt_whose_write_failed_is_retried_on_nodes_backoff_until_it_lands() {
         use crate::session::SessionDirectory;
@@ -574,10 +643,12 @@ mod tests {
         deps.prompts = flaky.clone();
         let directory = SessionDirectory::new(std::sync::Arc::new(deps));
         let handle = start_thread(&directory).await;
+        let asked = tokio::time::Instant::now();
         turn(&handle, "remember me", "op-1").await;
         eventually(|| (!flaky.landed.lock().unwrap().is_empty()).then_some(())).await;
         let stamps = flaky.stamps.lock().unwrap().clone();
         assert_eq!(stamps.len(), 3);
+        assert_eq!(stamps[0] - asked, Duration::from_millis(WRITE_BEHIND_MS), "the first flush waits the window");
         assert_eq!(stamps[1] - stamps[0], write_retry_delay(1));
         assert_eq!(stamps[2] - stamps[1], write_retry_delay(2));
         assert_eq!(*flaky.landed.lock().unwrap(), s(&["remember me"]));

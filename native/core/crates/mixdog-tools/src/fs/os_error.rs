@@ -90,6 +90,15 @@ pub(super) fn write_message(error: &FsError, target: &Path) -> String {
         }
     }
 }
+/// `err.message` of a failed `readFileSync(target)`: the `open`, or for a directory (which opens)
+/// the `read` that follows it, which names no path.
+pub(super) fn read_message(error: &FsError, target: &Path) -> String {
+    match error.kind {
+        FsErrorKind::IsADirectory => message(kind_parts(&error.kind), "read", None),
+        _ => fs_message(error, "open", target),
+    }
+}
+
 /// The same for a file-service failure, which keeps only the kind of the OS error.
 pub(super) fn fs_message(error: &FsError, syscall: &str, path: &Path) -> String {
     message(kind_parts(&error.kind), syscall, Some(path))
@@ -142,6 +151,16 @@ mod tests {
         );
         let unlink = failing(Some(FsStep::Unlink));
         assert_eq!(write_message(&unlink, target.as_path()), format!("{enoent}, unlink '{}'", target.as_path().display()));
+    }
+
+    /// `readFileSync` of a missing file fails at `open '<path>'`; of a directory at `read`, which
+    /// names no path.
+    #[test]
+    fn a_read_failure_names_the_open_or_for_a_directory_the_read() {
+        let target = abs("d/a.txt");
+        assert_eq!(read_message(&failing(None), target.as_path()), format!("ENOENT: no such file or directory, open '{}'", target.as_path().display()));
+        let dir = FsError::new(FsErrorKind::IsADirectory, None);
+        assert_eq!(read_message(&dir, target.as_path()), "EISDIR: illegal operation on a directory, read");
     }
 
     /// A failure with no step reads as the rename of a temp file named like Node's.

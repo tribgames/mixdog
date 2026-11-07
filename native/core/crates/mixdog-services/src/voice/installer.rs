@@ -133,8 +133,6 @@ pub struct InstallerParts {
     pub durability: DurabilityIo,
     pub bulk: mixdog_rt::CpuBulk,
     pub now: Arc<dyn Fn() -> i64 + Send + Sync>,
-    /// Byte progress of each download; `label` is the phase: `runtime`, `extra`, `model`, `ffmpeg`.
-    pub progress: Option<ProgressSink>,
 }
 
 pub struct ManagedVoiceInstaller {
@@ -150,15 +148,15 @@ impl ManagedVoiceInstaller {
 #[async_trait]
 impl VoiceInstaller for ManagedVoiceInstaller {
     /// `ensureVoiceRuntimeReady`: only the missing pieces, whisper first, then the model, then ffmpeg.
-    async fn install(&self, missing: Missing) -> Result<(), String> {
+    async fn install(&self, missing: Missing, progress: Option<ProgressSink>) -> Result<(), String> {
         if missing.whisper {
-            self.ensure_whisper().await?;
+            self.ensure_whisper(progress.clone()).await?;
         }
         if missing.model {
-            self.ensure_model().await?;
+            self.ensure_model(progress.clone()).await?;
         }
         if missing.ffmpeg {
-            self.ensure_ffmpeg().await?;
+            self.ensure_ffmpeg(progress.clone()).await?;
         }
         Ok(())
     }
@@ -534,22 +532,22 @@ trait Steps {
     async fn mkdir(&self, dir: &Path) -> Result<(), String>;
     async fn acquire(&self, root: &Path, name: &str) -> Result<Lock, String>;
     async fn release(&self, lock: Lock);
-    async fn download(&self, url: &str, dest: &Path, expected: u64, timeout: Duration, phase: &'static str) -> Result<(), String>;
+    async fn download(&self, progress: Option<ProgressSink>, url: &str, dest: &Path, expected: u64, timeout: Duration, phase: &'static str) -> Result<(), String>;
     async fn verify(&self, path: &Path, expected: &str) -> Result<(), String>;
     async fn unzip(&self, archive: &Path, dest: &Path) -> Result<(), String>;
     async fn publish(&self, staging: PathBuf, active_dir: PathBuf, root: PathBuf, active_name: String) -> Result<(), String>;
-    async fn ensure_whisper(&self) -> Result<(), String>;
-    async fn stage_whisper(&self, variant: &Value, key: &str, root: &Path, active_name: &str, command: &Path) -> Result<(), String>;
+    async fn ensure_whisper(&self, progress: Option<ProgressSink>) -> Result<(), String>;
+    async fn stage_whisper(&self, progress: Option<ProgressSink>, variant: &Value, key: &str, root: &Path, active_name: &str, command: &Path) -> Result<(), String>;
     async fn begin_staging(&self, root: &Path) -> Result<PathBuf, String>;
-    async fn fill_whisper(&self, variant: &Value, key: &str, root: &Path, active_name: &str, staging: &Path) -> Result<(), String>;
-    async fn extras(&self, extras: Option<&Value>, staging: &Path) -> Result<(), String>;
-    async fn ensure_model(&self) -> Result<(), String>;
+    async fn fill_whisper(&self, progress: Option<ProgressSink>, variant: &Value, key: &str, root: &Path, active_name: &str, staging: &Path) -> Result<(), String>;
+    async fn extras(&self, progress: Option<ProgressSink>, extras: Option<&Value>, staging: &Path) -> Result<(), String>;
+    async fn ensure_model(&self, progress: Option<ProgressSink>) -> Result<(), String>;
     async fn matches_or_removed(&self, path: &Path, expected: &str) -> Result<bool, String>;
-    async fn stage_model(&self, model: &Value, dir: &Path, path: &Path) -> Result<(), String>;
-    async fn fill_model(&self, model: &Value, dir: &Path, path: &Path, staging: &Path) -> Result<(), String>;
-    async fn ensure_ffmpeg(&self) -> Result<(), String>;
-    async fn stage_ffmpeg(&self, entry: &Value, key: &str, root: &Path, active_name: &str, command: &Path) -> Result<(), String>;
-    async fn fill_ffmpeg(&self, entry: &Value, key: &str, root: &Path, active_name: &str, staging: &Path) -> Result<(), String>;
+    async fn stage_model(&self, progress: Option<ProgressSink>, model: &Value, dir: &Path, path: &Path) -> Result<(), String>;
+    async fn fill_model(&self, progress: Option<ProgressSink>, model: &Value, dir: &Path, path: &Path, staging: &Path) -> Result<(), String>;
+    async fn ensure_ffmpeg(&self, progress: Option<ProgressSink>) -> Result<(), String>;
+    async fn stage_ffmpeg(&self, progress: Option<ProgressSink>, entry: &Value, key: &str, root: &Path, active_name: &str, command: &Path) -> Result<(), String>;
+    async fn fill_ffmpeg(&self, progress: Option<ProgressSink>, entry: &Value, key: &str, root: &Path, active_name: &str, staging: &Path) -> Result<(), String>;
 }
 
 #[async_trait]
@@ -586,8 +584,8 @@ impl Steps for ManagedVoiceInstaller {
     }
 
     /// `downloadFile`: one attempt; the destination is removed on any failure.
-    async fn download(&self, url: &str, dest: &Path, expected: u64, timeout: Duration, phase: &'static str) -> Result<(), String> {
-        let sink: Option<ProgressSink> = self.parts.progress.clone().map(|inner| {
+    async fn download(&self, progress: Option<ProgressSink>, url: &str, dest: &Path, expected: u64, timeout: Duration, phase: &'static str) -> Result<(), String> {
+        let sink: Option<ProgressSink> = progress.map(|inner| {
             Arc::new(move |progress: Progress| inner(Progress { label: phase.to_owned(), ..progress })) as ProgressSink
         });
         let limit = if expected == 0 { u64::MAX } else { expected };
@@ -631,7 +629,7 @@ impl Steps for ManagedVoiceInstaller {
     }
 
     /// `ensureWhisperRuntime`.
-    async fn ensure_whisper(&self) -> Result<(), String> {
+    async fn ensure_whisper(&self, progress: Option<ProgressSink>) -> Result<(), String> {
         let manifest = &self.parts.manifest;
         let key = self.entry_key(manifest.get("platforms"));
         let Some(platform) = manifest.pointer(&format!("/platforms/{key}")).filter(|v| !v.is_null()) else { return Err(unsupported(&key)) };
@@ -652,17 +650,17 @@ impl Steps for ManagedVoiceInstaller {
             return Ok(());
         }
         let lock = self.acquire(&root, "install").await?;
-        let outcome = self.stage_whisper(variant, &key, &root, &active_name, &command).await;
+        let outcome = self.stage_whisper(progress.clone(), variant, &key, &root, &active_name, &command).await;
         self.release(lock).await;
         outcome
     }
 
-    async fn stage_whisper(&self, variant: &Value, key: &str, root: &Path, active_name: &str, command: &Path) -> Result<(), String> {
+    async fn stage_whisper(&self, progress: Option<ProgressSink>, variant: &Value, key: &str, root: &Path, active_name: &str, command: &Path) -> Result<(), String> {
         if ready(self.parts.durability, command.to_owned(), root.to_owned(), active_name.to_owned(), "whisper-".to_owned()).await? {
             return Ok(());
         }
         let staging = self.begin_staging(root).await?;
-        let outcome = self.fill_whisper(variant, key, root, active_name, &staging).await;
+        let outcome = self.fill_whisper(progress.clone(), variant, key, root, active_name, &staging).await;
         if outcome.is_err() {
             let staging = staging.clone();
             let _ = fs(self.parts.durability, move || remove_any(&staging)).await;
@@ -684,12 +682,12 @@ impl Steps for ManagedVoiceInstaller {
         Ok(staging)
     }
 
-    async fn fill_whisper(&self, variant: &Value, key: &str, root: &Path, active_name: &str, staging: &Path) -> Result<(), String> {
+    async fn fill_whisper(&self, progress: Option<ProgressSink>, variant: &Value, key: &str, root: &Path, active_name: &str, staging: &Path) -> Result<(), String> {
         let (url, executable) = (text(variant, "url"), text(variant, "executable"));
         let archive = staging.join(format!("whisper.{}", text(variant, "format")));
         let id = text(variant, "id");
         tracing::info!("[voice-runtime] fetching whisper-{} variant={id} for {key}", text(&self.parts.manifest, "version"));
-        self.download(url, &archive, size(variant), DOWNLOAD_TIMEOUT, "runtime").await?;
+        self.download(progress.clone(), url, &archive, size(variant), DOWNLOAD_TIMEOUT, "runtime").await?;
         let sha = text(variant, "sha256");
         if sha.is_empty() {
             return Err(format!("[voice-runtime] manifest variant {id} for {key} missing required sha256"));
@@ -706,7 +704,7 @@ impl Steps for ManagedVoiceInstaller {
         if !present {
             return Err(format!("[voice-runtime] expected executable {executable} not present after extract"));
         }
-        self.extras(variant.get("extras"), staging).await?;
+        self.extras(progress.clone(), variant.get("extras"), staging).await?;
         let (active_dir, root_owned) = (root.join(active_name), root.to_owned());
         self.publish(staging.to_owned(), active_dir, root_owned, active_name.to_owned()).await?;
         tracing::info!("[voice-runtime] whisper variant={id} ready at {}", root.join(active_name).display());
@@ -715,13 +713,13 @@ impl Steps for ManagedVoiceInstaller {
     }
 
     /// `processExtras`: supplementary archives whose selected files are lifted into the runtime.
-    async fn extras(&self, extras: Option<&Value>, staging: &Path) -> Result<(), String> {
+    async fn extras(&self, progress: Option<ProgressSink>, extras: Option<&Value>, staging: &Path) -> Result<(), String> {
         let listed: &[Value] = extras.and_then(Value::as_array).map_or(&[], Vec::as_slice);
         for extra in listed {
             let url = text(extra, "url");
             let tag: String = Sha256::digest(url.as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>().chars().take(8).collect();
             let archive = staging.join(format!("extra-{tag}.{}", text(extra, "format")));
-            self.download(url, &archive, size(extra), DOWNLOAD_TIMEOUT, "extra").await?;
+            self.download(progress.clone(), url, &archive, size(extra), DOWNLOAD_TIMEOUT, "extra").await?;
             let sha = text(extra, "sha256");
             if sha.is_empty() {
                 return Err(format!("[voice-runtime] manifest extra entry missing required sha256: {url}"));
@@ -759,7 +757,7 @@ impl Steps for ManagedVoiceInstaller {
     }
 
     /// `ensureWhisperModel`.
-    async fn ensure_model(&self) -> Result<(), String> {
+    async fn ensure_model(&self, progress: Option<ProgressSink>) -> Result<(), String> {
         let manifest = &self.parts.manifest;
         let Some(model) = model_entry(manifest) else {
             return Err("[voice-runtime] manifest is missing the `model` section — cannot resolve whisper model".to_owned());
@@ -771,7 +769,7 @@ impl Steps for ManagedVoiceInstaller {
             return Ok(());
         }
         let lock = self.acquire(&dir, "install").await?;
-        let outcome = self.stage_model(model, &dir, &path).await;
+        let outcome = self.stage_model(progress.clone(), model, &dir, &path).await;
         self.release(lock).await;
         outcome
     }
@@ -795,7 +793,7 @@ impl Steps for ManagedVoiceInstaller {
         Ok(false)
     }
 
-    async fn stage_model(&self, model: &Value, dir: &Path, path: &Path) -> Result<(), String> {
+    async fn stage_model(&self, progress: Option<ProgressSink>, model: &Value, dir: &Path, path: &Path) -> Result<(), String> {
         if self.matches_or_removed(path, text(model, "sha256")).await? {
             let (manifest, dir) = (self.parts.manifest.clone(), dir.to_owned());
             return fs(self.parts.durability, move || gc_unknown_model_files(&manifest, &dir)).await;
@@ -803,7 +801,7 @@ impl Steps for ManagedVoiceInstaller {
         let (partials, now) = (dir.to_owned(), self.now());
         fs(self.parts.durability, move || gc_staging_partials(&partials)).await?;
         let staging = dir.join(format!(".staging-{}-{now}-{}", self.parts.pid, text(model, "filename")));
-        let outcome = self.fill_model(model, dir, path, &staging).await;
+        let outcome = self.fill_model(progress.clone(), model, dir, path, &staging).await;
         if outcome.is_err() {
             let staging = staging.clone();
             let _ = fs(self.parts.durability, move || remove_any(&staging)).await;
@@ -811,9 +809,9 @@ impl Steps for ManagedVoiceInstaller {
         outcome
     }
 
-    async fn fill_model(&self, model: &Value, dir: &Path, path: &Path, staging: &Path) -> Result<(), String> {
+    async fn fill_model(&self, progress: Option<ProgressSink>, model: &Value, dir: &Path, path: &Path, staging: &Path) -> Result<(), String> {
         tracing::info!("[voice-runtime] fetching model {}", text(model, "id"));
-        self.download(text(model, "url"), staging, size(model), MODEL_TIMEOUT, "model").await?;
+        self.download(progress.clone(), text(model, "url"), staging, size(model), MODEL_TIMEOUT, "model").await?;
         self.verify(staging, text(model, "sha256")).await?;
         let (from, to) = (staging.to_owned(), path.to_owned());
         with_proof!(self, move |proof| rename_with_retry(proof, &from, &to))?.map_err(|e| e.to_string())?;
@@ -822,7 +820,7 @@ impl Steps for ManagedVoiceInstaller {
     }
 
     /// `ensureFfmpegRuntime`.
-    async fn ensure_ffmpeg(&self) -> Result<(), String> {
+    async fn ensure_ffmpeg(&self, progress: Option<ProgressSink>) -> Result<(), String> {
         let Some(ffmpeg) = self.parts.manifest.get("ffmpeg").filter(|v| !v.is_null()) else {
             return Err("[voice-runtime] manifest is missing the `ffmpeg` section — cannot resolve ffmpeg runtime".to_owned());
         };
@@ -835,17 +833,17 @@ impl Steps for ManagedVoiceInstaller {
             return Ok(());
         }
         let lock = self.acquire(&root, "install").await?;
-        let outcome = self.stage_ffmpeg(entry, &key, &root, &active_name, &command).await;
+        let outcome = self.stage_ffmpeg(progress.clone(), entry, &key, &root, &active_name, &command).await;
         self.release(lock).await;
         outcome
     }
 
-    async fn stage_ffmpeg(&self, entry: &Value, key: &str, root: &Path, active_name: &str, command: &Path) -> Result<(), String> {
+    async fn stage_ffmpeg(&self, progress: Option<ProgressSink>, entry: &Value, key: &str, root: &Path, active_name: &str, command: &Path) -> Result<(), String> {
         if ready(self.parts.durability, command.to_owned(), root.to_owned(), active_name.to_owned(), "ffmpeg-".to_owned()).await? {
             return Ok(());
         }
         let staging = self.begin_staging(root).await?;
-        let outcome = self.fill_ffmpeg(entry, key, root, active_name, &staging).await;
+        let outcome = self.fill_ffmpeg(progress.clone(), entry, key, root, active_name, &staging).await;
         if outcome.is_err() {
             let staging = staging.clone();
             let _ = fs(self.parts.durability, move || remove_any(&staging)).await;
@@ -853,11 +851,11 @@ impl Steps for ManagedVoiceInstaller {
         outcome
     }
 
-    async fn fill_ffmpeg(&self, entry: &Value, key: &str, root: &Path, active_name: &str, staging: &Path) -> Result<(), String> {
+    async fn fill_ffmpeg(&self, progress: Option<ProgressSink>, entry: &Value, key: &str, root: &Path, active_name: &str, staging: &Path) -> Result<(), String> {
         let (format, executable) = (text(entry, "format"), text(entry, "executable"));
         let archive = staging.join(format!("ffmpeg.{format}"));
         tracing::info!("[voice-runtime] fetching {active_name} for {key}");
-        self.download(text(entry, "url"), &archive, size(entry), DOWNLOAD_TIMEOUT, "ffmpeg").await?;
+        self.download(progress.clone(), text(entry, "url"), &archive, size(entry), DOWNLOAD_TIMEOUT, "ffmpeg").await?;
         let sha = text(entry, "sha256");
         if sha.is_empty() {
             return Err(format!("[voice-runtime] manifest ffmpeg entry for {key} missing required sha256"));

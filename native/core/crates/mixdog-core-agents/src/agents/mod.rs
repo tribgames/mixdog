@@ -740,7 +740,7 @@ fn display_path(path: &std::path::Path) -> String {
 
 /// `isContactAgentId(id, kind)`: a user-made agent marked `kind: bot`, never Mixy nor a shipped
 /// role.
-pub(crate) fn is_contact(id: &str, kind: Option<&str>) -> bool {
+pub fn is_contact(id: &str, kind: Option<&str>) -> bool {
     let id = mixdog_js::js_trim(id).to_lowercase();
     let roster: HashSet<&str> = STARTERS.iter().copied().chain(FIXED_SLOTS.iter().map(|slot| slot.0)).collect();
     !id.is_empty()

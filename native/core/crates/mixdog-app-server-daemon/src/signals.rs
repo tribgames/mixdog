@@ -78,6 +78,8 @@ pub async fn stop_requested() -> io::Result<StopSignal> {
 ///
 /// A request that arrives while a stop is already under way is not an error.
 pub fn stop_for(lifecycle: &Arc<Lifecycle>, signal: StopSignal) {
+    // Node's `shutdown('SIGTERM')` (`daemon.mjs:1298-1308`): the stop steps abort the agent runs with the signal's name.
+    lifecycle.note_trigger(signal.name());
     match lifecycle.stop(StopMode::WhenIdle, StopReason::Quit, None) {
         Ok(()) => tracing::info!(signal = signal.name(), "stop requested"),
         Err(error) => tracing::warn!(signal = signal.name(), %error, "stop request not taken"),

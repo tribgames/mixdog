@@ -12,8 +12,9 @@ use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_core_api::domain::tool::ToolSpec;
 use serde_json::Value;
 
-/// Builds a [`ToolSpec`] from an embedded definition document (`defs/<tool>.json`: name,
-/// description, annotations, inputSchema), generated from the live tool-definition modules.
+/// Builds a [`ToolSpec`] from an embedded definition document (`defs/<tool>.json`: name, title,
+/// trigger, description, annotations, inputSchema), generated from the live tool-definition
+/// modules. Every hint is the definition's own: a hint it does not state stays unset.
 pub(crate) fn spec_from_def(
     def: &'static str,
     parallel_safe: bool,
@@ -24,6 +25,9 @@ pub(crate) fn spec_from_def(
     let flag = |key: &str| hints.get(key).and_then(Value::as_bool);
     ToolSpec {
         name: doc["name"].as_str().unwrap_or_default().to_owned(),
+        title: doc.get("title").and_then(Value::as_str).map(str::to_owned),
+        trigger: doc.get("trigger").and_then(Value::as_str).map(str::to_owned),
+        public: doc.get("public") != Some(&Value::Bool(false)),
         aliases: Vec::new(),
         description: doc["description"].as_str().unwrap_or_default().to_owned(),
         input_schema: doc["inputSchema"].clone(),
@@ -31,14 +35,11 @@ pub(crate) fn spec_from_def(
             title: hints.get("title").and_then(Value::as_str).map(str::to_owned),
             read_only_hint: flag("readOnlyHint"),
             destructive_hint: flag("destructiveHint"),
-            // The loop dedups an identical repeat in flight exactly for the tools whose definition
-            // says read-only (the rule the Node loop applies through `readOnlyHint`), so that is
-            // the one place the hint is derived. `load_tool` is excluded by its constructor.
-            idempotent_hint: Some(flag("readOnlyHint") == Some(true)),
+            idempotent_hint: flag("idempotentHint"),
             open_world_hint: flag("openWorldHint"),
             compressible: flag("compressible"),
             compressible_lossless: flag("compressibleLossless"),
-            agent_hidden: flag("agentHidden").unwrap_or(false),
+            agent_hidden: flag("agentHidden"),
         },
         parallel_safe,
         exclusive_with: exclusive_with
@@ -50,8 +51,14 @@ pub(crate) fn spec_from_def(
 
 #[cfg(test)]
 mod tests {
+    /// Every embedded definition is Node's definition object, key for key
+    /// (`fixtures/tool-defs/definitions.json`, `record-tool-definitions.mjs`): title, trigger,
+    /// description, inputSchema and every hint as the definition states it, `idempotentHint` and an
+    /// explicit `agentHidden: false` included (`ask_user` reads read-only but not idempotent).
     #[test]
-    fn dedup_set_is_the_read_only_tools_except_load_tool() {
+    fn the_embedded_definitions_are_nodes_definitions() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/tool-defs/definitions.json")).expect("the golden is JSON");
+        let nodes = golden["definitions"].as_array().expect("definitions");
         let defs: [&'static str; 20] = [
             include_str!("defs/agent.json"), include_str!("defs/call_tool.json"), include_str!("defs/explore.json"),
             include_str!("defs/load_tool.json"), include_str!("defs/media.json"), include_str!("defs/office.json"),
@@ -61,12 +68,30 @@ mod tests {
             include_str!("../desktop/defs/browser.json"), include_str!("../desktop/defs/browser_devtools.json"),
             include_str!("../desktop/defs/computer.json"), include_str!("../desktop/defs/terminal.json"), include_str!("../desktop/defs/visualize.json"),
         ];
-        let mut deduped = Vec::new();
         for def in defs {
             let spec = super::spec_from_def(def, false, &[]);
-            if spec.annotations.idempotent_hint == Some(true) {
-                deduped.push(spec.name.clone());
-            }
+            let node = nodes.iter().find(|node| node["name"] == spec.name.as_str()).expect("a Node definition");
+            let got = spec.definition();
+            assert_eq!(&got, node, "{}", spec.name);
+            assert_eq!(got["annotations"].to_string(), node["annotations"].to_string(), "{} annotations", spec.name);
+        }
+        let ask = defs.iter().map(|def| super::spec_from_def(def, false, &[])).find(|spec| spec.name == "ask_user").expect("ask_user");
+        assert_eq!((ask.annotations.read_only_hint, ask.annotations.idempotent_hint, ask.annotations.agent_hidden), (Some(true), Some(false), Some(true)));
+    }
+
+    #[test]
+    fn the_hints_the_sandbox_reads_are_the_definitions_own() {
+        let defs: [&'static str; 20] = [
+            include_str!("defs/agent.json"), include_str!("defs/call_tool.json"), include_str!("defs/explore.json"),
+            include_str!("defs/load_tool.json"), include_str!("defs/media.json"), include_str!("defs/office.json"),
+            include_str!("defs/session.json"), include_str!("defs/setup.json"), include_str!("defs/Skill.json"),
+            include_str!("defs/tidy.json"), include_str!("../state/defs/ask_user.json"), include_str!("../state/defs/goal.json"),
+            include_str!("../state/defs/handoff_user.json"), include_str!("../state/defs/react.json"), include_str!("../state/defs/todo.json"),
+            include_str!("../desktop/defs/browser.json"), include_str!("../desktop/defs/browser_devtools.json"),
+            include_str!("../desktop/defs/computer.json"), include_str!("../desktop/defs/terminal.json"), include_str!("../desktop/defs/visualize.json"),
+        ];
+        for def in defs {
+            let spec = super::spec_from_def(def, false, &[]);
             // Policy flags, as in the Node snapshot (`tool-schemas.json`): the sandbox reads
             // `agentHidden` and `readOnlyHint` from here.
             let (hidden, read_only) = match spec.name.as_str() {
@@ -79,13 +104,9 @@ mod tests {
             };
             assert_eq!(read_only, spec.annotations.read_only_hint, "{} readOnlyHint", spec.name);
             if let Some(hidden) = hidden {
-                assert_eq!(hidden, spec.annotations.agent_hidden, "{} agentHidden", spec.name);
+                assert_eq!(Some(hidden), spec.annotations.agent_hidden, "{} agentHidden", spec.name);
             }
         }
-        deduped.sort();
-        // Node's in-flight dedup set among these tools: readOnlyHint true, minus `load_tool`
-        // (which the constructor turns off; see `bridge::tests`).
-        assert_eq!(deduped, ["Skill", "ask_user", "explore", "handoff_user", "load_tool"]);
     }
 }
 /// A failure reported by a port (the session, agent, catalog, host and service seams a tool

@@ -271,6 +271,10 @@ pub enum ClientNotification {
     #[serde(rename = "model/proxy/event")]
     #[ts(rename = "model/proxy/event")]
     ModelProxyEvent(crate::v2::host::ModelProxyEventParams),
+    /// The PC still runs these `model/proxy/execute` requests (every 5 s); the first claims a request.
+    #[serde(rename = "model/proxy/heartbeat")]
+    #[ts(rename = "model/proxy/heartbeat")]
+    ModelProxyHeartbeat(crate::v2::host::ModelProxyHeartbeatParams),
     /// Stops the `modelProxy/run` run `runId` of the sender.
     #[serde(rename = "modelProxy/cancel")]
     #[ts(rename = "modelProxy/cancel")]
@@ -338,6 +342,11 @@ pub static CLIENT_NOTIFICATIONS: &[crate::common::NotificationSpec] = &[
     crate::common::NotificationSpec {
         method: "model/proxy/event",
         params: "ModelProxyEventParams",
+        delivery: None,
+    },
+    crate::common::NotificationSpec {
+        method: "model/proxy/heartbeat",
+        params: "ModelProxyHeartbeatParams",
         delivery: None,
     },
     crate::common::NotificationSpec {

@@ -1,5 +1,6 @@
 {
   "name": "call_tool",
+  "title": "call_tool",
   "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly.",
   "annotations": {
     "title": "call_tool",

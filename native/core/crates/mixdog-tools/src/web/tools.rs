@@ -396,10 +396,13 @@ fn fetch_schema() -> JsonValue {
     })
 }
 
-/// `hidden` is Node's `public: false`: a runtime-only target the agent does not list.
-fn spec(name: &str, title: &str, description: &str, schema: JsonValue, open_world: bool, hidden: bool) -> ToolSpec {
+/// `hidden` is Node's `public: false`: a runtime-only target no model is shown (the spec's `public`).
+fn spec(name: &str, title: &str, trigger: Option<&str>, description: &str, schema: JsonValue, open_world: bool, hidden: bool) -> ToolSpec {
     ToolSpec {
         name: name.to_string(),
+        title: Some(title.to_string()),
+        trigger: trigger.map(str::to_owned),
+        public: !hidden,
         aliases: Vec::new(),
         description: description.to_string(),
         input_schema: schema,
@@ -409,7 +412,6 @@ fn spec(name: &str, title: &str, description: &str, schema: JsonValue, open_worl
             destructive_hint: Some(false),
             idempotent_hint: Some(true),
             open_world_hint: Some(open_world),
-            agent_hidden: hidden,
             ..ToolAnnotations::default()
         },
         parallel_safe: true,
@@ -418,7 +420,7 @@ fn spec(name: &str, title: &str, description: &str, schema: JsonValue, open_worl
 }
 
 macro_rules! web_tool {
-    ($tool:ident, $name:literal, $title:literal, $description:literal, $schema:expr, $open_world:literal, $hidden:literal, |$svc:ident, $ctx:ident, $args:ident| $body:expr) => {
+    ($tool:ident, $name:literal, $title:literal, $trigger:expr, $description:literal, $schema:expr, $open_world:literal, $hidden:literal, |$svc:ident, $ctx:ident, $args:ident| $body:expr) => {
         pub struct $tool {
             service: Arc<WebService>,
             spec: ToolSpec,
@@ -428,7 +430,7 @@ macro_rules! web_tool {
             pub fn new(service: Arc<WebService>) -> Self {
                 Self {
                     service,
-                    spec: spec($name, $title, $description, $schema, $open_world, $hidden),
+                    spec: spec($name, $title, $trigger, $description, $schema, $open_world, $hidden),
                 }
             }
         }
@@ -451,6 +453,7 @@ web_tool!(
     WebSearchTool,
     "web_search",
     "Mixdog Web Search",
+    Some("Unfamiliar names, products, models, recent or external facts; search before answering from memory."),
     "Search the web for recent, external or unfamiliar facts (names, products, models) before answering from memory.",
     json!({
         "type": "object",
@@ -476,6 +479,7 @@ web_tool!(
     WebFetchTool,
     "web_fetch",
     "Mixdog Web Fetch",
+    Some("Page or docs body from a known URL; not discovery (web_search)."),
     "Fetch the page or docs body of known URLs; to find pages, use web_search.",
     fetch_schema(),
     true,
@@ -487,6 +491,7 @@ web_tool!(
     LocalFetchTool,
     "local_fetch",
     "Mixdog Loopback Fetch",
+    None,
     "Runtime-only loopback HTTP(S) fetch target.",
     fetch_schema(),
     false,
@@ -498,6 +503,7 @@ web_tool!(
     ImageFetchTool,
     "image_fetch",
     "Mixdog Image Fetch",
+    None,
     "Runtime-only bounded public image fetch target.",
     fetch_schema(),
     true,

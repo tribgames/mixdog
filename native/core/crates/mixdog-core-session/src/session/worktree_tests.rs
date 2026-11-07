@@ -446,3 +446,103 @@ async fn a_recovery_session_refuses_its_turn_and_a_creation_intent_provisions_at
     let refused = rig.ws.prepare_turn_workspace("lead", TurnStart::default(), &cancel).await;
     assert_eq!(refused.err().and_then(|e| e.code()), Some("WORKTREE_MISSING"));
 }
+
+/// Another process (or the user) touching the project folder between the carry and its restore:
+/// the first `rev-parse <ref>^1` of the restore finds an untracked file there.
+struct DirtiesBeforeRestore {
+    inner: Arc<dyn mixdog_core_api::domain::process::ProcessManager>,
+    armed: AtomicBool,
+}
+
+#[async_trait::async_trait]
+impl mixdog_core_api::domain::process::ProcessManager for DirtiesBeforeRestore {
+    async fn spawn(&self, request: mixdog_core_api::domain::process::SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+        if let mixdog_core_api::domain::process::CommandSpec::Argv { args, .. } = &request.command
+            && args.iter().any(|a| a == "rev-parse")
+            && args.last().is_some_and(|a| a.starts_with("refs/mixdog/") && a.ends_with("^1"))
+            && self.armed.swap(false, Ordering::SeqCst)
+        {
+            std::fs::write(request.cwd.as_path().join("changed-meanwhile.txt"), "x").unwrap();
+        }
+        self.inner.spawn(request).await
+    }
+    fn subscribe(
+        &self,
+        handle: &mixdog_protocol::ProcessHandle,
+        from_seq: Option<u64>,
+    ) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>, mixdog_core_api::domain::process::ProcessError> {
+        self.inner.subscribe(handle, from_seq)
+    }
+    async fn write_stdin(&self, handle: &mixdog_protocol::ProcessHandle, bytes: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        self.inner.write_stdin(handle, bytes).await
+    }
+    fn close_stdin(&self, handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        self.inner.close_stdin(handle)
+    }
+    fn resize_pty(&self, handle: &mixdog_protocol::ProcessHandle, size: mixdog_core_api::domain::process::PtySize) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        self.inner.resize_pty(handle, size)
+    }
+    fn kill(&self, handle: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+        self.inner.kill(handle)
+    }
+    fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
+        self.inner.list()
+    }
+}
+
+/// A worktree made with the project's changes carried, whose claim then fails (the lease directory is a
+/// file): returns what the undo left. `dirty`: the project folder changes before the restore.
+async fn claim_fails_after_a_carry(dirty: bool) -> (Result<(), ScmFailure>, Vec<Value>, String, String) {
+    use super::worktree_ops::{Ops, TxScope};
+    let dir = tempfile::tempdir().unwrap();
+    let repo = dir.path().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "core.autocrlf", "false"]);
+    std::fs::write(repo.join("f.txt"), "a\nb\nc\n").unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-q", "-m", "init"]);
+    std::fs::write(repo.join("f.txt"), "changed\n").unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let local = Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default()));
+    let processes = Arc::new(DirtiesBeforeRestore { inner: local, armed: AtomicBool::new(dirty) });
+    let data = dir.path().join("data");
+    let worktrees = Arc::new(Worktrees::new(Scm::new(processes, tokens.maintenance_io, data.join("scratch")), data.clone()));
+    let ops = Ops { wt: worktrees.clone(), settings: Arc::new(Defaults(Arc::new(AtomicBool::new(true)))), runtime_token: "rt".into() };
+    let cancel = CancellationToken::new();
+    let project = ops.inspect(&repo.to_string_lossy(), &cancel).await.unwrap();
+    // The lease directory is a file: creation (no runtime token) succeeds, the claim cannot write its lease.
+    let root = mixdog_scm::worktree::names::managed_root(&data, &project.common_dir);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join(".owners"), "in the way").unwrap();
+    let result = ops
+        .create_for_session(&project, TxScope { session: "s1", tx_id: "tx1" }, "feat", Some("carry"), false, &cancel)
+        .await
+        .map(drop);
+    let rows = worktrees.list(None, &KeepAll, &cancel).await.unwrap();
+    let carry_refs = git(&repo, &["for-each-ref", "refs/mixdog/carry"]);
+    let folder = std::fs::read_to_string(repo.join("f.txt")).unwrap();
+    (result, rows, carry_refs, folder)
+}
+
+/// Node's undo (`transition-steps.mjs:294-300`) restores the carried changes, then removes the worktree,
+/// then drops the recovery ref.
+#[tokio::test]
+async fn a_failed_claim_puts_the_carried_changes_back_then_removes_the_worktree_then_drops_the_ref() {
+    let (result, rows, carry_refs, folder) = claim_fails_after_a_carry(false).await;
+    assert!(result.is_err(), "the claim's failure is the one surfaced");
+    assert_eq!(folder, "changed\n", "the carried changes are back in the project folder");
+    assert!(rows.is_empty(), "the worktree is gone");
+    assert_eq!(carry_refs, "", "and the recovery ref is dropped");
+}
+
+/// A restore that is refused stops the undo there: the worktree and the recovery ref stay (before this the
+/// worktree was removed first, so nothing but the ref held the carried changes).
+#[tokio::test]
+async fn a_refused_restore_keeps_the_worktree_and_the_recovery_ref() {
+    let (result, rows, carry_refs, _folder) = claim_fails_after_a_carry(true).await;
+    assert!(result.is_err());
+    assert_eq!(rows.len(), 1, "the worktree that holds the carried changes stays");
+    assert!(std::path::Path::new(rows[0]["path"].as_str().unwrap()).exists());
+    assert!(carry_refs.contains("refs/mixdog/carry"), "{carry_refs}");
+}

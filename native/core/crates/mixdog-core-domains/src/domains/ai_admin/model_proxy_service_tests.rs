@@ -47,11 +47,46 @@ async fn a_failure_comes_back_whether_it_is_a_result_or_a_rpc_error() {
 #[tokio::test]
 async fn without_a_proxy_connection_the_call_is_unavailable_and_a_cancel_ends_it() {
     let host = Arc::new(MockHostChannel::default());
-    assert_eq!(execute(&host, &mut Vec::new()).await, Err(ProxyError::Unavailable));
+    assert_eq!(
+        execute(&host, &mut Vec::new()).await,
+        Err(ProxyError::Unavailable("model proxy unavailable: no desktop client is connected to run model calls".into()))
+    );
     let transport = HostProxyTransport { host: host.clone() };
     let cancel = CancellationToken::new();
     cancel.cancel();
     assert_eq!(transport.execute(Value::Null, &mut |_| {}, &cancel).await, Err(ProxyError::Cancelled));
+}
+
+/// A host channel that ends every streamed request the way the server's outgoing router does when the
+/// PC is gone: `capabilityUnavailable{desktopHost, <detail>}`.
+struct Gone(&'static str);
+
+#[async_trait]
+impl HostChannel for Gone {
+    async fn request(&self, _: HostCapability, _: Method, _: Value) -> Result<Value, HostError> {
+        unreachable!()
+    }
+    fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
+        unreachable!()
+    }
+    async fn request_streamed(&self, _: HostCapability, _: Method, _: Value, _: &mut (dyn FnMut(Value) + Send)) -> Result<Value, HostError> {
+        Err(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: self.0.into() }.into())
+    }
+}
+
+/// Node's `ModelProxyUnavailableError` texts (model-proxy-channel.mjs): one per way the PC is missing.
+#[tokio::test]
+async fn each_way_the_pc_is_missing_reads_as_nodes_model_proxy_unavailable_error() {
+    for (detail, text) in [
+        ("noClaimant", "model proxy unavailable: no desktop client is connected to run model calls"),
+        ("claimantClosed", "model proxy unavailable: the desktop client disconnected"),
+        ("notClaimed", "model proxy unavailable: the desktop client did not pick up the model call"),
+        ("leaseLapsed", "model proxy unavailable: the desktop client stopped responding"),
+    ] {
+        let transport = HostProxyTransport { host: Arc::new(Gone(detail)) };
+        let got = transport.execute(usable()["call"].clone(), &mut |_| {}, &CancellationToken::new()).await;
+        assert_eq!(got, Err(ProxyError::Unavailable(text.into())), "{detail}");
+    }
 }
 
 #[derive(Default)]
@@ -124,6 +159,34 @@ fn events_reach_the_host_channel_by_request_id() {
     let admit = service.notify(Method(EVENT), json!({ "requestId": "host-1", "event": { "n": 1 } }), ConnectionId(3));
     assert!(matches!(admit, Admit::Accepted));
     assert_eq!(*seen.0.lock().unwrap(), vec![(ConnectionId(3), json!("host-1"), json!({ "n": 1 }))]);
+}
+
+#[test]
+fn heartbeats_reach_the_host_channel_once_per_request_id() {
+    struct Beats(Mutex<Vec<(ConnectionId, Value)>>);
+    #[async_trait]
+    impl HostChannel for Beats {
+        async fn request(&self, _: HostCapability, _: Method, _: Value) -> Result<Value, HostError> {
+            unreachable!()
+        }
+        fn notify(&self, _: HostCapability, _: Method, _: Value) -> Result<(), CoreError> {
+            unreachable!()
+        }
+        fn stream_alive(&self, from: ConnectionId, request: &Value) -> bool {
+            self.0.lock().unwrap().push((from, request.clone()));
+            true
+        }
+    }
+    let beats = Arc::new(Beats(Mutex::default()));
+    let runner = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(loopback(Vec::new())).0;
+    let service = ModelProxyService::new(Arc::new(runner), beats.clone(), Arc::new(Notes::default()));
+    assert!(service.methods().contains(&HEARTBEAT));
+    let admit = service.notify(Method(HEARTBEAT), json!({ "requestIds": ["host-1", 7] }), ConnectionId(3));
+    assert!(matches!(admit, Admit::Accepted));
+    assert_eq!(*beats.0.lock().unwrap(), vec![(ConnectionId(3), json!("host-1")), (ConnectionId(3), json!(7))]);
+    // Params that are no list of ids vouch for nothing.
+    service.notify(Method(HEARTBEAT), json!({ "requestIds": "host-2" }), ConnectionId(3));
+    assert_eq!(beats.0.lock().unwrap().len(), 2);
 }
 
 #[tokio::test]

@@ -42,7 +42,9 @@ const PAGING_NOTE: &str = "use byRule/byDir to triage; action results filters ca
 #[async_trait]
 pub trait TidyHost: Send + Sync {
     fn plugin_data(&self) -> PathBuf;
-    fn graph_binary(&self) -> Option<PathBuf>;
+    /// `graphBinaryPath()`, asked at each use: a binary that only became available later (a
+    /// download the code-graph tool ran) is found by the next call.
+    async fn graph_binary(&self) -> Option<PathBuf>;
     fn write_host(&self) -> Arc<dyn WriteHost>;
     fn outline_source(&self) -> Arc<dyn OutlineSource>;
     fn fetcher(&self) -> Arc<dyn Fetcher>;
@@ -242,7 +244,7 @@ impl TidyTool {
     }
 
     async fn detect(&self, run: &Run<'_>) -> Detection {
-        let graph_bin = self.host.graph_binary();
+        let graph_bin = self.host.graph_binary().await;
         // One `--langs` call answers both: which extension map to detect with, and whether this
         // binary owns the structural scan protocol.
         let graph_langs = match &graph_bin {
@@ -566,7 +568,7 @@ impl TidyTool {
         let (packs, _) = load_rule_packs();
         // Listing the packs still works without the engine; the report says so explicitly
         // (ok:false + the remedy) instead of showing a usable adapter.
-        let bin = self.host.graph_binary();
+        let bin = self.host.graph_binary().await;
         let adapter = resolve_structural_adapter(&self.processes, run.cwd, bin.as_deref(), None, run.cancel).await;
         let (adapter_id, unavailable) = match &adapter {
             Ok(_) => (GraphStructuralAdapter::ID, String::new()),
@@ -609,7 +611,7 @@ mod tests {
         fn plugin_data(&self) -> PathBuf {
             self.0.clone()
         }
-        fn graph_binary(&self) -> Option<PathBuf> {
+        async fn graph_binary(&self) -> Option<PathBuf> {
             None
         }
         fn write_host(&self) -> Arc<dyn WriteHost> {

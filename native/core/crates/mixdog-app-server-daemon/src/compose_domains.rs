@@ -96,6 +96,7 @@ use mixdog_mcp::plugin_admin::PluginAdmin;
 pub use adapters::DoctorHost;
 pub use adapters::LateDomains;
 pub use local::LocalSeams;
+pub use local::VoiceToggle;
 pub use local::build_local_provider;
 /// `package.json` `version` of the install: the build version the providers send as the client version.
 pub(crate) use rows::package_version;
@@ -202,6 +203,9 @@ pub struct PostSeams {
     /// The doctor's statuses no domain answers: WP-SESSION (provider, notice), WP-CHANNELS
     /// (worker, setup), WP-MCP (hooks), WP-MIGRATE (session log), WP-INSTALL (JS runtime).
     pub doctor: Arc<dyn DoctorHost>,
+    /// `DirectoryImportSessions` over the session directory (WP-SESSION): the import service is built in this stage, after the
+    /// directory, so it is plain build order (it reads nothing the pool needs, and the pool reads nothing of it).
+    pub import_sessions: Arc<dyn mixdog_services::import::ImportSessions>,
 }
 
 /// What `PluginsService` runs on that no crate implements yet.
@@ -219,6 +223,9 @@ pub struct PluginSeams {
 pub struct DomainInputs {
     pub tokens: LaneTokens,
     pub paths: DomainPaths,
+    /// The raw `voice-runtime-manifest.json`, read once by the root: the voice service parses it here and the voice installer
+    /// (`InstallerParts.manifest`, built before this stage as a `LocalSeams` input) takes the same value.
+    pub voice_manifest: serde_json::Value,
     pub env: EnvReader,
     /// The app feed (`ComposedCore::app_feed_core`): the `state` runtime publishes to it.
     pub app_feed: Arc<dyn Feed>,
@@ -282,6 +289,8 @@ pub struct PreDomains {
     pub plugins: Arc<dyn DomainService>,
     /// The `WorkflowConfig` also in `services` (`config/getWorkflowPack`).
     pub workflow: Arc<dyn DomainService>,
+    /// The voice setup the voice service holds: the root passes `VoiceToggle(voice_setup)` as the setup tool's `SetupVoice`.
+    pub voice_setup: Arc<mixdog_services::voice::VoiceSetup>,
     /// The setup actions this composition serves (local models, the domain-backed settings, the
     /// scalar settings): register each with SetupService::with_actions in the MCP stage.
     pub setup_actions: Vec<Arc<dyn SetupActions>>,
@@ -368,6 +377,7 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
         setup_requests,
         plugins,
         workflow,
+        voice_setup: local.voice_setup,
         setup_actions,
         status_readers,
         update_cell,
@@ -384,6 +394,10 @@ pub async fn compose_domains_post(inputs: &DomainInputs, post: PostSeams, pre: P
     update_cell.bind(rows.update.clone());
     services.extend(rows.services);
     transfer_sources.extend(rows.transfer_sources);
+    // `import/*`: built over the session layer's side of an import, which exists only now.
+    let discovery = mixdog_services::import::Discovery::new(mixdog_services::import::Env::from_process(), inputs.tokens.maintenance_io);
+    let jobs = mixdog_services::import::ImportJobs::new(discovery.clone(), post.import_sessions, mixdog_services::import::Limits::default());
+    services.push(Arc::new(mixdog_services::import::ImportService::new(discovery, jobs, mixdog_services::import::Limits::default())));
     services.push(DiagnosticsService::new(
         Arc::new(ServiceDoctor::new(late.clone(), post.doctor)),
         DoctorConfig {

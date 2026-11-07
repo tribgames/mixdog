@@ -11,6 +11,7 @@ use std::sync::PoisonError;
 
 use super::Clock;
 use super::SystemClock;
+use super::agent_registry::AgentStatusline;
 use super::route_session::RouteStatusline;
 use mixdog_core_ports::ports::route::Route;
 
@@ -321,6 +322,16 @@ fn drain(lane: &InLane<MaintenanceIo>, shared: &Shared) {
     }
 }
 
+/// `clearAgentStatuslineRoute(sessionId)` (agent-tool `helpers.mjs`): a closed worker's route
+/// leaves the store. Node's call is synchronous and its store update off the caller, so the clear
+/// is queued here and lands on the maintenance lane in call order, behind any write queued before.
+impl AgentStatusline for GatewaySessionRoutes {
+    fn clear(&self, session: &str) {
+        let Some(sid) = normalize_session_id(session) else { return };
+        self.enqueue(Change::Clear { sid: sid.to_owned(), pid: None }, None);
+    }
+}
+
 impl RouteStatusline for GatewaySessionRoutes {
     /// `writeStatuslineRoute(statusRoutes, session, route)`: queues the session's route; the file
     /// lands off the caller (the maintenance lane), as Node's off-loop durable update.
@@ -418,6 +429,21 @@ mod tests {
         // A legacy `sessions` slot (no host pid), written and then cleared in call order.
         routes.enqueue(Change::Entries(vec![Entry { sid: "sess_abcdef01".into(), route, pid: None }]), None);
         routes.clear("sess_abcdef01").await;
+        let stored: Value = serde_json::from_str(&text(&data.path().join(STORE_FILE)).unwrap()).unwrap();
+        assert_eq!((stored["sessions"].clone(), stored["sessionHosts"].clone()), (json!({}), json!({})));
+    }
+
+    /// The agent tool's synchronous clear drops the route of a closed worker; an id the store
+    /// never keys is ignored. A later awaited clear is the barrier that the queue has drained.
+    #[tokio::test]
+    async fn the_agent_statusline_clear_removes_the_workers_route() {
+        let (data, clock, routes) = rig();
+        clock.store(1_800_000_000_000, Ordering::SeqCst);
+        let route = statusline_section(&serde_json::from_value(json!({ "provider": "openai", "model": "gpt-5" })).unwrap()).unwrap();
+        routes.enqueue(Change::Entries(vec![Entry { sid: "sess_abcdef01".into(), route, pid: None }]), None);
+        AgentStatusline::clear(&routes, "not an id");
+        AgentStatusline::clear(&routes, "sess_abcdef01");
+        routes.clear("sess_barrier01").await;
         let stored: Value = serde_json::from_str(&text(&data.path().join(STORE_FILE)).unwrap()).unwrap();
         assert_eq!((stored["sessions"].clone(), stored["sessionHosts"].clone()), (json!({}), json!({})));
     }

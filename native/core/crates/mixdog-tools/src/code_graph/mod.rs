@@ -19,7 +19,6 @@ mod util;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::tool::Tool;
-use mixdog_core_api::domain::tool::ToolAnnotations;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolErrorCode;
@@ -30,31 +29,6 @@ use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
 
 const SPEC: &str = include_str!("specs/code_graph.json");
-
-/// A [`ToolSpec`] from an embedded `builtin-tools` entry (shared with `git` and `github`).
-pub(crate) fn spec_from(raw: &str, parallel_safe: bool) -> ToolSpec {
-    let entry: JsonValue = serde_json::from_str(raw).expect("embedded tool spec is valid JSON");
-    let ann = &entry["annotations"];
-    let flag = |key: &str| ann.get(key).and_then(JsonValue::as_bool);
-    ToolSpec {
-        name: entry["name"].as_str().expect("spec name").to_owned(),
-        aliases: Vec::new(),
-        description: entry["description"].as_str().unwrap_or_default().to_owned(),
-        input_schema: entry["schema"].clone(),
-        annotations: ToolAnnotations {
-            title: ann.get("title").and_then(JsonValue::as_str).map(str::to_owned),
-            read_only_hint: flag("readOnlyHint"),
-            destructive_hint: flag("destructiveHint"),
-            idempotent_hint: flag("idempotentHint"),
-            open_world_hint: flag("openWorldHint"),
-            compressible: flag("compressible"),
-            compressible_lossless: flag("compressibleLossless"),
-            agent_hidden: false,
-        },
-        parallel_safe,
-        exclusive_with: Vec::new(),
-    }
-}
 
 pub(crate) fn text_output(text: impl Into<String>) -> ToolOutput {
     ToolOutput {
@@ -104,7 +78,7 @@ impl CodeGraphTool {
     /// is the on-disk graph cache, whose manifest also supplies the cached roots.
     pub fn new(trust: std::sync::Arc<dyn TrustedRoots>, cache: std::sync::Arc<GraphCache>) -> Self {
         Self {
-            spec: spec_from(SPEC, true),
+            spec: crate::orch::util::spec_from_def(SPEC, true, &[]),
             trust,
             cache,
         }

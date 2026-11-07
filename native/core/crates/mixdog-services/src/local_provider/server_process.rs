@@ -59,7 +59,12 @@ pub struct ExitInfo {
 pub trait RunningProcess: Send + Sync {
     /// Resolves once the process exits.
     async fn wait(&self) -> ExitInfo;
+    /// The forced stop of the child's tree.
     fn kill(&self);
+    /// The gentle first stop (SIGTERM to the group on Unix); the forced kill where there is none.
+    fn terminate(&self) {
+        self.kill();
+    }
     /// The child's pid, when the launcher knows it.
     fn pid(&self) -> Option<u32> {
         None
@@ -179,14 +184,17 @@ impl ServerProcess {
             return Ok(());
         }
         state.inner.lock().unwrap().expected_exit = true;
-        // `server-process.mjs:52-57`: a kill and a wait, and when the child is still there a second
-        // kill and a second wait, then the failure. (Node sends SIGTERM and then SIGKILL; the
-        // process manager's `kill` is one tree kill, issued again.)
-        for _ in 0..2 {
-            state.process.kill();
-            if self.exits_within_stop_timeout(state).await {
-                return Ok(());
-            }
+        // `server-process.mjs:52-57`: `kill()` (SIGTERM) and a wait, and when the child is still
+        // there `kill('SIGKILL')` and a second wait, then the failure. On Unix the first stop is
+        // SIGTERM to the group and the second SIGKILL; on Windows the tree kill is forced both
+        // times (a job object has no gentle stop), so only the Unix path differs.
+        state.process.terminate();
+        if self.exits_within_stop_timeout(state).await {
+            return Ok(());
+        }
+        state.process.kill();
+        if self.exits_within_stop_timeout(state).await {
+            return Ok(());
         }
         Err("[local-provider] llama-server did not exit after termination".into())
     }
@@ -467,6 +475,10 @@ impl RunningProcess for ManagedProcess {
     fn kill(&self) {
         let _ = self.manager.kill(&self.handle);
     }
+
+    fn terminate(&self) {
+        let _ = self.manager.terminate(&self.handle);
+    }
 }
 
 #[async_trait]
@@ -553,9 +565,10 @@ mod tests {
 
     struct FakeProcess {
         killed: AtomicBool,
-        /// How many more kills the child ignores.
+        /// How many more stops the child ignores.
         ignore: AtomicUsize,
-        kills: Mutex<Vec<tokio::time::Instant>>,
+        /// Each stop that reached the child: when, and which (the gentle one is SIGTERM).
+        kills: Mutex<Vec<(tokio::time::Instant, &'static str)>>,
         exit: tokio::sync::watch::Sender<Option<ExitInfo>>,
         rx: tokio::sync::watch::Receiver<Option<ExitInfo>>,
     }
@@ -572,8 +585,17 @@ mod tests {
             }
         }
         fn kill(&self) {
+            self.stop("SIGKILL");
+        }
+        fn terminate(&self) {
+            self.stop("SIGTERM");
+        }
+    }
+
+    impl FakeProcess {
+        fn stop(&self, signal: &'static str) {
             self.killed.store(true, Ordering::SeqCst);
-            self.kills.lock().unwrap().push(tokio::time::Instant::now());
+            self.kills.lock().unwrap().push((tokio::time::Instant::now(), signal));
             if self.ignore.load(Ordering::SeqCst) > 0 {
                 self.ignore.fetch_sub(1, Ordering::SeqCst);
                 return;
@@ -586,7 +608,7 @@ mod tests {
     struct FakeLauncher {
         launched: AtomicUsize,
         crash_at_launch: AtomicBool,
-        /// How many kills each launched child ignores.
+        /// How many stops each launched child ignores.
         ignore_kills: AtomicUsize,
         last: Mutex<Option<Arc<FakeProcess>>>,
     }
@@ -724,35 +746,38 @@ mod tests {
         serde_json::from_str(include_str!("../../../../fixtures/local-server-stop/golden.json")).expect("golden.json")
     }
 
-    /// Node's real owner stopping a child that ignores its kill (`record-local-server-stop.mjs`,
-    /// fake clock): when each kill went out, and what `stop()` answered and when.
-    async fn stop_as_recorded(ignored_kills: usize, recorded: &Value) -> (Vec<u128>, Result<(), String>, u128) {
+    /// Node's real owner stopping a child that ignores its stops (`record-local-server-stop.mjs`,
+    /// fake clock): which stop went out when (SIGTERM, then SIGKILL), and what `stop()` answered
+    /// and when. The recording is of Node's calls, which do not depend on the platform; what the OS
+    /// does with them does (Windows: both are the job's forced kill).
+    async fn stop_as_recorded(ignored_stops: usize, recorded: &Value) -> Result<(), String> {
         let golden = golden();
         let (s, launcher, _) = server_stopping_after(true, Duration::from_millis(golden["stopTimeoutMs"].as_u64().unwrap()));
-        launcher.ignore_kills.store(ignored_kills, Ordering::SeqCst);
+        launcher.ignore_kills.store(ignored_stops, Ordering::SeqCst);
         s.ensure(spec("k", Arc::new(AtomicUsize::new(0))), None).await.unwrap();
         let process = launcher.last.lock().unwrap().clone().unwrap();
         let began = tokio::time::Instant::now();
         let outcome = s.stop().await;
         let took = began.elapsed().as_millis();
-        let kills: Vec<u128> = process.kills.lock().unwrap().iter().map(|at| (*at - began).as_millis()).collect();
-        let node: Vec<u128> = recorded["kills"].as_array().unwrap().iter().map(|k| u128::from(k["atMs"].as_u64().unwrap())).collect();
-        assert_eq!(kills, node, "when each kill went out");
+        let stops: Vec<(String, u128)> = process.kills.lock().unwrap().iter().map(|(at, signal)| ((*signal).to_owned(), (*at - began).as_millis())).collect();
+        let node: Vec<(String, u128)> =
+            recorded["kills"].as_array().unwrap().iter().map(|k| (k["signal"].as_str().unwrap().to_owned(), u128::from(k["atMs"].as_u64().unwrap()))).collect();
+        assert_eq!(stops, node, "which stop went out when");
         assert_eq!(took, u128::from(recorded["outcome"]["atMs"].as_u64().unwrap()), "when stop() answered");
-        (kills, outcome, took)
+        outcome
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_child_that_ignores_the_first_kill_is_killed_again_as_nodes_stop_does() {
+    async fn a_child_that_ignores_the_gentle_stop_is_killed_as_nodes_stop_does() {
         let golden = golden();
-        let (_, outcome, _) = stop_as_recorded(1, &golden["stubbornTerm"]).await;
+        let outcome = stop_as_recorded(1, &golden["stubbornTerm"]).await;
         assert_eq!(outcome.is_ok(), golden["stubbornTerm"]["outcome"]["resolved"].as_bool().unwrap());
     }
 
     #[tokio::test(start_paused = true)]
-    async fn a_child_that_ignores_both_kills_fails_the_stop_with_nodes_text_after_two_waits() {
+    async fn a_child_that_ignores_both_stops_fails_the_stop_with_nodes_text_after_two_waits() {
         let golden = golden();
-        let (_, outcome, _) = stop_as_recorded(usize::MAX, &golden["stubbornBoth"]).await;
+        let outcome = stop_as_recorded(usize::MAX, &golden["stubbornBoth"]).await;
         assert_eq!(outcome.unwrap_err(), golden["stubbornBoth"]["outcome"]["message"].as_str().unwrap());
     }
 

@@ -58,6 +58,45 @@ fn the_last_client_leaving_an_idle_core_stops_it_with_no_grace() {
     assert_eq!(*fx.lifecycle.state().borrow(), CoreState::Stopped);
 }
 
+fn release_reason(events: &[String]) -> Vec<&str> {
+    events.iter().filter_map(|e| e.strip_prefix("release_started:")).collect()
+}
+
+#[test]
+fn the_release_tells_the_core_node_s_text_of_the_cause_before_its_first_step() {
+    // The last client leaving is Node's self-shutdown with no live session clients (`daemon.mjs:1245`).
+    let fx = fixture();
+    fx.lifecycle.set_serving().unwrap();
+    drop(fx.lifecycle.connection());
+    fx.recorder.wait_exit();
+    let events = fx.recorder.events();
+    assert_eq!(release_reason(&events), ["no live session clients"]);
+    let started = events.iter().position(|e| e.starts_with("release_started:")).unwrap();
+    assert!(started < events.iter().position(|e| e == "final_barriers").unwrap(), "before the first step");
+}
+
+#[test]
+fn a_signal_s_name_is_the_reason_the_trigger_noted() {
+    // `daemon.mjs:1298-1308`: `shutdown('SIGTERM')`. The cause enum only says `quit`.
+    let fx = fixture();
+    fx.lifecycle.set_serving().unwrap();
+    fx.lifecycle.note_trigger("SIGTERM");
+    fx.lifecycle.stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+    fx.recorder.wait_exit();
+    assert_eq!(release_reason(&fx.recorder.events()), ["SIGTERM"]);
+}
+
+#[test]
+fn every_cause_has_its_node_text() {
+    let text = |cause: ReleaseCause| cause.node_text();
+    assert_eq!(text(ReleaseCause::Stop(StopReason::NoClients)), "no live session clients");
+    assert_eq!(text(ReleaseCause::Stop(StopReason::Update)), "daemon replacement");
+    assert_eq!(text(ReleaseCause::Stop(StopReason::FastDeploy)), "daemon replacement");
+    assert_eq!(text(ReleaseCause::Stop(StopReason::Quit)), "IPC shutdown");
+    assert_eq!(text(ReleaseCause::Fenced(FenceReason::LockFileReplaced)), "owner lock file was deleted or replaced");
+    assert_eq!(text(ReleaseCause::Fenced(FenceReason::LockLost)), "lockLost", "a fence Node has no text for keeps its own name");
+}
+
 #[test]
 fn work_keeps_an_unattended_core_alive_until_it_ends() {
     let fx = fixture();

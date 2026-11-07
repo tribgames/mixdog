@@ -1,0 +1,81 @@
+{
+  "name": "git",
+  "title": "Git",
+  "annotations": {
+    "title": "Git",
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": true,
+    "compressible": true
+  },
+  "description": "Run Git here, never through shell. An array runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. git diff or git diff -- <paths> includes untracked files. Set include_stage_ids:true to select changes, then action:stage with diff_id/change_ids. Staging rejects stale or cross-Project diffs and returns per-file staged counts. Worktrees are Lead-managed: only worktree_action:list and git worktree list work; every other worktree operation is refused.",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "action": {
+        "type": "string",
+        "enum": [
+          "command",
+          "stage",
+          "worktree"
+        ],
+        "description": "Default command. stage uses diff_id/change_ids instead of command. worktree uses worktree_action."
+      },
+      "command": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 10
+          }
+        ],
+        "description": "Full commands starting with git; shell-style quoting, no pipes/redirects/substitution (a && chain runs as the array). Mutations allowed."
+      },
+      "output_limit": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 1000,
+        "description": "Body line cap; staging IDs are not capped. Default 500; git log defaults to 100. A cut ends with [output capped …] naming how to continue."
+      },
+      "include_stage_ids": {
+        "type": "boolean",
+        "description": "Include staging IDs outside the body cap for git diff or git diff -- <paths> only. Default false."
+      },
+      "diff_id": {
+        "type": "string",
+        "description": "stage: exact diff_id from git diff."
+      },
+      "change_ids": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "maxItems": 50
+          }
+        ],
+        "description": "stage: exact change ID or IDs to stage, including new files."
+      },
+      "worktree_action": {
+        "type": "string",
+        "enum": [
+          "list"
+        ],
+        "description": "list only."
+      }
+    },
+    "additionalProperties": false
+  }
+}

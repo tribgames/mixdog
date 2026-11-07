@@ -550,3 +550,25 @@ impl McpServer {
         scrub(text, &self.secrets)
     }
 }
+
+#[cfg(test)]
+mod catalog_tests {
+    use serde_json::json;
+
+    use super::build_catalog;
+
+    /// Node's `mcpServerTools` keeps an external tool's name, description, `inputSchema` and
+    /// `annotations` (the title only inside them) and nothing else: a top-level `title` or
+    /// `trigger` a server lists is not sent to the model, so the entry has nowhere to hold one.
+    #[test]
+    fn an_external_tool_keeps_what_nodes_session_list_keeps() {
+        let listed = [json!({
+            "name": "lookup", "title": "Lookup", "trigger": "when asked",
+            "description": "d", "inputSchema": {"type": "object"}, "annotations": {"title": "Lookup", "readOnlyHint": true},
+        })];
+        let catalog = build_catalog("srv", &listed);
+        let entry = &catalog.entries[0];
+        assert_eq!((entry.description.as_str(), &entry.input_schema), ("d", &json!({"type": "object"})));
+        assert_eq!((entry.annotations.title.as_deref(), entry.annotations.read_only_hint), (Some("Lookup"), Some(true)));
+    }
+}

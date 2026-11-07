@@ -1,0 +1,2170 @@
+{
+  "worlds": [
+    {
+      "name": "no-agents",
+      "root": {
+        "orchestration/none.md": "Orchestration text of none.\r\nSecond line.\n",
+        "orchestration/focused.md": "Orchestration text of focused.\r\nSecond line.\n",
+        "orchestration/balanced.md": "Orchestration text of balanced.\r\nSecond line.\n",
+        "orchestration/swarm.md": "Orchestration text of swarm.\r\nSecond line.\n"
+      },
+      "data": {},
+      "config": {},
+      "delegatable": [],
+      "parts": [
+        {
+          "mode": "none",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "focused",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of focused.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "swarm",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of swarm.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": false,
+            "agentId": "ignored"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": true,
+            "agentId": "lead"
+          },
+          "parts": {
+            "orchestrationContext": "",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": true,
+            "agentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "mode": "none",
+          "options": {
+            "agentMode": true,
+            "agentId": ""
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "mode": "swarm",
+          "options": {
+            "agentMode": true,
+            "agentId": "zed"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        }
+      ],
+      "sessions": [
+        {
+          "session": {
+            "id": "sess_task"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_lead"
+          },
+          "parts": {
+            "orchestrationContext": "",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty2",
+            "sessionMode": "agent"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_rmem_abcdef_botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "ownerAgentId": "Botty "
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "owner": "agent",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "visibility": "agent-only"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty",
+            "sessionMode": "coding"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "agent"
+          },
+          "parts": {
+            "orchestrationContext": "",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "agent",
+            "ownerAgentId": "zed"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "bogus",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {},
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "shipped-agents",
+      "root": {
+        "orchestration/none.md": "Orchestration text of none.\r\nSecond line.\n",
+        "orchestration/focused.md": "Orchestration text of focused.\r\nSecond line.\n",
+        "orchestration/balanced.md": "Orchestration text of balanced.\r\nSecond line.\n",
+        "orchestration/swarm.md": "Orchestration text of swarm.\r\nSecond line.\n",
+        "agents/worker/AGENT.md": "Agent body.",
+        "agents/worker/agent.json": "{\"name\":\"Worker\",\"description\":\"Does the work\"}",
+        "agents/reviewer/AGENT.md": "Agent body.",
+        "agents/reviewer/agent.json": "{\"name\":\"Reviewer\",\"description\":\"Reviews the diff\"}"
+      },
+      "data": {},
+      "config": {},
+      "delegatable": [
+        "worker",
+        "reviewer"
+      ],
+      "parts": [
+        {
+          "mode": "none",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of none.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "focused",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of focused.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "swarm",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of swarm.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": false,
+            "agentId": "ignored"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": true,
+            "agentId": "lead"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": true,
+            "agentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "mode": "none",
+          "options": {
+            "agentMode": true,
+            "agentId": ""
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "mode": "swarm",
+          "options": {
+            "agentMode": true,
+            "agentId": "zed"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        }
+      ],
+      "sessions": [
+        {
+          "session": {
+            "id": "sess_task"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_lead"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty2",
+            "sessionMode": "agent"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_rmem_abcdef_botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "ownerAgentId": "Botty "
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "owner": "agent",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "visibility": "agent-only"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty",
+            "sessionMode": "coding"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "agent"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "agent",
+            "ownerAgentId": "zed"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "bogus",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {},
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Reviewer (reviewer): Reviews the diff",
+            "contactCatalogContext": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "one-agent-switched-off",
+      "root": {
+        "orchestration/none.md": "Orchestration text of none.\r\nSecond line.\n",
+        "orchestration/focused.md": "Orchestration text of focused.\r\nSecond line.\n",
+        "orchestration/balanced.md": "Orchestration text of balanced.\r\nSecond line.\n",
+        "orchestration/swarm.md": "Orchestration text of swarm.\r\nSecond line.\n",
+        "agents/worker/AGENT.md": "Agent body.",
+        "agents/worker/agent.json": "{\"name\":\"Worker\",\"description\":\"Does the work\"}",
+        "agents/reviewer/AGENT.md": "Agent body.",
+        "agents/reviewer/agent.json": "{\"name\":\"Reviewer\",\"description\":\"Reviews the diff\"}"
+      },
+      "data": {},
+      "config": {
+        "disabledAgents": [
+          "reviewer"
+        ]
+      },
+      "delegatable": [
+        "worker"
+      ],
+      "parts": [
+        {
+          "mode": "none",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of none.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "focused",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of focused.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "swarm",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of swarm.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": false,
+            "agentId": "ignored"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": true,
+            "agentId": "lead"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": true,
+            "agentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "mode": "none",
+          "options": {
+            "agentMode": true,
+            "agentId": ""
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "mode": "swarm",
+          "options": {
+            "agentMode": true,
+            "agentId": "zed"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        }
+      ],
+      "sessions": [
+        {
+          "session": {
+            "id": "sess_task"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_lead"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty2",
+            "sessionMode": "agent"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_rmem_abcdef_botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "ownerAgentId": "Botty "
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "owner": "agent",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "visibility": "agent-only"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty",
+            "sessionMode": "coding"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "agent"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "agent",
+            "ownerAgentId": "zed"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "bogus",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {},
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work",
+            "contactCatalogContext": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "only-a-bot",
+      "root": {
+        "orchestration/none.md": "Orchestration text of none.\r\nSecond line.\n",
+        "orchestration/focused.md": "Orchestration text of focused.\r\nSecond line.\n",
+        "orchestration/balanced.md": "Orchestration text of balanced.\r\nSecond line.\n",
+        "orchestration/swarm.md": "Orchestration text of swarm.\r\nSecond line.\n"
+      },
+      "data": {
+        "agents/botty/AGENT.md": "---\nkind: bot\n---\nAgent body.",
+        "agents/botty/agent.json": "{\"name\":\"Botty\",\"description\":\"Chats with the user\"}"
+      },
+      "config": {},
+      "delegatable": [
+        "botty"
+      ],
+      "parts": [
+        {
+          "mode": "none",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "focused",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of focused.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "swarm",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of swarm.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": false,
+            "agentId": "ignored"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": true,
+            "agentId": "lead"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Botty (botty): Chats with the user"
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": true,
+            "agentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "mode": "none",
+          "options": {
+            "agentMode": true,
+            "agentId": ""
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot\n- Botty (botty): Chats with the user"
+          }
+        },
+        {
+          "mode": "swarm",
+          "options": {
+            "agentMode": true,
+            "agentId": "zed"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot\n- Botty (botty): Chats with the user"
+          }
+        }
+      ],
+      "sessions": [
+        {
+          "session": {
+            "id": "sess_task"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_lead"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Botty (botty): Chats with the user"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty2",
+            "sessionMode": "agent"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot\n- Botty (botty): Chats with the user"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_rmem_abcdef_botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "ownerAgentId": "Botty "
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "owner": "agent",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "visibility": "agent-only"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty",
+            "sessionMode": "coding"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "agent"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Botty (botty): Chats with the user"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "agent",
+            "ownerAgentId": "zed"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot\n- Botty (botty): Chats with the user"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "bogus",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {},
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "only-a-bot-switched-off",
+      "root": {
+        "orchestration/none.md": "Orchestration text of none.\r\nSecond line.\n",
+        "orchestration/focused.md": "Orchestration text of focused.\r\nSecond line.\n",
+        "orchestration/balanced.md": "Orchestration text of balanced.\r\nSecond line.\n",
+        "orchestration/swarm.md": "Orchestration text of swarm.\r\nSecond line.\n"
+      },
+      "data": {
+        "agents/botty/AGENT.md": "---\nkind: bot\n---\nAgent body.",
+        "agents/botty/agent.json": "{\"name\":\"Botty\",\"description\":\"Chats with the user\"}"
+      },
+      "config": {
+        "disabledAgents": [
+          "Botty"
+        ]
+      },
+      "delegatable": [],
+      "parts": [
+        {
+          "mode": "none",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "focused",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of focused.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "swarm",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of swarm.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": false,
+            "agentId": "ignored"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": true,
+            "agentId": "lead"
+          },
+          "parts": {
+            "orchestrationContext": "",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": true,
+            "agentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "mode": "none",
+          "options": {
+            "agentMode": true,
+            "agentId": ""
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "mode": "swarm",
+          "options": {
+            "agentMode": true,
+            "agentId": "zed"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        }
+      ],
+      "sessions": [
+        {
+          "session": {
+            "id": "sess_task"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_lead"
+          },
+          "parts": {
+            "orchestrationContext": "",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty2",
+            "sessionMode": "agent"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_rmem_abcdef_botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "ownerAgentId": "Botty "
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "owner": "agent",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "visibility": "agent-only"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty",
+            "sessionMode": "coding"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "agent"
+          },
+          "parts": {
+            "orchestrationContext": "",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "agent",
+            "ownerAgentId": "zed"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "bogus",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {},
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "only-an-agent-without-a-definition",
+      "root": {
+        "orchestration/none.md": "Orchestration text of none.\r\nSecond line.\n",
+        "orchestration/focused.md": "Orchestration text of focused.\r\nSecond line.\n",
+        "orchestration/balanced.md": "Orchestration text of balanced.\r\nSecond line.\n",
+        "orchestration/swarm.md": "Orchestration text of swarm.\r\nSecond line.\n"
+      },
+      "data": {
+        "agents/ghost/AGENT.md": "  \n"
+      },
+      "config": {},
+      "delegatable": [
+        "ghost"
+      ],
+      "parts": [
+        {
+          "mode": "none",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of none.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "focused",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of focused.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "swarm",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of swarm.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": false,
+            "agentId": "ignored"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": true,
+            "agentId": "lead"
+          },
+          "parts": {
+            "orchestrationContext": "",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": true,
+            "agentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "mode": "none",
+          "options": {
+            "agentMode": true,
+            "agentId": ""
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "mode": "swarm",
+          "options": {
+            "agentMode": true,
+            "agentId": "zed"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        }
+      ],
+      "sessions": [
+        {
+          "session": {
+            "id": "sess_task"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_lead"
+          },
+          "parts": {
+            "orchestrationContext": "",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty2",
+            "sessionMode": "agent"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_rmem_abcdef_botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "ownerAgentId": "Botty "
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "owner": "agent",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "visibility": "agent-only"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty",
+            "sessionMode": "coding"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "agent"
+          },
+          "parts": {
+            "orchestrationContext": "",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "agent",
+            "ownerAgentId": "zed"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "bogus",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {},
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "",
+            "contactCatalogContext": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "mixed-agents-and-a-renamed-mixy",
+      "root": {
+        "orchestration/none.md": "Orchestration text of none.\r\nSecond line.\n",
+        "orchestration/focused.md": "Orchestration text of focused.\r\nSecond line.\n",
+        "orchestration/balanced.md": "Orchestration text of balanced.\r\nSecond line.\n",
+        "orchestration/swarm.md": "Orchestration text of swarm.\r\nSecond line.\n",
+        "agents/worker/AGENT.md": "Agent body.",
+        "agents/worker/agent.json": "{\"name\":\"Worker\",\"description\":\"Does the work\"}",
+        "agents/maintainer/AGENT.md": "Agent body.",
+        "agents/maintainer/agent.json": "{\"description\":\"built-in slot\"}"
+      },
+      "data": {
+        "agents/mine/AGENT.md": "Agent body.",
+        "agents/mine/agent.json": "{\"name\":\"Mine Agent\"}",
+        "agents/aaa/AGENT.md": "Agent body.",
+        "agents/aaa/agent.json": "{\"description\":\"sorted by name, after the starters\"}",
+        "agents/writer/AGENT.md": "Agent body.",
+        "agents/writer/agent.json": "{\"name\":\"Writer\",\"description\":\"Writes\"}",
+        "agents/botty/AGENT.md": "---\nkind: bot\n---\nAgent body.",
+        "agents/botty/agent.json": "{\"name\":\"Botty\",\"description\":\"Chats with the user\"}",
+        "agents/botty2/AGENT.md": "---\nkind: bot\n---\nAgent body.",
+        "agents/botty2/agent.json": "{\"name\":\"Botty Two\"}",
+        "agents/lead/AGENT.md": "Agent body.",
+        "agents/lead/agent.json": "{\"name\":\"  Mimi   Lead \"}",
+        "agents/plain/AGENT.md": "---\nkind: agent\n---\nAgent body.",
+        "agents/plain/agent.json": "{\"description\":\"kind agent\"}",
+        "agents/ghost/AGENT.md": " "
+      },
+      "config": {},
+      "delegatable": [
+        "worker",
+        "writer",
+        "aaa",
+        "botty",
+        "botty2",
+        "ghost",
+        "mine",
+        "plain"
+      ],
+      "parts": [
+        {
+          "mode": "none",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of none.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "focused",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of focused.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "swarm",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of swarm.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": false,
+            "agentId": "ignored"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": true,
+            "agentId": "lead"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Botty (botty): Chats with the user\n- Botty Two (botty2)"
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": true,
+            "agentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mimi Lead (lead): the user's representative bot\n- Botty Two (botty2)"
+          }
+        },
+        {
+          "mode": "none",
+          "options": {
+            "agentMode": true,
+            "agentId": ""
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mimi Lead (lead): the user's representative bot\n- Botty (botty): Chats with the user\n- Botty Two (botty2)"
+          }
+        },
+        {
+          "mode": "swarm",
+          "options": {
+            "agentMode": true,
+            "agentId": "zed"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mimi Lead (lead): the user's representative bot\n- Botty (botty): Chats with the user\n- Botty Two (botty2)"
+          }
+        }
+      ],
+      "sessions": [
+        {
+          "session": {
+            "id": "sess_task"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_lead"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Botty (botty): Chats with the user\n- Botty Two (botty2)"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mimi Lead (lead): the user's representative bot\n- Botty Two (botty2)"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty2",
+            "sessionMode": "agent"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mimi Lead (lead): the user's representative bot\n- Botty (botty): Chats with the user"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_rmem_abcdef_botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mimi Lead (lead): the user's representative bot\n- Botty Two (botty2)"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mimi Lead (lead): the user's representative bot\n- Botty Two (botty2)"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "ownerAgentId": "Botty "
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "owner": "agent",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "visibility": "agent-only"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty",
+            "sessionMode": "coding"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "agent"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Botty (botty): Chats with the user\n- Botty Two (botty2)"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "agent",
+            "ownerAgentId": "zed"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mimi Lead (lead): the user's representative bot\n- Botty (botty): Chats with the user\n- Botty Two (botty2)"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "bogus",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mimi Lead (lead): the user's representative bot\n- Botty Two (botty2)"
+          }
+        },
+        {
+          "session": {},
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Does the work\n- Writer (writer): Writes\n- aaa (aaa): sorted by name, after the starters\n- Mine Agent (mine)\n- plain (plain): kind agent",
+            "contactCatalogContext": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "starter-bot-ids-stay-workflow-agents",
+      "root": {
+        "orchestration/none.md": "Orchestration text of none.\r\nSecond line.\n",
+        "orchestration/focused.md": "Orchestration text of focused.\r\nSecond line.\n",
+        "orchestration/balanced.md": "Orchestration text of balanced.\r\nSecond line.\n",
+        "orchestration/swarm.md": "Orchestration text of swarm.\r\nSecond line.\n"
+      },
+      "data": {
+        "agents/worker/AGENT.md": "---\nkind: bot\n---\nAgent body.",
+        "agents/worker/agent.json": "{\"name\":\"Worker\",\"description\":\"a starter id marked bot\"}",
+        "agents/zed/AGENT.md": "Agent body.",
+        "agents/zed/agent.json": "{\"name\":\"Zed\",\"description\":\"plain\"}"
+      },
+      "config": {},
+      "delegatable": [
+        "worker",
+        "zed"
+      ],
+      "parts": [
+        {
+          "mode": "none",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of none.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "focused",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of focused.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "swarm",
+          "options": null,
+          "parts": {
+            "orchestrationContext": "Orchestration text of swarm.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": false,
+            "agentId": "ignored"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": true,
+            "agentId": "lead"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "mode": "balanced",
+          "options": {
+            "agentMode": true,
+            "agentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "mode": "none",
+          "options": {
+            "agentMode": true,
+            "agentId": ""
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "mode": "swarm",
+          "options": {
+            "agentMode": true,
+            "agentId": "zed"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        }
+      ],
+      "sessions": [
+        {
+          "session": {
+            "id": "sess_task"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_lead"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty2",
+            "sessionMode": "agent"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_rmem_abcdef_botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "ownerAgentId": "Botty "
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "owner": "agent",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "visibility": "agent-only"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_home_botty",
+            "sessionMode": "coding"
+          },
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "agent"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": ""
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "agent",
+            "ownerAgentId": "zed"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {
+            "id": "sess_x",
+            "sessionMode": "bogus",
+            "ownerAgentId": "botty"
+          },
+          "parts": {
+            "orchestrationContext": "# Delegation\n\nHandle conversation yourself. Do quick lookups and small edits yourself. Hand\nself-contained investigation, writing or implementation to sub-agents\n(`agent`); their reports return to this chat. Open a new agent task session\n(`session create`) only for a big plan, multi-step work across many files or\nstages that needs its own Lead, with a self-contained brief: start it when\nalready requested, otherwise suggest it. Then relay the result in your own\nwords. Promise a follow-up only when the session result allows it.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": "# Bots\n\nThe user's other bots. Hand one a request with `session send` to its chat and a\nself-contained brief.\n\n- Mixy (lead): the user's representative bot"
+          }
+        },
+        {
+          "session": {},
+          "parts": {
+            "orchestrationContext": "Orchestration text of balanced.\nSecond line.",
+            "agentCatalogContext": "# Available Agents\n\n- Worker (worker): a starter id marked bot\n- Zed (zed): plain",
+            "contactCatalogContext": ""
+          }
+        }
+      ]
+    }
+  ]
+}

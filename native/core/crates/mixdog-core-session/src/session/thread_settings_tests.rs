@@ -145,6 +145,9 @@ impl ArchiveRetention for Notes {
         lock(&self.0).push((session_id.to_owned(), archived));
         Ok(())
     }
+    async fn forget(&self, _session_id: &str) -> Result<(), String> {
+        unreachable!("the thread settings never forget a record: a delete does")
+    }
 }
 
 #[derive(Default)]
@@ -386,6 +389,8 @@ async fn a_tool_mode_reaches_only_an_empty_idle_session() {
     let answer = world.call(SET_TOOL_MODE, json!({ "threadId": "sess_busy", "mode": "readonly" }), 3).await.unwrap();
     assert_eq!(answer, json!("readonly"));
     assert_eq!(world.header("sess_busy").await["toolSpec"], json!("full"), "a running turn keeps its tool surface");
+    assert_eq!(world.header("sess_busy").await["toolMode"], json!("readonly"), "but the thread's mode follows, as `rt.mode` does");
+    assert_eq!(world.header("sess_empty").await["toolMode"], json!("lead"));
     let missing = world.call(SET_TOOL_MODE, json!({ "mode": "readonly" }), 4).await.unwrap_err();
     assert!(matches!(missing, CoreError::InvalidParams { .. }), "{missing:?}");
 }
@@ -471,7 +476,7 @@ async fn a_project_move_of_an_unlisted_session_is_refused() {
     assert!(message(&refused).contains("Session is not available."), "{refused:?}");
 }
 
-/// `noteArchived` over `desktop.retentionState`: after every step of
+/// `noteArchived` and `forget` over `desktop.retentionState`: after every step of
 /// `fixtures/archive-retention/golden.json` the record holds what the real desktop
 /// `session-auto-retention.ts` left in `session-auto-retention.json` (the file the profile import
 /// moves to that key), from no record, a valid one with bad stamps, one with no `enabledAt` and one
@@ -507,7 +512,11 @@ async fn the_retention_record_follows_the_desktops_archive_notes() {
         for (step, after) in steps.iter().zip(case["after"].as_array().expect("after")) {
             now.store(step["at"].as_i64().expect("at"), Ordering::SeqCst);
             let session = step["session"].as_str().expect("session");
-            retention.note_archived(session, step["archived"].as_bool().expect("archived")).await.expect("noted");
+            if step["forget"] == true {
+                retention.forget(session).await.expect("forgot");
+            } else {
+                retention.note_archived(session, step["archived"].as_bool().expect("archived")).await.expect("noted");
+            }
             let stored = config.full().get("desktop").and_then(|desktop| desktop.get("retentionState")).cloned().unwrap_or(Value::Null);
             assert_eq!(&stored, after, "{} at {}", case["name"], step["at"]);
         }

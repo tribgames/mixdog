@@ -7,6 +7,9 @@ mod callback;
 pub mod device;
 mod flow;
 pub mod http;
+pub mod scrub;
+#[cfg(test)]
+mod scrub_tests;
 pub mod loopback;
 pub mod pace;
 mod pkce;

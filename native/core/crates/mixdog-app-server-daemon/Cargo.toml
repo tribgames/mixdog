@@ -16,6 +16,10 @@ mixdog-core-base = { workspace = true }
 mixdog-core = { workspace = true }
 mixdog-core-run = { workspace = true }
 mixdog-core-session = { workspace = true }
+mixdog-core-goal = { workspace = true }
+mixdog-core-prompt = { workspace = true }
+mixdog-core-review = { workspace = true }
+mixdog-core-rooms = { workspace = true }
 mixdog-core-domains = { workspace = true }
 mixdog-core-config = { workspace = true }
 mixdog-agent = { workspace = true }

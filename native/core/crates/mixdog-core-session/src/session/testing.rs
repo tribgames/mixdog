@@ -709,6 +709,38 @@ impl Feed for RecFeed {
     }
 }
 
+/// The turns' workspace admissions: `admit:<thread>` when one is admitted, `release:<thread>`
+/// when its guard drops; `refuse` answers the next admission with that failure instead.
+#[derive(Default)]
+pub struct TestAdmission {
+    pub seen: Arc<Mutex<Vec<String>>>,
+    pub refuse: Mutex<Option<mixdog_scm::error::ScmFailure>>,
+}
+
+struct Released(Arc<Mutex<Vec<String>>>, String);
+
+impl Drop for Released {
+    fn drop(&mut self) {
+        lock(&self.0).push(format!("release:{}", self.1));
+    }
+}
+
+#[async_trait::async_trait]
+impl super::worktree::TurnAdmission for TestAdmission {
+    async fn admit(
+        &self,
+        thread: &str,
+        _cwd: super::worktree::Cwd,
+        _cancel: &mixdog_rt::CancellationToken,
+    ) -> Result<Box<dyn Send>, mixdog_scm::error::ScmFailure> {
+        if let Some(failure) = lock(&self.refuse).take() {
+            return Err(failure);
+        }
+        lock(&self.seen).push(format!("admit:{thread}"));
+        Ok(Box::new(Released(self.seen.clone(), thread.to_owned())))
+    }
+}
+
 #[derive(Default)]
 pub struct RecFeeds {
     pub feeds: Mutex<HashMap<FeedId, Vec<Arc<RecFeed>>>>,
@@ -776,6 +808,16 @@ impl Clock for FixedClock {
 
 /// The surface follows the header's persisted `disallowedTools`.
 pub struct HeaderSurfaces;
+
+/// A new thread keeps the header it was started with (no tool pool behind it).
+pub struct KeepHeader;
+
+#[async_trait::async_trait]
+impl super::NewThreadTools for KeepHeader {
+    async fn seed(&self, _: &ThreadId, header: &Header) -> Result<Header, String> {
+        Ok(header.clone())
+    }
+}
 
 impl ToolSurfaceSource for HeaderSurfaces {
     fn surface(&self, _thread: &ThreadId, header: &Header) -> SessionSurface {
@@ -852,6 +894,8 @@ pub struct Rig {
     pub sink: Arc<MockServerRequests>,
     pub clock: Arc<FixedClock>,
     pub turn_starts: Arc<super::LateTurnStarts>,
+    /// Every turn's workspace admission and its release, in order.
+    pub admissions: Arc<TestAdmission>,
     pub wakes: Arc<mixdog_tools::exec::WakeHub>,
     pub prewarms: Arc<Prewarms>,
     pub ingests: Arc<Ingests>,
@@ -1020,6 +1064,7 @@ impl Rig {
             agent_status: hook("agentStatus"),
             compaction_archive: hook("compactionArchive"),
             scratch_dir: hook("scratchDir"),
+            retention: hook("retention"),
         }
     }
 }
@@ -1123,6 +1168,7 @@ impl Rig {
             sink: Arc::new(MockServerRequests::default()),
             clock: Arc::new(FixedClock(AtomicU64::new(1000))),
             turn_starts: Arc::default(),
+            admissions: Arc::default(),
             wakes: mixdog_tools::exec::WakeHub::new(),
             prewarms: Arc::default(),
             ingests: Arc::default(),
@@ -1156,6 +1202,7 @@ impl Rig {
             prompts: self.prompts.clone(),
             runs: self.runs.clone(),
             surfaces: Arc::new(HeaderSurfaces),
+            new_tools: Arc::new(KeepHeader),
             wakes: self.wakes.clone(),
             effort: self.prewarms.clone(),
             search: self.ingests.clone(),
@@ -1165,6 +1212,7 @@ impl Rig {
             attachments: super::user_facts::AttachmentStore(self._data.path().to_path_buf()),
             staged_originals: Arc::new(super::staged_originals::StagedOriginals::new(self._data.path())),
             feeds: self.feeds.clone(),
+            turn_admission: self.admissions.clone(),
             server_requests: self.sink.clone(),
             approval_ids: Arc::new(Counter::default()),
             devices: Arc::new(NamedDevices),

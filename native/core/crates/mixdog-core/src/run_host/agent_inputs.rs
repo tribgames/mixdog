@@ -8,10 +8,18 @@
 //!   the registry cannot hold the built directory. Unbound nothing is loaded and no session
 //!   reports turns, which is what Node's registry sees before any session runtime exists; the
 //!   composition verifies the directory before the listener accepts.
+//! - [`FileEnvironment`]: the agent tool's `Environment` (`AgentParts.env`).
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use mixdog_agent::agent_tool::flow::seams::{TurnListener, TurnSource, Unobserve};
+use mixdog_agent::agent_tool::host::Environment;
+use mixdog_core_api::domain::common::AbsPath;
+use mixdog_core_api::domain::fs::{EntryKind, FileService, ReadRange};
+use mixdog_rt::InteractiveIo;
+use mixdog_tools::fs::read_failure_message;
 use mixdog_agent::compact::settings::agent_terminal_reap_ms;
 use mixdog_core_config::config::Config;
 use mixdog_core_session::session::agent_registry::{LiveSessions, ReapWindow, Row};
@@ -60,6 +68,47 @@ impl LiveSessions for LateLiveSessions {
     }
 }
 
+/// The agent tool's `Environment`, over the file service on the interactive lane:
+/// - `is_directory`: `isExistingDirectory(path)` (`stat(path)` follows links; any failure is no);
+/// - `read_text`: `readFileSync(target, 'utf8')` (invalid bytes read as U+FFFD; a failure reads as
+///   Node's `err.message`);
+/// - `current_dir`: `process.cwd()`, the folder the daemon started in (it never changes it);
+/// - `now_iso`: `new Date().toISOString()`.
+pub struct FileEnvironment {
+    files: Arc<dyn FileService>,
+    lane: InteractiveIo,
+    current_dir: String,
+}
+
+impl FileEnvironment {
+    pub fn new(files: Arc<dyn FileService>, lane: InteractiveIo, current_dir: String) -> Self {
+        Self { files, lane, current_dir }
+    }
+}
+
+#[async_trait]
+impl Environment for FileEnvironment {
+    async fn is_directory(&self, path: &str) -> bool {
+        let Some(path) = AbsPath::new(PathBuf::from(path)) else { return false };
+        self.files.stat(self.lane, path).await.is_ok_and(|stat| stat.kind == EntryKind::Dir)
+    }
+
+    async fn read_text(&self, path: &str) -> Result<String, String> {
+        let target = PathBuf::from(path);
+        let abs = AbsPath::new(target.clone()).ok_or_else(|| format!("path is not absolute: {path}"))?;
+        let read = self.files.read(self.lane, abs, ReadRange::default()).await.map_err(|error| read_failure_message(&error, &target))?;
+        Ok(String::from_utf8_lossy(&read.bytes).into_owned())
+    }
+
+    fn current_dir(&self) -> String {
+        self.current_dir.clone()
+    }
+
+    fn now_iso(&self) -> String {
+        chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+    }
+}
+
 /// `observeSessionTurns` through the late directory.
 pub struct LateTurnSource(pub Arc<LateDirectory>);
 
@@ -87,6 +136,38 @@ mod tests {
             fn turn_settled(&self, _: mixdog_agent::agent_tool::flow::seams::TurnOutcome) {}
         }
         assert!(LateTurnSource(late).observe_session_turns("s", Arc::new(Quiet)).is_none());
+    }
+
+    /// `isExistingDirectory`, `readFileSync(target, 'utf8')` and `toISOString()` as the agent tool
+    /// asks them.
+    #[tokio::test]
+    async fn the_agent_environment_reads_what_node_reads() {
+        use mixdog_core_api::domain::fs::{WritePrecondition, WriteRequest};
+        use mixdog_core_api::domain::mock::MockFileService;
+
+        let tokens = mixdog_rt::testing::tokens();
+        let files = Arc::new(MockFileService::default());
+        let root = std::env::temp_dir().join("agent-environment");
+        let dir = AbsPath::new(root.clone()).unwrap();
+        let file = AbsPath::new(root.join("prompt.txt")).unwrap();
+        files.create_dir(tokens.durability_io, dir, true).await.unwrap();
+        let request = WriteRequest { path: file, content: b"ask \xff here".to_vec(), precondition: WritePrecondition::Unconditional };
+        files.write(tokens.durability_io, request).await.unwrap();
+        let env = FileEnvironment::new(files, tokens.interactive_io, "/start".into());
+
+        assert!(env.is_directory(&root.to_string_lossy()).await);
+        assert!(!env.is_directory(&root.join("prompt.txt").to_string_lossy()).await, "a file is not a directory");
+        assert!(!env.is_directory(&root.join("gone").to_string_lossy()).await);
+        assert!(!env.is_directory("relative").await);
+        assert_eq!(env.read_text(&root.join("prompt.txt").to_string_lossy()).await.as_deref(), Ok("ask \u{fffd} here"));
+        let missing = root.join("gone.txt");
+        assert_eq!(
+            env.read_text(&missing.to_string_lossy()).await,
+            Err(format!("ENOENT: no such file or directory, open '{}'", missing.display()))
+        );
+        assert_eq!(env.current_dir(), "/start");
+        let stamp = env.now_iso();
+        assert!(stamp.len() == 24 && stamp.ends_with('Z') && stamp.as_bytes()[10] == b'T', "{stamp}");
     }
 
     /// `resolveAgentTerminalReapMs`: openai-oauth keeps the finite hour its unlimited cache needs, a

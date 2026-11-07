@@ -81,6 +81,7 @@ mod pending_read_tests;
 mod reads;
 mod routine_turn;
 pub mod room_member;
+pub mod room_approval;
 pub mod prompt_history;
 pub mod session_title;
 pub mod quota_lane;
@@ -134,6 +135,8 @@ mod tests;
 #[cfg(test)]
 mod goal_lane_tests;
 #[cfg(test)]
+mod turn_admission_tests;
+#[cfg(test)]
 mod assembly_tests;
 
 use std::sync::Arc;
@@ -167,6 +170,7 @@ pub use self::seams::CommitRecord;
 pub use self::seams::EncodedRecord;
 pub use self::seams::EffortPrewarm;
 pub use self::seams::FeedFactory;
+pub use self::seams::NewThreadTools;
 pub use self::seams::HeadRead;
 pub use self::seams::OpenedLog;
 pub use self::seams::RecordCodec;
@@ -205,6 +209,8 @@ pub struct SessionDeps {
     pub prompts: Arc<dyn PromptHistoryStore>,
     pub runs: Arc<dyn RunFactory>,
     pub surfaces: Arc<dyn ToolSurfaceSource>,
+    /// The tool definitions a `thread/start` thread begins with.
+    pub new_tools: Arc<dyn NewThreadTools>,
     /// Released on user input or a deliverable notification, ending a passive `task wait` or
     /// shell hold of the thread as today.
     pub wakes: Arc<mixdog_tools::exec::WakeHub>,
@@ -225,6 +231,8 @@ pub struct SessionDeps {
     /// names (`claimStagedOriginals`), and `thread/stageAttachmentOriginal` stages into it.
     pub staged_originals: Arc<staged_originals::StagedOriginals>,
     pub feeds: Arc<dyn FeedFactory>,
+    /// Every turn's workspace admission (`admitTurnWorkspace`), held until the turn settles.
+    pub turn_admission: Arc<dyn worktree::TurnAdmission>,
     pub server_requests: Arc<dyn ServerRequestSink>,
     pub approval_ids: Arc<dyn ApprovalIds>,
     pub devices: Arc<dyn Devices>,
@@ -315,6 +323,14 @@ impl Clock for SystemClock {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default();
         i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
+    }
+}
+
+/// The same wall clock for the agent tool, its job board and its worker turns
+/// (`mixdog_agent::env::Clock`, a separate trait from the session layer's).
+impl mixdog_agent::env::Clock for SystemClock {
+    fn now_ms(&self) -> i64 {
+        Clock::now_ms(self)
     }
 }
 

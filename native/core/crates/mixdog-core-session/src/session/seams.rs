@@ -457,6 +457,16 @@ pub trait ToolSurfaceSource: Send + Sync + 'static {
     fn surface(&self, thread: &ThreadId, header: &Header) -> SessionSurface;
 }
 
+/// The tool fields of a new Lead thread's header: Node's `createSession` tool surface
+/// (`resolveSessionToolSurface`: `tools`, `toolSpec`, `disallowedTools`) followed by
+/// `seedToolSurface` (`applyDeferredToolSurface`: the deferred catalog and the callable names).
+/// `thread/start` writes the returned header as the thread's first record. Fails when the
+/// session's tools cannot be resolved (the skills of its folder cannot be read).
+#[async_trait::async_trait]
+pub trait NewThreadTools: Send + Sync + 'static {
+    async fn seed(&self, thread: &ThreadId, header: &Header) -> Result<Header, String>;
+}
+
 /// Today's `prewarmSessionAutoEffort(session, provider)`: starts the effort judge's model load
 /// when a session is created or opened, so its first judged turn does not wait for it.
 /// Fire-and-forget and infallible; the judge applies its own skip rules (Auto effort off, the

@@ -51,6 +51,8 @@ pub use host::HostCapability;
 pub use host::HostClaim;
 pub use host::HostChannel;
 pub use host::HostError;
+pub use host::Lease;
+pub use host::model_proxy_unavailable_text;
 pub use host::HostMediaSink;
 pub use ops::OpIndex;
 pub use server_request::ServerRequestSink;

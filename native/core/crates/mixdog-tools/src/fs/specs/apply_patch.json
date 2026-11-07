@@ -1,28 +1,34 @@
 {
- "src": "patch",
- "name": "apply_patch",
- "annotations": {
+  "name": "apply_patch",
   "title": "Apply Patch",
-  "readOnlyHint": false,
-  "destructiveHint": true,
-  "idempotentHint": false,
-  "openWorldHint": false,
-  "compressible": false,
-  "compressibleLossless": true
- },
- "schema": {
-  "type": "object",
-  "properties": {
-   "patch": {
-    "type": "string",
-    "minLength": 1,
-    "description": "Complete V4A patch text."
-   }
+  "annotations": {
+    "title": "Apply Patch",
+    "readOnlyHint": false,
+    "destructiveHint": true,
+    "idempotentHint": false,
+    "openWorldHint": false,
+    "compressible": false,
+    "compressibleLossless": true
   },
-  "required": [
-   "patch"
-  ],
-  "additionalProperties": false
- },
- "descLen": 397
+  "description": "Edit files with one complete V4A patch in `patch`: every file of the stage in one patch, one file block per target with all its hunks. Use exact, unique context; add a class/function locator if needed. New files and parents are created atomically; existing targets reject creation unchanged. Attempt it directly, without read/list/mkdir. Valid files commit; rejected files are reported separately.",
+  "freeformDescription": "Send raw V4A here, not JSON or a shell command. One Add/Delete/Update File block per path; group its @@ hunks. Prefix each new-file content line once (\"+hello\", not \"++hello\"). Use exact, unique context; add a class/function locator if needed. New files and parents are created atomically; existing targets reject creation unchanged. Attempt it directly, without read/list/mkdir. Valid files commit; rejected files are reported separately.",
+  "freeform": {
+    "type": "grammar",
+    "syntax": "lark",
+    "definition": "start: begin_patch hunk+ end_patch\nbegin_patch: \"*** Begin Patch\" LF\nend_patch: \"*** End Patch\" LF?\n\nhunk: add_hunk | delete_hunk | update_hunk\nadd_hunk: \"*** Add File: \" filename LF add_line+\ndelete_hunk: \"*** Delete File: \" filename LF\nupdate_hunk: \"*** Update File: \" filename LF change_move? change?\n\nfilename: /(.+)/\nadd_line: \"+\" /(.*)/ LF -> line\n\nchange_move: \"*** Move to: \" filename LF\nchange: (change_context | change_line)+ eof_line?\nchange_context: (\"@@\" | \"@@ \" /(.+)/) LF\nchange_line: (\"+\" | \"-\" | \" \") /(.*)/ LF\neof_line: \"*** End of File\" LF\n\n%import common.LF\n"
+  },
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "patch": {
+        "type": "string",
+        "minLength": 1,
+        "description": "Complete V4A patch text."
+      }
+    },
+    "required": [
+      "patch"
+    ],
+    "additionalProperties": false
+  }
 }

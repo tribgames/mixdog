@@ -30,6 +30,7 @@ use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
 
 use super::common::*;
+use crate::orch::util::spec_from_def;
 use super::read::ReadTool;
 use super::read::in_noise_dir;
 
@@ -186,7 +187,7 @@ pub struct GlobTool {
 impl GlobTool {
     pub fn new() -> Self {
         Self {
-            spec: spec(GLOB_SPEC, "Find files by glob pattern, newest first.", true, None),
+            spec: spec_from_def(GLOB_SPEC, true, &[]),
         }
     }
 }
@@ -282,7 +283,7 @@ pub struct FindTool {
 impl FindTool {
     pub fn new() -> Self {
         Self {
-            spec: spec(FIND_SPEC, "Fuzzy-find files by path fragments.", true, None),
+            spec: spec_from_def(FIND_SPEC, true, &[]),
         }
     }
 }
@@ -406,7 +407,7 @@ pub struct GrepTool {
 impl GrepTool {
     pub fn new() -> Self {
         Self {
-            spec: spec(GREP_SPEC, "Search file contents with a regular expression.", true, None),
+            spec: spec_from_def(GREP_SPEC, true, &[]),
         }
     }
 }

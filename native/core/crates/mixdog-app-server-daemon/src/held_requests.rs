@@ -55,8 +55,8 @@ pub trait HeldHome: Send + Sync {
     async fn deliver(&self, agent_id: &str, held: &HeldRequest) -> Result<(), String>;
     /// The sanitized phone push (`notifyHeldRequest`): ids and the agent's name only.
     fn push(&self, event: &HeldPush);
-    /// `mixyDisplayName()` for the Lead, the id otherwise.
-    fn agent_name(&self, agent_id: &str) -> String;
+    /// `mixyDisplayName()` for the Lead, the id otherwise. A file read on the lane: a dropped lane job is `Err` (no default name), and the hold skips the push.
+    async fn agent_name(&self, agent_id: &str) -> Result<String, String>;
     /// A fresh id suffix; the id is `held_` + this.
     fn new_id(&self) -> String;
 }
@@ -200,12 +200,11 @@ impl HeldRequests {
         let _guard = CancelGuard { held: self, id: id.clone() };
         self.post(&run.agent_id, &held).await;
         let home_agent = agent_home_session_id(&run.agent_id).or_else(|| agent_home_session_id(MIXY_AGENT_ID)).unwrap_or_default();
-        self.home.push(&HeldPush {
-            session_id: home_agent,
-            agent_id: run.agent_id.clone(),
-            agent_name: self.home.agent_name(&run.agent_id),
-            request_id: id,
-        });
+        // A lane job dropped at shutdown cannot name the agent: no push, logged, like the other shutdown-time failures (the row is already posted).
+        match self.home.agent_name(&run.agent_id).await {
+            Ok(agent_name) => self.home.push(&HeldPush { session_id: home_agent, agent_id: run.agent_id.clone(), agent_name, request_id: id }),
+            Err(error) => tracing::warn!(id, "held request push skipped, the agent name could not be read: {error}"),
+        }
         answer.await.unwrap_or(ApprovalResolution::Cancelled { at: (self.now_ms)() })
     }
 
@@ -367,8 +366,8 @@ mod tests {
         fn push(&self, event: &HeldPush) {
             self.pushes.lock().unwrap().push(event.clone());
         }
-        fn agent_name(&self, agent_id: &str) -> String {
-            agent_id.to_owned()
+        async fn agent_name(&self, agent_id: &str) -> Result<String, String> {
+            Ok(agent_id.to_owned())
         }
         fn new_id(&self) -> String {
             self.ids.fetch_add(1, Ordering::SeqCst).to_string()

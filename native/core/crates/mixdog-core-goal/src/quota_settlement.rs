@@ -283,10 +283,17 @@ impl QuotaSettlement {
         self.quota.note_goal(&current.session_id, &current.turn_key, goal_id).await
     }
 
+    /// `cancelEpoch += 1`, on its own: the part of every cancel that takes effect at once. A session
+    /// calls it in its actor when a cancel is made, so a resume that checks the epoch (`resume_goal`'s
+    /// `current`, a settlement's `begin`/`finish_goal`) sees the cancel before any store write.
+    pub fn raise_epoch(&self) {
+        self.epoch.fetch_add(1, Ordering::SeqCst);
+    }
+
     /// `cancelFor`: the epoch rises now, when the cancel is made; the resume and the Goal note
     /// go when the session's turn comes.
     fn cancel_for(&self, session_id: &str) -> impl Future<Output = Result<(), QuotaError>> + '_ {
-        self.epoch.fetch_add(1, Ordering::SeqCst);
+        self.raise_epoch();
         let session_id = session_id.to_owned();
         async move {
             let _turn = self.chains.acquire(&session_id).await;
@@ -312,7 +319,7 @@ impl QuotaSettlement {
 
     /// `cancelQuotaResume`: the explicit cancel drops the pending resume and keeps the Goal note.
     pub fn cancel_resume(&self, session_id: &str) -> impl Future<Output = Result<bool, QuotaError>> + '_ {
-        self.epoch.fetch_add(1, Ordering::SeqCst);
+        self.raise_epoch();
         let session_id = session_id.to_owned();
         async move {
             let _turn = self.chains.acquire(&session_id).await;

@@ -52,6 +52,7 @@ struct Fixture {
     released: Arc<Mutex<Vec<u32>>>,
     ext_host: Arc<ExtHostPool>,
     drains: Arc<Mutex<Vec<CoreDrainParams>>>,
+    reasons: Arc<Mutex<Vec<String>>>,
     core: RuntimeCore,
 }
 
@@ -66,6 +67,7 @@ fn fixture() -> Fixture {
     let flushes = Arc::new(AtomicU32::new(0));
     let released = Arc::new(Mutex::new(Vec::new()));
     let drains = Arc::new(Mutex::new(Vec::new()));
+    let reasons = Arc::new(Mutex::new(Vec::new()));
     let counter = |count: &Arc<AtomicU32>| -> Hook {
         let count = Arc::clone(count);
         Arc::new(move || {
@@ -105,13 +107,26 @@ fn fixture() -> Fixture {
             Arc::new(move |pid| released.lock().unwrap().push(pid))
         },
         close_data_handles: counter(&data),
+        release_started: {
+            let reasons = Arc::clone(&reasons);
+            Arc::new(move |reason| reasons.lock().unwrap().push(reason.to_owned()))
+        },
         flush_log: counter(&flushes),
         drain_feed: {
             let drains = Arc::clone(&drains);
             Arc::new(move |params| drains.lock().unwrap().push(params))
         },
     });
-    Fixture { runtime, sections, cancel, barriers, data, flushes, released, ext_host, drains, core }
+    Fixture { runtime, sections, cancel, barriers, data, flushes, released, ext_host, drains, reasons, core }
+}
+
+#[test]
+fn the_release_hands_the_core_the_reason_node_would_carry() {
+    use crate::lifecycle::CorePort;
+    let f = fixture();
+    f.core.release_started("SIGTERM");
+    f.core.release_started("no live session clients");
+    assert_eq!(*f.reasons.lock().unwrap(), ["SIGTERM", "no live session clients"]);
 }
 
 #[test]

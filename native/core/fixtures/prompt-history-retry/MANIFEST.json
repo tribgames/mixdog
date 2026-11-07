@@ -3,18 +3,18 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 585,
+      "bytes": 730,
       "path": "golden.json",
-      "sha256": "66b02902dcc7f65709bd304927347af40809f5ac0026c4e7397292afa9cddfc6"
+      "sha256": "385a0639f31053aebf6dceb8105c6ed6f14b776959fdd2e3005108947dfa4556"
     }
   ],
   "product": {
     "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
-    "commit": "ebdcca97de789757ba048e43d8b2a42ed028fa09",
+    "commit": "2ff3481115ea60cd33b9bab614f26735a7f829ce",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9248,
     "refComparison": {
-      "closestCommit": "ebdcca97de789757ba048e43d8b2a42ed028fa09",
+      "closestCommit": "2ff3481115ea60cd33b9bab614f26735a7f829ce",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-prompt-history-retry.mjs",
   "set": "prompt-history-retry",
-  "totalBytes": 585
+  "totalBytes": 730
 }

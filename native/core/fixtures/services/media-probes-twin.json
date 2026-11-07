@@ -303,7 +303,7 @@
     {
       "name": "doc-jwt-future",
       "files": {
-        "cred.json": "{\"access_token\":\"eyJhbGciOiJub25lIn0.eyJleHAiOjE3MDAwMDM2MDB9.sig\"}"
+        "cred.json": "{\"access_token\":\"h.eyJleHAiOjE3MDAwMDM2MDB9.s\"}"
       },
       "dataFiles": {},
       "written": [
@@ -336,7 +336,7 @@
     {
       "name": "doc-jwt-future-padded",
       "files": {
-        "cred.json": "{\"access_token\":\"eyJhbGciOiJub25lIn0.eyJleHAiOjE3MDAwMDM2MDB9.sig\"}"
+        "cred.json": "{\"access_token\":\"h.eyJleHAiOjE3MDAwMDM2MDB9.s\"}"
       },
       "dataFiles": {},
       "written": [
@@ -369,7 +369,7 @@
     {
       "name": "doc-jwt-past",
       "files": {
-        "cred.json": "{\"access_token\":\"eyJhbGciOiJub25lIn0.eyJleHAiOjE2OTk5OTY0MDB9.sig\"}"
+        "cred.json": "{\"access_token\":\"h.eyJleHAiOjE2OTk5OTY0MDB9.s\"}"
       },
       "dataFiles": {},
       "written": [
@@ -402,7 +402,7 @@
     {
       "name": "doc-jwt-string-exp",
       "files": {
-        "cred.json": "{\"access_token\":\"eyJhbGciOiJub25lIn0.eyJleHAiOiIxNzAwMDAzNjAwIn0.sig\"}"
+        "cred.json": "{\"access_token\":\"h.eyJleHAiOiIxNzAwMDAzNjAwIn0.s\"}"
       },
       "dataFiles": {},
       "written": [
@@ -435,7 +435,7 @@
     {
       "name": "doc-jwt-no-exp",
       "files": {
-        "cred.json": "{\"access_token\":\"eyJhbGciOiJub25lIn0.eyJzdWIiOiJ4In0.sig\"}"
+        "cred.json": "{\"access_token\":\"h.eyJzdWIiOiJ4In0.s\"}"
       },
       "dataFiles": {},
       "written": [

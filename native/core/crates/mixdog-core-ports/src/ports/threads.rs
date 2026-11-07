@@ -54,6 +54,8 @@ pub fn port_error(error: CoreError) -> PortError {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Section {
     Runtime(ThreadRuntime),
+    /// `progressHint` of the runtime section alone (`None` removes it): the rest of the section stays as it was. Producers of a hint (the running tool, the voice install) publish this, never a whole `Runtime`.
+    ProgressHint(Option<Value>),
     Route(ThreadRoute),
     Context(ThreadContext),
     Todo(Option<Value>),

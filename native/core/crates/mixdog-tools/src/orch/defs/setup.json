@@ -1,5 +1,6 @@
 {
   "name": "setup",
+  "title": "Setup",
   "description": "Read or change this Mixdog installation's settings through the runtime. Load the setup skill first (local-provider for managed local-model installation). status reads one domain; open navigates the attached app to a settings surface; list_models returns a provider index, then one provider's paged compact rows, then one model's full options (catalog.model). Results are compact JSON. Secrets (API keys, OAuth) are never accepted. Changes apply to new sessions unless the result says otherwise.",
   "annotations": {
     "title": "Setup",

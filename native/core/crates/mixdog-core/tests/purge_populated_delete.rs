@@ -187,6 +187,21 @@ impl WarmDeps for Idle {
 }
 
 /// The transcript ingest's `forgetTranscripts`, recording what it is asked to forget.
+/// The sessions whose retention record the delete forgot, in order.
+#[derive(Default)]
+struct Forgotten(Mutex<Vec<String>>);
+
+#[async_trait]
+impl mixdog_core_session::session::thread_settings::ArchiveRetention for Forgotten {
+    async fn note_archived(&self, _: &str, _: bool) -> Result<(), String> {
+        unreachable!("a delete never archives")
+    }
+    async fn forget(&self, session_id: &str) -> Result<(), String> {
+        self.0.lock().unwrap().push(session_id.to_owned());
+        Ok(())
+    }
+}
+
 #[derive(Default)]
 struct Offsets(Mutex<Vec<PathBuf>>);
 
@@ -332,6 +347,9 @@ async fn the_purge_hooks_leave_the_files_a_real_node_delete_leaves() {
     let agents = Arc::new(AgentRegistry::new(workers.clone(), workers.clone(), workers.clone(), Arc::new(SystemClock)));
     let turns = Arc::new(NoTurns);
     let offsets = Arc::new(Offsets::default());
+    // The desktop's retention record lives in the config, not in the folder this delete is
+    // recorded over: the hook's call is what is checked.
+    let retention = Arc::new(Forgotten::default());
     let hooks = PurgeHooks::new(PurgeOwners {
         data_dir: data.clone(),
         mixdog_home: home.to_path_buf(),
@@ -342,6 +360,7 @@ async fn the_purge_hooks_leave_the_files_a_real_node_delete_leaves() {
         providers: Arc::new(ProviderRegistry::new(Arc::new(NoProviders))),
         worker_turns: WorkerTurns::new(turns.clone(), turns.clone(), turns.clone(), turns, Arc::new(|| {})),
         agents,
+        retention: retention.clone(),
     });
     let review = mixdog_core_review::turn_review::testing::review_at(&data);
 
@@ -349,6 +368,7 @@ async fn the_purge_hooks_leave_the_files_a_real_node_delete_leaves() {
     for id in ["sess_victim", "sess_cleared"] {
         hooks.run(&review, id, std::slice::from_ref(&cwd)).await;
     }
+    assert_eq!(*retention.0.lock().unwrap(), ["sess_victim", "sess_cleared"], "each deleted session's retention record is forgotten");
     touches.flush().await;
     gaps.flush().await;
 

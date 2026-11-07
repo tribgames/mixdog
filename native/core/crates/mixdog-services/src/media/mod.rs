@@ -40,6 +40,9 @@ mod xai_twin_tests;
 pub mod codex_image;
 #[cfg(test)]
 mod codex_image_twin_tests;
+pub mod provider_layer;
+#[cfg(test)]
+mod provider_layer_twin_tests;
 pub mod gemini_image;
 #[cfg(test)]
 mod gemini_image_twin_tests;

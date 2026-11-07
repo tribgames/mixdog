@@ -32,5 +32,15 @@
     "arrivedAfterSecondAttemptMs": 100,
     "thirdAttemptAfterSecondAttemptMs": 350,
     "backoffWouldHaveBeenMs": 1000
-  }
+  },
+  "scenarioC": [
+    {
+      "appends": 4,
+      "firstAttemptAtMs": 250
+    },
+    {
+      "appends": 5,
+      "firstAttemptAtMs": 0
+    }
+  ]
 }

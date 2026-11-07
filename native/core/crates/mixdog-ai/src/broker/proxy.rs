@@ -9,8 +9,10 @@ use tokio_util::sync::CancellationToken;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum ProxyError {
-    /// No connection with `modelProxy` is claimed.
-    Unavailable,
+    /// No PC answered: none is connected, it left, did not pick the call up, or stopped
+    /// responding. Carries Node's `ModelProxyUnavailableError` message
+    /// (`model proxy unavailable: <detail>`).
+    Unavailable(String),
     /// The caller cancelled, or the connection was lost: in-flight calls
     /// resolve cancelled and no orphan runs on the remote core.
     Cancelled,

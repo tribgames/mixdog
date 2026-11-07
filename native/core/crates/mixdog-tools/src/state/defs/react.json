@@ -1,5 +1,6 @@
 {
   "name": "react",
+  "title": "React",
   "description": "Leave one emoji reaction under the user's message. Two uses only. Instead of a reply: when the message needs no words back (ok, got it, agreement, thanks, a done update), react alone with no reply text, when the reaction fully answers, instead of a filler reply like 'sounds good'. As emphasis: on clear good or sad news or something truly funny, react and still reply as the message needs; keep this rare, about once per 5-10 exchanges. Otherwise none: never react to questions or requests needing real content, never on two messages in a row, never as a status signal, and never mention or explain a reaction. ❤️ warmth or good news, 👍 agreement or ok, ✔️ done or noted, 😆 funny, 😮 surprising, 😢 sad, 🙏 thanks. In a group room, react only to messages for you, never repeating one another member left. Reacting again replaces yours.",
   "annotations": {
     "title": "React",

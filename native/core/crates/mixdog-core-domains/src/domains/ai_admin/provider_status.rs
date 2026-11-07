@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_ai::service::admin_route::{Obj, truthy};
+use mixdog_core_config::config::Config;
 use mixdog_tools::orch::util::PortError;
 use serde_json::{Value, json};
 
@@ -31,6 +32,14 @@ impl ProviderRoster for ProviderAdmin {
 /// `getQuotaAutoResume()`: the global switch (the config's `quotaResume.autoResume !== false`).
 pub trait QuotaAutoResumeSetting: Send + Sync {
     fn enabled(&self) -> bool;
+}
+
+/// The switch is the config's top-level `quotaResume.autoResume`, on unless it is `false`: read at every
+/// call, so a settings change shows at once.
+impl QuotaAutoResumeSetting for Config {
+    fn enabled(&self) -> bool {
+        self.agent().get("quotaResume").and_then(|section| section.get("autoResume")) != Some(&Value::Bool(false))
+    }
 }
 
 pub struct ProvidersStatus {

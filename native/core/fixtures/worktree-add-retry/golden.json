@@ -1,0 +1,40 @@
+{
+  "retry": {
+    "outcome": {
+      "created": true,
+      "id": "fix-the-login-page-2",
+      "branch": "mixdog/fix-the-login-page-2",
+      "state": "ready"
+    },
+    "branches": [
+      "mixdog/fix-the-login-page",
+      "mixdog/fix-the-login-page-2"
+    ],
+    "registryIds": [
+      "fix-the-login-page-2"
+    ],
+    "worktrees": 2
+  },
+  "twice": {
+    "outcome": {
+      "created": false,
+      "alreadyExists": true
+    },
+    "branches": [
+      "mixdog/fix-the-login-page"
+    ],
+    "registryIds": [],
+    "worktrees": 1
+  },
+  "exactBranch": {
+    "outcome": {
+      "created": false,
+      "alreadyExists": true
+    },
+    "branches": [
+      "feature/login"
+    ],
+    "registryIds": [],
+    "worktrees": 1
+  }
+}

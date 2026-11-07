@@ -89,6 +89,10 @@ impl McpTool {
     pub fn new(server: Arc<McpServer>, entry: Arc<ToolEntry>) -> Self {
         let spec = ToolSpec {
             name: entry.qualified.clone(),
+            // An external server's tool: the catalog entry keeps no definition-level title or trigger.
+            title: None,
+            trigger: None,
+            public: true,
             aliases: Vec::new(),
             description: entry.description.clone(),
             input_schema: entry.input_schema.clone(),
@@ -231,6 +235,9 @@ pub fn feature_tools(hub: &Arc<McpHub>) -> Vec<Arc<dyn Tool>> {
         .map(|feature| {
             let spec = ToolSpec {
                 name: feature.name().to_owned(),
+                title: None,
+                trigger: None,
+                public: true,
                 aliases: Vec::new(),
                 description: feature.description().to_owned(),
                 input_schema: feature.schema(),

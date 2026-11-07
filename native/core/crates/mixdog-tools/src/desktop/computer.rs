@@ -8,9 +8,9 @@ use std::sync::LazyLock;
 use async_trait::async_trait;
 use mixdog_ai::providers::action_input::advertise_action_input_union;
 use mixdog_core_api::domain::computer::ComputerAction;
-use mixdog_core_api::domain::computer::ComputerBackend;
 use mixdog_core_api::domain::computer::ComputerError;
 use mixdog_core_api::domain::computer::ComputerRequest;
+use mixdog_core_api::domain::computer::ComputerSessions;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolError;
@@ -56,7 +56,7 @@ fn map_error(error: ComputerError) -> ToolError {
 
 pub struct ComputerTool {
     spec: ToolSpec,
-    backend: Arc<dyn ComputerBackend>,
+    sessions: Arc<dyn ComputerSessions>,
 }
 
 /// `COMPUTER_ACTION_INPUT_UNION` (`defs/computer.union.json`) registered under its flat projection,
@@ -69,9 +69,9 @@ static ADVERTISED_UNION: LazyLock<JsonValue> = LazyLock::new(|| {
 });
 
 impl ComputerTool {
-    pub fn new(backend: Arc<dyn ComputerBackend>) -> Self {
+    pub fn new(sessions: Arc<dyn ComputerSessions>) -> Self {
         LazyLock::force(&ADVERTISED_UNION);
-        Self { spec: spec_from_def(include_str!("defs/computer.json"), false, &["computer"]), backend }
+        Self { spec: spec_from_def(include_str!("defs/computer.json"), false, &["computer"]), sessions }
     }
 }
 
@@ -84,7 +84,9 @@ impl Tool for ComputerTool {
 
     async fn call(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let request = request(&args).map_err(|m| invalid("action", m))?;
-        let parts = self.backend.run(request, ctx.cancel.clone()).await.map_err(map_error)?;
+        // The calling session's own helper state, as Node sends the session id with the request.
+        let backend = self.sessions.backend(ctx.thread_id.as_str());
+        let parts = backend.run(request, ctx.cancel.clone()).await.map_err(map_error)?;
         Ok(ToolOutput { parts, ..ToolOutput::default() })
     }
 }

@@ -7,24 +7,31 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use base64::Engine as _;
 use mixdog_core_api::{CoreError, CoreRequest, DomainService, Reply, service::Admit};
-use mixdog_core_api::ids::{ConnectionId, Method};
+use mixdog_core_api::ids::{ConnectionId, Method, ThreadId};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use super::pipeline::VoicePipeline;
-use super::setup::VoiceSetup;
+use super::setup::{ProgressHint, VoiceSetup};
 use crate::lane::{io_on_lane, on_lane};
 
 const MAX_PAYLOAD_CHARS: usize = 40_000_000;
 
+/// The hint line of a thread (Node's `setProgressHint` of that session): the client shows the
+/// voice install's progress there. Production: the daemon's `ThreadProgressHints`.
+pub trait ProgressHints: Send + Sync {
+    fn hint_for(&self, thread: &ThreadId) -> Arc<dyn ProgressHint>;
+}
+
 pub struct VoiceService {
     pipeline: Arc<VoicePipeline>,
     setup: Arc<VoiceSetup>,
+    hints: Arc<dyn ProgressHints>,
 }
 
 impl VoiceService {
-    pub fn new(pipeline: Arc<VoicePipeline>, setup: Arc<VoiceSetup>) -> Self {
-        Self { pipeline, setup }
+    pub fn new(pipeline: Arc<VoicePipeline>, setup: Arc<VoiceSetup>, hints: Arc<dyn ProgressHints>) -> Self {
+        Self { pipeline, setup, hints }
     }
 
     async fn transcribe_audio(&self, input: &Value, cancel: &CancellationToken) -> Result<Value, CoreError> {
@@ -102,7 +109,11 @@ impl DomainService for VoiceService {
             "voice/getVoiceStatus" => self.setup.status().await,
             "voice/toggleVoice" => {
                 let enabled = req.params.get("enabled").and_then(Value::as_bool);
-                let result = self.setup.toggle(enabled).await;
+                // Without a thread there is no hint line to show the progress on.
+                let result = match req.params.get("threadId").and_then(Value::as_str) {
+                    Some(thread) => self.setup.toggle_with_hint(enabled, self.hints.hint_for(&ThreadId(thread.to_owned()))).await,
+                    None => self.setup.toggle(enabled).await,
+                };
                 let mut status = self.setup.status().await;
                 status["result"] = result.to_json();
                 status

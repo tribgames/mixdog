@@ -100,6 +100,18 @@ fn apply_agent_tool_exposure(surface: &ToolSurface, session: &mut Value, hidden_
     before != session_tool_exposure(session) || outdated
 }
 
+/// What turns `header` into `after`, the messages aside.
+pub(super) fn header_diff(header: &Header, after: &Map<String, Value>) -> HeaderChange {
+    let mut change = HeaderChange { set: Map::new(), unset: Vec::new() };
+    for (key, value) in after {
+        if key != "messages" && header.get(key) != Some(value) {
+            change.set.insert(key.clone(), value.clone());
+        }
+    }
+    change.unset = header.keys().filter(|k| *k != "messages" && !after.contains_key(*k)).cloned().collect();
+    change
+}
+
 /// The header change of a route change's tool surface: `header` already names the new route.
 pub fn route_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: &Header, prepared: Option<PreparedTools>, hidden_agent: bool) -> HeaderChange {
     let mut session = Value::Object(header.clone());
@@ -120,14 +132,7 @@ pub fn route_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: &H
         }
     }
     let changed = apply_agent_tool_exposure(surface, &mut session, hidden_agent);
-    let after = session.as_object().expect("session object");
-    let mut change = HeaderChange { set: Map::new(), unset: Vec::new() };
-    for (key, value) in after {
-        if key != "messages" && header.get(key) != Some(value) {
-            change.set.insert(key.clone(), value.clone());
-        }
-    }
-    change.unset = header.keys().filter(|k| *k != "messages" && !after.contains_key(*k)).cloned().collect();
+    let mut change = header_diff(header, session.as_object().expect("session object"));
     if changed {
         let migrated = mark_tool_surface_migrated(clock, None, None).change;
         for key in migrated.unset {

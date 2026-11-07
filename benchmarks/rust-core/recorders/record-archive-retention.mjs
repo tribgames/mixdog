@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// The desktop's auto-retention record on archive and restore (`apps/desktop/src/main/
-// session-auto-retention.ts` `createSessionRetentionState(...).noteArchived`): the real TypeScript
+// The desktop's auto-retention record on archive, restore and delete (`apps/desktop/src/main/
+// session-auto-retention.ts` `createSessionRetentionState(...).noteArchived` / `.forget`): the real TypeScript
 // is bundled with esbuild, unchanged, and driven over a temporary `session-auto-retention.json`
 // with a fixed clock per step. Each step records the file as it stands afterwards (`null`: none).
 //
@@ -41,7 +41,8 @@ async function run(name, initial, steps) {
   const after = [];
   for (const step of steps) {
     now = step.at;
-    await state.noteArchived(step.session, step.archived);
+    if (step.forget) await state.forget(step.session);
+    else await state.noteArchived(step.session, step.archived);
     after.push(existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null);
   }
   return { name, initial, steps, after };
@@ -66,6 +67,16 @@ const cases = [
     { session: 'e', archived: false, at: 2000 },
   ]),
   await run('a record that is not an object starts over', [1, 2], [{ session: 's1', archived: false, at: 1000 }]),
+  // `forget(id)` of a deleted session (`session-host-lifecycle.ts` `forgetDeletedSession`).
+  await run('a forget drops a restore and leaves the rest', null, [
+    { session: 's1', archived: false, at: 1000 },
+    { session: 's2', archived: false, at: 1100 },
+    { session: 's1', forget: true, at: 1200 },
+    { session: 's1', forget: true, at: 1300 },
+    { session: 's9', forget: true, at: 1400 },
+  ]),
+  await run('a forget with no record yet still creates the record', null, [{ session: 's1', forget: true, at: 1000 }]),
+  await run('a forget normalizes a record with no enabledAt', { restored: { a: 0, d: 7 } }, [{ session: 'zz', forget: true, at: 1000 }]),
 ];
 
 const finalOut = join(FIXTURES_ROOT, 'archive-retention');

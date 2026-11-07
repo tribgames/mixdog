@@ -11,7 +11,6 @@
 
 use std::sync::Arc;
 
-use mixdog_app_protocol::v2::thread::ThreadRuntime;
 use mixdog_core_api::domain::tool::ProgressSink;
 use mixdog_core_api::domain::tool::ToolProgress;
 use mixdog_rt::TaskClass;
@@ -69,7 +68,7 @@ impl ToolHints {
                 if hint == shown {
                     continue;
                 }
-                let section = Section::Runtime(ThreadRuntime { progress_hint: hint.clone(), ..ThreadRuntime::default() });
+                let section = Section::ProgressHint(hint.clone());
                 tokio::select! {
                     _ = done.cancelled() => return,
                     sent = port.section(section) => {

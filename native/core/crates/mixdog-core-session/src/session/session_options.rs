@@ -37,7 +37,7 @@ const HEADLESS_MODEL_TOOL_NAMES: [&str; 17] = [
 const HEARTBEAT_MODEL_TOOL_NAMES: [&str; 3] = ["session", "setup", "load_tool"];
 
 /// `LEAD_DISALLOWED_TOOLS` (`tool-defs.mjs:228`).
-const LEAD_DISALLOWED_TOOLS: [&str; 4] = ["get_goal", "create_goal", "set_goal_tasks", "update_goal"];
+pub const LEAD_DISALLOWED_TOOLS: [&str; 4] = ["get_goal", "create_goal", "set_goal_tasks", "update_goal"];
 
 /// The header key of `autoWakeCompletions: false` (Node's `onCompletionQueued: null`).
 pub const AUTO_WAKE_COMPLETIONS: &str = "autoWakeCompletions";
@@ -48,6 +48,16 @@ fn names(list: &[&str]) -> Value {
     json!(list)
 }
 
+/// `modelToolSchemaAllowlist(profile)`: the tools a narrowed profile's schema holds; `None` for the
+/// interactive profile.
+pub fn model_tool_allowlist(profile: ToolProfile) -> Option<&'static [&'static str]> {
+    match profile {
+        ToolProfile::Headless => Some(&HEADLESS_MODEL_TOOL_NAMES),
+        ToolProfile::Heartbeat => Some(&HEARTBEAT_MODEL_TOOL_NAMES),
+        ToolProfile::Interactive => None,
+    }
+}
+
 /// Writes the session's options into its new header. A user session (`thread/start` is never
 /// agent-owned) denies the Lead-only goal tools and, without delegation, `agent`; a narrowed
 /// profile persists its schema allowlist; `toolSpecForMode` gives the tool spec; a switched-off
@@ -55,17 +65,18 @@ fn names(list: &[&str]) -> Value {
 pub fn write_header(options: &ThreadSessionOptions, header: &mut Header) {
     let profile = options.tool_profile.unwrap_or(ToolProfile::Interactive);
     // `modelToolSchemaAllowlist(rt.toolProfile)` (`boot/apis.mjs:429`).
-    match profile {
-        ToolProfile::Headless => header.insert("schemaAllowedTools".into(), names(&HEADLESS_MODEL_TOOL_NAMES)),
-        ToolProfile::Heartbeat => header.insert("schemaAllowedTools".into(), names(&HEARTBEAT_MODEL_TOOL_NAMES)),
-        ToolProfile::Interactive => None,
-    };
-    // `toolSpecForMode(mode)` (`effort.mjs:165`).
-    let tool_spec = match options.tool_mode.unwrap_or(SessionToolMode::Full) {
-        SessionToolMode::Readonly => json!(["tools:readonly"]),
-        SessionToolMode::Full | SessionToolMode::Lead => json!("full"),
+    if let Some(allowed) = model_tool_allowlist(profile) {
+        header.insert("schemaAllowedTools".into(), names(allowed));
+    }
+    // `toolSpecForMode(mode)` (`effort.mjs:165`), and Node's `rt.mode` (`normalizeToolMode(params.toolMode)`)
+    // which `thread/setToolMode` moves.
+    let (mode, tool_spec) = match options.tool_mode.unwrap_or(SessionToolMode::Full) {
+        SessionToolMode::Readonly => ("readonly", json!(["tools:readonly"])),
+        SessionToolMode::Full => ("full", json!("full")),
+        SessionToolMode::Lead => ("lead", json!("full")),
     };
     header.insert("toolSpec".into(), tool_spec);
+    header.insert("toolMode".into(), json!(mode));
     let mut caller: Vec<&str> = LEAD_DISALLOWED_TOOLS.to_vec();
     if options.disallow_delegation == Some(true) {
         caller.push("agent");

@@ -18,6 +18,7 @@ use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
 
 use super::common::*;
+use crate::orch::util::spec_from_def;
 use super::read::ReadTool;
 
 const LIST_SPEC: &str = include_str!("specs/list.json");
@@ -32,7 +33,7 @@ pub struct ListTool {
 impl ListTool {
     pub fn new() -> Self {
         Self {
-            spec: spec(LIST_SPEC, "List the entries of a directory.", true, None),
+            spec: spec_from_def(LIST_SPEC, true, &[]),
         }
     }
 }

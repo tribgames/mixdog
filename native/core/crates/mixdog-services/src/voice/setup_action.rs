@@ -92,7 +92,7 @@ mod tests {
     }
     #[async_trait]
     impl VoiceInstaller for Installer {
-        async fn install(&self, _: Missing) -> Result<(), String> {
+        async fn install(&self, _: Missing, _: Option<crate::model_install::ProgressSink>) -> Result<(), String> {
             if let Some(gate) = &self.gate {
                 gate.notified().await;
             }

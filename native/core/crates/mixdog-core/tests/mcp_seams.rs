@@ -155,6 +155,9 @@ fn selector(golden: &Value, deny: Option<&str>, fail: bool) -> (ExplicitSkillSel
     let tool = Arc::new(SkillTool {
         spec: ToolSpec {
             name: "Skill".to_owned(),
+            title: None,
+            trigger: None,
+            public: true,
             aliases: Vec::new(),
             description: String::new(),
             input_schema: json!({"type": "object"}),
@@ -250,6 +253,9 @@ fn named_tool(name: &str, aliases: &[&str]) -> Arc<dyn Tool> {
     Arc::new(SkillTool {
         spec: ToolSpec {
             name: name.to_owned(),
+            title: None,
+            trigger: None,
+            public: true,
             aliases: aliases.iter().map(|a| (*a).to_owned()).collect(),
             description: String::new(),
             input_schema: json!({"type": "object"}),

@@ -894,7 +894,7 @@ fn transient(message: &str, delivery: p::DeliveryState) -> p::ProviderError {
 
 fn execution_error(error: ProxyError) -> SendError {
     match error {
-        ProxyError::Unavailable => SendError::Provider(transient("model proxy unavailable: no connection serves this machine's models", p::DeliveryState::NotSent)),
+        ProxyError::Unavailable(message) => SendError::Provider(transient(&message, p::DeliveryState::NotSent)),
         ProxyError::Cancelled => SendError::Cancelled,
         ProxyError::Remote(value) => match serde_json::from_value::<w::ProxyFailure>(value.clone()).ok().map(failure_in) {
             Some(Ok((error, w::ProxyOutcome::Exhausted))) => SendError::Exhausted(error),

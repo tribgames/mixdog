@@ -1,0 +1,440 @@
+{
+  "antigravityVersion": "2.19.1",
+  "antigravity": [
+    {
+      "name": "rows with a project",
+      "token": "tok-1",
+      "project": "projects/p1",
+      "requests": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"projects/p1\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "rows": [
+          {
+            "displayName": "Gemini 3.8 Flash (High)",
+            "maxTokens": 1048576,
+            "supportsImages": true,
+            "id": "gemini-3.8-flash-high"
+          },
+          {
+            "displayName": "Gemini 3.8 Flash (Low)",
+            "maxTokens": 1048576,
+            "id": "gemini-3.8-flash-low"
+          },
+          {
+            "maxTokens": 10,
+            "id": "chat_internal"
+          },
+          {
+            "id": "plain-string-row"
+          },
+          {
+            "id": "with-own-id",
+            "displayName": "Own Id"
+          }
+        ]
+      }
+    },
+    {
+      "name": "rows without a project",
+      "token": "tok-2",
+      "project": null,
+      "requests": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-2",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "rows": [
+          {
+            "displayName": "Gemini 3.8 Flash (High)",
+            "maxTokens": 1048576,
+            "supportsImages": true,
+            "id": "gemini-3.8-flash-high"
+          },
+          {
+            "displayName": "Gemini 3.8 Flash (Low)",
+            "maxTokens": 1048576,
+            "id": "gemini-3.8-flash-low"
+          },
+          {
+            "maxTokens": 10,
+            "id": "chat_internal"
+          },
+          {
+            "id": "plain-string-row"
+          },
+          {
+            "id": "with-own-id",
+            "displayName": "Own Id"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an empty project is no project",
+      "token": "tok-3",
+      "project": "",
+      "requests": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-3",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "rows": []
+      }
+    },
+    {
+      "name": "models missing",
+      "token": "tok-4",
+      "project": "p",
+      "requests": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-4",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"p\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "error": "[antigravity-oauth] fetchAvailableModels returned no models"
+      }
+    },
+    {
+      "name": "models is a list",
+      "token": "tok-5",
+      "project": "p",
+      "requests": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-5",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"p\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "error": "[antigravity-oauth] fetchAvailableModels returned no models"
+      }
+    },
+    {
+      "name": "models is null",
+      "token": "tok-6",
+      "project": "p",
+      "requests": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-6",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"p\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "error": "[antigravity-oauth] fetchAvailableModels returned no models"
+      }
+    },
+    {
+      "name": "401 with a body",
+      "token": "tok-7",
+      "project": "p",
+      "requests": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-7",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"p\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "error": "[antigravity-oauth] fetchAvailableModels failed: 401 invalid credentials"
+      }
+    },
+    {
+      "name": "403 with a long body (cut to 300)",
+      "token": "tok-8",
+      "project": "p",
+      "requests": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-8",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"p\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "error": "[antigravity-oauth] fetchAvailableModels failed: 403 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "500 with no body",
+      "token": "tok-9",
+      "project": "p",
+      "requests": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-9",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"p\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "error": "[antigravity-oauth] fetchAvailableModels failed: 500 "
+      }
+    },
+    {
+      "name": "200 that is not JSON",
+      "token": "tok-11",
+      "project": "p",
+      "requests": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-11",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"p\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "error": "Unexpected token 'o', \"oops\" is not valid JSON"
+      }
+    },
+    {
+      "name": "200 with an empty body",
+      "token": "tok-12",
+      "project": "p",
+      "requests": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-12",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"p\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "error": "Unexpected end of JSON input"
+      }
+    },
+    {
+      "name": "200 with a truncated body",
+      "token": "tok-13",
+      "project": "p",
+      "requests": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-13",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"p\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "error": "Expected ':' after property name in JSON at position 15 (line 1 column 16)"
+      }
+    },
+    {
+      "name": "401 whose body carries secrets",
+      "token": "tok-14",
+      "project": "p",
+      "requests": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-14",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"p\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "error": "[antigravity-oauth] fetchAvailableModels failed: 401 {\"error\":\"invalid_token\",\"access_token\":\"[REDACTED]\",\"detail\":\"Bearer [REDACTED]\"}"
+      }
+    },
+    {
+      "name": "403 with a form body",
+      "token": "tok-15",
+      "project": "p",
+      "requests": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-15",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"p\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "error": "[antigravity-oauth] fetchAvailableModels failed: 403 refresh_token=[REDACTED]&client_secret=[REDACTED] denied"
+      }
+    },
+    {
+      "name": "the request itself fails",
+      "token": "tok-10",
+      "project": "p",
+      "requests": [
+        {
+          "url": "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-10",
+            "Content-Type": "application/json",
+            "User-Agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"p\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "error": "fetch failed"
+      }
+    }
+  ],
+  "codex": [
+    {
+      "env": {},
+      "originator": "codex_cli_rs",
+      "version": null,
+      "userAgent": null
+    },
+    {
+      "env": {
+        "MIXDOG_CODEX_ORIGINATOR": " codex_exec "
+      },
+      "originator": "codex_exec",
+      "version": null,
+      "userAgent": null
+    },
+    {
+      "env": {
+        "MIXDOG_CODEX_ORIGINATOR": "   "
+      },
+      "originator": "codex_cli_rs",
+      "version": null,
+      "userAgent": null
+    },
+    {
+      "env": {
+        "MIXDOG_CODEX_VERSION": " 9.9.9 "
+      },
+      "originator": "codex_cli_rs",
+      "version": "9.9.9",
+      "userAgent": null
+    },
+    {
+      "env": {
+        "MIXDOG_CODEX_USER_AGENT": " pinned-agent/1 "
+      },
+      "originator": "codex_cli_rs",
+      "version": null,
+      "userAgent": "pinned-agent/1"
+    },
+    {
+      "env": {
+        "MIXDOG_CODEX_USER_AGENT": "pinned-agent/2",
+        "MIXDOG_CODEX_VERSION": "8.8.8",
+        "MIXDOG_CODEX_ORIGINATOR": "o"
+      },
+      "originator": "o",
+      "version": "8.8.8",
+      "userAgent": "pinned-agent/2"
+    }
+  ],
+  "antigravitySession": [
+    {
+      "override": null,
+      "headers": {
+        "User-Agent": "antigravity/hub/2.19.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+      },
+      "endpoint": "https://daily-cloudcode-pa.googleapis.com"
+    },
+    {
+      "override": " 9.8.7 ",
+      "headers": {
+        "User-Agent": "antigravity/hub/9.8.7 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+      },
+      "endpoint": "https://daily-cloudcode-pa.googleapis.com"
+    },
+    {
+      "override": "3.0.1",
+      "headers": {
+        "User-Agent": "antigravity/hub/3.0.1 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+      },
+      "endpoint": "https://daily-cloudcode-pa.googleapis.com"
+    }
+  ],
+  "codexMissing": "OpenAI OAuth not authenticated. Open /providers in mixdog to sign in."
+}

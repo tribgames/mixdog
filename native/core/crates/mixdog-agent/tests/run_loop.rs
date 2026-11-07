@@ -364,6 +364,9 @@ impl Echo {
     fn tool() -> Arc<dyn Tool> {
         Arc::new(Self(ToolSpec {
             name: "echo".into(),
+            title: None,
+            trigger: None,
+            public: true,
             aliases: Vec::new(),
             description: "echo".into(),
             input_schema: json!({"type": "object"}),
@@ -1396,6 +1399,9 @@ impl Boom {
     fn tool() -> Arc<dyn Tool> {
         Arc::new(Self(ToolSpec {
             name: "boom".into(),
+            title: None,
+            trigger: None,
+            public: true,
             aliases: Vec::new(),
             description: "Always fails.".into(),
             input_schema: json!({"type": "object"}),

@@ -177,3 +177,13 @@ pub trait ComputerBackend: Send + Sync {
     -> Result<Box<dyn MediaFrameSource>, ComputerError>;
     fn status(&self) -> ComputerStatus;
 }
+
+/// The computer helpers of the process, one per calling session: Node keeps the helper's state
+/// (held input, element refs, window claims) per `session_id` of each request
+/// (`computer-bridge/client.mjs:311`; the host reads `request.session_id || 'default'`,
+/// `worker-pool.ts:70`).
+pub trait ComputerSessions: Send + Sync {
+    /// The backend of `session`'s state; an empty id is Node's `"default"` session. Two ids never
+    /// share state.
+    fn backend(&self, session: &str) -> std::sync::Arc<dyn ComputerBackend>;
+}

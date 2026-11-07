@@ -1,7 +1,8 @@
 //! Frame sources the host pushes into: the in-app browser view (JPEG paint frames that Electron
 //! main sends as X17 binary frames, `purpose = browserView`) and the secure-desktop helper's
 //! BGRX frames. Computer capture comes from `ComputerBackend::screen_source` and needs no
-//! adapter.
+//! adapter. A paired phone is no session: it takes the `"default"` backend
+//! (`ComputerSessions::backend("")`), the state Node's host keeps for a request that names none.
 //!
 //! A [`FrameSink`] keeps only the newest frame: a source nobody is encoding for, or an encoder
 //! behind the producer, never queues pictures.

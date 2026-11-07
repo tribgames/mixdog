@@ -67,6 +67,8 @@ pub struct Lifecycle {
     cfg: LifecycleConfig,
     budgets: ReleaseBudgets,
     stalled_ms: AtomicU64,
+    /// See [`Lifecycle::note_trigger`].
+    trigger: Mutex<Option<String>>,
 }
 
 fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -93,7 +95,14 @@ impl Lifecycle {
             cfg,
             budgets,
             stalled_ms: AtomicU64::new(0),
+            trigger: Mutex::new(None),
         })
+    }
+
+    /// The text Node's `shutdown(reason)` carries for the trigger that is about to stop the core, when the cause enum cannot say it (a signal's
+    /// name: `SIGTERM`, `SIGINT`, `SIGHUP`, `SIGBREAK`, `daemon.mjs:1298-1308`). The first note wins; the release hands it to the core.
+    pub fn note_trigger(&self, text: &str) {
+        locked(&self.trigger).get_or_insert_with(|| text.to_owned());
     }
 
     // ---- views ------------------------------------------------------------------------
@@ -280,6 +289,9 @@ impl Lifecycle {
     fn release(self: &Arc<Self>, cause: ReleaseCause) {
         let budgets = self.budgets;
         let core = &self.ports.core;
+        // Before any step: the stop steps (run inside `closeDataHandles`) abort the agent runs with Node's text of this stop.
+        let node_reason = locked(&self.trigger).take().unwrap_or_else(|| cause.node_text());
+        core.release_started(&node_reason);
         let closing: [(&'static str, Duration, fn(&dyn CorePort)); 3] = [
             ("finalBarriers", budgets.final_barriers, |core| core.final_barriers()),
             ("closeConnections", budgets.close_connections, |core| core.close_connections()),
