@@ -10,6 +10,8 @@ use std::sync::OnceLock;
 use mixdog_services::memory::pg::runtime_install::{Manifest, Platform, install_key, ver_dir};
 
 static DATA: OnceLock<tempfile::TempDir> = OnceLock::new();
+// Held for a whole test, across awaits, on purpose: it keeps the tests of one process off the cluster's port one at a time (separate processes are ordered by nextest's pg-cluster group).
+#[allow(clippy::disallowed_types, reason = "a test-long guard across awaits")]
 static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// The data directory of every real-core test, with the runtime of `MIXDOG_PG_RUNTIME` installed in it.

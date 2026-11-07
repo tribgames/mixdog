@@ -497,7 +497,7 @@ impl McpSurface for DaemonMcpSurface {
 }
 
 #[cfg(test)]
-#[allow(clippy::disallowed_methods, reason = "test fixtures are written straight to a temp dir")]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test fixtures are written straight to a temp dir")]
 mod tests {
     use serde_json::Map;
 
