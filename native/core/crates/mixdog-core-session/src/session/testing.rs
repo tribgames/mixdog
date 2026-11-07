@@ -857,6 +857,10 @@ impl super::NewThreadRoute for NoRoute {
         Ok(serde_json::Map::new())
     }
 
+    async fn adopt_control(&self, _: &ThreadId) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+        Ok(serde_json::Map::new())
+    }
+
     async fn seat(&self, _: &ThreadId) -> Result<(), String> {
         Ok(())
     }

@@ -132,10 +132,10 @@ export interface ShellJobResult {
 }
 
 /** The converted capabilities whose op needs a `threadId`. Node serves them from its control session when the call has
- *  no session, so a call without one is addressed to the control thread. Most have a schema-required `threadId`; four have
- *  an optional one that their handler refuses to go without (`getBranchMenu`, `setOutputStyle`, `setOrchestrationMode`:
- *  `thread_of`), or answers `null` without (`contextStatus`: the daemon has no ambient current session, while Node's control
- *  session answers its own, empty, status record). */
+ *  no session, so a call without one is addressed to the control thread. Most have a schema-required `threadId`; eight have
+ *  an optional one that their handler refuses to go without (`getBranchMenu`, `setOutputStyle`, `setOrchestrationMode`,
+ *  `setRoute`, `setFast`, `selectBranch`, `requestWorktree`: `thread_of`), or answers `null` without (`contextStatus`: the daemon has no
+ *  ambient current session, while Node's control session answers its own, empty, status record). */
 export const THREAD_REQUIRED_CAPABILITIES: ReadonlySet<string> = new Set([
   'rewindToItem',
   'retryFailedTurn',
@@ -150,7 +150,25 @@ export const THREAD_REQUIRED_CAPABILITIES: ReadonlySet<string> = new Set([
   'setOutputStyle',
   'setOrchestrationMode',
   'contextStatus',
+  'setRoute',
+  'setFast',
+  'selectBranch',
+  'requestWorktree',
 ]);
+
+/** The capabilities that name their session as an argument and that Node answers, for a session that is not there, with
+ *  `session is not the active session` (`session-api/lifecycle.mjs`, `quota-resume.mjs` `requireAddressed`); the core
+ *  answers `threadNotFound`. */
+const ADDRESSED_SESSION_CAPABILITIES: ReadonlySet<string> = new Set([
+  'continueSessionInModel',
+  'scheduleQuotaResume',
+  'cancelQuotaResume',
+]);
+
+const isThreadNotFound = (error: unknown): boolean => {
+  const detail = (error as { detail?: { kind?: unknown; data?: { reason?: unknown } } } | null)?.detail;
+  return detail?.kind === 'rpc' && detail.data?.reason === 'threadNotFound';
+};
 
 /** The capabilities served by the core's `mcp/*` and `connector/*` ops: the same set as Node's `MCP_ACTIONS`
  *  (`session-host-transport.ts`). A call of one without a session is addressed to the control thread, whose scope is the
@@ -225,7 +243,10 @@ export function createCapabilityLane({
     // `retryFailedTurn(sessionId, turnKey)` names its thread as its first argument; left out, it is the one addressed.
     const named = capability === 'retryFailedTurn' && !args[0] ? [thread, ...args.slice(1)] : args;
     const { method, params } = routeCapability(capability, named, thread);
-    return request(method, params);
+    if (!ADDRESSED_SESSION_CAPABILITIES.has(capability)) return request(method, params);
+    return request(method, params).catch((error: unknown) => {
+      throw isThreadNotFound(error) ? new Error('session is not the active session') : error;
+    });
   };
   const stateOf = async (threadId: string): Promise<SessionSnapshot> => {
     const read = await request('thread/read', { threadId, window: { none: true } });
@@ -254,8 +275,7 @@ export function createCapabilityLane({
       try {
         await request('thread/delete', { threadId: sessionIdOf(sessionId) });
       } catch (error) {
-        const detail = (error as { detail?: { kind?: unknown; data?: { reason?: unknown } } } | null)?.detail;
-        if (detail?.kind === 'rpc' && detail.data?.reason === 'threadNotFound') return;
+        if (isThreadNotFound(error)) return;
         throw error;
       }
     },

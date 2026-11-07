@@ -966,6 +966,10 @@ async fn a_started_thread_adopts_its_route_before_its_tools_and_seats_it_once_cr
             lock(&self.0).push(json!(["adopt", thread, draft]));
             Ok(json!({ "provider": "custom-harness", "model": "harness-model", "preset": { "name": "Lead" } }).as_object().cloned().expect("route"))
         }
+        async fn adopt_control(&self, thread: &ThreadId) -> Result<serde_json::Map<String, Value>, String> {
+            lock(&self.0).push(json!(["adoptControl", thread]));
+            Ok(serde_json::Map::new())
+        }
         async fn seat(&self, thread: &ThreadId) -> Result<(), String> {
             lock(&self.0).push(json!(["seat", thread]));
             Ok(())
@@ -1016,6 +1020,9 @@ async fn a_start_whose_route_is_refused_creates_no_thread() {
         async fn adopt(&self, _: &ThreadId, _: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
             Err("No model selected. Choose a model with /model first.".to_owned())
         }
+        async fn adopt_control(&self, _: &ThreadId) -> Result<serde_json::Map<String, Value>, String> {
+            panic!("a task start never adopts the control route")
+        }
         async fn seat(&self, _: &ThreadId) -> Result<(), String> {
             panic!("a refused route is never seated")
         }
@@ -1039,6 +1046,50 @@ async fn a_start_whose_route_is_refused_creates_no_thread() {
     assert!(format!("{refused:?}").contains("No model selected. Choose a model with /model first."), "{refused:?}");
     assert_eq!(*lock(&seeds), 0);
     assert!(directory.loaded_ids().is_empty());
+}
+
+/// The desktop's control session is created before any model is chosen (Node's `ensureControlSession`; a turn is what
+/// needs one): a `kind: "control"` start takes its route as it is, while a task start on the same route is refused.
+#[tokio::test(start_paused = true)]
+async fn a_control_start_needs_no_model_where_a_task_start_does() {
+    use mixdog_store::schema::record::Header;
+    type Steps = Arc<Mutex<Vec<Value>>>;
+    struct Modelless(Steps);
+    #[async_trait::async_trait]
+    impl super::NewThreadRoute for Modelless {
+        async fn adopt(&self, _: &ThreadId, _: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
+            Err("No provider models available. Open /providers to sign in, then /model to choose a model.".to_owned())
+        }
+        async fn adopt_control(&self, thread: &ThreadId) -> Result<serde_json::Map<String, Value>, String> {
+            lock(&self.0).push(json!(["adoptControl", thread]));
+            Ok(serde_json::Map::new())
+        }
+        async fn seat(&self, thread: &ThreadId) -> Result<(), String> {
+            lock(&self.0).push(json!(["seat", thread]));
+            Ok(())
+        }
+    }
+    struct Tools(Steps);
+    #[async_trait::async_trait]
+    impl super::NewThreadTools for Tools {
+        async fn seed(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+            lock(&self.0).push(json!(["seed", thread]));
+            Ok(header.clone())
+        }
+    }
+    let rig = Rig::new();
+    let steps: Steps = Arc::default();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_route = Arc::new(Modelless(steps.clone()));
+    deps.new_tools = Arc::new(Tools(steps.clone()));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let refused = directory.request(request("thread/start", json!({ "opId": "op-task", "kind": "task" }), "op-task")).await.err().expect("a task needs a model");
+    assert!(format!("{refused:?}").contains("No provider models available"), "{refused:?}");
+    assert!(lock(&steps).is_empty());
+    let reply = directory.request(request("thread/start", json!({ "opId": "op-control", "kind": "control" }), "op-control")).await.expect("a control start needs no model");
+    let Reply::Subscribe(started) = reply else { panic!("thread/start subscribes") };
+    let control = ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id"));
+    assert_eq!(*lock(&steps), [json!(["adoptControl", control]), json!(["seed", control]), json!(["seat", control])]);
 }
 
 /// A thread whose tools were seeded and that is then not created is abandoned exactly once, whichever

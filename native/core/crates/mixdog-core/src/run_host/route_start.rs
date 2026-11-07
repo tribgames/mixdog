@@ -92,6 +92,13 @@ impl NewThreadRoute for LateNewRoute {
         }
     }
 
+    async fn adopt_control(&self, thread: &ThreadId) -> Result<Map<String, Value>, String> {
+        match self.0.get() {
+            Some(route) => route.adopt_control(thread).await,
+            None => Err("the new thread route is not bound yet".to_owned()),
+        }
+    }
+
     async fn seat(&self, thread: &ThreadId) -> Result<(), String> {
         match self.0.get() {
             Some(route) => route.seat(thread).await,

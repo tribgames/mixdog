@@ -1281,7 +1281,13 @@ impl ThreadDirectory for SessionDirectory {
                 // The route the thread begins on is settled first: the tools and the prompt below are
                 // composed for it, as Node composes the session from `rt.route`.
                 let pick = params.draft.as_ref().and_then(|draft| draft.route.as_ref()).map(super::new_route::draft_pick);
-                let route = self.inner.deps.new_route.adopt(&id, pick.as_ref()).await.map_err(|message| mixdog_core_base::support::failed("route", message))?;
+                // The control session is created before any model is chosen (`ensureControlSession`): its route is not refused for lacking one.
+                let route = if control {
+                    self.inner.deps.new_route.adopt_control(&id).await
+                } else {
+                    self.inner.deps.new_route.adopt(&id, pick.as_ref()).await
+                }
+                .map_err(|message| mixdog_core_base::support::failed("route", message))?;
                 // The route keys only a created record carries (`presetName`, the wire id, the preset's chain …);
                 // the route's own fields are seated once the thread exists.
                 let created = super::new_route::create_keys(&route).map_err(|message| mixdog_core_base::support::failed("route", message))?;
