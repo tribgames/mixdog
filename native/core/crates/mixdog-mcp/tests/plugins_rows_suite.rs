@@ -77,16 +77,19 @@ impl ExtensionConfig for Config {
     fn set_disabled_skills(&self, _: &[String]) {}
 }
 
-/// The session layer: a working folder and no scope for any thread.
-struct Surface(PathBuf);
+/// The session layer: a working folder, and the scope the reading thread's header names (none until set).
+struct Surface {
+    cwd: PathBuf,
+    scope: Mutex<Option<String>>,
+}
 
 #[async_trait]
 impl McpSurface for Surface {
     async fn current_cwd(&self, _: Option<&str>) -> Result<PathBuf, String> {
-        Ok(self.0.clone())
+        Ok(self.cwd.clone())
     }
-    async fn thread_scope(&self, _: &str) -> Result<Option<String>, String> {
-        Ok(None)
+    async fn thread_scope(&self, thread: &str) -> Result<Option<String>, String> {
+        Ok(if thread == THREAD { self.scope.lock().unwrap().clone() } else { None })
     }
     async fn refresh_surface(&self) {}
     async fn tool_names(&self) -> Result<Vec<String>, String> {
@@ -268,6 +271,7 @@ struct Stack {
     host: Arc<GlueHost>,
     service: PluginsService,
     config: Arc<Config>,
+    surface: Arc<Surface>,
 }
 
 fn stack(dir: &Path) -> Stack {
@@ -281,6 +285,7 @@ fn stack(dir: &Path) -> Stack {
         data.join("tool-results"),
         mixdog_mcp::result::OutputPolicy::default(),
     );
+    let surface = Arc::new(Surface { cwd: dir.join("proj"), scope: Mutex::new(None) });
     let glue = McpGlue::new(GlueInputs {
         hub,
         config: config.clone(),
@@ -289,7 +294,7 @@ fn stack(dir: &Path) -> Stack {
         maintenance: tokens.maintenance_io,
         oauth_env: OAuthEnv { store: Arc::new(NoSecrets), plugin_data: data.clone(), io: tokens.durability_io },
         env: std::env::vars().collect::<Env>(),
-        surface: Arc::new(Surface(dir.join("proj"))),
+        surface: surface.clone(),
         health: Arc::new(AccountHealth::default()),
     });
     let catalog = SkillCatalog::new(
@@ -301,7 +306,7 @@ fn stack(dir: &Path) -> Stack {
     );
     let host = Arc::new(GlueHost::new(glue.clone(), catalog));
     let service = PluginsService::new(admin, declarations, config.clone(), host.clone(), tokens.maintenance_io);
-    Stack { glue, host, service, config }
+    Stack { glue, host, service, config, surface }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -325,9 +330,16 @@ async fn the_summary_of_the_real_glue_is_the_one_node_reads_with_no_server_conne
 const MOCK: &str = env!("CARGO_BIN_EXE_mixdog-mcp-mock-server");
 
 /// `connected.json`, recorded by `record-connected.mjs`: Node's own client connected to the same test
-/// server through the real glue. The plugin's server really connects here too, in the runtime's scope.
+/// server through the real glue, then dropped. The plugin's server really connects here too, in the
+/// scope of the session that reads it. The steps go through the operations Node's are:
+/// connected (`connectConfiguredMcp`, here the scope's first connect), one server dropped
+/// (`disconnectMcpServer`, here `connect_configured_mcp(.., false)`), and everything dropped
+/// (`disconnectAll({ scopeId })`, which Node's runtime stop, `runtime-stops.mjs:24`, and a reset,
+/// `connect.mjs:107`, call; here `McpHub::release_scope`, whose servers all close).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_server_connected_through_the_real_glue_reads_as_it_does_in_node() {
+    use mixdog_mcp::mcp_glue::McpScopes;
+    const SCOPE: &str = "reader-scope";
     let dir = tempfile::tempdir().unwrap();
     let base = json_escaped(&dir.path().to_string_lossy());
     let mock_path = MOCK.to_owned();
@@ -355,14 +367,20 @@ async fn a_server_connected_through_the_real_glue_reads_as_it_does_in_node() {
         mixdog_statefile::create_dir_all(lane, &root.join("proj")).unwrap();
     })
     .await;
-    let Stack { glue, host, service, .. } = stack(dir.path());
-    glue.connect_runtime_scope().await.unwrap();
+    let Stack { glue, host, service, surface, .. } = stack(dir.path());
+    *surface.scope.lock().unwrap() = Some(SCOPE.to_owned());
+    glue.open(SCOPE, "owner", &dir.path().join("proj")).await.unwrap();
     let steps = steps.as_array().unwrap();
-    // Step 0: the plugin's server is connected in the runtime's scope.
-    assert_eq!(host.plugin_mcp_summary(None).await.unwrap(), steps[0]["summary"], "{}: the summary", steps[0]["name"]);
-    assert_status(&steps[0], &status_of(&service, None).await);
-    // Step 1: that server dropped.
+    let check = |index: usize| {
+        let (host, service, step) = (host.clone(), &service, &steps[index]);
+        async move {
+            assert_eq!(host.plugin_mcp_summary(Some(THREAD)).await.unwrap(), step["summary"], "{}: the summary", step["name"]);
+            assert_status(step, &status_of(service, Some(THREAD)).await);
+        }
+    };
+    check(0).await;
     host.connect_configured_mcp("plugin-hub-1-mock", false).await;
-    assert_eq!(host.plugin_mcp_summary(None).await.unwrap(), steps[1]["summary"], "{}: the summary", steps[1]["name"]);
-    assert_status(&steps[1], &status_of(&service, None).await);
+    check(1).await;
+    glue.hub().release_scope(SCOPE).await;
+    check(2).await;
 }

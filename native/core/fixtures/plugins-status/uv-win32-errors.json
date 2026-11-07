@@ -1,0 +1,505 @@
+{
+ "libuv": "1.51.0",
+ "rows": [
+  {
+   "constant": "WSAEACCES",
+   "code": 10013,
+   "uv": "EACCES"
+  },
+  {
+   "constant": "ERROR_ELEVATION_REQUIRED",
+   "code": 740,
+   "uv": "EACCES"
+  },
+  {
+   "constant": "ERROR_CANT_ACCESS_FILE",
+   "code": 1920,
+   "uv": "EACCES"
+  },
+  {
+   "constant": "ERROR_ADDRESS_ALREADY_ASSOCIATED",
+   "code": 1227,
+   "uv": "EADDRINUSE"
+  },
+  {
+   "constant": "WSAEADDRINUSE",
+   "code": 10048,
+   "uv": "EADDRINUSE"
+  },
+  {
+   "constant": "WSAEADDRNOTAVAIL",
+   "code": 10049,
+   "uv": "EADDRNOTAVAIL"
+  },
+  {
+   "constant": "WSAEAFNOSUPPORT",
+   "code": 10047,
+   "uv": "EAFNOSUPPORT"
+  },
+  {
+   "constant": "WSAEWOULDBLOCK",
+   "code": 10035,
+   "uv": "EAGAIN"
+  },
+  {
+   "constant": "ERROR_NO_DATA",
+   "code": 232,
+   "uv": "EAGAIN"
+  },
+  {
+   "constant": "WSAEALREADY",
+   "code": 10037,
+   "uv": "EALREADY"
+  },
+  {
+   "constant": "ERROR_INVALID_FLAGS",
+   "code": 1004,
+   "uv": "EBADF"
+  },
+  {
+   "constant": "ERROR_INVALID_HANDLE",
+   "code": 6,
+   "uv": "EBADF"
+  },
+  {
+   "constant": "ERROR_LOCK_VIOLATION",
+   "code": 33,
+   "uv": "EBUSY"
+  },
+  {
+   "constant": "ERROR_PIPE_BUSY",
+   "code": 231,
+   "uv": "EBUSY"
+  },
+  {
+   "constant": "ERROR_SHARING_VIOLATION",
+   "code": 32,
+   "uv": "EBUSY"
+  },
+  {
+   "constant": "ERROR_OPERATION_ABORTED",
+   "code": 995,
+   "uv": "ECANCELED"
+  },
+  {
+   "constant": "WSAEINTR",
+   "code": 10004,
+   "uv": "ECANCELED"
+  },
+  {
+   "constant": "ERROR_NO_UNICODE_TRANSLATION",
+   "code": 1113,
+   "uv": "ECHARSET"
+  },
+  {
+   "constant": "ERROR_CONNECTION_ABORTED",
+   "code": 1236,
+   "uv": "ECONNABORTED"
+  },
+  {
+   "constant": "WSAECONNABORTED",
+   "code": 10053,
+   "uv": "ECONNABORTED"
+  },
+  {
+   "constant": "ERROR_CONNECTION_REFUSED",
+   "code": 1225,
+   "uv": "ECONNREFUSED"
+  },
+  {
+   "constant": "WSAECONNREFUSED",
+   "code": 10061,
+   "uv": "ECONNREFUSED"
+  },
+  {
+   "constant": "ERROR_NETNAME_DELETED",
+   "code": 64,
+   "uv": "ECONNRESET"
+  },
+  {
+   "constant": "WSAECONNRESET",
+   "code": 10054,
+   "uv": "ECONNRESET"
+  },
+  {
+   "constant": "ERROR_ALREADY_EXISTS",
+   "code": 183,
+   "uv": "EEXIST"
+  },
+  {
+   "constant": "ERROR_FILE_EXISTS",
+   "code": 80,
+   "uv": "EEXIST"
+  },
+  {
+   "constant": "ERROR_NOACCESS",
+   "code": 998,
+   "uv": "EFAULT"
+  },
+  {
+   "constant": "WSAEFAULT",
+   "code": 10014,
+   "uv": "EFAULT"
+  },
+  {
+   "constant": "ERROR_HOST_UNREACHABLE",
+   "code": 1232,
+   "uv": "EHOSTUNREACH"
+  },
+  {
+   "constant": "WSAEHOSTUNREACH",
+   "code": 10065,
+   "uv": "EHOSTUNREACH"
+  },
+  {
+   "constant": "ERROR_INSUFFICIENT_BUFFER",
+   "code": 122,
+   "uv": "EINVAL"
+  },
+  {
+   "constant": "ERROR_INVALID_DATA",
+   "code": 13,
+   "uv": "EINVAL"
+  },
+  {
+   "constant": "ERROR_INVALID_PARAMETER",
+   "code": 87,
+   "uv": "EINVAL"
+  },
+  {
+   "constant": "ERROR_SYMLINK_NOT_SUPPORTED",
+   "code": 1464,
+   "uv": "EINVAL"
+  },
+  {
+   "constant": "WSAEINVAL",
+   "code": 10022,
+   "uv": "EINVAL"
+  },
+  {
+   "constant": "WSAEPFNOSUPPORT",
+   "code": 10046,
+   "uv": "EINVAL"
+  },
+  {
+   "constant": "ERROR_BEGINNING_OF_MEDIA",
+   "code": 1102,
+   "uv": "EIO"
+  },
+  {
+   "constant": "ERROR_BUS_RESET",
+   "code": 1111,
+   "uv": "EIO"
+  },
+  {
+   "constant": "ERROR_CRC",
+   "code": 23,
+   "uv": "EIO"
+  },
+  {
+   "constant": "ERROR_DEVICE_DOOR_OPEN",
+   "code": 1166,
+   "uv": "EIO"
+  },
+  {
+   "constant": "ERROR_DEVICE_REQUIRES_CLEANING",
+   "code": 1165,
+   "uv": "EIO"
+  },
+  {
+   "constant": "ERROR_DISK_CORRUPT",
+   "code": 1393,
+   "uv": "EIO"
+  },
+  {
+   "constant": "ERROR_EOM_OVERFLOW",
+   "code": 1129,
+   "uv": "EIO"
+  },
+  {
+   "constant": "ERROR_FILEMARK_DETECTED",
+   "code": 1101,
+   "uv": "EIO"
+  },
+  {
+   "constant": "ERROR_GEN_FAILURE",
+   "code": 31,
+   "uv": "EIO"
+  },
+  {
+   "constant": "ERROR_INVALID_BLOCK_LENGTH",
+   "code": 1106,
+   "uv": "EIO"
+  },
+  {
+   "constant": "ERROR_IO_DEVICE",
+   "code": 1117,
+   "uv": "EIO"
+  },
+  {
+   "constant": "ERROR_NO_DATA_DETECTED",
+   "code": 1104,
+   "uv": "EIO"
+  },
+  {
+   "constant": "ERROR_NO_SIGNAL_SENT",
+   "code": 205,
+   "uv": "EIO"
+  },
+  {
+   "constant": "ERROR_OPEN_FAILED",
+   "code": 110,
+   "uv": "EIO"
+  },
+  {
+   "constant": "ERROR_SETMARK_DETECTED",
+   "code": 1103,
+   "uv": "EIO"
+  },
+  {
+   "constant": "ERROR_SIGNAL_REFUSED",
+   "code": 156,
+   "uv": "EIO"
+  },
+  {
+   "constant": "WSAEISCONN",
+   "code": 10056,
+   "uv": "EISCONN"
+  },
+  {
+   "constant": "ERROR_CANT_RESOLVE_FILENAME",
+   "code": 1921,
+   "uv": "ELOOP"
+  },
+  {
+   "constant": "ERROR_TOO_MANY_OPEN_FILES",
+   "code": 4,
+   "uv": "EMFILE"
+  },
+  {
+   "constant": "WSAEMFILE",
+   "code": 10024,
+   "uv": "EMFILE"
+  },
+  {
+   "constant": "WSAEMSGSIZE",
+   "code": 10040,
+   "uv": "EMSGSIZE"
+  },
+  {
+   "constant": "ERROR_BUFFER_OVERFLOW",
+   "code": 111,
+   "uv": "ENAMETOOLONG"
+  },
+  {
+   "constant": "ERROR_FILENAME_EXCED_RANGE",
+   "code": 206,
+   "uv": "ENAMETOOLONG"
+  },
+  {
+   "constant": "ERROR_NETWORK_UNREACHABLE",
+   "code": 1231,
+   "uv": "ENETUNREACH"
+  },
+  {
+   "constant": "WSAENETUNREACH",
+   "code": 10051,
+   "uv": "ENETUNREACH"
+  },
+  {
+   "constant": "WSAENOBUFS",
+   "code": 10055,
+   "uv": "ENOBUFS"
+  },
+  {
+   "constant": "ERROR_BAD_PATHNAME",
+   "code": 161,
+   "uv": "ENOENT"
+  },
+  {
+   "constant": "ERROR_DIRECTORY",
+   "code": 267,
+   "uv": "ENOENT"
+  },
+  {
+   "constant": "ERROR_ENVVAR_NOT_FOUND",
+   "code": 203,
+   "uv": "ENOENT"
+  },
+  {
+   "constant": "ERROR_FILE_NOT_FOUND",
+   "code": 2,
+   "uv": "ENOENT"
+  },
+  {
+   "constant": "ERROR_INVALID_NAME",
+   "code": 123,
+   "uv": "ENOENT"
+  },
+  {
+   "constant": "ERROR_INVALID_DRIVE",
+   "code": 15,
+   "uv": "ENOENT"
+  },
+  {
+   "constant": "ERROR_INVALID_REPARSE_DATA",
+   "code": 4392,
+   "uv": "ENOENT"
+  },
+  {
+   "constant": "ERROR_MOD_NOT_FOUND",
+   "code": 126,
+   "uv": "ENOENT"
+  },
+  {
+   "constant": "ERROR_PATH_NOT_FOUND",
+   "code": 3,
+   "uv": "ENOENT"
+  },
+  {
+   "constant": "WSAHOST_NOT_FOUND",
+   "code": 11001,
+   "uv": "ENOENT"
+  },
+  {
+   "constant": "WSANO_DATA",
+   "code": 11004,
+   "uv": "ENOENT"
+  },
+  {
+   "constant": "ERROR_NOT_ENOUGH_MEMORY",
+   "code": 8,
+   "uv": "ENOMEM"
+  },
+  {
+   "constant": "ERROR_OUTOFMEMORY",
+   "code": 14,
+   "uv": "ENOMEM"
+  },
+  {
+   "constant": "ERROR_CANNOT_MAKE",
+   "code": 82,
+   "uv": "ENOSPC"
+  },
+  {
+   "constant": "ERROR_DISK_FULL",
+   "code": 112,
+   "uv": "ENOSPC"
+  },
+  {
+   "constant": "ERROR_EA_TABLE_FULL",
+   "code": 277,
+   "uv": "ENOSPC"
+  },
+  {
+   "constant": "ERROR_END_OF_MEDIA",
+   "code": 1100,
+   "uv": "ENOSPC"
+  },
+  {
+   "constant": "ERROR_HANDLE_DISK_FULL",
+   "code": 39,
+   "uv": "ENOSPC"
+  },
+  {
+   "constant": "ERROR_NOT_CONNECTED",
+   "code": 2250,
+   "uv": "ENOTCONN"
+  },
+  {
+   "constant": "WSAENOTCONN",
+   "code": 10057,
+   "uv": "ENOTCONN"
+  },
+  {
+   "constant": "ERROR_DIR_NOT_EMPTY",
+   "code": 145,
+   "uv": "ENOTEMPTY"
+  },
+  {
+   "constant": "WSAENOTSOCK",
+   "code": 10038,
+   "uv": "ENOTSOCK"
+  },
+  {
+   "constant": "ERROR_NOT_SUPPORTED",
+   "code": 50,
+   "uv": "ENOTSUP"
+  },
+  {
+   "constant": "ERROR_BROKEN_PIPE",
+   "code": 109,
+   "uv": "EOF"
+  },
+  {
+   "constant": "ERROR_ACCESS_DENIED",
+   "code": 5,
+   "uv": "EPERM"
+  },
+  {
+   "constant": "ERROR_PRIVILEGE_NOT_HELD",
+   "code": 1314,
+   "uv": "EPERM"
+  },
+  {
+   "constant": "ERROR_BAD_PIPE",
+   "code": 230,
+   "uv": "EPIPE"
+  },
+  {
+   "constant": "ERROR_PIPE_NOT_CONNECTED",
+   "code": 233,
+   "uv": "EPIPE"
+  },
+  {
+   "constant": "WSAESHUTDOWN",
+   "code": 10058,
+   "uv": "EPIPE"
+  },
+  {
+   "constant": "WSAEPROTONOSUPPORT",
+   "code": 10043,
+   "uv": "EPROTONOSUPPORT"
+  },
+  {
+   "constant": "ERROR_WRITE_PROTECT",
+   "code": 19,
+   "uv": "EROFS"
+  },
+  {
+   "constant": "ERROR_SEM_TIMEOUT",
+   "code": 121,
+   "uv": "ETIMEDOUT"
+  },
+  {
+   "constant": "WSAETIMEDOUT",
+   "code": 10060,
+   "uv": "ETIMEDOUT"
+  },
+  {
+   "constant": "ERROR_NOT_SAME_DEVICE",
+   "code": 17,
+   "uv": "EXDEV"
+  },
+  {
+   "constant": "ERROR_INVALID_FUNCTION",
+   "code": 1,
+   "uv": "EISDIR"
+  },
+  {
+   "constant": "ERROR_META_EXPANSION_TOO_LONG",
+   "code": 208,
+   "uv": "E2BIG"
+  },
+  {
+   "constant": "WSAESOCKTNOSUPPORT",
+   "code": 10044,
+   "uv": "ESOCKTNOSUPPORT"
+  },
+  {
+   "constant": "ERROR_BAD_EXE_FORMAT",
+   "code": 193,
+   "uv": "EFTYPE"
+  }
+ ]
+}

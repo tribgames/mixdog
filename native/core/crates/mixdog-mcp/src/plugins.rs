@@ -60,20 +60,16 @@ pub fn resolve_contained(root: &Path, relative: &str) -> Option<PathBuf> {
     Some(out)
 }
 
-/// The code Node's `readFileSync` error carries for a read that failed.
-fn error_code(lane: &InLane<MaintenanceIo>, path: &Path, error: &std::io::Error) -> &'static str {
-    use std::io::ErrorKind;
-    if mixdog_statefile::metadata(lane, path).is_ok_and(|meta| meta.is_dir()) {
-        return "EISDIR";
-    }
-    match error.kind() {
-        ErrorKind::NotFound => "ENOENT",
-        ErrorKind::PermissionDenied => "EACCES",
-        ErrorKind::NotADirectory => "ENOTDIR",
-        _ => "EIO",
+/// `cannot read file (CODE)` for a read that failed, with the code Node's `readFileSync` error carries. A folder
+/// reads `EISDIR` (Node opens it and fails the read; the open here is what fails on Windows); every other
+/// code is libuv's name for the system error ([`crate::uv_error`]).
+fn unreadable(lane: &InLane<MaintenanceIo>, path: &Path, error: &std::io::Error) -> String {
+    let is_dir = mixdog_statefile::metadata(lane, path).is_ok_and(|meta| meta.is_dir());
+    match if is_dir { Some("EISDIR") } else { crate::uv_error::error_code(error) } {
+        Some(code) => format!("cannot read file ({code})"),
+        None => "cannot read file".to_owned(),
     }
 }
-
 /// `jsonErrorMessage(error)` (`plugin-mcp.mjs`): a JSON parse failure as a location only, since the
 /// engine's message may quote the offending source text, which can hold credentials. The location is
 /// read out of V8's message, so the text must be the message V8 raises.
@@ -96,7 +92,7 @@ fn read_json(lane: &InLane<MaintenanceIo>, path: &Path) -> Result<Value, String>
     let bytes = match read {
         Ok(Some(bytes)) => bytes,
         Ok(None) => return Err("cannot read file (ENOENT)".to_owned()),
-        Err(error) => return Err(format!("cannot read file ({})", error_code(lane, path, &error))),
+        Err(error) => return Err(unreadable(lane, path, &error)),
     };
     let text = String::from_utf8_lossy(&bytes);
     mixdog_js::json_parse(&text).map_err(|_| {
