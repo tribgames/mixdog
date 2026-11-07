@@ -637,7 +637,9 @@ fn a_route_section_carries_the_efforts_and_the_selected_route() {
     let route = json!({
         "sessionProvider": "anthropic-oauth", "sessionModel": "m", "fast": false, "fastCapable": false, "autoEffort": true,
         "modelParameters": {}, "effort": "high", "provider": "anthropic-oauth", "model": "m", "turnEffort": "low",
-        "effortOptions": ["low", "high"]
+        "effortOptions": ["low", "high"],
+        // Node's context-state.mjs sends `runtime.session?.forkedFrom || null`: the key is always present.
+        "sessionForkedFrom": null
     });
     let wire = json!({"method": "thread/route/updated", "params": {"threadId": "t", "value": route}});
     let decoded = serde_json::from_value::<ServerNotification>(wire.clone()).unwrap();

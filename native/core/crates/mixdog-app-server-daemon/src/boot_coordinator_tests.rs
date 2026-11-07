@@ -33,11 +33,16 @@ struct Source {
     stored: StoredGoals,
     trace: Trace,
     failing: Vec<String>,
+    /// The recorded `inject.list`: the stored Goals cannot be listed.
+    list: Option<String>,
 }
 
 #[async_trait]
 impl RecoverySource for Source {
     async fn list_active_session_ids(&self) -> GoalResult<Vec<String>> {
+        if let Some(error) = &self.list {
+            return Err(GoalError::new(error));
+        }
         self.stored.list_active_session_ids().await
     }
     async fn read_stored_goal(&self, session_id: &str) -> GoalResult<Option<Goal>> {
@@ -98,10 +103,15 @@ async fn boot_recovery_runs_as_nodes_coordinator_does() {
         let text = |key: &str| inject[key].as_str().map(str::to_owned);
         let trace: Trace = Arc::default();
         let log_trace = trace.clone();
+        // The recorder ran Node at this fixed instant; the Goals' times (and which one expired) are relative to it.
+        let clock = golden["clock"].as_f64().expect("clock");
+        let mut stored = StoredGoals::new(data.path().to_string_lossy().into_owned(), tokens.durability_io);
+        stored.now = Arc::new(move || clock);
         let coordinator = BootCoordinator::new(
             Arc::new(Steps {
                 source: Source {
-                    stored: StoredGoals::new(data.path().to_string_lossy().into_owned(), tokens.durability_io),
+                    stored,
+                    list: text("list"),
                     trace: trace.clone(),
                     failing: inject["materializeFails"]
                         .as_array()
