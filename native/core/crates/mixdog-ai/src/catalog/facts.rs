@@ -345,21 +345,32 @@ pub(super) mod tests {
         service
     }
 
-    #[tokio::test]
-    #[allow(clippy::disallowed_methods, reason = "fixture file")]
-    async fn cached_windows_come_from_the_roster_files_read_at_start() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("openai-oauth-models.json"),
-            r#"{"models":[{"id":"gpt-5.5","contextWindow":272000,"maxContextWindow":1000000}]}"#,
-        )
+    async fn write_roster(dir: &std::path::Path, file: &str, text: &str) {
+        let (path, text) = (dir.join(file), text.to_owned());
+        io().write_job(move |lane| {
+            mixdog_statefile::write_file(lane, &path, text.as_bytes(), &mixdog_statefile::Opts::default()).map(drop).map_err(std::io::Error::other)
+        })
+        .await
         .unwrap();
-        let s = service_in(dir.path(), Vec::new()).await.with_rosters(dir.path().to_path_buf(), io()).await;
+    }
+
+    /// Node reads the roster file on every call (`readModelsFromCacheFile`): a service built before the file
+    /// existed sees it at once, sees a rewrite at once, and holds nothing in between.
+    #[tokio::test]
+    async fn cached_windows_read_the_roster_file_on_every_call() {
+        let dir = tempfile::tempdir().unwrap();
+        let s = service_in(dir.path(), Vec::new()).await.with_rosters(dir.path().to_path_buf());
+        assert!(s.cached_windows("openai-oauth", "gpt-5.5").is_none(), "no file yet");
+        write_roster(dir.path(), "openai-oauth-models.json", r#"{"models":[{"id":"gpt-5.5","contextWindow":272000,"maxContextWindow":1000000}]}"#).await;
         let w = s.cached_windows("openai-oauth", "gpt-5.5").unwrap();
         assert_eq!(serde_json::to_value(w).unwrap(), json!({"contextWindow": 272000.0, "maxContextWindow": 1000000.0}));
         assert!(s.cached_windows("openai-oauth", "other").is_none());
+        write_roster(dir.path(), "openai-oauth-models.json", r#"{"models":[{"id":"gpt-5.5","contextWindow":128000}]}"#).await;
+        let w = s.cached_windows("openai-oauth", "gpt-5.5").unwrap();
+        assert_eq!((w.context_window, w.max_context_window), (128000.0, 0.0), "the rewrite is what the next call reads");
+        write_roster(dir.path(), "openai-oauth-models.json", "not json").await;
+        assert!(s.cached_windows("openai-oauth", "gpt-5.5").is_none(), "a damaged file is no rows");
     }
-
     fn fast(provider: &str, id: &str, mode: Capability) -> ModelRecord {
         let mut r = ModelRecord::new(provider.into(), id);
         r.fast_mode = mode;

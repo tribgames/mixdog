@@ -1,24 +1,20 @@
 //! The live-roster files a provider's model listing persists
-//! (`<provider>-models.json` in the plugin data directory), as Node's
-//! `provider-catalog-cache.mjs` reads them. The files are read together as
-//! lane jobs when the catalog refreshes; a lookup is a read of the resident
-//! snapshot and touches no disk.
+//! (`<provider>-models.json` in the plugin data directory), read as Node's
+//! `provider-catalog-cache.mjs` reads them: from the data directory on every
+//! call (`readModelsFromCacheFile`), so a file another process writes is seen
+//! by the next lookup. A set of rows handed in (`from_rows`) stands in for the
+//! directory, as Node's `withRosters` does.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::PathBuf;
 
-use mixdog_rt::LaneToken;
 use serde::Serialize;
 use serde_json::Value;
-use tokio_util::sync::CancellationToken;
 
-use super::modelsdev_source::read_file;
-use crate::oauth::CredentialIo;
 use crate::service::admin_route::clean;
 use crate::service::admin_route::nullish;
 use crate::service::admin_route::number;
 use crate::service::admin_route::truthy;
-
 /// `providerRosterFiles(provider)`: the roster files a provider reads.
 pub fn roster_files(provider: &str) -> &'static [&'static str] {
     match provider {
@@ -35,18 +31,6 @@ pub fn roster_files(provider: &str) -> &'static [&'static str] {
     }
 }
 
-const ALL_FILES: [&str; 9] = [
-    "openai-oauth-models.json",
-    "anthropic-oauth-models.json",
-    "gemini-models.json",
-    "grok-oauth-models.json",
-    "muse-code-oauth-models.json",
-    "mimo-oauth-models.json",
-    "antigravity-oauth-models.json",
-    "command-code-oauth-models.json",
-    "opencode-go-oauth-models.json",
-];
-
 /// The two windows a route's context share is sized against.
 #[derive(Clone, Copy, PartialEq, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -55,10 +39,12 @@ pub struct CachedWindows {
     pub max_context_window: f64,
 }
 
-/// File name -> rows, each file read once.
+/// The roster files of a data directory.
 #[derive(Default, Debug)]
-pub struct RosterSnapshot {
-    files: HashMap<String, Vec<Value>>,
+pub struct Rosters {
+    dir: Option<PathBuf>,
+    /// While set, reads are served from this file name -> rows map instead of the directory.
+    preset: Option<HashMap<String, Vec<Value>>>,
 }
 
 /// `parseRosterFile`: `models` when it is an array, else the document itself
@@ -123,37 +109,38 @@ fn model_aliases(model: &str) -> Vec<String> {
     out
 }
 
-impl RosterSnapshot {
+impl Rosters {
+    /// The roster files in `dir`, each read when a lookup asks for it.
+    pub fn in_dir(dir: PathBuf) -> Self {
+        Self { dir: Some(dir), preset: None }
+    }
+
+    /// Fixed rows in place of the directory (`withRosters`).
     pub fn from_rows(files: impl IntoIterator<Item = (String, Vec<Value>)>) -> Self {
-        Self { files: files.into_iter().collect() }
+        Self { dir: None, preset: Some(files.into_iter().collect()) }
     }
 
-    /// Reads every roster file as a lane job; an absent or unreadable file
-    /// is no rows. `None` when a read job never ran: that is not "no rows", and the
-    /// caller keeps the snapshot it already has.
-    pub async fn load(dir: &Path, io: &CredentialIo) -> Option<Self> {
-        let reads = ALL_FILES.iter().map(|name| {
-            let path = dir.join(name);
-            let job = io.read.submit(&CancellationToken::new(), move |_| read_file(&path).map(|b| parse_rows(&b)));
-            async move {
-                let rows = job.ok()?.await.ok()?.unwrap_or_default();
-                Some(((*name).to_owned(), rows))
-            }
-        });
-        let files = futures::future::join_all(reads).await.into_iter().collect::<Option<Vec<_>>>()?;
-        Some(Self::from_rows(files))
+    /// `readModelsFromCacheFile`: the file's rows; an absent, unreadable or damaged file is no rows.
+    fn rows(&self, file: &str) -> Vec<Value> {
+        if let Some(preset) = &self.preset {
+            return preset.get(file).cloned().unwrap_or_default();
+        }
+        let Some(dir) = &self.dir else { return Vec::new() };
+        match mixdog_statefile::read_content(&dir.join(file)) {
+            Ok(Some(bytes)) => parse_rows(&bytes),
+            Ok(None) | Err(_) => Vec::new(),
+        }
     }
-
     /// `getProviderCachedModelSync`: the first row of the provider's files
     /// whose id is the model or one of its date-less aliases.
-    pub fn row(&self, provider: &str, model: &str) -> Option<&Value> {
+    pub fn row(&self, provider: &str, model: &str) -> Option<Value> {
         let files = roster_files(provider);
         if files.is_empty() || model.is_empty() {
             return None;
         }
         let aliases = model_aliases(model);
         files.iter().find_map(|file| {
-            self.files.get(*file)?.iter().find(|row| {
+            self.rows(file).into_iter().find(|row| {
                 let id = row_id(row);
                 !id.is_empty() && aliases.contains(&id)
             })
@@ -166,8 +153,8 @@ impl RosterSnapshot {
         let mut seen = std::collections::HashSet::new();
         let mut out = Vec::new();
         for file in roster_files(provider) {
-            for row in self.files.get(*file).into_iter().flatten() {
-                let id = row_id(row);
+            for row in self.rows(file) {
+                let id = row_id(&row);
                 if id.is_empty() || !seen.insert(id.clone()) {
                     continue;
                 }
@@ -198,8 +185,8 @@ mod tests {
 
     use super::*;
 
-    fn snapshot() -> RosterSnapshot {
-        RosterSnapshot::from_rows([
+    fn snapshot() -> Rosters {
+        Rosters::from_rows([
             (
                 "openai-oauth-models.json".to_owned(),
                 parse_rows(

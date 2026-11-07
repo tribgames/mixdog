@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_ai::accounts::AccountStore;
-use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ListingLookup, ModelsDevSource, ProviderReadiness};
+use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ListingLookup, ProviderReadiness};
 use mixdog_ai::oauth::CredentialIo;
 use mixdog_ai::oauth::pace::SystemPace;
 use mixdog_ai::providers::google::traits::{ModelTraits, ThinkingControl};
@@ -192,11 +192,9 @@ async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
         .await
         .unwrap();
     let listing = ListingLookup::new();
-    let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io());
+    // The composition the daemon runs (`build_catalog`): models.dev, LiteLLM and the roster files of the data directory.
     let catalog = Arc::new(
-        CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata)
-            .await
-            .with_litellm(ModelsDevSource::litellm(Arc::new(Offline), dir.path().to_path_buf(), io()))
+        CatalogService::composed(CatalogSnapshot::default(), Vec::new(), Arc::new(Offline), dir.path().to_path_buf(), io())
             .await
             .with_listing_lookup(listing.clone()),
     );

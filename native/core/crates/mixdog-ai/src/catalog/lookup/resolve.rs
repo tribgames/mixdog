@@ -21,7 +21,7 @@ use super::rates::litellm_pricing;
 use super::rates::models_dev_pricing;
 use super::registry;
 use super::registry::Entry;
-use crate::catalog::rosters::RosterSnapshot;
+use crate::catalog::rosters::Rosters;
 use crate::service::admin_route::jnum;
 use crate::service::admin_route::number;
 use crate::service::admin_route::truthy;
@@ -413,7 +413,7 @@ fn roster_reasoning_options(row: &Value) -> Value {
 pub struct Lookup<'a> {
     pub litellm: &'a Value,
     pub models_dev: &'a Value,
-    pub rosters: &'a RosterSnapshot,
+    pub rosters: &'a Rosters,
 }
 
 fn is_custom(provider: &str) -> bool {
@@ -680,7 +680,7 @@ impl Lookup<'_> {
         let cached = if provider.is_empty() {
             None
         } else {
-            self.rosters.row(source_provider, original_id).map(|row| roster_row_metadata(provider, row))
+            self.rosters.row(source_provider, original_id).map(|row| roster_row_metadata(provider, &row))
         };
         let seed = source.as_ref().and_then(|s| registry::seed_row(s, original_id));
         if meta.is_none() && cached.is_none() && seed.is_none() && guess.is_none() {

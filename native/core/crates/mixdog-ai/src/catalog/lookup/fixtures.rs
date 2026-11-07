@@ -3,7 +3,7 @@
 
 use serde_json::Value;
 
-use crate::catalog::rosters::RosterSnapshot;
+use crate::catalog::rosters::Rosters;
 
 pub const LITELLM: &str = include_str!("../../../fixtures/catalog-lookup/litellm.json");
 pub const MODELS_DEV: &str = include_str!("../../../fixtures/catalog-lookup/modelsdev.json");
@@ -17,9 +17,9 @@ pub fn json(text: &str) -> Value {
 }
 
 /// The roster files as the data directory holds them: a `models` document or a bare array.
-pub fn rosters() -> RosterSnapshot {
+pub fn rosters() -> Rosters {
     let files = json(ROSTERS);
-    RosterSnapshot::from_rows(files.as_object().expect("files").iter().map(|(name, body)| {
+    Rosters::from_rows(files.as_object().expect("files").iter().map(|(name, body)| {
         let rows = body.as_array().or_else(|| body.get("models").and_then(Value::as_array)).cloned().unwrap_or_default();
         (name.clone(), rows)
     }))

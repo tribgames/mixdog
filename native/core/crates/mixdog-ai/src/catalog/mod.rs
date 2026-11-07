@@ -48,7 +48,7 @@ pub use readiness::Ready;
 pub use readiness::is_known_provider;
 pub use record::BudgetSpec;
 pub use rosters::CachedWindows;
-pub use rosters::RosterSnapshot;
+pub use rosters::Rosters;
 pub use record::Thinking;
 pub use traits::CatalogTraits;
 pub use traits::ModelTraits;
@@ -78,4 +78,6 @@ pub use store::ProviderCatalog;
 pub use store::ProviderStatus;
 pub use store::RETRY_AFTER_MS;
 pub use store::RefreshOutcome;#[cfg(test)]
+mod composed_tests;
+#[cfg(test)]
 mod failures_tests;
