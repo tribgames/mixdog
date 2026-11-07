@@ -342,11 +342,16 @@ impl RouteService {
 
     /// The route a new task runs on when its draft names none: the live route the config resolved
     /// to, with the effort and Fast facts of its model (`prepareRoute`'s `refreshRouteEffort`). A
-    /// route without a model is left as it is: Node refuses a model-less session at its first turn
-    /// (`requireModelRoute`), not here.
+    /// route without a model is refused before anything is created, with the text Node's
+    /// `resolveMissingRouteModelForFirstTurn` throws (`route-resolution.mjs:28-35`; no code, a
+    /// plain `Error`): no provider lists a model, or the user has not chosen one (never auto-picked).
     pub async fn ready_default(&self, thread: &ThreadId) -> Result<(), String> {
         if clean(self.writer.route(thread).get("model")).is_empty() {
-            return Ok(());
+            return Err(if self.facts.provider_models_listed() {
+                "No model selected. Choose a model with /model first.".to_owned()
+            } else {
+                "No provider models available. Open /providers to sign in, then /model to choose a model.".to_owned()
+            });
         }
         self.writer.refresh_route_effort(thread, None, true, None).await.map_err(port)?;
         Ok(())
