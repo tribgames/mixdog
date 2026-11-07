@@ -226,8 +226,8 @@ impl FeedSource for ActorThread {
 }
 
 impl RunControl for ActorThread {
-    fn interrupt(&self, turn: &TurnId) -> Result<Value, CoreError> {
-        let reply = self.thread.interrupt(turn)?;
+    fn interrupt(&self, turn: &TurnId, restore_prompt: Option<bool>) -> Result<Value, CoreError> {
+        let reply = self.thread.interrupt(turn, restore_prompt)?;
         self.actor.interrupt();
         Ok(reply)
     }

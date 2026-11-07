@@ -295,7 +295,7 @@ impl SessionDirectory {
         let Some(run) = handle.cell.run.load_full() else {
             return Ok(false);
         };
-        handle.cell.interrupt(&run.turn)?;
+        handle.cell.interrupt(&run.turn, None)?;
         Ok(true)
     }
 

@@ -321,7 +321,7 @@ impl FeedSource for MockThread {
 }
 
 impl RunControl for MockThread {
-    fn interrupt(&self, turn: &TurnId) -> Result<Value, CoreError> {
+    fn interrupt(&self, turn: &TurnId, _: Option<bool>) -> Result<Value, CoreError> {
         self.check_turn(turn)?;
         lock(&self.control).push(ControlCall::Interrupt(turn.clone()));
         Ok(json!({}))

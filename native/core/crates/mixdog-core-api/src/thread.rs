@@ -57,8 +57,10 @@ pub trait ThreadHandle: FeedSource + RunControl {
 pub trait RunControl: Send + Sync {
     /// `turn/interrupt`: cancels the run's token, enqueues the abort on the actor's control
     /// lane and publishes the cancel hint; the reply does not wait for the abort record.
+    /// `restore_prompt` is the client's `restorePrompt`: `Some(false)` keeps the stopped prompt in the transcript
+    /// (the stop names `user-cancel-keep-prompt`), anything else lets a turn that produced nothing be rewound.
     /// Errors: `turnNotActive` (no or another active turn), `queueFull` (control lane full).
-    fn interrupt(&self, turn: &TurnId) -> Result<Value, CoreError>;
+    fn interrupt(&self, turn: &TurnId, restore_prompt: Option<bool>) -> Result<Value, CoreError>;
 
     /// `turn/steer`: validates against the run's control cell (active regular run, matching
     /// turn, non-empty input) and queues the input; the run injects it at its next model-call

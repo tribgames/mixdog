@@ -35,6 +35,31 @@ pub enum AbortReason {
 }
 
 impl AbortReason {
+    /// The close/abort reason name Node passes (`abortRuntime(reason)`, `closeSession(id, reason)`) as
+    /// `finalizeInterruptedTurn` reads it: the user's stops are `USER_CANCEL_ABORT_REASONS`, `interrupt`,
+    /// `provider-error` and `process-crash` are named, and any other reason (`cli-agent-close`, a delete, a
+    /// shutdown) is a non-user stop.
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "cli-abort" => Self::CliAbort,
+            "user-cancel" => Self::UserCancel,
+            "turn-abort" => Self::TurnAbort,
+            "user-cancel-keep-prompt" => Self::UserCancelKeepPrompt,
+            "interrupt" => Self::Interrupt,
+            "provider-error" => Self::ProviderError,
+            "process-crash" => Self::ProcessCrash,
+            _ => Self::Other,
+        }
+    }
+
+    /// The reason named in an abort text built by `cancel::{close_session_reason, abort_session_turn_reason,
+    /// runtime_abort_reason}` (`... (reason=NAME)`); `None` for a text that names none (a bare `abort()`, a
+    /// parent signal's own reason), which Node reads as a null reason and treats as a user cancel.
+    pub fn from_text(text: &str) -> Option<Self> {
+        let rest = &text[text.rfind("(reason=")? + "(reason=".len()..];
+        Some(Self::from_name(rest.strip_suffix(')')?))
+    }
+
     fn user_cancel(self) -> bool {
         matches!(
             self,
@@ -258,6 +283,86 @@ mod tests {
         let texts: Vec<String> = done.transcript.iter().map(AgentMessage::text).collect();
         assert_eq!(texts, ["go", "half an ans", INTERRUPT_MESSAGE]);
         assert_eq!(done.sent_request_tail, Some(0), "killed with the request on the wire: the prompt is the sent tail");
+    }
+
+    fn message_from(row: &serde_json::Value) -> AgentMessage {
+        let text = row["content"].as_str().unwrap_or_default();
+        match row["role"].as_str().unwrap() {
+            "user" => AgentMessage::user(text),
+            "assistant" => {
+                let calls = row["toolCalls"].as_array().into_iter().flatten().map(call_from).collect();
+                AgentMessage::assistant(text, calls)
+            }
+            _ => {
+                let mut message = AgentMessage::tool_text(row["toolCallId"].as_str().unwrap(), text, ToolKind::Normal);
+                message.tool_kind = (row["toolKind"] == "error").then_some(ToolKind::Error);
+                message
+            }
+        }
+    }
+
+    fn call_from(call: &serde_json::Value) -> ToolCall {
+        ToolCall { id: call["id"].as_str().unwrap().into(), name: call["name"].as_str().unwrap().into(), arguments: JsonValue::Null, native_type: None }
+    }
+
+    /// What Node's `finalizeTurnInterruptionSnapshot` gave these interruptions
+    /// (`fixtures/interrupt/golden.json`, `record-interrupt.mjs`): the finalized transcript, which message carries
+    /// `sentRequestTail`, and whether the response and the user turn were kept.
+    #[test]
+    fn every_interruption_is_finalized_as_node_does() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/interrupt/golden.json")).unwrap();
+        let cases = golden["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 17);
+        for case in cases {
+            let snapshot = &case["snapshot"];
+            let phase = if snapshot["phase"] == "tools" { Phase::Tools } else { Phase::Streaming };
+            let pairs = |key: &str| snapshot[key].as_array().into_iter().flatten().map(|pair| pair[1].clone()).collect::<Vec<_>>();
+            let done = finalize_interrupted_turn(Interrupted {
+                transcript: case["transcript"].as_array().unwrap().iter().map(message_from).collect(),
+                current_user_text: case["current"].as_str().unwrap().into(),
+                response_started: snapshot["responseStarted"] == true,
+                partial_assistant: snapshot["partialAssistantContent"].as_str().unwrap().into(),
+                partial_reasoning: snapshot["partialReasoningContent"].as_str().unwrap().into(),
+                observed_tool_calls: pairs("observedToolCalls").iter().map(|entry| call_from(&entry["call"])).collect(),
+                observed_tool_results: pairs("observedToolResults").iter().map(message_from).collect(),
+                phase,
+                reason: Some(AbortReason::from_name(case["reason"].as_str().unwrap())),
+            });
+            let shown: Vec<serde_json::Value> = done
+                .transcript
+                .iter()
+                .map(|m| {
+                    let role = match m.role() {
+                        Role::User => "user",
+                        Role::Assistant => "assistant",
+                        _ => "tool",
+                    };
+                    serde_json::json!([role, m.text(), m.tool_call_id(), (m.tool_kind == Some(ToolKind::Error)).then_some("error")])
+                })
+                .collect();
+            let want: Vec<serde_json::Value> = case["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|m| serde_json::json!([m["role"], m["content"], m.get("toolCallId").cloned().unwrap_or_default(), m.get("toolKind").filter(|k| *k == "error").cloned().unwrap_or_default()]))
+                .collect();
+            let name = &case["name"];
+            assert_eq!(shown, want, "{name}");
+            assert_eq!((done.response_preserved, done.user_turn_preserved), (case["responsePreserved"] == true, case["userTurnPreserved"] == true), "{name}");
+            let stamped = case["messages"].as_array().unwrap().iter().position(|m| m.pointer("/meta/sentRequestTail") == Some(&serde_json::Value::Bool(true)));
+            assert_eq!(done.sent_request_tail, stamped, "{name}: sentRequestTail");
+        }
+    }
+
+    #[test]
+    fn an_abort_text_names_its_reason_as_node_builds_it() {
+        use crate::cancel::{close_session_reason, runtime_abort_reason, session_closed, CLI_ABORT};
+        assert_eq!(AbortReason::from_text(&runtime_abort_reason("s", CLI_ABORT)), Some(AbortReason::CliAbort));
+        assert_eq!(AbortReason::from_text(&close_session_reason("s", "cli-agent-close")), Some(AbortReason::Other));
+        assert_eq!(AbortReason::from_text(&runtime_abort_reason("s", "user-cancel-keep-prompt")), Some(AbortReason::UserCancelKeepPrompt));
+        assert_eq!(AbortReason::from_text(&runtime_abort_reason("s", "interrupt")), Some(AbortReason::Interrupt));
+        assert_eq!(AbortReason::from_text(&session_closed("s", "runtime close (reason=cli-exit)")), Some(AbortReason::Other));
+        assert_eq!(AbortReason::from_text("parent aborted"), None);
     }
 
     #[test]

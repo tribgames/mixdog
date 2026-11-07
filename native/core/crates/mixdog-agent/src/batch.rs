@@ -575,10 +575,17 @@ impl Run {
         self.drop_eager();
 
         if aborted {
-            // Commit what finished; the interruption closes the rest.
+            // What settled before the stop is not committed in call order: the interruption keeps it as the early
+            // notice Node recorded (`notifyEarlyResult`: the model-visible text, `error` only for a failed call),
+            // and closes the rest as cancelled.
             for i in 0..n {
-                if let Some(result) = executed[i].take() {
-                    staged[i] = Some(result.message);
+                if let Some(result) = executed[i].take()
+                    && was_executed[i]
+                    && let Some(id) = result.message.tool_call_id()
+                {
+                    let mut early = AgentMessage::tool_text(id, result.message.text(), ToolKind::Normal);
+                    early.tool_kind = result.failed.then_some(ToolKind::Error);
+                    self.emit(RunEvent::EarlyResult(early));
                 }
             }
         }

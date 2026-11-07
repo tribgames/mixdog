@@ -313,8 +313,11 @@ impl ControlCell {
     /// `turn/interrupt` → `{cancelRequested: true, turnId}` (R12): the user's stop
     /// (`abortRuntime`, `cli-abort`). The run stops at its next poll; its `run{interrupted}`
     /// record follows through the control reserve.
-    pub fn interrupt(&self, turn: &TurnId) -> Result<Value, CoreError> {
-        let reason = mixdog_agent::cancel::runtime_abort_reason(self.thread.as_str(), mixdog_agent::cancel::CLI_ABORT);
+    pub fn interrupt(&self, turn: &TurnId, restore_prompt: Option<bool>) -> Result<Value, CoreError> {
+        // `abort.mjs`: a Stop that hands the prompt back is `user-cancel` (the runtime rewinds a turn that produced
+        // nothing); one that does not names `user-cancel-keep-prompt`, so the prompt stays in the stored transcript.
+        let name = if restore_prompt == Some(false) { "user-cancel-keep-prompt" } else { mixdog_agent::cancel::CLI_ABORT };
+        let reason = mixdog_agent::cancel::runtime_abort_reason(self.thread.as_str(), name);
         self.abort(turn, &reason)
     }
 

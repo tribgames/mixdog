@@ -45,9 +45,9 @@ async fn mock_core_serves_every_seam() {
         core.threads().open(&ThreadId::from("nope"), &ctx).await,
         Err(CoreError::ThreadNotFound { .. })
     ));
-    handle.interrupt(&TurnId::from("u1")).unwrap();
+    handle.interrupt(&TurnId::from("u1"), None).unwrap();
     assert!(matches!(
-        handle.interrupt(&TurnId::from("old")),
+        handle.interrupt(&TurnId::from("old"), None),
         Err(CoreError::TurnNotActive { .. })
     ));
 
