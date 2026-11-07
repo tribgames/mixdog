@@ -21,6 +21,7 @@ use mixdog_core_prompt::prompt::compose::PART_SEPARATOR;
 use mixdog_core_prompt::prompt::compose::ProfileSkip;
 use mixdog_core_prompt::prompt::compose::Slices;
 use mixdog_core_prompt::prompt::compose::compose_system_prompt;
+use mixdog_core_prompt::prompt::notice::OwnedSections;
 use mixdog_core_prompt::prompt::settings::Sections;
 use mixdog_core_prompt::prompt::settings::prompt_settings_record;
 use mixdog_core_prompt::prompt::sources::PromptSources;
@@ -104,6 +105,9 @@ pub struct SessionPrompt {
     pub environment_tail: String,
     pub prompt_identity: Value,
     pub prompt_settings: Value,
+    /// The sections `prompt_settings` is the record of (`promptSettingsSections`): what a conversation's
+    /// settings are compared with at its turn start (`notice::stage_prompt_settings_notice`).
+    pub sections: OwnedSections,
     /// `{ id, name }` or null.
     pub response_language: Value,
 }
@@ -355,6 +359,19 @@ pub fn compose_session_prompt(input: &SessionPromptInput, paths: &PromptPaths, s
         environment_tail,
         prompt_identity: Value::Object(identity),
         prompt_settings: prompt_settings_record(&sections),
+        sections: OwnedSections {
+            meta: sections.meta.to_owned(),
+            workflow: sections.workflow.to_owned(),
+            workflow_name: None,
+            orchestration: sections.orchestration.to_owned(),
+            orchestration_mode: sections.orchestration_mode.to_owned(),
+            skills: sections.skills.to_owned(),
+            instruction_files: sections.instruction_files.to_owned(),
+            core_memory: sections.core_memory.to_owned(),
+            language: sections.language.to_owned(),
+            instruction_files_mode: sections.instruction_files_mode.to_owned(),
+            response_language: response_language.clone(),
+        },
         response_language,
     }
 }

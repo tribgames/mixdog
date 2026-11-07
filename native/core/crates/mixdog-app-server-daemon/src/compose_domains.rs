@@ -289,6 +289,10 @@ pub struct PreDomains {
     pub plugins: Arc<dyn DomainService>,
     /// The `WorkflowConfig` also in `services` (`config/getWorkflowPack`).
     pub workflow: Arc<dyn DomainService>,
+    /// The same `WorkflowConfig`, concrete: `thread/setWorkflow` and its siblings (`ThreadSettings`) read its packs and config.
+    pub workflow_config: Arc<WorkflowConfig>,
+    /// The output styles `ConfigService` serves (a clone shares its state): `thread/setOutputStyle` writes through them.
+    pub output_styles: OutputStyles,
     /// The voice setup the voice service holds: the root passes `VoiceToggle(voice_setup)` as the setup tool's `SetupVoice`.
     pub voice_setup: Arc<mixdog_services::voice::VoiceSetup>,
     /// The media domain's job table and store, for the `media` tool's `StudioGraph` (one table, one store).
@@ -315,7 +319,7 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
     let tool_modules = ToolModules::new(config.clone(), local.tool_modules_host.clone(), state.publisher.clone(), inputs.cancel.clone());
     let settings = Settings::new(config.clone(), inputs.seams.settings_effects.clone(), inputs.env.clone());
     let output_styles = OutputStyles::new(config.clone(), inputs.paths.package_root.join("src").join("output-styles"), &inputs.paths.data_dir);
-    services.push(Arc::new(ConfigService::new(config.clone(), tool_modules.clone(), settings.clone(), output_styles)));
+    services.push(Arc::new(ConfigService::new(config.clone(), tool_modules.clone(), settings.clone(), output_styles.clone())));
     services.extend(local.services);
     let setup_requests = Arc::new(SetupRequests::new(inputs.seams.setup_ui.clone()));
     services.push(Arc::new(SetupRequestsService::new(setup_requests.clone())));
@@ -334,6 +338,7 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
         inputs.scopes.scopes("workflow")?,
         &inputs.tokens,
     );
+    let workflow_config_concrete = workflow_config.clone();
     let workflow: Arc<dyn DomainService> = workflow_config.clone();
     services.push(workflow.clone());
     services.push(Arc::new(BrowserService::new(inputs.host.clone())));
@@ -380,6 +385,8 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
         setup_requests,
         plugins,
         workflow,
+        workflow_config: workflow_config_concrete,
+        output_styles,
         voice_setup: local.voice_setup,
         media_jobs: local.media_jobs,
         media_store: local.media_store,

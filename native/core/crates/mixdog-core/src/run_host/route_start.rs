@@ -110,10 +110,26 @@ impl Bound for LateNewRoute {
     }
 }
 
-/// What a turn start does to the thread before its request is built: the held route pick takes
-/// effect, then the settings follow the live ones.
+/// The workflow and orchestration-mode choices made while the last turn ran, applied at the next turn
+/// start (`applyPendingSessionSwitches()`, `turn-prepare.mjs`).
+#[async_trait]
+pub trait PendingSwitches: Send + Sync + 'static {
+    async fn apply(&self, thread: &ThreadId) -> Result<(), String>;
+}
+
+#[async_trait]
+impl PendingSwitches for mixdog_core_session::session::thread_switches::SessionSwitchAdapter {
+    /// What the switches answer (`onSessionSwitches`) has no reader on a turn start here; a refusal is the turn's.
+    async fn apply(&self, thread: &ThreadId) -> Result<(), String> {
+        self.apply_pending_switches(thread).await.map(|_| ())
+    }
+}
+
+/// What a turn start does to the thread before its request is built, in Node's order (`prepareSession`):
+/// the held route pick takes effect, the held workflow and mode choices apply, then the settings follow the live ones.
 pub struct TurnStart {
     pub route: Arc<dyn PendingRoute>,
+    pub switches: Arc<dyn PendingSwitches>,
     pub settings: Arc<dyn TurnSettings>,
 }
 
@@ -121,6 +137,7 @@ pub struct TurnStart {
 impl TurnSettings for TurnStart {
     async fn reconcile(&self, thread: &ThreadId, conversation: bool) -> Result<Header, String> {
         self.route.apply(thread).await?;
+        self.switches.apply(thread).await?;
         self.settings.reconcile(thread, conversation).await
     }
 
@@ -146,6 +163,14 @@ mod tests {
     }
 
     #[async_trait]
+    impl PendingSwitches for Steps {
+        async fn apply(&self, _: &ThreadId) -> Result<(), String> {
+            self.0.lock().unwrap().push("switches");
+            Ok(())
+        }
+    }
+
+    #[async_trait]
     impl TurnSettings for Steps {
         async fn reconcile(&self, _: &ThreadId, _: bool) -> Result<Header, String> {
             self.0.lock().unwrap().push("settings");
@@ -159,11 +184,11 @@ mod tests {
     async fn a_turn_start_applies_the_held_route_before_the_settings() {
         let order = Arc::new(Mutex::new(Vec::new()));
         let thread = ThreadId::from("t1");
-        let start = TurnStart { route: Arc::new(Steps(order.clone(), Ok(()))), settings: Arc::new(Steps(order.clone(), Ok(()))) };
+        let start = TurnStart { route: Arc::new(Steps(order.clone(), Ok(()))), switches: Arc::new(Steps(order.clone(), Ok(()))), settings: Arc::new(Steps(order.clone(), Ok(()))) };
         start.reconcile(&thread, false).await.expect("reconciled");
-        assert_eq!(*order.lock().unwrap(), ["route", "settings"]);
+        assert_eq!(*order.lock().unwrap(), ["route", "switches", "settings"]);
         order.lock().unwrap().clear();
-        let refused = TurnStart { route: Arc::new(Steps(order.clone(), Err("held pick refused".into()))), settings: Arc::new(Steps(order.clone(), Ok(()))) };
+        let refused = TurnStart { route: Arc::new(Steps(order.clone(), Err("held pick refused".into()))), switches: Arc::new(Steps(order.clone(), Ok(()))), settings: Arc::new(Steps(order.clone(), Ok(()))) };
         assert_eq!(refused.reconcile(&thread, false).await.expect_err("refused"), "held pick refused");
         assert_eq!(*order.lock().unwrap(), ["route"]);
     }

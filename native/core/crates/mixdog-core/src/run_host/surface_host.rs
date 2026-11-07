@@ -67,6 +67,8 @@ use super::deferred_manifest::apply_initial_manifest;
 use super::prompt_rebuild::PromptRebuild;
 use super::prompt_rebuild::RebuildRequest;
 use super::prompt_session::SessionPrompt;
+use mixdog_core_prompt::prompt::notice::OwnedSections;
+use mixdog_core_prompt::prompt::notice::stage_prompt_settings_notice;
 use super::prompt_session::refresh_environment;
 use super::tool_availability::Moved;
 use super::tool_availability::stage_connector_availability;
@@ -292,16 +294,6 @@ impl LeadSurfaceHost {
         self.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(thread.as_str().to_owned(), key);
     }
 
-    /// Whether `thread` was last brought to these gates (`applied?.gates === gates`).
-    fn gates_applied(&self, thread: &ThreadId, gates: &str) -> bool {
-        self.applied_to(thread).is_some_and(|applied| applied.gates == gates)
-    }
-
-    /// The gates a staging brought `thread` to, the prompt settings already recorded for it kept.
-    fn note_gates(&self, thread: &ThreadId, gates: String) {
-        self.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).entry(thread.as_str().to_owned()).or_default().gates = gates;
-    }
-
     /// `note_applied` of the key a reconcile brought the surface to, if it brought it to one.
     fn note_applied_key(&self, thread: &ThreadId, key: Option<Applied>) {
         if let Some(key) = key {
@@ -489,16 +481,46 @@ impl LeadSurfaceHost {
     /// tools follow the live gates (`stageToolAvailability`) without touching its prefix. What moved,
     /// if anything; the header is written only when it changed.
     pub async fn stage_gates(&self, thread: &ThreadId) -> Result<Staged, CoreError> {
-        self.stage(thread, true).await
+        self.stage(thread, true, None).await
     }
 
-    /// [`Self::stage_gates`], or with `tools` false only the connector switches, which Node reads every turn.
-    async fn stage(&self, thread: &ThreadId, tools: bool) -> Result<Staged, CoreError> {
+    /// The prompt sections a conversation's settings are compared with, as they stand now
+    /// (`promptSettingsSections`): the prompt composition's own, over the thread's workflow, denials and route.
+    async fn current_prompt(&self, thread: &ThreadId, header: &Header) -> Result<SessionPrompt, String> {
+        let s = &self.sources;
+        let route = s.routes.route(thread);
+        let (provider, model) = (clean(route.get("provider")), clean(route.get("model")));
+        let target = s.workflow.target(header, "", None).await.map_err(String::from)?;
+        let mut denied: Vec<String> = Vec::new();
+        for name in s.workflow.live_denied_tools(header, &target.summary).await.map_err(String::from)? {
+            if !name.is_empty() && !denied.contains(&name) {
+                denied.push(name);
+            }
+        }
+        let owner_is_agent = is_agent_owner(&Value::Object(header.clone()));
+        let agent = header.get("promptIdentity").and_then(|identity| identity.get("agent")).and_then(Value::as_str).filter(|agent| !agent.is_empty());
+        let honored = header.get("schemaAllowedTools").is_some_and(Value::is_array) && (!owner_is_agent || (s.hidden_agent)(agent));
+        let allowed = honored.then(|| strings(header.get("schemaAllowedTools")));
+        let has_git_tool = doc_names(header.get("tools")).iter().chain(doc_names(header.get("deferredToolCatalog")).iter()).any(|name| name == "git");
+        s.prompt.rebuild(RebuildRequest { header: header.clone(), target, denied, allow: allowed, provider, model, has_git_tool }).await
+    }
+
+    /// [`Self::stage_gates`], or with `tools` false only the connector switches, which Node reads every turn. With
+    /// `notice` (the sections as they stand now) the thread's prompt settings are compared with them first and the
+    /// notice for what changed is staged (`stagePromptSettingsNotice`); a change folds in at the next cold point
+    /// (`promptFoldPending`), except for a delegated worker, whose prompt is never rebuilt.
+    async fn stage(&self, thread: &ThreadId, tools: bool, notice: Option<&OwnedSections>) -> Result<Staged, CoreError> {
         let s = &self.sources;
         loop {
             let header = s.threads.header(thread).await.map_err(|error| port(thread, error))?;
             let mut next = header.clone();
             let connectors = stage_connector_availability(&mut next, thread, s.connectors.as_ref(), s.clock.now_ms());
+            if let Some(sections) = notice {
+                let changed = stage_prompt_settings_notice(&mut next, sections, s.clock.now_ms());
+                if !changed.is_empty() && !is_agent_owner(&Value::Object(next.clone())) {
+                    next.insert("promptFoldPending".to_owned(), Value::Bool(true));
+                }
+            }
             let mut moved = None;
             if tools {
                 let feature_denied = s.feature_denied.denied().await.map_err(|message| failed("tools", message))?;
@@ -564,16 +586,26 @@ impl TurnSettings for LeadSurfaceHost {
         let s = &self.sources;
         // `applied?.gates === gates`: a thread already brought to the live gate list is not staged again.
         let gates = self.gates(&s.feature_denied.denied().await?);
-        let unchanged = self.gates_applied(thread, &gates);
-        if !conversation {
-            let header = s.threads.header(thread).await.map_err(|error| port(thread, error)).map_err(described)?;
-            if header.get("promptIdentity").is_some_and(Value::is_object) {
-                self.settle_empty(thread).await.map_err(described)?;
-                return self.fold_mcp_surface(thread).await.map_err(described);
-            }
+        let header = s.threads.header(thread).await.map_err(|error| port(thread, error)).map_err(described)?;
+        let identity = header.get("promptIdentity").is_some_and(Value::is_object);
+        if !conversation && identity {
+            self.settle_empty(thread).await.map_err(described)?;
+            return self.fold_mcp_surface(thread).await.map_err(described);
         }
-        self.stage(thread, !unchanged).await.map_err(described)?;
-        self.note_gates(thread, gates);
+        // A conversation with a prompt identity compares the prompt settings as they stand now with what its prompt
+        // presents (`reconcileSession`: `applied.gates === gates && applied.settings === settings`); a session without
+        // an identity has no sections (`settings` undefined).
+        let (sections, settings) = if identity {
+            let composed = self.current_prompt(thread, &header).await?;
+            let revision = composed.prompt_settings.get("revision").and_then(Value::as_str).unwrap_or_default().to_owned();
+            (Some(composed.sections), revision)
+        } else {
+            (None, String::new())
+        };
+        let key = Applied { gates: gates.clone(), settings };
+        let unchanged = self.applied_to(thread).as_ref() == Some(&key) && !truthy(header.get("promptSettingsRecheck"));
+        self.stage(thread, !unchanged, sections.as_ref().filter(|_| !unchanged)).await.map_err(described)?;
+        self.note_applied(thread, key);
         self.fold_mcp_surface(thread).await.map_err(described)
     }
 

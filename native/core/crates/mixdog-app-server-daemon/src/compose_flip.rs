@@ -943,6 +943,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The `agents` status reader reads the route positions of the live threads through a late cell bound after `TurnPath::new` (`SessionRoutePositions` takes the directory).
     let route_positions = Arc::new(crate::late_route_positions::LateRoutePositions::default());
     let pre = compose_domains_pre(&domain_inputs).await.map_err(ComposeError::ComposeDomains)?;
+    // `thread/setWorkflow`, `thread/setOutputStyle` and the other settings of a thread read the same workflow config and output styles as the config service.
+    let workflow_config = pre.workflow_config.clone();
+    let output_styles = pre.output_styles.clone();
 
     // The one quota auto-resume switch (config `quotaResume.autoResume`, on unless `false`). It is built here, ahead of the goals
     // that `SessionQuota::over_config` needs, because the providers status reader (step 7) reads it too: `SessionQuota { goals, auto_resume }`
@@ -1994,8 +1997,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .map_err(|_| ComposeError::AlreadyBound("reactions"))?;
     // `late_agent_port.bind(assembled.port())` belongs right after `assemble(AgentParts{..})` (flip-agent-worlds-15), below.    // flip-surface-11: every turn start reconciles through the late `TurnSettings`; an unbound cell is a typed failure and is in `verify_bound` below.
     // Node's turn preparation applies the route pick held for the turn (`applyPendingRoute`) before it reconciles the settings.
+    // The workflow and mode choices a thread made while its last turn ran apply from the next one (`applyPendingSessionSwitches`), after the held route pick and before the settings reconcile.
+    let session_switches = Arc::new(mixdog_core_session::session::thread_switches::SessionSwitchAdapter::new(directory.clone(), run_workflow_surface.clone()));
     path.turn_settings
-        .bind(Arc::new(mixdog_core::run_host::route_start::TurnStart { route: late_pending_route.clone(), settings: surface_host.clone() }))
+        .bind(Arc::new(mixdog_core::run_host::route_start::TurnStart { route: late_pending_route.clone(), switches: session_switches.clone(), settings: surface_host.clone() }))
         .map_err(|_| ComposeError::AlreadyBound("turn settings"))?;
     // The tool status the `tools/*` service and the MCP surface read (flip-ce-2): `preview` is async/fallible and `mode` takes the thread's header, no wiring change.
     tool_surface
@@ -2428,6 +2433,22 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             ops: domain_inputs.scopes.scopes("thread").map_err(ComposeError::ComposeDomains)?,
         },
     )))?;
+    // `thread/setWorkflow`, `thread/setOrchestrationMode`, `thread/setOutputStyle`, `thread/switchContext` (`compose-seams.md` "wu-thread-settings", landing wu-thread-settings-3; flip-brief A16): the context switch
+    // closes the thread being left as `deleteSession` does and moves the surface generation with the gauge (`GaugeTarget`, Node's `invalidateContextStatusCache` + `invalidatePreSessionToolSurface`).
+    builder.register(Arc::new(mixdog_core_config::workflow::thread_settings::ThreadSettings {
+        workflow: workflow_config.clone(),
+        styles: output_styles.clone(),
+        switches: session_switches.clone(),
+        context: Arc::new(mixdog_core_session::session::thread_switches::SessionContextSwitch::new(
+            directory.clone(),
+            session_close.clone(),
+            registry.clone(),
+            owned_shells.clone(),
+            read_state.clone(),
+            Arc::new(mixdog_core_session::session::thread_switches::GaugeTarget(gauge.clone(), surface_generation.clone())),
+        )),
+        ops: domain_inputs.scopes.scopes("thread").map_err(ComposeError::ComposeDomains)?,
+    }))?;
     // `thread/contextStatus` (`ThreadContextService`) over the same world; `thread/backgroundTerminals/*`, `thread/listShellJobs`, `thread/listStoppableShellJobs`
     // (`ShellJobsService`) over the one `SessionThreads`, the shell control and a git sight on the maintenance lane; both share the one `thread` op scope (in `OP_SCOPES`).
     builder.register(Arc::new(mixdog_core_session::session::thread_context::ThreadContextService::new(Arc::new(

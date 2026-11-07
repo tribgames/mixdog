@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-prompt-settings-notice.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 403042,
+      "path": "twin.json",
+      "sha256": "fb2581181766a0b3e671dcaa6074ab93b668c2c5c6473d40ccd68bc96b69212f"
+    }
+  ],
+  "product": {
+    "appsSha256": "9bd8fb856b7e00e551f02099c8aa5ad3f6450f5e03419b97b2dc9be008094ac1",
+    "commit": "52df84f24ec5701a8c3bb62e3cd356a8a116b07f",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9249,
+    "refComparison": {
+      "closestCommit": "52df84f24ec5701a8c3bb62e3cd356a8a116b07f",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "16c012f0b32155ce5082fbc2e84b4d65bdce04fbef9a185eabc0c708e5c64e7c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-prompt-settings-notice.mjs",
+  "set": "prompt-settings-notice",
+  "totalBytes": 403042
+}
