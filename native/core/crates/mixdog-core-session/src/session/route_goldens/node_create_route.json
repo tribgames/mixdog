@@ -19,10 +19,15 @@
     "fast": false,
     "modelParameters": {},
     "contextPercent": null,
-    "selectedContextWindow": null
+    "selectedContextWindow": null,
+    "presetName": null,
+    "codexWireSessionId": null
   },
   "absent": [
-    "autoEffort"
+    "autoEffort",
+    "contextTokens",
+    "routeFallbacks",
+    "routeFallbackSource"
   ],
   "held": {
     "provider": "custom-harness",
@@ -31,5 +36,44 @@
     "fast": false,
     "modelParameters": {},
     "contextPercent": null
+  },
+  "preset_case": {
+    "recorded": "createSession (session-lifecycle.mjs): presetName = preset.name; routeFallbacks = executionFallbacks(normalizeWorkflowRoute({provider, model, fallbacks: preset.fallbacks})); routeFallbackSource = {...preset.fallbackSource}; evaluated by running those functions of src/ on `route`",
+    "route": {
+      "provider": "anthropic-oauth",
+      "model": "claude-opus-4-1",
+      "preset": {
+        "name": "Lead",
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-1",
+        "fallbacks": [
+          {
+            "provider": "openai-oauth",
+            "model": "gpt-5",
+            "effort": "high"
+          },
+          {
+            "provider": "anthropic-oauth",
+            "model": "claude-sonnet-4"
+          }
+        ],
+        "fallbackSource": {
+          "kind": "lead"
+        }
+      }
+    },
+    "header": {
+      "presetName": "Lead",
+      "routeFallbacks": [
+        {
+          "provider": "openai-oauth",
+          "model": "gpt-5",
+          "effort": "high"
+        }
+      ],
+      "routeFallbackSource": {
+        "kind": "lead"
+      }
+    }
   }
 }

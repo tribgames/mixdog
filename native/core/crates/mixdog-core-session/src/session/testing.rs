@@ -829,8 +829,8 @@ pub struct NoRoute;
 
 #[async_trait::async_trait]
 impl super::NewThreadRoute for NoRoute {
-    async fn adopt(&self, _: &ThreadId, _: Option<&serde_json::Map<String, serde_json::Value>>) -> Result<(), String> {
-        Ok(())
+    async fn adopt(&self, _: &ThreadId, _: Option<&serde_json::Map<String, serde_json::Value>>) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+        Ok(serde_json::Map::new())
     }
 
     async fn seat(&self, _: &ThreadId) -> Result<(), String> {
