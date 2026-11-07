@@ -11,6 +11,27 @@ use serde_json::json;
 
 use super::*;
 
+/// A state with the typed Gemini slot and the provider-owned keys that ride beside it.
+fn provider_state() -> p::ProviderState {
+    let mut state = p::ProviderState {
+        gemini: Some(p::GeminiCacheState {
+            cache_name: "cachedContents/abc".into(),
+            cache_created_at: 1_700_000_000_000,
+            cache_created_at_iter: 2,
+            cache_expires_at: 1_700_000_300_000,
+            cache_model: "gemini-2.5-pro".into(),
+            cache_token_size: 4096,
+            cache_prefix_content_count: 3,
+            cache_prefix_hash: "h".into(),
+            cache_credential_fingerprint: "f".into(),
+        }),
+        ..Default::default()
+    };
+    state.rest.insert("previousResponseId".into(), json!("r1"));
+    state.rest.insert("xaiResponses".into(), json!({ "slot": [1, null, "x"] }));
+    state
+}
+
 fn request() -> p::ModelRequest {
     let mut assistant = p::Message::new(p::Role::Assistant, p::Content::Text("calling".into()));
     assistant.tool_calls.push(p::ToolCall { id: "c1".into(), name: "read".into(), arguments: json!({ "path": "a" }), native_type: Some("custom_tool_call".into()) });
@@ -40,6 +61,7 @@ fn request() -> p::ModelRequest {
         model_parameters: Some(json!({ "serviceTier": "priority" })),
         thread: Some(p::RequestThread { id: ThreadId::from("t1"), window: 2, turn: Some(TurnId::from("u1")) }),
         shared_cache_prefix_count: Some(4),
+        provider_state: Some(provider_state()),
         effort_projection: Some(p::EffortProjection { initial_effort: "low".into(), updates: BTreeMap::from([(2, "high".into())]) }),
         ..Default::default()
     };
@@ -190,8 +212,7 @@ const STREAM_EVENT_VARIANTS: [&str; 19] = [
 #[test]
 fn every_stream_event_survives_the_wire() {
     let call = |id: &str| p::ToolCall { id: id.into(), name: "read".into(), arguments: json!({ "path": id }), native_type: None };
-    let mut state = p::ProviderState::default();
-    state.rest.insert("previousResponseId".into(), json!("r1"));
+    let state = provider_state();
     let events = [
         p::StreamEvent::ItemStart { kind: p::ItemKind::Tool, phase: None },
         p::StreamEvent::ItemStart { kind: p::ItemKind::Text, phase: Some(p::Phase::Commentary) },
@@ -238,6 +259,40 @@ fn every_stream_event_survives_the_wire() {
         wire(p::StreamEvent::ReturnedCalls(vec![call("c1")])),
         json!({ "type": "returnedCalls", "calls": [{ "id": "c1", "name": "read", "arguments": { "path": "c1" }, "nativeType": null }] }),
     );
+}
+
+/// The session's provider state crosses the wire whole, in both directions, with no fallback for a state that cannot
+/// be written: the JSON built for the wire is what serde writes for the type (so every key Node's `providerState`
+/// has is there), the event and the request each carry it, and the other end reads back the same state.
+#[test]
+fn the_provider_state_crosses_the_wire_whole() {
+    let state = provider_state();
+    assert_eq!(state.to_json(), serde_json::to_value(&state).unwrap());
+    assert_eq!(p::ProviderState::default().to_json(), json!({}));
+    assert_eq!(
+        state.to_json()["gemini"],
+        json!({
+            "cacheName": "cachedContents/abc",
+            "cacheCreatedAt": 1_700_000_000_000_u64,
+            "cacheCreatedAtIter": 2,
+            "cacheExpiresAt": 1_700_000_300_000_u64,
+            "cacheModel": "gemini-2.5-pro",
+            "cacheTokenSize": 4096,
+            "cachePrefixContentCount": 3,
+            "cachePrefixHash": "h",
+            "cacheCredentialFingerprint": "f",
+        }),
+    );
+    let w::ProxyEvent::ProviderState { state: sent } = event_out(&p::StreamEvent::ProviderState(state.clone())) else { panic!("not a state") };
+    assert_eq!(sent, state.to_json());
+    assert_eq!(sent["xaiResponses"], json!({ "slot": [1, null, "x"] }));
+    assert_eq!(event_in(w::ProxyEvent::ProviderState { state: sent }).unwrap(), Incoming::Event(p::StreamEvent::ProviderState(state.clone())));
+    // A state this core cannot read is refused, not replaced by an empty one.
+    assert!(event_in(w::ProxyEvent::ProviderState { state: json!({ "gemini": 3 }) }).is_err());
+    let mut asked = request();
+    asked.options.provider_state = Some(state.clone());
+    assert_eq!(request_out(&asked).options.provider_state, Some(state.to_json()));
+    assert_eq!(request_in(request_out(&asked)).unwrap().options.provider_state, Some(state));
 }
 
 #[test]
