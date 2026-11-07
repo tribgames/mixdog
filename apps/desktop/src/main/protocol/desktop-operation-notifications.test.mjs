@@ -10,6 +10,7 @@ import test from 'node:test';
 import { createNotificationCenter } from '../notification-center.ts';
 import { createNotificationPreferencesStore } from '../notification-preferences.ts';
 import { createOperationLane } from './desktop-operation-route.ts';
+import { migratedAtOf } from './section-reads.ts';
 
 const NOW = 5_000;
 // Paired devices as Node lists them (DesktopRemoteClientInfo) and as the core's `remote` section carries them
@@ -108,4 +109,14 @@ test('setNotificationPreferences for a device that is not paired is refused as N
     await assert.rejects(lane.invoke('setNotificationPreferences', ['pc', true, id, {}]), /That device is not paired with this PC/);
   }
   assert.deepEqual(calls, []);
+});
+
+// Node's store, with no document, writes one stamped now on its first load (notification-preferences.ts:228); a document
+// whose `migratedAt` is missing or not a safe integer reads 0 (:120).
+test('migratedAtOf: no document is now, a document without a valid stamp is 0, a stamp is itself', () => {
+  assert.equal(migratedAtOf(undefined, 777), 777);
+  assert.equal(migratedAtOf({ devices: {} }, 777), 0);
+  assert.equal(migratedAtOf({ migratedAt: 1.5 }, 777), 0);
+  assert.equal(migratedAtOf({ migratedAt: '5' }, 777), 0);
+  assert.equal(migratedAtOf({ migratedAt: 1_000 }, 777), 1_000);
 });

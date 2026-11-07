@@ -656,8 +656,10 @@ test('setNotificationPreferences chooses the default the core merges onto by the
     assert.equal(write.params.mode, 'mergePatch', id);
     assert.equal(write.params.path, `notifications.devices.${id}`);
   }
-  // no notifications subtree yet reads as migratedAt 0, as the notification state does: every paired phone app is "after"
-  assert.equal((await run('old', [REMOTE]))[0].params.mode, 'mergePatchBots');
+  // no notifications subtree yet is a store Node stamps `now` on its first load: a device paired before now is plain,
+  // a document that exists without a stamp reads 0, so every paired phone app is "after" it
+  assert.equal((await run('dev1', [REMOTE]))[0].params.mode, 'mergePatch');
+  assert.equal((await run('old', [REMOTE, { section: 'config', key: 'notifications', revision: 1, value: { devices: {} } }]))[0].params.mode, 'mergePatchBots');
 });
 
 test('setNotificationPreferences refuses a device that is not paired before writing anything', async () => {

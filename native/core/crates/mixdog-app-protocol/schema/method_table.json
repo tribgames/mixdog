@@ -8081,6 +8081,24 @@
     },
     {
       "class": "C1",
+      "method": "transfer/grant/mint",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "relay"
+      ],
+      "params": "TransferGrantMintParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
       "method": "lsp/subscribe",
       "mutation": {
         "kind": "none"

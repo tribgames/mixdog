@@ -3258,6 +3258,15 @@ crate::client_request_definitions! {
         mutation: op(Transfer),
         origins: [Local, Ssh],
     },
+    /// Mint a one-file grant for a paired device's path outside every project (Node's `rememberFileGrant`).
+    TransferGrantMint => "transfer/grant/mint" {
+        params: TransferGrantMintParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Relay],
+    },
     /// Subscribes the project's language-server feed `lsp:<root>`
     /// (`lsp/status/updated`, `lsp/diagnostics/updated`).
     LspSubscribe => "lsp/subscribe" {

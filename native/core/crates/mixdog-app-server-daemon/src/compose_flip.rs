@@ -2189,6 +2189,20 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     })
     .map_err(ComposeError::Workspace)?;
     workspace.spawn_idle_sweeper(); // abandoned uploads go at their idle deadline, as Node's per-upload timer
+    // A paired phone's one-file grants (SPEC.md R44, DS 4.7): held per paired credential, and a conversation that left the
+    // catalog ends its grants (Node's `sessionRemoved`).
+    workspace.set_phone_grants(
+        Arc::new(mixdog_workspace::grants::GrantStore::new(
+            Arc::new(mixdog_workspace::transfer::SystemClock),
+            Arc::new(CatalogSessions(Arc::new(catalog_index.clone()))),
+        )),
+        {
+            let registry = built_remote.registry.clone();
+            Arc::new(move |connection: mixdog_core_api::ids::ConnectionId| {
+                registry.describe(connection.0).map(|described| described.credential).filter(|credential| !credential.is_empty())
+            })
+        },
+    );
     builder.register(workspace.clone() as Arc<dyn mixdog_core_api::service::DomainService>)?;
     builder.register(Arc::new(mixdog_exthost::DocumentService::new(b.ext_host.clone(), b.user_data_dir.to_string_lossy().into_owned())))?;
     builder.register(secret.service.clone())?; // `approval/provideSecret`: the same `SecretSlots` as `SecretFill`
@@ -2692,5 +2706,20 @@ pub struct CatalogBuiltinSkills(pub Arc<mixdog_mcp::skill_catalog::SkillCatalog>
 impl mixdog_core_session::session::BuiltinSkills for CatalogBuiltinSkills {
     fn names(&self) -> Option<std::collections::HashSet<String>> {
         self.0.cached().map(|skills| skills.iter().filter(|skill| skill.source == mixdog_mcp::skills::SkillSource::Builtin).map(|skill| skill.name.trim().to_lowercase()).collect())
+    }
+}
+
+/// Whether a session is still in the catalog (`SqliteStore::summary`: a deleted session, or one whose log has no readable
+/// frame, has no row), for the grants a paired phone holds.
+struct CatalogSessions(Arc<mixdog_store::sqlite::SqliteStore>);
+
+#[async_trait::async_trait]
+impl mixdog_workspace::grants::SessionCatalog for CatalogSessions {
+    async fn has(&self, session_id: &str) -> mixdog_workspace::error::WsResult<bool> {
+        self.0
+            .summary(session_id)
+            .await
+            .map(|row| row.is_some())
+            .map_err(|error| mixdog_workspace::error::WsError::new(mixdog_workspace::error::Reason::Io, error.to_string()))
     }
 }

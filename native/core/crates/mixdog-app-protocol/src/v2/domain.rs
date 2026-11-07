@@ -37,6 +37,13 @@ pub enum TransferSource {
     Export {
         input: JsonValue,
     },
+    /// A one-file grant minted for this paired device (`transfer/grant/mint`), redeemed with the path Node's file calls name (`projectPath` + `relPath`).
+    #[serde(rename_all = "camelCase")]
+    Granted {
+        access_token: String,
+        project_path: String,
+        rel_path: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
