@@ -477,9 +477,9 @@ async fn interrupt_is_answered_on_the_control_path_and_ends_the_run() {
     assert!(matches!(busy, Err(CoreError::PreconditionFailed { .. })), "{busy:?}");
 
     // No await: the control cell answers synchronously.
-    handle.interrupt(&turn_id).expect("interrupt");
+    handle.interrupt(&turn_id, None).expect("interrupt");
     assert!(matches!(
-        handle.interrupt(&TurnId::from("other")),
+        handle.interrupt(&TurnId::from("other"), None),
         Err(CoreError::TurnNotActive { .. })
     ));
     eventually(|| idle(&handle).then_some(())).await;

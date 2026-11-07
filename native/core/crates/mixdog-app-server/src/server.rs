@@ -710,7 +710,7 @@ impl Shared {
                 expected: "the active turn's id".into(),
             });
         };
-        self.loaded_thread(&params.thread_id, &turn)?.interrupt(&turn)?;
+        self.loaded_thread(&params.thread_id, &turn)?.interrupt(&turn, params.restore_prompt)?;
         reply_value(&TurnInterruptResponse {
             cancel_requested: true,
             turn_id: Some(turn),

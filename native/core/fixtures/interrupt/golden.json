@@ -1,0 +1,806 @@
+{
+ "source": "turn-interruption.mjs finalizeTurnInterruptionSnapshot",
+ "cases": [
+  {
+   "name": "text, user cancel",
+   "transcript": [
+    {
+     "role": "user",
+     "content": "earlier"
+    },
+    {
+     "role": "assistant",
+     "content": "ok"
+    },
+    {
+     "role": "user",
+     "content": "go"
+    }
+   ],
+   "current": "go",
+   "snapshot": {
+    "responseStarted": true,
+    "partialAssistantContent": "half ",
+    "partialReasoningContent": "",
+    "phase": "streaming",
+    "observedToolCalls": [],
+    "observedToolResults": []
+   },
+   "reason": "user-cancel",
+   "messages": [
+    {
+     "role": "user",
+     "content": "earlier"
+    },
+    {
+     "role": "assistant",
+     "content": "ok"
+    },
+    {
+     "role": "user",
+     "content": "go",
+     "meta": {
+      "sentRequestTail": true
+     }
+    },
+    {
+     "role": "assistant",
+     "content": "half "
+    },
+    {
+     "role": "user",
+     "content": "[Request interrupted by user]"
+    }
+   ],
+   "responsePreserved": true,
+   "userTurnPreserved": true
+  },
+  {
+   "name": "text, cli-abort",
+   "transcript": [
+    {
+     "role": "user",
+     "content": "go"
+    }
+   ],
+   "current": "go",
+   "snapshot": {
+    "responseStarted": true,
+    "partialAssistantContent": "half ",
+    "partialReasoningContent": "",
+    "phase": "streaming",
+    "observedToolCalls": [],
+    "observedToolResults": []
+   },
+   "reason": "cli-abort",
+   "messages": [
+    {
+     "role": "user",
+     "content": "go",
+     "meta": {
+      "sentRequestTail": true
+     }
+    },
+    {
+     "role": "assistant",
+     "content": "half "
+    },
+    {
+     "role": "user",
+     "content": "[Request interrupted by user]"
+    }
+   ],
+   "responsePreserved": true,
+   "userTurnPreserved": true
+  },
+  {
+   "name": "text, non-user abort",
+   "transcript": [
+    {
+     "role": "user",
+     "content": "go"
+    }
+   ],
+   "current": "go",
+   "snapshot": {
+    "responseStarted": true,
+    "partialAssistantContent": "half ",
+    "partialReasoningContent": "",
+    "phase": "streaming",
+    "observedToolCalls": [],
+    "observedToolResults": []
+   },
+   "reason": "cli-agent-close",
+   "messages": [
+    {
+     "role": "user",
+     "content": "go",
+     "meta": {
+      "sentRequestTail": true
+     }
+    },
+    {
+     "role": "assistant",
+     "content": "half "
+    },
+    {
+     "role": "user",
+     "content": "[Request interrupted]"
+    }
+   ],
+   "responsePreserved": true,
+   "userTurnPreserved": true
+  },
+  {
+   "name": "text, steering interrupt",
+   "transcript": [
+    {
+     "role": "user",
+     "content": "go"
+    }
+   ],
+   "current": "go",
+   "snapshot": {
+    "responseStarted": true,
+    "partialAssistantContent": "half ",
+    "partialReasoningContent": "",
+    "phase": "streaming",
+    "observedToolCalls": [],
+    "observedToolResults": []
+   },
+   "reason": "interrupt",
+   "messages": [
+    {
+     "role": "user",
+     "content": "go",
+     "meta": {
+      "sentRequestTail": true
+     }
+    },
+    {
+     "role": "assistant",
+     "content": "half "
+    }
+   ],
+   "responsePreserved": true,
+   "userTurnPreserved": true
+  },
+  {
+   "name": "text, provider error",
+   "transcript": [
+    {
+     "role": "user",
+     "content": "go"
+    }
+   ],
+   "current": "go",
+   "snapshot": {
+    "responseStarted": true,
+    "partialAssistantContent": "half ",
+    "partialReasoningContent": "",
+    "phase": "streaming",
+    "observedToolCalls": [],
+    "observedToolResults": []
+   },
+   "reason": "provider-error",
+   "messages": [
+    {
+     "role": "user",
+     "content": "go",
+     "meta": {
+      "sentRequestTail": true
+     }
+    },
+    {
+     "role": "assistant",
+     "content": "half "
+    }
+   ],
+   "responsePreserved": true,
+   "userTurnPreserved": true
+  },
+  {
+   "name": "text, process crash",
+   "transcript": [
+    {
+     "role": "user",
+     "content": "go"
+    }
+   ],
+   "current": "go",
+   "snapshot": {
+    "responseStarted": true,
+    "partialAssistantContent": "half ",
+    "partialReasoningContent": "",
+    "phase": "streaming",
+    "observedToolCalls": [],
+    "observedToolResults": []
+   },
+   "reason": "process-crash",
+   "messages": [
+    {
+     "role": "user",
+     "content": "go",
+     "meta": {
+      "sentRequestTail": true
+     }
+    },
+    {
+     "role": "assistant",
+     "content": "half "
+    },
+    {
+     "role": "user",
+     "content": "[Request interrupted by process restart]"
+    }
+   ],
+   "responsePreserved": true,
+   "userTurnPreserved": true
+  },
+  {
+   "name": "no output, user cancel rewinds",
+   "transcript": [
+    {
+     "role": "user",
+     "content": "earlier"
+    },
+    {
+     "role": "assistant",
+     "content": "ok"
+    },
+    {
+     "role": "user",
+     "content": "go"
+    }
+   ],
+   "current": "go",
+   "snapshot": {
+    "responseStarted": false,
+    "partialAssistantContent": "",
+    "partialReasoningContent": "",
+    "phase": "streaming",
+    "observedToolCalls": [],
+    "observedToolResults": []
+   },
+   "reason": "user-cancel",
+   "messages": [
+    {
+     "role": "user",
+     "content": "earlier"
+    },
+    {
+     "role": "assistant",
+     "content": "ok"
+    }
+   ],
+   "responsePreserved": false,
+   "userTurnPreserved": false
+  },
+  {
+   "name": "no output, cli-abort rewinds",
+   "transcript": [
+    {
+     "role": "user",
+     "content": "go"
+    }
+   ],
+   "current": "go",
+   "snapshot": {
+    "responseStarted": false,
+    "partialAssistantContent": "",
+    "partialReasoningContent": "",
+    "phase": "streaming",
+    "observedToolCalls": [],
+    "observedToolResults": []
+   },
+   "reason": "cli-abort",
+   "messages": [],
+   "responsePreserved": false,
+   "userTurnPreserved": false
+  },
+  {
+   "name": "no output, keep prompt",
+   "transcript": [
+    {
+     "role": "user",
+     "content": "earlier"
+    },
+    {
+     "role": "assistant",
+     "content": "ok"
+    },
+    {
+     "role": "user",
+     "content": "go"
+    }
+   ],
+   "current": "go",
+   "snapshot": {
+    "responseStarted": false,
+    "partialAssistantContent": "",
+    "partialReasoningContent": "",
+    "phase": "streaming",
+    "observedToolCalls": [],
+    "observedToolResults": []
+   },
+   "reason": "user-cancel-keep-prompt",
+   "messages": [
+    {
+     "role": "user",
+     "content": "earlier"
+    },
+    {
+     "role": "assistant",
+     "content": "ok"
+    },
+    {
+     "role": "user",
+     "content": "go"
+    },
+    {
+     "role": "user",
+     "content": "[Request interrupted]"
+    }
+   ],
+   "responsePreserved": false,
+   "userTurnPreserved": true
+  },
+  {
+   "name": "no output, non-user keeps prompt",
+   "transcript": [
+    {
+     "role": "user",
+     "content": "go"
+    }
+   ],
+   "current": "go",
+   "snapshot": {
+    "responseStarted": false,
+    "partialAssistantContent": "",
+    "partialReasoningContent": "",
+    "phase": "streaming",
+    "observedToolCalls": [],
+    "observedToolResults": []
+   },
+   "reason": "cli-agent-close",
+   "messages": [
+    {
+     "role": "user",
+     "content": "go"
+    }
+   ],
+   "responsePreserved": false,
+   "userTurnPreserved": true
+  },
+  {
+   "name": "thinking only, user cancel rewinds",
+   "transcript": [
+    {
+     "role": "user",
+     "content": "go"
+    }
+   ],
+   "current": "go",
+   "snapshot": {
+    "responseStarted": true,
+    "partialAssistantContent": "",
+    "partialReasoningContent": "hmm",
+    "phase": "streaming",
+    "observedToolCalls": [],
+    "observedToolResults": []
+   },
+   "reason": "user-cancel",
+   "messages": [],
+   "responsePreserved": false,
+   "userTurnPreserved": false
+  },
+  {
+   "name": "thinking only, non-user preserves",
+   "transcript": [
+    {
+     "role": "user",
+     "content": "go"
+    }
+   ],
+   "current": "go",
+   "snapshot": {
+    "responseStarted": true,
+    "partialAssistantContent": "",
+    "partialReasoningContent": "hmm",
+    "phase": "streaming",
+    "observedToolCalls": [],
+    "observedToolResults": []
+   },
+   "reason": "cli-agent-close",
+   "messages": [
+    {
+     "role": "user",
+     "content": "go",
+     "meta": {
+      "sentRequestTail": true
+     }
+    },
+    {
+     "role": "assistant",
+     "content": "",
+     "reasoningContent": "hmm"
+    },
+    {
+     "role": "user",
+     "content": "[Request interrupted]"
+    }
+   ],
+   "responsePreserved": true,
+   "userTurnPreserved": true
+  },
+  {
+   "name": "unanswered call in the tool phase",
+   "transcript": [
+    {
+     "role": "user",
+     "content": "go"
+    },
+    {
+     "role": "assistant",
+     "content": "",
+     "toolCalls": [
+      {
+       "id": "c1",
+       "name": "read",
+       "arguments": {
+        "path": "x"
+       }
+      }
+     ]
+    }
+   ],
+   "current": "go",
+   "snapshot": {
+    "responseStarted": true,
+    "partialAssistantContent": "",
+    "partialReasoningContent": "",
+    "phase": "tools",
+    "observedToolCalls": [],
+    "observedToolResults": []
+   },
+   "reason": "user-cancel",
+   "messages": [
+    {
+     "role": "user",
+     "content": "go"
+    },
+    {
+     "role": "assistant",
+     "content": "",
+     "toolCalls": [
+      {
+       "id": "c1",
+       "name": "read",
+       "arguments": {
+        "path": "x"
+       }
+      }
+     ]
+    },
+    {
+     "role": "tool",
+     "content": "Cancelled",
+     "toolCallId": "c1",
+     "toolKind": "error"
+    },
+    {
+     "role": "user",
+     "content": "[Request interrupted by user for tool use]"
+    }
+   ],
+   "responsePreserved": true,
+   "userTurnPreserved": true
+  },
+  {
+   "name": "early result is kept, the other call is closed",
+   "transcript": [
+    {
+     "role": "user",
+     "content": "go"
+    },
+    {
+     "role": "assistant",
+     "content": "",
+     "toolCalls": [
+      {
+       "id": "c1",
+       "name": "read",
+       "arguments": {
+        "path": "x"
+       }
+      },
+      {
+       "id": "c2",
+       "name": "read",
+       "arguments": {
+        "path": "x"
+       }
+      }
+     ]
+    }
+   ],
+   "current": "go",
+   "snapshot": {
+    "responseStarted": true,
+    "partialAssistantContent": "",
+    "partialReasoningContent": "",
+    "phase": "tools",
+    "observedToolCalls": [],
+    "observedToolResults": [
+     [
+      "c1",
+      {
+       "role": "tool",
+       "content": "fine",
+       "toolCallId": "c1",
+       "toolKind": null
+      }
+     ]
+    ]
+   },
+   "reason": "user-cancel",
+   "messages": [
+    {
+     "role": "user",
+     "content": "go"
+    },
+    {
+     "role": "assistant",
+     "content": "",
+     "toolCalls": [
+      {
+       "id": "c1",
+       "name": "read",
+       "arguments": {
+        "path": "x"
+       }
+      },
+      {
+       "id": "c2",
+       "name": "read",
+       "arguments": {
+        "path": "x"
+       }
+      }
+     ]
+    },
+    {
+     "role": "tool",
+     "content": "fine",
+     "toolCallId": "c1"
+    },
+    {
+     "role": "tool",
+     "content": "Cancelled",
+     "toolCallId": "c2",
+     "toolKind": "error"
+    },
+    {
+     "role": "user",
+     "content": "[Request interrupted by user for tool use]"
+    }
+   ],
+   "responsePreserved": true,
+   "userTurnPreserved": true
+  },
+  {
+   "name": "early error result keeps its kind",
+   "transcript": [
+    {
+     "role": "user",
+     "content": "go"
+    },
+    {
+     "role": "assistant",
+     "content": "",
+     "toolCalls": [
+      {
+       "id": "c1",
+       "name": "read",
+       "arguments": {
+        "path": "x"
+       }
+      }
+     ]
+    }
+   ],
+   "current": "go",
+   "snapshot": {
+    "responseStarted": true,
+    "partialAssistantContent": "",
+    "partialReasoningContent": "",
+    "phase": "tools",
+    "observedToolCalls": [],
+    "observedToolResults": [
+     [
+      "c1",
+      {
+       "role": "tool",
+       "content": "Error: boom",
+       "toolCallId": "c1",
+       "toolKind": "error"
+      }
+     ]
+    ]
+   },
+   "reason": "cli-abort",
+   "messages": [
+    {
+     "role": "user",
+     "content": "go"
+    },
+    {
+     "role": "assistant",
+     "content": "",
+     "toolCalls": [
+      {
+       "id": "c1",
+       "name": "read",
+       "arguments": {
+        "path": "x"
+       }
+      }
+     ]
+    },
+    {
+     "role": "tool",
+     "content": "Error: boom",
+     "toolCallId": "c1",
+     "toolKind": "error"
+    },
+    {
+     "role": "user",
+     "content": "[Request interrupted by user for tool use]"
+    }
+   ],
+   "responsePreserved": true,
+   "userTurnPreserved": true
+  },
+  {
+   "name": "observed streamed call not yet committed",
+   "transcript": [
+    {
+     "role": "user",
+     "content": "go"
+    }
+   ],
+   "current": "go",
+   "snapshot": {
+    "responseStarted": true,
+    "partialAssistantContent": "let me ",
+    "partialReasoningContent": "",
+    "phase": "streaming",
+    "observedToolCalls": [
+     [
+      "c9",
+      {
+       "call": {
+        "id": "c9",
+        "name": "read",
+        "arguments": {
+         "path": "x"
+        }
+       },
+       "eagerStarted": false
+      }
+     ]
+    ],
+    "observedToolResults": []
+   },
+   "reason": "user-cancel",
+   "messages": [
+    {
+     "role": "user",
+     "content": "go",
+     "meta": {
+      "sentRequestTail": true
+     }
+    },
+    {
+     "role": "assistant",
+     "content": "let me ",
+     "toolCalls": [
+      {
+       "id": "c9",
+       "name": "read",
+       "arguments": {
+        "path": "x"
+       }
+      }
+     ]
+    },
+    {
+     "role": "tool",
+     "content": "Cancelled",
+     "toolCallId": "c9",
+     "toolKind": "error"
+    },
+    {
+     "role": "user",
+     "content": "[Request interrupted by user]"
+    }
+   ],
+   "responsePreserved": true,
+   "userTurnPreserved": true
+  },
+  {
+   "name": "request on the wire after a tool result",
+   "transcript": [
+    {
+     "role": "user",
+     "content": "go"
+    },
+    {
+     "role": "assistant",
+     "content": "",
+     "toolCalls": [
+      {
+       "id": "c1",
+       "name": "read",
+       "arguments": {
+        "path": "x"
+       }
+      }
+     ]
+    },
+    {
+     "role": "tool",
+     "content": "data",
+     "toolCallId": "c1"
+    }
+   ],
+   "current": "go",
+   "snapshot": {
+    "responseStarted": true,
+    "partialAssistantContent": "next ",
+    "partialReasoningContent": "",
+    "phase": "streaming",
+    "observedToolCalls": [],
+    "observedToolResults": []
+   },
+   "reason": "user-cancel",
+   "messages": [
+    {
+     "role": "user",
+     "content": "go"
+    },
+    {
+     "role": "assistant",
+     "content": "",
+     "toolCalls": [
+      {
+       "id": "c1",
+       "name": "read",
+       "arguments": {
+        "path": "x"
+       }
+      }
+     ]
+    },
+    {
+     "role": "tool",
+     "content": "data",
+     "toolCallId": "c1",
+     "meta": {
+      "sentRequestTail": true
+     }
+    },
+    {
+     "role": "assistant",
+     "content": "next "
+    },
+    {
+     "role": "user",
+     "content": "[Request interrupted by user]"
+    }
+   ],
+   "responsePreserved": true,
+   "userTurnPreserved": true
+  }
+ ]
+}

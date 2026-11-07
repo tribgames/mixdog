@@ -520,6 +520,8 @@ struct Observed {
     /// `markToolPhaseStarted`; a new send (`markProviderSendStarted`) puts it back.
     tools: bool,
     calls: Vec<mixdog_core_api::domain::provider::ToolCall>,
+    /// Results that settled but were not committed in call order (`__earlyNotify`).
+    results: Vec<AgentMessage>,
 }
 
 /// `RunObserver` over progress and the port: stage and stream marks feed the progress cell, shown
@@ -690,6 +692,11 @@ impl RunObserver for PortObserver {
                     self.progress.tool_call(Some(&call.name));
                 }
             }
+            RunEvent::EarlyResult(message) => {
+                let mut observed = lock(&self.observed);
+                observed.started = true;
+                observed.results.push(message);
+            }
             _ => {}
         }
     }
@@ -705,11 +712,11 @@ impl RunObserver for PortObserver {
 
 // ---- the turn ----------------------------------------------------------------------------------------
 
-/// `finalizeCancelledTurn` (`ask-turn-failure.mjs`): the transcript of a user-cancelled turn that had produced
-/// output keeps it (`finalizeInterruptedTurn`): the partial reply, every unanswered call closed as cancelled, the
-/// "[Request interrupted by user]" line, and `sentRequestTail` on the message the request ended with. The rows are
-/// committed and the model context restarts on the finalized transcript, which also drops the provider's
-/// continuation (`session.providerState = undefined`). A turn that produced nothing keeps its context as it is.
+/// `finalizeCancelledTurn` (`ask-turn-failure.mjs`): the transcript of a stopped turn as `finalizeInterruptedTurn`
+/// leaves it for the stop's reason: the partial reply, every unanswered call closed as cancelled, the interruption
+/// line, and `sentRequestTail` on the message the request ended with; a user cancel that produced nothing hands the
+/// prompt back (it leaves the context), a kept prompt or a non-user stop keeps it. The new rows are committed and the
+/// model context restarts on the finalized transcript, which also drops the provider's continuation.
 async fn close_cancelled(
     port: &RunPort,
     sink: &PortSink,
@@ -718,9 +725,10 @@ async fn close_cancelled(
     input_item: &ItemId,
     input_text: &str,
     observed: &Mutex<Observed>,
+    reason: Option<mixdog_agent::interrupt::AbortReason>,
 ) {
     use mixdog_agent::compact::execution_tail::MessageRows as _;
-    use mixdog_agent::interrupt::{finalize_interrupted_turn, AbortReason, Interrupted, Phase};
+    use mixdog_agent::interrupt::{finalize_interrupted_turn, Interrupted, Phase};
     let seen = std::mem::take(&mut *lock(observed));
     let mut known: Vec<(ItemId, AgentMessage)> = history.to_vec();
     for (index, message) in lock(&sink.turn).iter().enumerate() {
@@ -733,13 +741,10 @@ async fn close_cancelled(
         partial_assistant: seen.text,
         partial_reasoning: seen.reasoning,
         observed_tool_calls: seen.calls,
-        observed_tool_results: Vec::new(),
+        observed_tool_results: seen.results,
         phase: if seen.tools { Phase::Tools } else { Phase::Streaming },
-        reason: Some(AbortReason::UserCancel),
+        reason,
     });
-    if !finalized.response_preserved {
-        return;
-    }
     let mut replacement: Vec<(ItemId, Value)> = Vec::new();
     for (index, message) in finalized.transcript.iter().enumerate() {
         let mut body;
@@ -1137,7 +1142,7 @@ async fn drive(
             }
             if matches!(failure.error, AgentError::Aborted) || cancel.is_cancelled() {
                 progress.cancelling();
-                close_cancelled(&end_port, &sink, &rows, &history, &input_item, &input_text, &observed).await;
+                close_cancelled(&end_port, &sink, &rows, &history, &input_item, &input_text, &observed, mixdog_agent::interrupt::AbortReason::from_text(&signal.reason())).await;
                 return RunOutcome::Interrupted;
             }
             progress.error();

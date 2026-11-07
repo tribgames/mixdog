@@ -503,8 +503,8 @@ impl FeedSource for SessionHandle {
 }
 
 impl RunControl for SessionHandle {
-    fn interrupt(&self, turn: &TurnId) -> Result<Value, CoreError> {
-        self.cell.interrupt(turn)
+    fn interrupt(&self, turn: &TurnId, restore_prompt: Option<bool>) -> Result<Value, CoreError> {
+        self.cell.interrupt(turn, restore_prompt)
     }
 
     /// R10: the input names the queued entry to steer (`{queuedId}`).
