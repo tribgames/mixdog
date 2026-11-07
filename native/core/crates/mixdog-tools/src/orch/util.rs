@@ -59,7 +59,8 @@ mod tests {
     fn the_embedded_definitions_are_nodes_definitions() {
         let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/tool-defs/definitions.json")).expect("the golden is JSON");
         let nodes = golden["definitions"].as_array().expect("definitions");
-        let defs: [&'static str; 20] = [
+        let defs: [&'static str; 22] = [
+            include_str!("defs/memory.json"), include_str!("defs/recall.json"),
             include_str!("defs/agent.json"), include_str!("defs/call_tool.json"), include_str!("defs/explore.json"),
             include_str!("defs/load_tool.json"), include_str!("defs/media.json"), include_str!("defs/office.json"),
             include_str!("defs/session.json"), include_str!("defs/setup.json"), include_str!("defs/Skill.json"),
@@ -81,7 +82,8 @@ mod tests {
 
     #[test]
     fn the_hints_the_sandbox_reads_are_the_definitions_own() {
-        let defs: [&'static str; 20] = [
+        let defs: [&'static str; 22] = [
+            include_str!("defs/memory.json"), include_str!("defs/recall.json"),
             include_str!("defs/agent.json"), include_str!("defs/call_tool.json"), include_str!("defs/explore.json"),
             include_str!("defs/load_tool.json"), include_str!("defs/media.json"), include_str!("defs/office.json"),
             include_str!("defs/session.json"), include_str!("defs/setup.json"), include_str!("defs/Skill.json"),
@@ -99,7 +101,8 @@ mod tests {
                 "call_tool" | "session" | "goal" | "react" | "setup" => (Some(true), Some(false)),
                 "Skill" => (Some(false), Some(true)),
                 "todo" | "agent" => (Some(false), Some(false)),
-                "explore" => (None, Some(true)),
+                "explore" | "recall" => (None, Some(true)),
+                "memory" => (None, Some(false)),
                 _ => continue,
             };
             assert_eq!(read_only, spec.annotations.read_only_hint, "{} readOnlyHint", spec.name);
