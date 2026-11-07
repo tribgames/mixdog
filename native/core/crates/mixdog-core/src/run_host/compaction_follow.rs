@@ -14,10 +14,11 @@ use mixdog_core_ports::ports::threads::HeaderUpdates;
 use mixdog_store::schema::record::{Header, HeaderChange};
 use serde_json::{Map, Value};
 
-/// The saved `compaction` section, when the config has one (`syncSessionCompaction` leaves a session
-/// alone otherwise).
-fn saved_compaction(config: &Config) -> Option<Value> {
-    config.agent().get("compaction").filter(|section| section.is_object()).cloned()
+/// The saved `compaction` section. A reloaded full config always has one, the empty `{}` when none is stored
+/// (`config.mjs:367`, `compaction: {}`; `config.mjs:302` for a stored non-object), so a removed section syncs
+/// the loaded sessions to the empty-section defaults (`adoptFullConfig`, `config-lifecycle.mjs:285`).
+fn saved_compaction(config: &Config) -> Value {
+    config.agent().get("compaction").filter(|section| section.is_object()).cloned().unwrap_or_else(|| Value::Object(Map::new()))
 }
 
 /// The header change `syncSessionCompaction` makes: the config-owned `compaction` fields follow `saved`,
@@ -56,10 +57,8 @@ pub async fn follow(config: Config, injected: bool, updates: Arc<dyn HeaderUpdat
         if now == seen {
             continue;
         }
-        seen = now.clone();
-        if let Some(saved) = now {
-            sync_loaded(&*updates, &*loaded, &saved).await;
-        }
+        sync_loaded(&*updates, &*loaded, &now).await;
+        seen = now;
     }
 }
 
@@ -94,6 +93,7 @@ mod tests {
         assert!(!cases.is_empty());
         for case in cases {
             let mut header: Header = case["header"].as_object().expect("header").clone();
+            // A config without the section leaves the session alone; a reloaded full config always has one (see `saved_compaction`).
             if let Some(section) = case["args"]["config"].get("compaction").filter(|section| section.is_object()) {
                 header.extend(sync_change(&header, section).set);
             }
@@ -183,6 +183,32 @@ mod tests {
         save_compaction(&config, json!({ "auto": false })).await;
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         assert_eq!(compaction_of(&store, &thread), Some(json!({ "auto": true, "marker": 1 })), "an unchanged section is not adopted again ({before:?})");
+        follower.abort();
+    }
+
+    /// Removing the saved section syncs a loaded thread to the empty-section defaults: the header after Node's
+    /// `syncSessionCompaction` over the reloaded `compaction: {}` (the `sync-to-the-empty-section-...` recording).
+    #[tokio::test]
+    async fn a_removed_compaction_section_syncs_a_loaded_thread_to_the_empty_defaults() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/agent/compact/golden/usage.json")).expect("golden");
+        let case = golden["cases"].as_array().expect("cases").iter().find(|case| case["name"] == "sync-to-the-empty-section-after-the-saved-one-is-removed").expect("recorded case");
+        let (_dir, config) = open_config().await;
+        save_compaction(&config, json!({ "auto": false })).await;
+        let store = Arc::new(Store::default());
+        let (thread, loaded) = loaded_thread();
+        store.headers.lock().expect("store").insert(thread.clone(), case["header"].as_object().expect("header").clone());
+        let follower = tokio::spawn(follow(config.clone(), false, store.clone(), loaded));
+        tokio::task::yield_now().await;
+        config
+            .update(|doc| {
+                doc.remove("agent");
+                Ok(())
+            })
+            .await
+            .expect("removed");
+        let want = case["after"]["compaction"].clone();
+        let got = settled(|| compaction_of(&store, &thread).filter(|c| *c == want)).await;
+        assert_eq!(got, Some(want));
         follower.abort();
     }
 

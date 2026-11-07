@@ -384,6 +384,9 @@ for (const [label, params] of [['none', {}], ['object', { initialConfig: { compa
     if (!usesInjectedConfig(params)) syncSessionCompaction(session, { compaction: { auto: true } });
   });
 }
+// The saved section was removed: the reload yields the config's empty default section (config.mjs:367 `compaction: {}`), and a
+// session that followed `{auto:false}` follows the empty section (config-lifecycle.mjs:285 `syncSessionCompaction(getSession(), adopted)`).
+syncCase('sync-to-the-empty-section-after-the-saved-one-is-removed', newSession('s-sync-removed', { compaction: { ...created, auto: false } }), { compaction: {} });
 syncCase('sync-without-a-section-leaves-the-session-alone', newSession('s-sync-none', { compaction: created }), { other: 1 });
 
 // ---- the disk-side heartbeat: Node's own event handlers over a run of events, the clock moved across the 60 s boundary --------
