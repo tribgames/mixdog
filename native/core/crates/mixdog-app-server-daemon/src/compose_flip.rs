@@ -1255,27 +1255,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         code_graph_cache.clone(),
     ));
     tool_pool.push(code_graph.clone());
-    // After `tools(..)` (the pool holds `explore`, which holds the host) and after the last read-only tool is registered: `bind` keeps one snapshot, and Node's
-    // `readOnlyFilesystemTools()` (`tool-resolution.mjs:96`) includes `code_graph`.
-    explorer_host.bind(&tool_pool);
-    // ---- 9. the ready rows --------------------------------------------------------------------
-    let ready = ready_rows(
-        &process,
-        ReadyIn {
-            data_dir: b.data_dir.clone(),
-            env: b.env.clone(),
-            tool_pool: tool_pool.clone(),
-            hub: hub.clone(),
-            skills: mcp.catalog.clone(),
-            heartbeats: heartbeats.clone(),
-            blobs: blobs.clone(),
-        },
-    );
+    // The built-in file, process, git and web tools, the explorer's bind and the ready rows follow the worktrees (below): the `git` tool needs them, and the ready rows and the explorer keep a snapshot of the finished pool.
 
     // ---- 10. memory, session deps, owed parts, the turn path ----------------------------------
     // The one catalog index (`<data>/index/store.sqlite`): `StoreThreads` and `DirectoryImportSessions` hold this handle. Its open
     // (a boot purge, a rebuild from the logs when needed) blocks, so it is a maintenance lane job.
-    let (ready_resolver, ready_allow_all) = (ready.resolver.clone(), ready.allow_all.clone()); // the dispatcher is built from the very values the turn path holds
     let catalog_index = {
         let (data, thread, read) = (b.data_dir.clone(), b.tokens.sqlite_writer_thread, b.tokens.interactive_io);
         b.tokens
@@ -1394,6 +1378,57 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         { let ids = live_ids.clone(); Arc::new(move || ids().into_iter().collect()) },
         snapshot_cleanups.cancel_hook(),
     ));
+    // ---- the built-in file, process, git and web tools (prompt-seed-1 §2) ------------------------------------------------------------------------------
+    // Node's `BUILTIN_TOOLS` in its order (`builtin-tools.mjs:95`: read, edit, shell, git, github, task, grep, glob, find, list), then `PATCH_TOOL_DEFS` (`apply_patch`), then the web defs
+    // (`collectStandaloneToolDefs`: web_search, web_fetch, local_fetch, image_fetch), after `code_graph`; the surfaces sort them into route order (`session_tools::route_rank`).
+    // `read`, `edit` and `apply_patch` share the ONE `ReadState`; `shell` and `task` the ONE `ExecRuntime`; `git` the engine's repository locks and the ONE `Worktrees`.
+    // Not here: `recall` and `memory`, which have no `Tool` implementation anywhere in the tree.
+    let ext_pool: Arc<dyn mixdog_core_api::domain::ext::ExtPool> = b.ext_host.clone();
+    let image_resizer: Arc<dyn mixdog_core_api::domain::ext::ImageResizer> = Arc::new(mixdog_exthost::ExtImageCodec::new(ext_pool.clone()));
+    tool_pool.push(Arc::new(mixdog_tools::fs::ReadTool::new(Some(ext_pool), Some(image_resizer)).with_state(read_state.clone())));
+    tool_pool.push(Arc::new(mixdog_tools::fs::EditTool::new().with_state(read_state.clone())));
+    tool_pool.push(Arc::new(mixdog_tools::exec::ShellTool::new(b.exec.clone())));
+    tool_pool.push(Arc::new(mixdog_tools::git::GitTool::with_locks(scm.locks.clone()).with_worktrees(Arc::new(mixdog_tools::git::WorktreeServices {
+        worktrees: worktrees.clone(),
+        stored: worktree_sessions.clone(),
+        live: { let ids = live_ids.clone(); Arc::new(move || ids().into_iter().collect()) },
+        sessions: late_workspaces.clone(), // bound right after `SessionWorkspaces` is built; in `verify_bound`
+    }))));
+    tool_pool.push(Arc::new(mixdog_tools::github::GithubTool::new()));
+    tool_pool.push(Arc::new(mixdog_tools::exec::TaskTool::new(b.exec.clone())));
+    tool_pool.push(Arc::new(mixdog_tools::fs::GrepTool::new()));
+    tool_pool.push(Arc::new(mixdog_tools::fs::GlobTool::new()));
+    tool_pool.push(Arc::new(mixdog_tools::fs::FindTool::new()));
+    tool_pool.push(Arc::new(mixdog_tools::fs::ListTool::new()));
+    tool_pool.push(Arc::new(mixdog_tools::fs::ApplyPatchTool::new().with_state(read_state.clone())));
+    // The web tools over one `WebService`: pages render in the shared render browser, and the page and search caches persist in `cache.local.json` of the data directory (`web-search/lib/config.mjs`).
+    // `search` stays unset: the hosted search needs a `SearchHost` (the live Main route and the asking session), which has no implementation in the tree yet, so `web_search` answers Node's
+    // "web search provider unavailable" (`web/search.rs`); `web_fetch`, `local_fetch` and `image_fetch` do not depend on it.
+    let web_lanes = mixdog_tools::web::WebLanes { extract: b.tokens.cpu_interactive, dns: b.tokens.interactive_io };
+    let page_renderer: Arc<dyn mixdog_tools::web::PageRenderer> = mixdog_tools::web::BrowserRenderer::new(Arc::new(b.ext_host.render_browser()), &build_version, web_lanes)
+        .map_err(|e| ComposeError::Config(format!("the web page renderer could not be built: {e}")))?;
+    let mut web_config = mixdog_tools::web::WebConfig::new(build_version.clone(), web_lanes);
+    web_config.renderer = Some(page_renderer);
+    web_config.cache_file = Some(mixdog_tools::web::CacheFile { path: b.data_dir.join("cache.local.json"), lane: b.tokens.maintenance_io });
+    let web = mixdog_tools::web::WebService::new(web_config).map_err(|e| ComposeError::Config(format!("the web tools could not be built: {e}")))?;
+    tool_pool.extend(web.tools());
+    // After `tools(..)` (the pool holds `explore`, which holds the host) and after the last read-only tool is registered: `bind` keeps one snapshot, and Node's
+    // `readOnlyFilesystemTools()` (`tool-resolution.mjs:96`) is `code_graph, find, glob, list, grep, read`.
+    explorer_host.bind(&tool_pool);
+    // ---- 9. the ready rows --------------------------------------------------------------------
+    let ready = ready_rows(
+        &process,
+        ReadyIn {
+            data_dir: b.data_dir.clone(),
+            env: b.env.clone(),
+            tool_pool: tool_pool.clone(),
+            hub: hub.clone(),
+            skills: mcp.catalog.clone(),
+            heartbeats: heartbeats.clone(),
+            blobs: blobs.clone(),
+        },
+    );
+    let (ready_resolver, ready_allow_all) = (ready.resolver.clone(), ready.allow_all.clone()); // the dispatcher is built from the very values the turn path holds
     let approval_ids = Arc::new(mixdog_core_base::approvals::StoreApprovalIds::open(b.core_state.clone()).await.map_err(ComposeError::State)?);
     // The one side-question store and what a capture reads; `SideWiring` hands out the request source, the next-request source and the questions service.
     let sections = b.sections.clone(); // the composed one (`ComposedCore::sections()`), the same `serving::start` takes
