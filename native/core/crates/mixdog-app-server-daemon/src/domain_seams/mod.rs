@@ -3,6 +3,7 @@
 pub mod agent_effects;
 pub mod automation_setup;
 pub mod caches;
+pub mod channel_stack;
 pub mod doctor;
 pub mod feature_effects;
 pub mod git;

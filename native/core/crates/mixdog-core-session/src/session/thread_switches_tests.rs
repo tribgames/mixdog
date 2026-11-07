@@ -50,8 +50,9 @@ impl Table {
     }
 }
 
+#[async_trait]
 impl WorkflowSurface for Table {
-    fn target(&self, _: &Header, workflow_id: &str, mode: Option<&str>) -> WorkflowTarget {
+    async fn target(&self, _: &Header, workflow_id: &str, mode: Option<&str>) -> WorkflowTarget {
         let entry = self.workflows.get(workflow_id).unwrap_or(&self.workflows["alpha"]);
         let text = |key: &str| entry[key].as_str().unwrap_or_default().to_owned();
         WorkflowTarget {
@@ -63,16 +64,16 @@ impl WorkflowSurface for Table {
         }
     }
 
-    fn live_denied_tools(&self, _: &Header, summary: &Value) -> Vec<String> {
+    async fn live_denied_tools(&self, _: &Header, summary: &Value) -> Vec<String> {
         let id = summary["id"].as_str().unwrap_or_default();
         self.workflows[id]["denied"].as_array().map(|list| list.iter().filter_map(|n| n.as_str().map(str::to_owned)).collect()).unwrap_or_default()
     }
 
-    fn standalone_tools(&self, _: &Header) -> Vec<Value> {
+    async fn standalone_tools(&self, _: &Header) -> Vec<Value> {
         self.standalone.clone()
     }
 
-    fn orchestration_instructions(&self, mode: &str) -> String {
+    async fn orchestration_instructions(&self, mode: &str) -> String {
         self.instructions[mode].as_str().unwrap_or_default().to_owned()
     }
 }
@@ -83,8 +84,8 @@ fn header_of(value: &Value) -> Header {
 
 /// Every recorded scenario, replayed over the recorded session: the answer, the session after
 /// each step and the boundaries recorded on its messages are Node's.
-#[test]
-fn the_switches_match_node() {
+#[tokio::test]
+async fn the_switches_match_node() {
     let golden = recording("session-switches.json");
     let surface = Table::of(&golden);
     let now = golden["now"].as_i64().expect("the frozen clock");
@@ -107,9 +108,9 @@ fn the_switches_match_node() {
             let facts = Facts { now, in_flight, conversation };
             let arg = step["arg"].as_str().unwrap_or_default();
             let done = match op {
-                "workflow" => switch_workflow(&mut session, &facts, &surface, arg),
-                "mode" => switch_mode(&mut session, &facts, &surface, arg),
-                _ => Ok(apply_pending(&mut session, &surface, now)),
+                "workflow" => switch_workflow(&mut session, &facts, &surface, arg).await,
+                "mode" => switch_mode(&mut session, &facts, &surface, arg).await,
+                _ => Ok(apply_pending(&mut session, &surface, now).await),
             };
             let label = format!("{name} #{i} {op} {arg}");
             match done {

@@ -11,8 +11,10 @@
 //!
 //! [`deliver`]: Outgoing::deliver
 
+use std::any::Any;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::AtomicUsize;
@@ -72,6 +74,18 @@ pub struct Outgoing {
     next_host_request: AtomicU64,
     /// The number of the next host/claim.
     next_claim: AtomicU64,
+    /// What a recorded claim attaches to the process (see [`ClaimHook`]); set once at start.
+    claim_hook: OnceLock<Arc<dyn ClaimHook>>,
+}
+
+/// Attaches process state to a host claim for as long as the claim lasts. The composition root
+/// builds it (it knows the pieces `Outgoing` does not, such as the system-proxy state) and sets it
+/// before the server accepts a connection, so no claim is recorded without it.
+pub trait ClaimHook: Send + Sync {
+    /// Called when a claim serving `serves` is recorded. The returned guard is held in the claim:
+    /// a replaced claim, a closed connection and the end of the process drop it, which detaches
+    /// what the hook attached.
+    fn claimed(&self, serves: &[HostCapability]) -> Option<Box<dyn Any + Send>>;
 }
 
 impl mixdog_core_api::DesktopPresence for Outgoing {
@@ -80,11 +94,20 @@ impl mixdog_core_api::DesktopPresence for Outgoing {
     }
 }
 
+impl mixdog_core_api::ApprovalPresence for Outgoing {
+    fn answerable(&self, thread: &ThreadId, surface: &ThreadId) -> bool {
+        let (thread, surface) = (FeedId::from(thread.as_str()), FeedId::from(surface.as_str()));
+        self.all_connections().iter().any(|conn| conn.is_eligible(&thread, &surface))
+    }
+}
+
 struct Claim {
     host: HostId,
     generation: u64,
     conn: Arc<Connection>,
     serves: Vec<HostCapability>,
+    /// What the [`ClaimHook`] attached; dropped with the claim.
+    _attached: Option<Box<dyn Any + Send>>,
 }
 
 /// The routed capabilities a desktop declared in `capabilities.host`.
@@ -114,7 +137,13 @@ impl Outgoing {
             model_proxies: Mutex::new(Vec::new()),
             next_host_request: AtomicU64::new(1),
             next_claim: AtomicU64::new(1),
+            claim_hook: OnceLock::new(),
         })
+    }
+
+    /// Sets the claim hook; a second set is refused.
+    pub fn set_claim_hook(&self, hook: Arc<dyn ClaimHook>) -> Result<(), Arc<dyn ClaimHook>> {
+        self.claim_hook.set(hook)
     }
 
     pub(crate) fn register(&self, conn: Arc<Connection>) {
@@ -220,12 +249,16 @@ impl Outgoing {
             .and_then(|session| session.host.as_ref())
             .map(serves)
             .unwrap_or_default();
+        // The new claim attaches before the one it replaces is dropped, so the process is never left
+        // between two claims of the same host with nothing attached.
+        let attached = self.claim_hook.get().and_then(|hook| hook.claimed(&serves));
         hosts.retain(|claim| claim.host != host && claim.conn.id != conn.id);
         hosts.push(Claim {
             host,
             generation: self.next_claim.fetch_add(1, Ordering::Relaxed),
             conn: Arc::clone(conn),
             serves,
+            _attached: attached,
         });
     }
 

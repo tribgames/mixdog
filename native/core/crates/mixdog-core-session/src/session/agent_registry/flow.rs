@@ -422,7 +422,7 @@ impl SessionTurns {
             Ok(Reply::Value(value)) if value["kind"] == "started" => {}
             Ok(Reply::Value(value)) => {
                 if let Some(queued) = value["queuedId"].as_str() {
-                    let params = json!({ "threadId": thread, "opId": format!("{op}:unqueue"), "queuedId": queued });
+                    let params = json!({ "threadId": thread, "opId": format!("{op}:unqueue"), "queuedId": queued, "restore": false });
                     let _ = handle.request(CoreRequest { method: Method("thread/queue/delete"), params, op: Some(OpId::from(format!("{op}:unqueue"))), ctx }).await;
                 }
                 return Err(unstarted(format!("agent session {} is busy with another turn", request.session_id)));
@@ -621,6 +621,56 @@ mod tests {
         assert_eq!(error.message, "provider down");
         turns.unload_runtime(handle.id.as_str(), "agent-turn-complete");
         assert_eq!(*released.0.lock().unwrap(), [format!("{} agent-turn-complete", handle.id)]);
+    }
+
+    /// A worker's turn asked of a session that is busy is refused, and the entry it queued is taken
+    /// off the queue again: left there it would run later with nobody waiting for it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_worker_turn_refused_as_busy_leaves_nothing_queued() {
+        use mixdog_agent::agent_tool::flow::seams::{ToolResultMessage, TurnHooks, TurnKind};
+        use crate::session::tests::{eventually_on, idle, start_thread, turn};
+
+        let rig = crate::session::testing::Rig::new();
+        let hold = Arc::new(tokio::sync::Notify::new());
+        let ran = Arc::new(tokio::sync::Notify::new());
+        let starts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (gate, said, count) = (hold.clone(), ran.clone(), starts.clone());
+        rig.set_script(Arc::new(move |run| {
+            let (gate, said, count) = (gate.clone(), said.clone(), count.clone());
+            Box::pin(async move {
+                run.port.input_durable().await.expect("input durable");
+                count.fetch_add(1, Ordering::SeqCst);
+                said.notify_waiters();
+                gate.notified().await;
+                crate::session::RunOutcome::Completed(Box::default())
+            })
+        }));
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let handle = start_thread(&directory).await;
+        turn(&handle, "user work", "op-1").await;
+        eventually_on(&[&ran, &handle.cell.stepped], || (starts.load(Ordering::SeqCst) == 1).then_some(())).await;
+        let turns = SessionTurns::new(directory.clone(), Arc::new(Released(Mutex::default())));
+        let request = TurnRequest {
+            kind: TurnKind::Spawn,
+            session_id: handle.id.as_str().to_owned(),
+            prompt: "late".into(),
+            attachments: Vec::new(),
+            context: None,
+            cwd: String::new(),
+            skill_selection: None,
+            hooks: TurnHooks {
+                submission_id: "sub-busy".into(),
+                notify: Arc::new(|_, _| true),
+                on_tool_result: Arc::new(|_: &ToolResultMessage| {}),
+                on_terminal_result: None,
+            },
+            slot: None,
+        };
+        let refused = turns.run_turn(request).await.expect_err("busy");
+        assert!(refused.message.contains("busy with another turn"), "{}", refused.message);
+        eventually_on(&[&handle.cell.stepped], || handle.cell.queued.load().is_empty().then_some(())).await;
+        hold.notify_one();
+        eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     }
 
     /// `observeSessionTurns`: the observer hears each turn start and the run host's final

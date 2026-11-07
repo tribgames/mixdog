@@ -24,7 +24,7 @@ use mixdog_core_api::domain::provider::RequestThread;
 use mixdog_core_api::domain::tool::{SurfaceKind, Tool, ToolIo};
 use mixdog_core_api::ids::ThreadId;
 use mixdog_protocol::TurnError;
-use mixdog_protocol::message_class::user_text::Blobs;
+use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_services::effort_judge::judge::{EffortJudge, EffortJudgeModel};
 use mixdog_agent::step_effort::StepEffortJudge;
 use mixdog_store::schema::record::Header;
@@ -82,7 +82,7 @@ pub struct CompactorInput {
     pub rows: Arc<mixdog_core_session::session::StoredRows>,
     /// Where a dropped execution is archived (`FreshParts.archive`).
     pub archive: Arc<dyn mixdog_agent::offload::ArtifactStore>,
-    pub blobs: Arc<dyn Blobs + Send + Sync>,
+    pub blobs: Arc<dyn BlobReads>,
 }
 
 /// What a turn needs and no crate supplies yet. Every method is a seam with its owner.
@@ -152,7 +152,7 @@ pub struct HostServices {
     pub connectors: Arc<dyn ConnectorPermissions>,
     pub resolver: Arc<dyn ToolResolver>,
     pub gate_env: Arc<dyn GateEnv>,
-    pub blobs: Arc<dyn Blobs + Send + Sync>,
+    pub blobs: Arc<dyn BlobReads>,
     /// The process-wide react targets: the same value the react tool (`ports::reactions::SessionReactions`)
     /// records into.
     pub reaction_targets: Arc<ReactionTargets>,

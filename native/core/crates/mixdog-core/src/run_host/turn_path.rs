@@ -16,7 +16,7 @@ use mixdog_exthost::ExtImageCodec;
 use mixdog_mcp::hook_bus::session::CommonOf;
 use mixdog_mcp::hook_bus::HookBus;
 use mixdog_mcp::skill_select::SkillNames;
-use mixdog_protocol::message_class::user_text::Blobs;
+use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_rt::LaneTokens;
 use mixdog_services::effort_judge::judge::EffortJudgeModel;
 use mixdog_store::paths::Paths;
@@ -25,10 +25,8 @@ use mixdog_tools::state::todo::TodoStore;
 
 use super::assemble::SkillParts;
 use super::boot::{build_directory, HostParts};
-use super::compaction_world::{CompactionServices, ProcessCompactionWorld};
 use super::compactors::SessionCompactors;
 use super::mcp_seams::{AllowAllActions, HostGateEnv};
-use mixdog_core_ports::ports::run_stamps::RunStamps;
 use super::unattended::UnattendedRunRegistry;
 use mixdog_core_agents::agents::AgentDefinitions;
 use mixdog_core_agents::agents::ContactIds;
@@ -73,13 +71,16 @@ pub struct TurnPathParts {
     pub connectors: Arc<dyn ConnectorPermissions>,
     pub resolver: Arc<dyn ToolResolver>,
     /// The unattended runs' stamps (the session record's `run` object, WP-SESSION).
-    pub run_stamps: Arc<dyn RunStamps>,
+    pub unattended: Arc<UnattendedRunRegistry>,
+    /// The provider tool exclusions the turns record into: the SAME value the tool pool's `SessionCatalog` and the sessions' tool surfaces take (the pool is
+    /// built before this path, so the path cannot make it).
+    pub exclusions: Arc<mixdog_core_session::session::SessionToolExclusions>,
     /// The agent definitions the contact-bot rule reads.
     pub agents: Arc<AgentDefinitions>,
     pub allow_all: Arc<dyn AllowAllActions>,
     /// The MCP hub, for the connector account of a call.
     pub hub: Arc<McpHub>,
-    pub blobs: Arc<dyn Blobs + Send + Sync>,
+    pub blobs: Arc<dyn BlobReads>,
     /// Every registered tool, including `Skill`, `todo` and `load_tool`; the read/edit/patch tools carry the
     /// process's one `ReadState`.
     pub tool_pool: Vec<Arc<dyn Tool>>,
@@ -102,9 +103,9 @@ pub struct TurnPathParts {
     pub ladder: Arc<dyn LadderSources>,
     /// The session directory's own dependencies, given the real run factory (WP-SESSION).
     pub deps: Box<dyn FnOnce(Arc<dyn RunFactory>) -> SessionDeps>,
-    /// The session side of compaction (summary routes, fork source, media meters, cache tail); SessionCompactors is built
-    /// over it (WP-COMPACTION-WORLD).
-    pub compaction: CompactionServices,
+    /// The session compactors, built over the compaction world (WP-COMPACTION-WORLD) by the composition: the manual compaction and the inheritance fit
+    /// read the same world, and neither can be built from inside this path (the `deps` closure is called in it with the run factory only).
+    pub compactors: Arc<SessionCompactors>,
     /// The route hop, built over the directory and the path's registry.
     pub hops: Box<dyn FnOnce(&Arc<SessionDirectory>, &Arc<ProviderRegistry>) -> HopFactory>,
     /// The runtime's shell control: the progress watchdog's stop reaps a turn's shells through it.
@@ -139,15 +140,13 @@ pub struct TurnPath {
 impl TurnPath {
     pub fn new(parts: TurnPathParts) -> Result<Self, TurnPathError> {
         let TurnPathParts {
-            tokens, clock, paths, registry, effort_judge, side, next, files, processes, policy, connectors, resolver, run_stamps, agents, allow_all, hub, blobs, tool_pool, mcp,
-            skills_listed, skill_names, ext_pool, hook_bus, hook_common, goals, todos, work, cycles, config, settings, ladder, deps, compaction, hops, shells,
+            tokens, clock, paths, registry, effort_judge, side, next, files, processes, policy, connectors, resolver, unattended, exclusions, agents, allow_all, hub, blobs, tool_pool, mcp,
+            skills_listed, skill_names, ext_pool, hook_bus, hook_common, goals, todos, work, cycles, config, settings, ladder, deps, compactors, hops, shells,
         } = parts;
         let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
         let skill_tool = tool_pool.iter().find(|t| t.spec().name == "Skill").cloned().ok_or(TurnPathError::NoSkillTool)?;
         let reaction_targets: Arc<ReactionTargets> = Arc::default();
         let reuses: Arc<super::result_reuse::LiveReuses> = Arc::default();
-        let exclusions: Arc<mixdog_core_session::session::SessionToolExclusions> = Arc::default();
-        let unattended = UnattendedRunRegistry::new(run_stamps);
         let contacts = Arc::new(ContactIds::new(agents));
         let gate_env = Arc::new(HostGateEnv::new(unattended.clone(), contacts.clone(), allow_all, hub));
         let host = HostParts {
@@ -182,7 +181,6 @@ impl TurnPath {
             shells,
             exclusions: exclusions.clone(),
         };
-        let compactors = Arc::new(SessionCompactors::new(Arc::new(ProcessCompactionWorld::new(compaction)), host.clock.clone()));
         let directory = build_directory(host, deps, move |directory, registry| DirectoryParts { hops: Arc::new(hops(directory, registry)), compactors });
         Ok(Self { directory, reaction_targets, reuses, registry, unattended, contacts, exclusions })
     }

@@ -1,0 +1,30 @@
+{
+  "command": "node <repo>/benchmarks/rust-core/recorders/record-quota-resume-fire.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 30995,
+      "path": "golden.json",
+      "sha256": "cfb5c3754be92fd1840f4616ed12ade6fafc69be8b9fc05521b8e73efb724792"
+    }
+  ],
+  "product": {
+    "appsSha256": "fafa2dadfb9db84dba5ba512f05574282fe76e530ac5b39b4bb99cc0f396199c",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "c0a5785f27266f734b65178b0d60f1ccc18e705b",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 9248
+    },
+    "srcSha256": "16c012f0b32155ce5082fbc2e84b4d65bdce04fbef9a185eabc0c708e5c64e7c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-quota-resume-fire.mjs",
+  "set": "quota-resume-fire",
+  "totalBytes": 30995
+}

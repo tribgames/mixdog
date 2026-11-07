@@ -875,7 +875,7 @@ impl Run {
         });
         let mut assistant = tool_call_message(&response);
         assistant.turn_reminder = self.last_reminder.clone();
-        let ticket = self.push(assistant);
+        let ticket = self.push(assistant).await?;
         // The tools start only once the assistant item that carries their
         // calls is on disk.
         self.until_durable(ticket).await?;
@@ -884,9 +884,9 @@ impl Run {
         // A turn recovered from a stream cut that dropped an in-flight tool
         // call carries a notice for the model, delivered after its results.
         if let Some(notice) = response.recovery_notice {
-            self.push(notice);
+            self.push(notice).await?;
         }
-        self.settle_turn_limits(overrun);
+        self.settle_turn_limits(overrun).await?;
         self.last_batch_later = calls
             .iter()
             .any(|call| is_sleep_like(&call.name));

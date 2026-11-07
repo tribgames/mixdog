@@ -273,7 +273,8 @@ fn request_of(input: &Value) -> DispatchRequest {
     let (options, call) = (&input["options"], &input["call"]);
     DispatchRequest {
         agent: options["agent"].as_str().unwrap().to_owned(),
-        prompt: call["prompt"].as_str().unwrap().to_owned(),
+        // The recorder's own default (`{ prompt: 'summarise the rows', ...scenario.call }`).
+        prompt: call["prompt"].as_str().unwrap_or("summarise the rows").to_owned(),
         brief: options["brief"] != false,
         salvage_partial: input["salvage"] == true,
         preset: Some(call["preset"].clone()).filter(|preset| !preset.is_null()),

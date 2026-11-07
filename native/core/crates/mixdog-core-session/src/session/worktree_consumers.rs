@@ -50,7 +50,7 @@ impl StoredConsumers {
 }
 
 /// readdir of the store folder failed: Node's own text (<CODE>: <description>, scandir '<dir>').
-fn listing_failure(error: std::io::Error, dir: &std::path::Path) -> ScmFailure {
+pub(super) fn listing_failure(error: std::io::Error, dir: &std::path::Path) -> ScmFailure {
     match io_failure("session", &FsFailure { error, step: FsStep::Scandir(dir.to_owned()) }) {
         CoreError::DomainError { message: Some(message), .. } => plain(message.to_string()),
         other => unreachable!("io_failure answers a domain error with a message: {other:?}"),

@@ -1,0 +1,966 @@
+{
+ "fileNames": [
+  {
+   "name": "KakaoTalk_20261103_195007703.jpg",
+   "mime": "image/jpeg",
+   "fallback": null,
+   "want": "KakaoTalk_20261103_195007703.jpg"
+  },
+  {
+   "name": "image",
+   "mime": "image/jpeg",
+   "fallback": null,
+   "want": "image.jpg"
+  },
+  {
+   "name": "photo.heic",
+   "mime": "image/jpeg",
+   "fallback": null,
+   "want": "photo.heic.jpg"
+  },
+  {
+   "name": "계약서 사본",
+   "mime": "application/pdf",
+   "fallback": null,
+   "want": "계약서 사본.pdf"
+  },
+  {
+   "name": "main.py",
+   "mime": "text/plain",
+   "fallback": null,
+   "want": "main.py"
+  },
+  {
+   "name": "..\\..\\evil:name?.png",
+   "mime": "image/png",
+   "fallback": null,
+   "want": "evil-name-.png"
+  },
+  {
+   "name": "nul",
+   "mime": "text/plain",
+   "fallback": null,
+   "want": "_nul.txt"
+  },
+  {
+   "name": "",
+   "mime": "image/png",
+   "fallback": "image",
+   "want": "image.png"
+  },
+  {
+   "name": "x.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "mime": "",
+   "fallback": null,
+   "want": "x.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "name": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "mime": "image/png",
+   "fallback": null,
+   "want": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.png"
+  },
+  {
+   "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.pdf",
+   "mime": "application/pdf",
+   "fallback": null,
+   "want": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.pdf"
+  },
+  {
+   "name": null,
+   "mime": "",
+   "fallback": null,
+   "want": "attachment"
+  },
+  {
+   "mime": "image/png",
+   "fallback": null,
+   "want": "attachment.png"
+  },
+  {
+   "name": "  .hidden.  ",
+   "mime": "",
+   "fallback": null,
+   "want": "hidden"
+  },
+  {
+   "name": ".bashrc",
+   "mime": "text/plain",
+   "fallback": null,
+   "want": "bashrc.txt"
+  },
+  {
+   "name": "a.PDF",
+   "mime": "application/pdf",
+   "fallback": null,
+   "want": "a.PDF"
+  },
+  {
+   "name": "a.JPG",
+   "mime": "image/jpeg",
+   "fallback": null,
+   "want": "a.JPG"
+  },
+  {
+   "name": "a.jpeg",
+   "mime": "image/jpeg",
+   "fallback": null,
+   "want": "a.jpeg"
+  },
+  {
+   "name": "a.txt",
+   "mime": "image/png",
+   "fallback": null,
+   "want": "a.txt.png"
+  },
+  {
+   "name": "com1.txt",
+   "mime": "text/plain",
+   "fallback": null,
+   "want": "_com1.txt"
+  },
+  {
+   "name": "LPT9",
+   "mime": "",
+   "fallback": null,
+   "want": "_LPT9"
+  },
+  {
+   "name": "aux.",
+   "mime": "",
+   "fallback": null,
+   "want": "_aux"
+  },
+  {
+   "name": "con.tar.gz",
+   "mime": "",
+   "fallback": null,
+   "want": "_con.tar.gz"
+  },
+  {
+   "name": "COM0",
+   "mime": "",
+   "fallback": null,
+   "want": "COM0"
+  },
+  {
+   "name": "..",
+   "mime": "",
+   "fallback": null,
+   "want": "attachment"
+  },
+  {
+   "name": "...",
+   "mime": "image/png",
+   "fallback": null,
+   "want": "attachment.png"
+  },
+  {
+   "name": ".png",
+   "mime": "image/png",
+   "fallback": null,
+   "want": "png.png"
+  },
+  {
+   "name": "a<b>c|d?e*f",
+   "mime": "",
+   "fallback": null,
+   "want": "a-b-c-d-e-f"
+  },
+  {
+   "name": "tab\there\u0001end",
+   "mime": "text/plain",
+   "fallback": null,
+   "want": "tab-here-end.txt"
+  },
+  {
+   "name": "name",
+   "mime": "text/plain; charset=utf-8",
+   "fallback": null,
+   "want": "name.txt"
+  },
+  {
+   "name": "NAME",
+   "mime": "TEXT/PLAIN",
+   "fallback": null,
+   "want": "NAME.txt"
+  },
+  {
+   "name": "x",
+   "mime": "application/octet-stream",
+   "fallback": null,
+   "want": "x"
+  },
+  {
+   "name": "doc.docx",
+   "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+   "fallback": null,
+   "want": "doc.docx"
+  },
+  {
+   "name": "doc.doc",
+   "mime": "application/msword",
+   "fallback": null,
+   "want": "doc.doc"
+  },
+  {
+   "name": "sheet",
+   "mime": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+   "fallback": null,
+   "want": "sheet.xlsx"
+  },
+  {
+   "name": "folder/sub/file.PNG",
+   "mime": "image/png",
+   "fallback": null,
+   "want": "file.PNG"
+  },
+  {
+   "name": "C:\\dir\\f.txt",
+   "mime": "text/plain",
+   "fallback": null,
+   "want": "f.txt"
+  },
+  {
+   "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.json",
+   "mime": "application/json",
+   "fallback": null,
+   "want": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.json"
+  },
+  {
+   "name": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀.png",
+   "mime": "image/png",
+   "fallback": null,
+   "want": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀.png"
+  },
+  {
+   "name": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+   "mime": "text/markdown",
+   "fallback": null,
+   "want": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé.md"
+  },
+  {
+   "name": " spaced ",
+   "mime": "text/csv",
+   "fallback": null,
+   "want": "spaced.csv"
+  },
+  {
+   "name": "a. b",
+   "mime": "",
+   "fallback": null,
+   "want": "a. b"
+  },
+  {
+   "name": " ",
+   "mime": "text/plain",
+   "fallback": "fallback-name",
+   "want": "fallback-name.txt"
+  },
+  {
+   "name": "archive.zip",
+   "mime": "application/zip",
+   "fallback": null,
+   "want": "archive.zip"
+  },
+  {
+   "name": "archive",
+   "mime": "application/zip",
+   "fallback": null,
+   "want": "archive.zip"
+  },
+  {
+   "name": "photo",
+   "mime": "image/heic",
+   "fallback": null,
+   "want": "photo.heic"
+  },
+  {
+   "name": "photo.png",
+   "mime": "image/heic",
+   "fallback": null,
+   "want": "photo.png.heic"
+  },
+  {
+   "name": "x.y.z.PNG",
+   "mime": "image/svg+xml",
+   "fallback": null,
+   "want": "x.y.z.PNG.svg"
+  }
+ ],
+ "blobs": [
+  {
+   "id": "ascii",
+   "ref": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+   "file": "aGVsbG8=",
+   "textWithin": [
+    {
+     "max": 0,
+     "want": {
+      "none": true
+     }
+    },
+    {
+     "max": 1,
+     "want": {
+      "none": true
+     }
+    },
+    {
+     "max": 4,
+     "want": {
+      "none": true
+     }
+    },
+    {
+     "max": 5,
+     "want": {
+      "text": "hello"
+     }
+    },
+    {
+     "max": 6,
+     "want": {
+      "text": "hello"
+     }
+    },
+    {
+     "max": 1048576,
+     "want": {
+      "text": "hello"
+     }
+    }
+   ],
+   "read": {
+    "bytes": "aGVsbG8="
+   },
+   "size": {
+    "bytes": 5
+   }
+  },
+  {
+   "id": "multibyte",
+   "ref": "ea1cba0e74f5b4ac6d5e01acc2e2c4e938609f2264f723e48dcd773fc3355a34",
+   "file": "aMOpbGxvIO2VnOq4gCDwn5iA",
+   "textWithin": [
+    {
+     "max": 0,
+     "want": {
+      "none": true
+     }
+    },
+    {
+     "max": 1,
+     "want": {
+      "none": true
+     }
+    },
+    {
+     "max": 17,
+     "want": {
+      "none": true
+     }
+    },
+    {
+     "max": 18,
+     "want": {
+      "text": "héllo 한글 😀"
+     }
+    },
+    {
+     "max": 19,
+     "want": {
+      "text": "héllo 한글 😀"
+     }
+    },
+    {
+     "max": 1048576,
+     "want": {
+      "text": "héllo 한글 😀"
+     }
+    }
+   ],
+   "read": {
+    "bytes": "aMOpbGxvIO2VnOq4gCDwn5iA"
+   },
+   "size": {
+    "bytes": 18
+   }
+  },
+  {
+   "id": "invalid-utf8",
+   "ref": "1885f588ef16f7caf3f73d2c70d0a7d069bf68ae74579c6ba127feafb9131a4d",
+   "file": "Yf/+YsM=",
+   "textWithin": [
+    {
+     "max": 0,
+     "want": {
+      "none": true
+     }
+    },
+    {
+     "max": 1,
+     "want": {
+      "none": true
+     }
+    },
+    {
+     "max": 4,
+     "want": {
+      "none": true
+     }
+    },
+    {
+     "max": 5,
+     "want": {
+      "text": "a��b�"
+     }
+    },
+    {
+     "max": 6,
+     "want": {
+      "text": "a��b�"
+     }
+    },
+    {
+     "max": 1048576,
+     "want": {
+      "text": "a��b�"
+     }
+    }
+   ],
+   "read": {
+    "bytes": "Yf/+YsM="
+   },
+   "size": {
+    "bytes": 5
+   }
+  },
+  {
+   "id": "bom",
+   "ref": "7611e336d2b333aa772acee003373474c86cd9ce975c10d66a4b0156e8641dca",
+   "file": "77u/aGk=",
+   "textWithin": [
+    {
+     "max": 0,
+     "want": {
+      "none": true
+     }
+    },
+    {
+     "max": 1,
+     "want": {
+      "none": true
+     }
+    },
+    {
+     "max": 4,
+     "want": {
+      "none": true
+     }
+    },
+    {
+     "max": 5,
+     "want": {
+      "text": "﻿hi"
+     }
+    },
+    {
+     "max": 6,
+     "want": {
+      "text": "﻿hi"
+     }
+    },
+    {
+     "max": 1048576,
+     "want": {
+      "text": "﻿hi"
+     }
+    }
+   ],
+   "read": {
+    "bytes": "77u/aGk="
+   },
+   "size": {
+    "bytes": 5
+   }
+  },
+  {
+   "id": "empty-file",
+   "ref": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "file": "",
+   "textWithin": [
+    {
+     "max": 0,
+     "want": {
+      "error": "ATTACHMENT_INVALID"
+     }
+    },
+    {
+     "max": 1,
+     "want": {
+      "error": "ATTACHMENT_INVALID"
+     }
+    },
+    {
+     "max": 1048576,
+     "want": {
+      "error": "ATTACHMENT_INVALID"
+     }
+    }
+   ],
+   "read": {
+    "error": "ATTACHMENT_INVALID",
+    "permanent": true
+   },
+   "size": {
+    "bytes": 0
+   }
+  },
+  {
+   "id": "tampered",
+   "ref": "0682c5f2076f099c34cfdd15a9e063849ed437a49677e6fcc5b4198c76575be5",
+   "file": "bW9kaWZpZWQ=",
+   "textWithin": [
+    {
+     "max": 0,
+     "want": {
+      "none": true
+     }
+    },
+    {
+     "max": 1,
+     "want": {
+      "none": true
+     }
+    },
+    {
+     "max": 7,
+     "want": {
+      "none": true
+     }
+    },
+    {
+     "max": 8,
+     "want": {
+      "error": "ATTACHMENT_INTEGRITY"
+     }
+    },
+    {
+     "max": 9,
+     "want": {
+      "error": "ATTACHMENT_INTEGRITY"
+     }
+    },
+    {
+     "max": 1048576,
+     "want": {
+      "error": "ATTACHMENT_INTEGRITY"
+     }
+    }
+   ],
+   "read": {
+    "error": "ATTACHMENT_INTEGRITY",
+    "permanent": true
+   },
+   "size": {
+    "bytes": 8
+   }
+  },
+  {
+   "id": "tampered-longer",
+   "ref": "f9b0078b5df596d2ea19010c001bbd009e651de2c57e8fb7e355f31eb9d3f739",
+   "file": "c2hvcnQgcGx1cyBleHRyYQ==",
+   "textWithin": [
+    {
+     "max": 0,
+     "want": {
+      "none": true
+     }
+    },
+    {
+     "max": 1,
+     "want": {
+      "none": true
+     }
+    },
+    {
+     "max": 15,
+     "want": {
+      "none": true
+     }
+    },
+    {
+     "max": 16,
+     "want": {
+      "error": "ATTACHMENT_INTEGRITY"
+     }
+    },
+    {
+     "max": 17,
+     "want": {
+      "error": "ATTACHMENT_INTEGRITY"
+     }
+    },
+    {
+     "max": 1048576,
+     "want": {
+      "error": "ATTACHMENT_INTEGRITY"
+     }
+    }
+   ],
+   "read": {
+    "error": "ATTACHMENT_INTEGRITY",
+    "permanent": true
+   },
+   "size": {
+    "bytes": 16
+   }
+  },
+  {
+   "id": "missing",
+   "ref": "b68565cf5699273f6a21847b3fe44726374cbd6c3bfdc829527f1db2a0504341",
+   "file": null,
+   "textWithin": [
+    {
+     "max": 0,
+     "want": {
+      "error": "ENOENT"
+     }
+    },
+    {
+     "max": 1,
+     "want": {
+      "error": "ENOENT"
+     }
+    },
+    {
+     "max": 1048576,
+     "want": {
+      "error": "ENOENT"
+     }
+    }
+   ],
+   "read": {
+    "error": "ENOENT",
+    "permanent": true
+   },
+   "size": {
+    "bytes": 0
+   }
+  },
+  {
+   "id": "invalid-ref",
+   "ref": "not-a-ref",
+   "file": null,
+   "textWithin": [
+    {
+     "max": 0,
+     "want": {
+      "error": "TypeError"
+     }
+    },
+    {
+     "max": 1,
+     "want": {
+      "error": "TypeError"
+     }
+    },
+    {
+     "max": 1048576,
+     "want": {
+      "error": "TypeError"
+     }
+    }
+   ],
+   "read": {
+    "error": "TypeError",
+    "permanent": false
+   },
+   "size": {
+    "error": "TypeError"
+   }
+  },
+  {
+   "id": "upper-ref",
+   "ref": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+   "file": null,
+   "textWithin": [
+    {
+     "max": 0,
+     "want": {
+      "error": "TypeError"
+     }
+    },
+    {
+     "max": 1,
+     "want": {
+      "error": "TypeError"
+     }
+    },
+    {
+     "max": 1048576,
+     "want": {
+      "error": "TypeError"
+     }
+    }
+   ],
+   "read": {
+    "error": "TypeError",
+    "permanent": false
+   },
+   "size": {
+    "error": "TypeError"
+   }
+  }
+ ],
+ "inline": [
+  {
+   "data": "aGVsbG8=",
+   "want": {
+    "ref": "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+    "size": 5
+   }
+  },
+  {
+   "data": "",
+   "want": null
+  },
+  {
+   "data": "aGVsbG8",
+   "want": null
+  },
+  {
+   "data": "aGVs bG8=",
+   "want": null
+  },
+  {
+   "data": "aGVsbG8=\n",
+   "want": null
+  },
+  {
+   "data": "aGVsbG9=",
+   "want": null
+  },
+  {
+   "data": "-_8=",
+   "want": null
+  },
+  {
+   "data": "+/8=",
+   "want": {
+    "ref": "db8fed54159afe40ace5b49d702259fd88c9c4009307181824487baab5c6bdea",
+    "size": 2
+   }
+  },
+  {
+   "data": "JVBERi0xLjcKYm9keQ==",
+   "want": {
+    "ref": "3f972854841afd236b04b5d7435b73216bc5fa6e39a86aff6e492b744086189c",
+    "size": 13
+   }
+  },
+  {
+   "data": "AA==",
+   "want": {
+    "ref": "6e340b9cffb37a989ca544e6bb780a2c78901d3fb33738768511a30617afa01d",
+    "size": 1
+   }
+  },
+  {
+   "data": "AA",
+   "want": null
+  },
+  {
+   "data": "A",
+   "want": null
+  },
+  {
+   "data": "====",
+   "want": null
+  },
+  {
+   "data": "BwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcH",
+   "want": {
+    "ref": "48c187767dddb44e5b7af78dabdec2b14f0f983e86e1fe695c65bc6a2a3cb42f",
+    "size": 3000
+   }
+  }
+ ],
+ "named": {
+  "blobs": [
+   {
+    "bytes": "/9j/4CBwaG90byBvZiBhIGxlYXNl",
+    "ref": "7f70c44f80813a0cfaae050ba71b7aa57bc532c552208bd61ae0d580e4ec2c1d",
+    "store": true
+   },
+   {
+    "bytes": "/9j/4CBwaG90byBvZiBhIGxlYXNlIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCA=",
+    "ref": "5e29723eb10cda17dc715fee0edd0348fd05009772de6268413a9500a1cba923",
+    "store": true
+   },
+   {
+    "bytes": "JVBERi0xLjcKYm9keQ==",
+    "ref": "3f972854841afd236b04b5d7435b73216bc5fa6e39a86aff6e492b744086189c",
+    "store": true
+   },
+   {
+    "bytes": "cGxhaW4gbm90ZXM=",
+    "ref": "44eff743ca3bef7f4c8c8ec5ba1c7dc401ba89a6caf50e73b4d7e0695ae10bab",
+    "store": true
+   },
+   {
+    "bytes": "/9j/4CBwaG90byBvZiBhIGxlYXNlIHNlY29uZCBwaG90bw==",
+    "ref": "f86593712796e1089c37fdc82e895c0e8ba4b2544570403c3c28e22322f51e03",
+    "store": true
+   },
+   {
+    "bytes": "YSBibG9iIHRoYXQgd2FzIG5ldmVyIHN0b3JlZA==",
+    "ref": "74aebd49e09d95a9949877c4c9e264b9d59e3de88d401050877f8647ac248a00",
+    "store": false
+   }
+  ],
+  "steps": [
+   {
+    "blob": 0,
+    "filename": "KakaoTalk_1.jpg",
+    "mime": "image/jpeg",
+    "want": {
+     "path": "prompt-attachments/files/7f70c44f80813a0cfaae050ba71b7aa57bc532c552208bd61ae0d580e4ec2c1d/KakaoTalk_1.jpg",
+     "content": "/9j/4CBwaG90byBvZiBhIGxlYXNl"
+    }
+   },
+   {
+    "blob": 0,
+    "filename": "KakaoTalk_1.jpg",
+    "mime": "image/jpeg",
+    "want": {
+     "path": "prompt-attachments/files/7f70c44f80813a0cfaae050ba71b7aa57bc532c552208bd61ae0d580e4ec2c1d/KakaoTalk_1.jpg",
+     "content": "/9j/4CBwaG90byBvZiBhIGxlYXNl"
+    }
+   },
+   {
+    "blob": 0,
+    "filename": "",
+    "mime": "image/jpeg",
+    "want": {
+     "path": "prompt-attachments/files/7f70c44f80813a0cfaae050ba71b7aa57bc532c552208bd61ae0d580e4ec2c1d/KakaoTalk_1.jpg",
+     "content": "/9j/4CBwaG90byBvZiBhIGxlYXNl"
+    }
+   },
+   {
+    "blob": 2,
+    "filename": "",
+    "mime": "application/pdf",
+    "want": {
+     "path": "prompt-attachments/files/3f972854841afd236b04b5d7435b73216bc5fa6e39a86aff6e492b744086189c/attachment.pdf",
+     "content": "JVBERi0xLjcKYm9keQ=="
+    }
+   },
+   {
+    "blob": 4,
+    "filename": "",
+    "mime": "image/png",
+    "want": {
+     "path": "prompt-attachments/files/f86593712796e1089c37fdc82e895c0e8ba4b2544570403c3c28e22322f51e03/image.png",
+     "content": "/9j/4CBwaG90byBvZiBhIGxlYXNlIHNlY29uZCBwaG90bw=="
+    }
+   },
+   {
+    "blob": 0,
+    "filename": "IMG_0042.heic",
+    "mime": "image/webp",
+    "original": {
+     "blob": 1,
+     "mime": "image/heic"
+    },
+    "want": {
+     "path": "prompt-attachments/files/5e29723eb10cda17dc715fee0edd0348fd05009772de6268413a9500a1cba923/IMG_0042.heic",
+     "content": "/9j/4CBwaG90byBvZiBhIGxlYXNlIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCA="
+    }
+   },
+   {
+    "blob": 4,
+    "filename": "IMG_0042.heic",
+    "mime": "image/webp",
+    "original": {
+     "blob": 5,
+     "mime": "image/heic"
+    },
+    "want": {
+     "path": "prompt-attachments/files/f86593712796e1089c37fdc82e895c0e8ba4b2544570403c3c28e22322f51e03/IMG_0042.heic.webp",
+     "content": "/9j/4CBwaG90byBvZiBhIGxlYXNlIHNlY29uZCBwaG90bw=="
+    }
+   },
+   {
+    "blob": 4,
+    "filename": "IMG_0043.heic",
+    "mime": "image/png",
+    "original": {
+     "blob": 1,
+     "mime": ""
+    },
+    "want": {
+     "path": "prompt-attachments/files/5e29723eb10cda17dc715fee0edd0348fd05009772de6268413a9500a1cba923/IMG_0043.heic.png",
+     "content": "/9j/4CBwaG90byBvZiBhIGxlYXNlIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCAgZnVsbC1yZXNvbHV0aW9uIG9yaWdpbmFsICBmdWxsLXJlc29sdXRpb24gb3JpZ2luYWwgIGZ1bGwtcmVzb2x1dGlvbiBvcmlnaW5hbCA="
+    }
+   },
+   {
+    "blob": 5,
+    "filename": "gone.jpg",
+    "mime": "image/jpeg",
+    "want": {
+     "error": true
+    }
+   },
+   {
+    "blob": "zz",
+    "filename": "bad.jpg",
+    "mime": "image/jpeg",
+    "want": {
+     "error": true
+    }
+   },
+   {
+    "blob": 3,
+    "filename": "notes",
+    "mime": "text/plain",
+    "want": {
+     "path": "prompt-attachments/files/44eff743ca3bef7f4c8c8ec5ba1c7dc401ba89a6caf50e73b4d7e0695ae10bab/notes.txt",
+     "content": "cGxhaW4gbm90ZXM="
+    }
+   },
+   {
+    "blob": 3,
+    "filename": "notes",
+    "mime": "text/plain",
+    "overwrite": {
+     "path": "prompt-attachments/files/44eff743ca3bef7f4c8c8ec5ba1c7dc401ba89a6caf50e73b4d7e0695ae10bab/notes.txt",
+     "content": "ZWRpdGVkIGJ5IHRoZSB1c2Vy"
+    },
+    "want": {
+     "path": "prompt-attachments/files/44eff743ca3bef7f4c8c8ec5ba1c7dc401ba89a6caf50e73b4d7e0695ae10bab/notes.txt",
+     "content": "ZWRpdGVkIGJ5IHRoZSB1c2Vy"
+    }
+   },
+   {
+    "blob": 3,
+    "filename": "other.txt",
+    "mime": "text/plain",
+    "want": {
+     "path": "prompt-attachments/files/44eff743ca3bef7f4c8c8ec5ba1c7dc401ba89a6caf50e73b4d7e0695ae10bab/other.txt",
+     "content": "cGxhaW4gbm90ZXM="
+    }
+   },
+   {
+    "blob": 2,
+    "filename": "C:\\x\\Report: Q1?.pdf",
+    "mime": "application/pdf",
+    "want": {
+     "path": "prompt-attachments/files/3f972854841afd236b04b5d7435b73216bc5fa6e39a86aff6e492b744086189c/Report- Q1-.pdf",
+     "content": "JVBERi0xLjcKYm9keQ=="
+    }
+   }
+  ]
+ }
+}

@@ -72,12 +72,39 @@ pub fn utf16_len(value: &str) -> usize {
     value.chars().map(char::len_utf16).sum()
 }
 
+#[path = "lowercase_changed.rs"]
+mod lowercase_changed;
+
 /// `String.prototype.toLowerCase()` (no locale): the Unicode full case mapping with the
 /// Final_Sigma context rule, so `İ` becomes `i` + U+0307 and a word-final `Σ` becomes `ς`. This is
-/// what `str::to_lowercase` implements; the function exists so every port names the JavaScript
-/// operation, and `testdata/js_lowercase.json` (recorded from Node for every code point) pins it.
+/// `str::to_lowercase`, except for the characters the toolchain's Unicode tables know a lowering
+/// for and Node's ICU does not yet (a letter pair added in a later Unicode version, such as
+/// U+A7CE): Node leaves those as they are. They are found by the recorded table of what Node
+/// changes (`lowercase_changed.rs`, from `testdata/js_lowercase.json`). Node's tables do not
+/// assign such a character at all, so it is neither cased nor case-ignorable and the text on
+/// either side is lowered on its own, which keeps the Final_Sigma rule exact.
 pub fn js_to_lowercase(value: &str) -> String {
-    value.to_lowercase()
+    let mut out = String::with_capacity(value.len());
+    let mut start = 0;
+    for (at, c) in value.char_indices() {
+        if !lowered_by_std_only(c) {
+            continue;
+        }
+        out.push_str(&value[start..at].to_lowercase());
+        out.push(c);
+        start = at + c.len_utf8();
+    }
+    out.push_str(&value[start..].to_lowercase());
+    out
+}
+
+/// `c` is lowered by `str::to_lowercase` but not by Node.
+fn lowered_by_std_only(c: char) -> bool {
+    if c.is_ascii() || lowercase_changed::CHANGED.binary_search(&u32::from(c)).is_ok() {
+        return false;
+    }
+    let mut lowered = c.to_lowercase();
+    lowered.next() != Some(c) || lowered.next().is_some()
 }
 
 #[cfg(test)]
@@ -118,6 +145,8 @@ mod tests {
         for row in golden["rows"].as_array().unwrap() {
             changed.insert(row[0].as_u64().unwrap() as u32, row[1].as_str().unwrap().to_string());
         }
+        let cps: Vec<u32> = golden["rows"].as_array().unwrap().iter().map(|row| row[0].as_u64().unwrap() as u32).collect();
+        assert_eq!(lowercase_changed::CHANGED.as_slice(), cps.as_slice(), "regenerate with testdata/js_lowercase_table.mjs");
         for cp in 0..=0x10ffff_u32 {
             let Some(c) = char::from_u32(cp) else { continue };
             let want = changed.get(&cp).cloned().unwrap_or_else(|| c.to_string());

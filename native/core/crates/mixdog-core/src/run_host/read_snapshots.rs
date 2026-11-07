@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
+use mixdog_rt::{CancellationToken, LaneToken, MaintenanceIo};
 use mixdog_tools::fs::SnapshotPersist;
 
 /// `SNAPSHOT_STALE_MS`: a scope file untouched this long is swept.
@@ -21,26 +22,40 @@ fn file_name(scope: &str) -> String {
     format!("{safe}.json")
 }
 
-#[allow(clippy::disallowed_methods, reason = "ReadState calls the store from the blocking pool; the trait is blocking")]
+/// The sweep's file calls; only ever run as a maintenance-lane job.
+#[allow(clippy::disallowed_methods, reason = "runs inside a maintenance lane job")]
+fn sweep_dir(dir: &Path, now: SystemTime) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|e| e != "json") {
+            continue;
+        }
+        let stale = entry.metadata().and_then(|m| m.modified()).is_ok_and(|m| now.duration_since(m).is_ok_and(|age| age > STALE));
+        if stale {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
 impl FileSnapshotPersist {
     /// The store under `<data dir>/read-snapshots`; the directory is made on first save.
     pub fn new(data_dir: &Path) -> Self {
         Self { dir: data_dir.join("read-snapshots") }
     }
 
-    /// `sweepStaleSnapshotScopes`: removes the scope files not written for 30 days. Run once at start,
-    /// inside a lane job.
-    pub fn sweep_stale(&self, now: SystemTime) {
-        let Ok(entries) = std::fs::read_dir(&self.dir) else { return };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().is_none_or(|e| e != "json") {
-                continue;
+    /// `sweepStaleSnapshotScopes`: removes the scope files not written for 30 days. Run once at
+    /// start, as a maintenance-lane job; resolves when it has run. Best effort as in Node: a lane
+    /// that cannot take the job (full, wedged, cancelled) leaves the stale files for the next start.
+    pub async fn sweep_stale(&self, lane: MaintenanceIo, now: SystemTime) {
+        let dir = self.dir.clone();
+        match lane.submit_wait(&CancellationToken::new(), move |_| sweep_dir(&dir, now)).await {
+            Ok(job) => {
+                if job.await.is_err() {
+                    tracing::warn!("[read-snapshots] the stale-scope sweep did not run");
+                }
             }
-            let stale = entry.metadata().and_then(|m| m.modified()).is_ok_and(|m| now.duration_since(m).is_ok_and(|age| age > STALE));
-            if stale {
-                let _ = std::fs::remove_file(&path);
-            }
+            Err(error) => tracing::warn!(?error, "[read-snapshots] the stale-scope sweep did not run"),
         }
     }
 }
@@ -101,8 +116,8 @@ mod tests {
         assert_eq!(file_name(&"x".repeat(300)).len(), 200 + ".json".len());
     }
 
-    #[test]
-    fn only_scopes_older_than_thirty_days_are_swept() {
+    #[tokio::test]
+    async fn only_scopes_older_than_thirty_days_are_swept() {
         let dir = tempfile::tempdir().unwrap();
         let store = FileSnapshotPersist::new(dir.path());
         store.save("new", Some("{}"));
@@ -116,7 +131,7 @@ mod tests {
             .unwrap();
         old.set_modified(SystemTime::now() - Duration::from_secs(31 * 24 * 60 * 60)).unwrap();
         let old = path.file_stem().unwrap().to_str().unwrap().to_owned();
-        store.sweep_stale(SystemTime::now());
+        store.sweep_stale(mixdog_rt::testing::tokens().maintenance_io, SystemTime::now()).await;
         assert_eq!(store.load(&old), None);
         assert!(store.load("new").is_some());
     }

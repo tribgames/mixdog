@@ -63,11 +63,29 @@ pub struct Audience {
     pub desktop_active: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+/// The sound the host plays with a toast: `desktop.notificationVolume` percent (0..=400) and the
+/// sound's name. A host plays unless `sound` is absent or `none`; Node plays nothing at volume 0
+/// (`index.ts` `playNotificationSound`: `suppressed:volume-muted`) and its one sound is
+/// `soft-rise.wav` (`notification-sound.ts`).
+#[derive(Clone, Debug, PartialEq)]
 pub struct ToastStyle {
-    pub sound: bool,
-    pub volume: f32,
+    pub sound: Option<String>,
+    pub volume: f64,
 }
+
+impl ToastStyle {
+    pub const SOUND: &'static str = "soft-rise";
+    pub const MUTED: &'static str = "none";
+
+    /// The style for the saved volume in percent.
+    pub fn for_volume(percent: i64) -> Self {
+        let sound = if percent == 0 { Self::MUTED } else { Self::SOUND };
+        Self { sound: Some(sound.to_owned()), volume: percent as f64 }
+    }
+}
+
+/// Reads the toast style when a toast is made, so a changed setting applies to the next toast.
+pub type ToastStyleReader = std::sync::Arc<dyn Fn() -> ToastStyle + Send + Sync>;
 
 /// Params of the `host/notification/show` server notification.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -76,8 +94,9 @@ pub struct HostToast {
     pub title: String,
     pub body: String,
     pub thread_id: String,
-    pub sound: bool,
-    pub volume: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sound: Option<String>,
+    pub volume: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -122,23 +141,24 @@ pub enum TestTarget {
 }
 
 pub struct NotificationEngine {
-    style: ToastStyle,
+    style: ToastStyleReader,
     /// Toasts the PC wanted while no host was attached, newest per thread.
     pending: Mutex<HashMap<String, HostToast>>,
 }
 
 impl NotificationEngine {
-    pub fn new(style: ToastStyle) -> Self {
+    pub fn new(style: ToastStyleReader) -> Self {
         Self { style, pending: Mutex::new(HashMap::new()) }
     }
 
     fn toast(&self, thread_id: &str, title: &str, body: &str) -> HostToast {
+        let style = (self.style)();
         HostToast {
             title: title.to_owned(),
             body: body.to_owned(),
             thread_id: thread_id.to_owned(),
-            sound: self.style.sound,
-            volume: self.style.volume,
+            sound: style.sound,
+            volume: style.volume,
         }
     }
 
@@ -301,7 +321,7 @@ mod tests {
         PairedDevice { device_id: id.into(), view: view(preferences), foreground_thread: None }
     }
     fn engine() -> NotificationEngine {
-        NotificationEngine::new(ToastStyle { sound: true, volume: 0.5 })
+        NotificationEngine::new(std::sync::Arc::new(|| ToastStyle::for_volume(50)))
     }
 
     #[test]
@@ -312,7 +332,23 @@ mod tests {
         assert_eq!(plan.toasts.len(), 1);
         assert_eq!(plan.toasts[0].0, "c1");
         assert_eq!(plan.toasts[0].1.body, "Done now");
-        assert!(plan.toasts[0].1.sound);
+        assert_eq!(plan.toasts[0].1.sound.as_deref(), Some("soft-rise"));
+    }
+
+    #[test]
+    fn the_volume_is_read_when_the_toast_is_made_and_zero_mutes_the_sound() {
+        let percent = std::sync::Arc::new(std::sync::atomic::AtomicI64::new(100));
+        let read = percent.clone();
+        let e = NotificationEngine::new(std::sync::Arc::new(move || ToastStyle::for_volume(read.load(std::sync::atomic::Ordering::SeqCst))));
+        let a = audience(&["c1"], vec![]);
+        let loud = e.on_event(&event(), &a).toasts.remove(0).1;
+        assert_eq!((loud.sound.as_deref(), loud.volume), (Some("soft-rise"), 100.0));
+        percent.store(0, std::sync::atomic::Ordering::SeqCst);
+        let muted = e.on_event(&event(), &a).toasts.remove(0).1;
+        assert_eq!((muted.sound.as_deref(), muted.volume), (Some("none"), 0.0));
+        let wire = serde_json::to_value(&muted).unwrap();
+        assert_eq!(wire["sound"], "none");
+        assert_eq!(wire["threadId"], "t1");
     }
 
     #[test]

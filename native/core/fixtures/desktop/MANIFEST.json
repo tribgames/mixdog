@@ -6,7 +6,7 @@
     "ports": 3,
     "search": 10
   },
-  "fileCount": 47,
+  "fileCount": 49,
   "files": [
     {
       "bytes": 43749,
@@ -74,16 +74,6 @@
       "sha256": "37b244226054ba913f4569c1df173894d4878316354d2c86985b3ae992834030"
     },
     {
-      "bytes": 124399,
-      "path": "settings/agent-settings-setup-twin.json",
-      "sha256": "22e0cfab0ebb928d7c65a619c3a769be35b82187b0cb780118c2f9d5b80c63a0"
-    },
-    {
-      "bytes": 23734,
-      "path": "settings/lead-worker-cwd-twin.json",
-      "sha256": "d152ccfe6961d396d0d7f7e885266c0d937dc3a6e75f35bd3a7ea8750381c119"
-    },
-    {
       "bytes": 1287921,
       "path": "settings/agent-definitions-twin.json",
       "sha256": "2cb05c6b3ca683eaf7fbdd869235eb7abe16aefd152a9ff252c736db437be8d6"
@@ -92,6 +82,16 @@
       "bytes": 313717,
       "path": "settings/agent-home-api-twin.json",
       "sha256": "2a0f6bb9003c2493e8b7378d98b54f4030ecb651b5e2f5515bddb79bbc08e4b9"
+    },
+    {
+      "bytes": 124399,
+      "path": "settings/agent-settings-setup-twin.json",
+      "sha256": "22e0cfab0ebb928d7c65a619c3a769be35b82187b0cb780118c2f9d5b80c63a0"
+    },
+    {
+      "bytes": 343225,
+      "path": "settings/agents-status-twin.json",
+      "sha256": "3d28f0f5da9eac173afe38377765c2a97c270690e42de87b0a545fd741a86015"
     },
     {
       "bytes": 116041,
@@ -147,6 +147,11 @@
       "bytes": 19779186,
       "path": "settings/lead-identity-twin.json",
       "sha256": "c93f2e62ad40136168cedc0414a826ceee89996f080eb63021d24badeadb0189"
+    },
+    {
+      "bytes": 23734,
+      "path": "settings/lead-worker-cwd-twin.json",
+      "sha256": "d152ccfe6961d396d0d7f7e885266c0d937dc3a6e75f35bd3a7ea8750381c119"
     },
     {
       "bytes": 49430,
@@ -250,22 +255,22 @@
     }
   ],
   "product": {
-    "appsSha256": "838e65249dbfd5033ccd499f3fa8e7ef896b4a7794a1e972dd18205bfa7c52c6",
-    "commit": "c18d5502c70f482c0b2b7d291c813a25ba84a43d",
+    "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
+    "commit": "ebdcca97de789757ba048e43d8b2a42ed028fa09",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9241,
+    "files": 9248,
     "refComparison": {
-      "closestCommit": "c18d5502c70f482c0b2b7d291c813a25ba84a43d",
+      "closestCommit": "ebdcca97de789757ba048e43d8b2a42ed028fa09",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
     },
-    "srcSha256": "0b9580cca2e51de41503da0fe8b30237f981f0c584bdc7511bc05a7a45b7ed84",
+    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs",
   "set": "desktop",
-  "totalBytes": 42284025
+  "totalBytes": 42775383
 }

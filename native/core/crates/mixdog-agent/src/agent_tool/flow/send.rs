@@ -371,9 +371,12 @@ impl SendFlowImpl {
         };
         let prepared = Prepared { args: Value::Object(Map::new()), session: facts_of(&session), session_id: id, prompt: Some(String::new()), route: None };
         let flow = self.clone();
-        // A wake that cannot dispatch has nobody to tell: the completion stays queued.
+        // A wake that cannot dispatch has nobody to tell: the completion stays queued, and Node
+        // writes the failure to stderr (`send-flow.mjs:340-344`).
         drop(mixdog_rt::spawn("agent-completion-wake", mixdog_rt::TaskClass::Work, async move {
-            let _ = flow.dispatch_to_existing_session(&prepared, &notify, DispatchOptions::default()).await;
+            if let Err(error) = flow.dispatch_to_existing_session(&prepared, &notify, DispatchOptions::default()).await {
+                eprintln!("[agent] completion wake failed session={}: {error}", prepared.session_id);
+            }
         }));
         true
     }

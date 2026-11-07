@@ -25,6 +25,10 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
+use sha2::Digest;
+use sha2::Sha256;
+
+use crate::engine::COMMIT_SCRATCH_PREFIX;
 use crate::engine::Repo;
 use crate::error::ScmFailure;
 use crate::git::RunOptions;
@@ -90,18 +94,26 @@ fn listed(paths: &[String]) -> String {
 struct Scratch(PathBuf);
 
 impl Scratch {
-    fn create(base: &Path) -> Result<Self, ScmFailure> {
+    /// `mkdtemp(<root>/mixdog-commit-<pid>-XXXXXX)`: named for its owner from the moment it
+    /// exists, so a later commit's sweep can tell when the owner is gone.
+    fn create(root: &Path) -> Result<Self, ScmFailure> {
+        const ALPHABET: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
         static NEXT: AtomicU64 = AtomicU64::new(0);
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_nanos());
-        let path = base.join(format!(
-            "commit-{}-{nanos}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&path)?;
-        Ok(Self(path))
+        loop {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos());
+            let mut hash = Sha256::new();
+            hash.update(nanos.to_le_bytes());
+            hash.update(NEXT.fetch_add(1, Ordering::Relaxed).to_le_bytes());
+            let suffix: String = hash.finalize().iter().take(6).map(|byte| char::from(ALPHABET[usize::from(*byte) % ALPHABET.len()])).collect();
+            let path = root.join(format!("{COMMIT_SCRATCH_PREFIX}{}-{suffix}", std::process::id()));
+            match std::fs::create_dir(&path) {
+                Ok(()) => return Ok(Self(path)),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
     }
 }
 
@@ -440,7 +452,9 @@ impl Repo {
         };
         let prefixes: Vec<String> = specs.iter().map(|spec| comparable(spec)).collect();
         let index_before = self.index_snapshot().await?;
-        let scratch = Scratch::create(self.scm.scratch_dir())?;
+        // A killed commit never ran its cleanup: every commit sweeps the dead processes' leftovers.
+        self.scm.sweep_commit_scratch(&self.cancel).await?;
+        let scratch = Scratch::create(self.scm.commit_scratch_root())?;
         let index_file = scratch.0.join("commit.index");
         let scratch_options = RunOptions {
             index_file: Some(index_file.clone()),
@@ -707,5 +721,21 @@ mod tests {
             assert!(assert_commit_path(bad).is_err(), "{bad}");
         }
         assert!(assert_commit_path("src/ok.rs").is_ok());
+    }
+
+    /// `mkdtemp(<root>/mixdog-commit-<pid>-XXXXXX)`: the owner's pid, then six alphanumerics;
+    /// two scratch directories never share a name, and one is removed when its transaction ends.
+    #[test]
+    fn a_scratch_directory_is_named_for_its_owner_and_removed_with_it() {
+        let root = tempfile::tempdir().unwrap();
+        let (first, second) = (Scratch::create(root.path()).unwrap(), Scratch::create(root.path()).unwrap());
+        assert_ne!(first.0, second.0);
+        let name = first.0.file_name().unwrap().to_str().unwrap().to_owned();
+        let suffix = name.strip_prefix(&format!("mixdog-commit-{}-", std::process::id())).expect("owner pid in the name");
+        assert!(suffix.len() == 6 && suffix.chars().all(|c| c.is_ascii_alphanumeric()), "{name}");
+        assert!(first.0.is_dir());
+        let path = first.0.clone();
+        drop(first);
+        assert!(!path.exists());
     }
 }

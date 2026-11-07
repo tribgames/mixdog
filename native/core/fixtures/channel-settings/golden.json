@@ -1,0 +1,2271 @@
+{
+ "node": "v22.20.0",
+ "cases": [
+  {
+   "name": "absent",
+   "seed": null,
+   "seeded": false,
+   "steps": [
+    {
+     "patch": {},
+     "returned": {
+      "webhook": {
+       "enabled": true,
+       "port": 3333
+      }
+     },
+     "channels": {}
+    },
+    {
+     "patch": {
+      "enabled": false
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "enabled": true
+     },
+     "returned": {
+      "webhook": {
+       "enabled": true,
+       "port": 3333
+      }
+     },
+     "channels": {}
+    },
+    {
+     "patch": {
+      "enabled": "yes"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 4000
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 4000
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 4000
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "8080"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 8080
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 8080
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "abc"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 0
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 3333
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 70000
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 70000
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 70000
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "3.5"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3.5
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 3.5
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": -5
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": -5
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": -5
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "1e3"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 1000
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 1000
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "Infinity"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": null
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": null
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 3333
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "domain": " d.example "
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "domain": "d.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "domain": "d.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "domain": ""
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "domain": "d.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "domain": "d.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "enabled": false,
+      "port": "9000",
+      "domain": "x.example"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 9000,
+       "domain": "x.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 9000,
+       "domain": "x.example"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "empty",
+   "seed": {},
+   "seeded": true,
+   "steps": [
+    {
+     "patch": {},
+     "returned": {
+      "webhook": {
+       "enabled": true,
+       "port": 3333
+      }
+     },
+     "channels": {}
+    },
+    {
+     "patch": {
+      "enabled": false
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "enabled": true
+     },
+     "returned": {
+      "webhook": {
+       "enabled": true,
+       "port": 3333
+      }
+     },
+     "channels": {}
+    },
+    {
+     "patch": {
+      "enabled": "yes"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 4000
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 4000
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 4000
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "8080"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 8080
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 8080
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "abc"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 0
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 3333
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 70000
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 70000
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 70000
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "3.5"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3.5
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 3.5
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": -5
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": -5
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": -5
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "1e3"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 1000
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 1000
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "Infinity"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": null
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": null
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 3333
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "domain": " d.example "
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "domain": "d.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "domain": "d.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "domain": ""
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "domain": "d.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "domain": "d.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "enabled": false,
+      "port": "9000",
+      "domain": "x.example"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 9000,
+       "domain": "x.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 9000,
+       "domain": "x.example"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "stored_defaults",
+   "seed": {
+    "webhook": {
+     "enabled": true,
+     "port": 3333
+    }
+   },
+   "seeded": true,
+   "steps": [
+    {
+     "patch": {},
+     "returned": {
+      "webhook": {
+       "enabled": true,
+       "port": 3333
+      }
+     },
+     "channels": {}
+    },
+    {
+     "patch": {
+      "enabled": false
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "enabled": true
+     },
+     "returned": {
+      "webhook": {
+       "enabled": true,
+       "port": 3333
+      }
+     },
+     "channels": {}
+    },
+    {
+     "patch": {
+      "enabled": "yes"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 4000
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 4000
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 4000
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "8080"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 8080
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 8080
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "abc"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 0
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 3333
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 70000
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 70000
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 70000
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "3.5"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3.5
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 3.5
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": -5
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": -5
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": -5
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "1e3"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 1000
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 1000
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "Infinity"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": null
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": null
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 3333
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "domain": " d.example "
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "domain": "d.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "domain": "d.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "domain": ""
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "domain": "d.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "domain": "d.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "enabled": false,
+      "port": "9000",
+      "domain": "x.example"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 9000,
+       "domain": "x.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 9000,
+       "domain": "x.example"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "stored_custom",
+   "seed": {
+    "webhook": {
+     "enabled": false,
+     "port": 4000,
+     "domain": "hooks.example"
+    }
+   },
+   "seeded": true,
+   "steps": [
+    {
+     "patch": {},
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 4000,
+       "domain": "hooks.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 4000,
+       "domain": "hooks.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "enabled": false
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 4000,
+       "domain": "hooks.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 4000,
+       "domain": "hooks.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "enabled": true
+     },
+     "returned": {
+      "webhook": {
+       "enabled": true,
+       "port": 4000,
+       "domain": "hooks.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "port": 4000,
+       "domain": "hooks.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "enabled": "yes"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 4000,
+       "domain": "hooks.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 4000,
+       "domain": "hooks.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 4000
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 4000,
+       "domain": "hooks.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 4000,
+       "domain": "hooks.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "8080"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 8080,
+       "domain": "hooks.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 8080,
+       "domain": "hooks.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "abc"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "domain": "hooks.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "domain": "hooks.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 0
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "domain": "hooks.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "domain": "hooks.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 3333
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "domain": "hooks.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "domain": "hooks.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 70000
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 70000,
+       "domain": "hooks.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 70000,
+       "domain": "hooks.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "3.5"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3.5,
+       "domain": "hooks.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 3.5,
+       "domain": "hooks.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": -5
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": -5,
+       "domain": "hooks.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": -5,
+       "domain": "hooks.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "1e3"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 1000,
+       "domain": "hooks.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 1000,
+       "domain": "hooks.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "Infinity"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": null,
+       "domain": "hooks.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": null,
+       "domain": "hooks.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 3333
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "domain": "hooks.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "domain": "hooks.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "domain": " d.example "
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "domain": "d.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "domain": "d.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "domain": ""
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "domain": "d.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "domain": "d.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "enabled": false,
+      "port": "9000",
+      "domain": "x.example"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 9000,
+       "domain": "x.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 9000,
+       "domain": "x.example"
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "with_extras",
+   "seed": {
+    "secret": "global-secret",
+    "allowUnsignedWebhooks": true,
+    "endpoints": {
+     "gh": {
+      "enabled": true,
+      "parser": "github",
+      "allowUnsigned": false
+     }
+    },
+    "promptInjection": {
+     "on": true
+    },
+    "schedules": [
+     {
+      "name": "x"
+     }
+    ],
+    "webhook": {
+     "port": 5000,
+     "keep": 1
+    }
+   },
+   "seeded": true,
+   "steps": [
+    {
+     "patch": {},
+     "returned": {
+      "webhook": {
+       "enabled": true,
+       "port": 5000,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     },
+     "channels": {
+      "webhook": {
+       "port": 5000,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     }
+    },
+    {
+     "patch": {
+      "enabled": false
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 5000,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 5000,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     }
+    },
+    {
+     "patch": {
+      "enabled": true
+     },
+     "returned": {
+      "webhook": {
+       "enabled": true,
+       "port": 5000,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     },
+     "channels": {
+      "webhook": {
+       "port": 5000,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     }
+    },
+    {
+     "patch": {
+      "enabled": "yes"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 5000,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 5000,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 4000
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 4000,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 4000,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "8080"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 8080,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 8080,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "abc"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 0
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 3333
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 70000
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 70000,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 70000,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "3.5"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3.5,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 3.5,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": -5
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": -5,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": -5,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "1e3"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 1000,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 1000,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "Infinity"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": null,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": null,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 3333
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "keep": 1
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     }
+    },
+    {
+     "patch": {
+      "domain": " d.example "
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "keep": 1,
+       "domain": "d.example"
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "keep": 1,
+       "domain": "d.example"
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     }
+    },
+    {
+     "patch": {
+      "domain": ""
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "keep": 1,
+       "domain": "d.example"
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "keep": 1,
+       "domain": "d.example"
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     }
+    },
+    {
+     "patch": {
+      "enabled": false,
+      "port": "9000",
+      "domain": "x.example"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 9000,
+       "keep": 1,
+       "domain": "x.example"
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 9000,
+       "keep": 1,
+       "domain": "x.example"
+      },
+      "secret": "global-secret",
+      "allowUnsignedWebhooks": true,
+      "endpoints": {
+       "gh": {
+        "enabled": true,
+        "parser": "github",
+        "allowUnsigned": false
+       }
+      }
+     }
+    }
+   ]
+  },
+  {
+   "name": "enabled_not_boolean",
+   "seed": {
+    "webhook": {
+     "enabled": "yes",
+     "port": "6000"
+    }
+   },
+   "seeded": true,
+   "steps": [
+    {
+     "patch": {},
+     "returned": {
+      "webhook": {
+       "enabled": "yes",
+       "port": "6000"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": "yes",
+       "port": "6000"
+      }
+     }
+    },
+    {
+     "patch": {
+      "enabled": false
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": "6000"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": "6000"
+      }
+     }
+    },
+    {
+     "patch": {
+      "enabled": true
+     },
+     "returned": {
+      "webhook": {
+       "enabled": true,
+       "port": "6000"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "port": "6000"
+      }
+     }
+    },
+    {
+     "patch": {
+      "enabled": "yes"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": "6000"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": "6000"
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 4000
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 4000
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 4000
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "8080"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 8080
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 8080
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "abc"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 0
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 3333
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 70000
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 70000
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 70000
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "3.5"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3.5
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 3.5
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": -5
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": -5
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": -5
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "1e3"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 1000
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 1000
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": "Infinity"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": null
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": null
+      }
+     }
+    },
+    {
+     "patch": {
+      "port": 3333
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false
+      }
+     }
+    },
+    {
+     "patch": {
+      "domain": " d.example "
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "domain": "d.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "domain": "d.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "domain": ""
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 3333,
+       "domain": "d.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "domain": "d.example"
+      }
+     }
+    },
+    {
+     "patch": {
+      "enabled": false,
+      "port": "9000",
+      "domain": "x.example"
+     },
+     "returned": {
+      "webhook": {
+       "enabled": false,
+       "port": 9000,
+       "domain": "x.example"
+      }
+     },
+     "channels": {
+      "webhook": {
+       "enabled": false,
+       "port": 9000,
+       "domain": "x.example"
+      }
+     }
+    }
+   ]
+  }
+ ]
+}

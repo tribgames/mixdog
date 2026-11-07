@@ -134,10 +134,10 @@ fn public_automation(row: &Value) -> Map<String, Value> {
         let shown = items.iter().map(|a| {
             let mut m = pick(a, &["kind", "name", "mimeType"]);
             m.insert("stored".into(), Value::Bool(true));
+            // `String(attachment.data || '')`.
             let data = match a.get("data") {
-                None | Some(Value::Null) => String::new(),
-                Some(Value::Bool(false)) => "false".into(),
-                Some(d) => mixdog_js::value_to_string(d),
+                Some(d) if crate::channels::ports::is_truthy(d) => mixdog_js::value_to_string(d),
+                _ => String::new(),
             };
             m.insert("size".into(), mixdog_js::utf16_len(&data).into());
             Value::Object(m)

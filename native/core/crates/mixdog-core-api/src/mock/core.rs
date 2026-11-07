@@ -78,6 +78,7 @@ pub struct MockCore {
     domain: Arc<MockDomain>,
     media: MockHostMedia,
     lifecycle: watch::Sender<CoreState>,
+    closed: Mutex<Vec<ConnectionId>>,
 }
 
 impl MockCore {
@@ -95,7 +96,13 @@ impl MockCore {
             domain: Arc::new(MockDomain::serving(methods)),
             media: MockHostMedia::default(),
             lifecycle: watch::Sender::new(CoreState::Serving),
+            closed: Mutex::new(Vec::new()),
         }
+    }
+
+    /// The connections the server reported closed, in order (one entry per close).
+    pub fn closed_connections(&self) -> Vec<ConnectionId> {
+        lock(&self.closed).clone()
     }
 
     pub fn directory(&self) -> &MockDirectory {
@@ -154,6 +161,10 @@ impl CoreHandle for MockCore {
 
     fn lifecycle(&self) -> watch::Receiver<CoreState> {
         self.lifecycle.subscribe()
+    }
+
+    fn connection_closed(&self, connection: ConnectionId) {
+        lock(&self.closed).push(connection);
     }
 }
 

@@ -2,6 +2,7 @@
 //! previous one), a stable acknowledgement and the volatile tail, within the
 //! compact budget. Rule-only when no handoff text is given.
 
+use async_trait::async_trait;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::Role;
 use serde_json::Value as JsonValue;
@@ -39,9 +40,11 @@ const ACTIVE_TURN_CONTINUATION_TEXT: [&str; 8] = [
 ];
 
 /// What the attachment store knows about a message's media.
+#[async_trait]
 pub trait AttachmentSeam: Send + Sync {
-    /// The message with its attachments carried by reference.
-    fn reference_media(&self, message: &AgentMessage) -> AgentMessage;
+    /// The message with its attachments carried by reference (this writes stored copies, so it
+    /// is asynchronous; the two questions below read the message alone).
+    async fn reference_media(&self, message: &AgentMessage) -> AgentMessage;
     fn has_referencable_media(&self, message: &AgentMessage) -> bool;
     /// Tokens the message's attachments alone cost.
     fn attachment_tokens(&self, message: &AgentMessage) -> u64;
@@ -158,7 +161,7 @@ pub(super) struct Source_ {
     pub(super) live: Vec<AgentMessage>,
 }
 
-pub(super) fn split_fresh_source(ctx: &FreshContext<'_>, messages: &[AgentMessage]) -> Source_ {
+pub(super) async fn split_fresh_source(ctx: &FreshContext<'_>, messages: &[AgentMessage]) -> Source_ {
     let redacted = super::redact::redact_tool_call_secrets(&sanitized(messages));
     let split = split_protected_context(&redacted);
     // A recovery reminder right after the system prompt reads as protected
@@ -182,14 +185,13 @@ pub(super) fn split_fresh_source(ctx: &FreshContext<'_>, messages: &[AgentMessag
     }
     let latest_user = latest_actual_user_instruction_index(&conversation);
     // Older requests carry their attachments by reference from here on.
-    let live = conversation
-        .iter()
-        .enumerate()
-        .map(|(index, m)| {
-            if Some(index) == latest_user { m.clone() } else { ctx.attachments.reference_media(m) }
-        })
-        .filter(|m| !is_summary_message(m))
-        .collect();
+    let mut live = Vec::with_capacity(conversation.len());
+    for (index, m) in conversation.iter().enumerate() {
+        let kept = if Some(index) == latest_user { m.clone() } else { ctx.attachments.reference_media(m).await };
+        if !is_summary_message(&kept) {
+            live.push(kept);
+        }
+    }
     Source_ { protected_prefix, previous_summary, previous_ack, live }
 }
 
@@ -460,7 +462,7 @@ pub async fn fresh_context_compact_messages(
     if !opts.force && ctx.tail.meter.messages(&base) <= target {
         return Ok(FreshResult { messages: base, fresh_context: false });
     }
-    let mut source = split_fresh_source(ctx, &base);
+    let mut source = split_fresh_source(ctx, &base).await;
     let mut layout = fresh_layout(ctx, &source, budget_tokens, opts).await?;
     let mut budget = fresh_budget(ctx, target, budget_tokens, &layout, opts)?;
     // The latest request is kept verbatim — except its attachments: when they
@@ -470,7 +472,7 @@ pub async fn fresh_context_compact_messages(
         && let Some(latest) = latest_actual_user_instruction_index(&source.live)
         && ctx.attachments.has_referencable_media(&source.live[latest])
     {
-        source.live[latest] = ctx.attachments.reference_media(&source.live[latest]);
+        source.live[latest] = ctx.attachments.reference_media(&source.live[latest]).await;
         layout = fresh_layout(ctx, &source, budget_tokens, opts).await?;
         budget = fresh_budget(ctx, target, budget_tokens, &layout, opts)?;
     }

@@ -203,7 +203,7 @@ fn human_needed_text(outcome: &str, site: &str) -> String {
 /// `referencePart` of the routine executor: an inline image or document part as the stored
 /// attachment reference an executor's prompt admits; `None` when it cannot be stored (or is
 /// already a reference, which Node drops the same way).
-fn reference_part(part: &Value, files: &dyn AttachmentFiles) -> Option<Value> {
+async fn reference_part(part: &Value, files: &dyn AttachmentFiles) -> Option<Value> {
     let object = part.as_object()?;
     if object.get("attachmentRef").and_then(Value::as_str).is_some_and(|r| r.len() == 64 && r.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))) {
         return None;
@@ -266,7 +266,7 @@ fn reference_part(part: &Value, files: &dyn AttachmentFiles) -> Option<Value> {
     }
     let mime = text(metadata.get("mimeType")).unwrap_or_default();
     let filename = text(metadata.get("filename")).unwrap_or_default();
-    let stored = files.store_inline(&data, &mime, &filename)?;
+    let stored = files.store_inline(&data, &mime, &filename).await?;
     metadata.insert("attachmentRef".into(), Value::String(stored.reference));
     metadata.insert("sizeBytes".into(), Value::from(stored.size_bytes));
     Some(Value::Object(metadata))
@@ -336,7 +336,10 @@ impl RoutineSessions for CoreRoutineSessions {
         if let Some(cwd) = run.cwd.as_deref().filter(|c| !c.is_empty()) {
             args["cwd"] = Value::String(cwd.to_owned());
         }
-        let references: Vec<Value> = run.attachment_parts.iter().filter_map(|part| reference_part(part, &*self.files)).collect();
+        let mut references: Vec<Value> = Vec::new();
+        for part in &run.attachment_parts {
+            references.extend(reference_part(part, &*self.files).await);
+        }
         if !references.is_empty() {
             args["attachmentParts"] = Value::Array(references);
         }
@@ -486,15 +489,16 @@ mod tests {
     }
 
     struct Files;
+    #[async_trait]
     impl AttachmentFiles for Files {
-        fn store_inline(&self, base64: &str, mime: &str, filename: &str) -> Option<super::super::attachment_reference::StoredFile> {
+        async fn store_inline(&self, base64: &str, mime: &str, filename: &str) -> Option<super::super::attachment_reference::StoredFile> {
             Some(super::super::attachment_reference::StoredFile { reference: format!("{}:{mime}:{filename}", base64.len()), size_bytes: 3 })
         }
-        fn named_file(&self, _: &str, _: &str, _: &str, _: Option<&super::super::attachment_reference::OriginalFile>) -> Result<String, ()> {
+        async fn named_file(&self, _: &str, _: &str, _: &str, _: Option<&super::super::attachment_reference::OriginalFile>) -> Result<String, ()> {
             Err(())
         }
-        fn blob_path(&self, reference: &str) -> String {
-            reference.to_owned()
+        fn blob_path(&self, reference: &str) -> Result<String, super::super::attachment_reference::InvalidReference> {
+            Ok(reference.to_owned())
         }
     }
 
@@ -639,18 +643,19 @@ mod tests {
 
     /// Node's `storeInlineImagePart`/`storeInlineDocumentPart` (real module, recorded): a removed
     /// key leaves the others in place and the keys they add come last, in Node's order.
-    #[test]
-    fn a_stored_reference_part_keeps_nodes_key_order() {
+    #[tokio::test]
+    async fn a_stored_reference_part_keeps_nodes_key_order() {
         struct Ref;
+        #[async_trait]
         impl AttachmentFiles for Ref {
-            fn store_inline(&self, _: &str, _: &str, _: &str) -> Option<super::super::attachment_reference::StoredFile> {
+            async fn store_inline(&self, _: &str, _: &str, _: &str) -> Option<super::super::attachment_reference::StoredFile> {
                 Some(super::super::attachment_reference::StoredFile { reference: "ref".into(), size_bytes: 4 })
             }
-            fn named_file(&self, _: &str, _: &str, _: &str, _: Option<&super::super::attachment_reference::OriginalFile>) -> Result<String, ()> {
+            async fn named_file(&self, _: &str, _: &str, _: &str, _: Option<&super::super::attachment_reference::OriginalFile>) -> Result<String, ()> {
                 Err(())
             }
-            fn blob_path(&self, _: &str) -> String {
-                String::new()
+            fn blob_path(&self, _: &str) -> Result<String, super::super::attachment_reference::InvalidReference> {
+                Ok(String::new())
             }
         }
         let png = STANDARD.encode([1u8, 2, 3, 4]);
@@ -666,7 +671,7 @@ mod tests {
              r#"{"type":"file","name":"n","mimeType":"application/octet-stream","extra":1,"attachmentRef":"ref","sizeBytes":4}"#),
         ];
         for (part, want) in cases {
-            assert_eq!(reference_part(&part, &Ref).expect("stored").to_string(), want);
+            assert_eq!(reference_part(&part, &Ref).await.expect("stored").to_string(), want);
         }
     }
 

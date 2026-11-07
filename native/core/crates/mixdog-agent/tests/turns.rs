@@ -52,13 +52,10 @@ impl Clock for FixedClock {
     }
 }
 
-/// The ticker task lives on the runtime that first asks for it; keep that one alive for the process.
-fn long_lived_ticker() {
-    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
-    let runtime = RUNTIME.get_or_init(|| tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap());
-    let _entered = runtime.enter();
+/// Installs the test backend. Its ticker is per runtime (hang-lanes-138), so each test's deadlines
+/// run on its own runtime's clock, paused or not, and nothing outlives the test.
+fn backend() {
     mixdog_rt::testing::tokens();
-    mixdog_rt::ticker();
 }
 
 async fn settle() {
@@ -300,9 +297,9 @@ fn mask(value: &Value, id: &str) -> Value {
     serde_json::from_str(&value.to_string().replace(id, "job")).unwrap()
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_workers_turn_equals_nodes_runner() {
-    long_lived_ticker();
+    backend();
     for scenario in fixture("runner.json") {
         let name = scenario["name"].as_str().unwrap();
         eprintln!("scenario {name}");
@@ -444,9 +441,9 @@ impl WorkerRows for ProbeRows {
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn worker_turn_rows_equal_nodes() {
-    long_lived_ticker();
+    backend();
     for scenario in fixture("worker-turns.json") {
         let name = scenario["name"].as_str().unwrap();
         let probe = Arc::new(Probe::default());

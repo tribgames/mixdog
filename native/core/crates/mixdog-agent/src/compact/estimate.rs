@@ -8,6 +8,7 @@
 
 use std::sync::LazyLock;
 
+use async_trait::async_trait;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
 use mixdog_core_api::domain::provider::Role;
@@ -37,8 +38,18 @@ pub struct PartMeter {
 
 /// Prices the non-text parts a message carries (images, files, documents);
 /// implemented by the owner of the attachment store.
+///
+/// The meter is synchronous, so what it needs from the store is read first: [`Self::prepare`] is
+/// awaited with the messages that are about to be measured.
+#[async_trait]
 pub trait MediaMeter: Send + Sync {
     fn part(&self, part: &ContentPart) -> PartMeter;
+
+    /// Reads from the store what pricing `messages` needs (the facts of the stored attachments
+    /// they carry). A meter with nothing to read has nothing to do.
+    async fn prepare(&self, messages: &[AgentMessage]) {
+        let _ = messages;
+    }
 }
 
 /// Pixel size and detail of one image inside a provider-native JSON block.

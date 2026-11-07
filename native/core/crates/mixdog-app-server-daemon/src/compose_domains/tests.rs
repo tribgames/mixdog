@@ -100,15 +100,16 @@ const EXPECTED_SETUP_ACTIONS: [&str; 29] = [
 ];
 struct Quiet;
 
+#[async_trait::async_trait]
 impl mixdog_core_agents::setup::LiveRoute for Quiet {
-    fn route(&self) -> serde_json::Value {
+    fn route(&self, _: &mixdog_core_api::ids::ThreadId) -> serde_json::Value {
         serde_json::json!({})
     }
     fn lead_fallbacks(&self) -> serde_json::Value {
         serde_json::Value::Null
     }
-    fn positions(&self, _: &mixdog_core_api::ids::ThreadId, _: bool) -> serde_json::Value {
-        serde_json::json!({ "sessions": [] })
+    async fn positions(&self, _: &mixdog_core_api::ids::ThreadId, _: bool) -> Result<serde_json::Value, mixdog_tools::orch::util::PortError> {
+        Ok(serde_json::json!({ "sessions": [] }))
     }
 }
 

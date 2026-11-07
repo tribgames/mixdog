@@ -233,7 +233,7 @@ pub async fn generate_fresh_handoff_summary(
     let rows: &dyn MessageRows = ctx.tail.rows;
     let budget = effective_budget(input.budget_tokens, input.reserve_tokens)
         .map_err(|e| SummaryFailure::Failed(e.message().to_owned()))?;
-    let source = split_fresh_source(ctx, messages);
+    let source = split_fresh_source(ctx, messages).await;
     let mut head = source.live.clone();
     let mut previous: Option<String> = source.previous_summary.as_ref().map(AgentMessage::text);
     if head.is_empty() && previous.is_none() {

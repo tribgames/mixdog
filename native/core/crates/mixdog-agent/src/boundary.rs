@@ -292,6 +292,7 @@ impl Run {
             return Ok(false);
         };
         let reactive = self.reactive_overflow_retry_pending;
+        compactor.prepare(&self.messages).await;
         let pressure = self.pressure_tokens(&policy, compactor.as_ref(), reactive);
         let trigger = policy.trigger_tokens.max(1);
         // Cache expiry and tool-result media arm a pass whatever the pressure.
@@ -398,6 +399,7 @@ impl Run {
         }
         // The gauge's scale: the compacted transcript's estimate plus the request reserve (the provider
         // baseline died with the old transcript).
+        compactor.prepare(&self.messages).await;
         let after_tokens = policy.estimate_with_reserve(compactor.estimate_tokens(&self.messages));
         let status = if changed { CompactStatus::Compacted } else { CompactStatus::NoChange };
         self.emit(RunEvent::Compact(event(status, self.messages.len(), after_tokens, duration(&*self.env.clock), rewrite.dropped_count, rewrite.dropped)));

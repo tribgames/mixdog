@@ -126,14 +126,14 @@ impl NoToolState {
 }
 
 impl Run {
-    fn commit_intermediate(&mut self, response: &ModelResponse) -> bool {
+    async fn commit_intermediate(&mut self, response: &ModelResponse) -> Result<bool, AgentError> {
         match intermediate_message(response) {
             Some(mut message) => {
                 message.turn_reminder = self.last_reminder.clone();
-                self.push(message);
-                true
+                self.push(message).await?;
+                Ok(true)
             }
-            None => false,
+            None => Ok(false),
         }
     }
 
@@ -156,13 +156,13 @@ impl Run {
     /// An answer the turn goes on past (queued input or a todo reminder
     /// arrived after it) is committed like any segment and kept as part of the
     /// turn's report.
-    fn keep_ended_answer(&mut self, response: &ModelResponse, has_content: bool) -> bool {
-        if !self.commit_intermediate(response) || !has_content {
-            return false;
+    async fn keep_ended_answer(&mut self, response: &ModelResponse, has_content: bool) -> Result<bool, AgentError> {
+        if !self.commit_intermediate(response).await? || !has_content {
+            return Ok(false);
         }
         self.record_segment(&response.content, true);
         self.no_tool.ended_parts_end = self.no_tool.parts.len();
-        true
+        Ok(true)
     }
 
     /// A no-tool message ends the turn; earlier committed segments are
@@ -190,14 +190,14 @@ impl Run {
         let has_content = response.has_content();
         let output_limit = is_output_limit(response.stop.as_ref());
         if output_limit || (has_content && response.stream_cut) {
-            return Ok(self.resolve_output_limit(response, has_content));
+            return self.resolve_output_limit(response, has_content).await;
         }
         if response.stop == Some(StopReason::Refusal) {
-            return Ok(self.resolve_refusal(response, has_content));
+            return self.resolve_refusal(response, has_content).await;
         }
         // Structural only: no lexical or progress-text heuristic is consulted.
         if continuation_signal(response.stop.as_ref()).is_some()
-            && self.resume_continuation(&response, has_content)
+            && self.resume_continuation(&response, has_content).await?
         {
             return Ok(Outcome::Continue);
         }
@@ -210,14 +210,14 @@ impl Run {
             && !self.reaction_answers_latest()
             && !self.no_tool.report_stands
         {
-            return Ok(self.nudge_empty_turn(response));
+            return self.nudge_empty_turn(response).await;
         }
         // Pending-input rule: queued user input is folded into the turn
         // before terminal completion. Commit the terminal text first.
         let merged = self.take_steering(DrainStage::Terminal, Priority::Next).await?;
         if !merged.is_empty() {
-            self.keep_ended_answer(&response, has_content);
-            self.inject_steering(merged, DrainStage::Terminal);
+            self.keep_ended_answer(&response, has_content).await?;
+            self.inject_steering(merged, DrainStage::Terminal).await?;
             self.no_tool.empty_nudge_streak = 0;
             self.no_tool.reset_output_limit();
             return Ok(Outcome::Continue);
@@ -229,10 +229,10 @@ impl Run {
         .await
         .ok_or(AgentError::Aborted)?;
         if let Some(reminder) = completion {
-            if self.keep_ended_answer(&response, has_content) {
+            if self.keep_ended_answer(&response, has_content).await? {
                 self.no_tool.report_stands = true;
             }
-            self.push(AgentMessage::user(reminder));
+            self.push(AgentMessage::user(reminder)).await?;
             return Ok(Outcome::Continue);
         }
         Ok(self.finish_turn(response))
@@ -243,14 +243,14 @@ impl Run {
     /// repeat identically if re-sent unchanged, so each step changes the
     /// request: escalate max_tokens once, then up to three resume prompts,
     /// then end with a visible notice. Real progress resets the ladder.
-    fn resolve_output_limit(&mut self, response: ModelResponse, has_content: bool) -> Outcome {
+    async fn resolve_output_limit(&mut self, response: ModelResponse, has_content: bool) -> Result<Outcome, AgentError> {
         if !self.no_tool.output_escalation_used && is_output_limit(response.stop.as_ref()) {
             self.no_tool.output_escalation_used = true;
             if let Some(limit) = self.config.escalated_max_output_tokens.filter(|l| *l > 0)
                 && self.withdraw_streamed_text()
             {
                 self.max_output_override = Some(limit);
-                return Outcome::Continue;
+                return Ok(Outcome::Continue);
             }
         }
         if has_content {
@@ -261,7 +261,7 @@ impl Run {
             // can resume at the exact cutoff; an empty cut has no output to
             // keep.
             if has_content {
-                self.commit_intermediate(&response);
+                self.commit_intermediate(&response).await?;
             }
             self.no_tool.max_output_recovery_count += 1;
             let attempt = self.no_tool.max_output_recovery_count;
@@ -270,8 +270,8 @@ impl Run {
             } else {
                 AgentMessage::sourced(Source::MaxOutputRecovery, MAX_OUTPUT_RESUME_PROMPT)
             };
-            self.push(prompt.with_attempt(attempt));
-            return Outcome::Continue;
+            self.push(prompt.with_attempt(attempt)).await?;
+            return Ok(Outcome::Continue);
         }
         let terminal = if has_content {
             format!("{}\n\n{MAX_OUTPUT_EXHAUSTED_NOTICE}", response.content)
@@ -297,7 +297,7 @@ impl Run {
             max_output_recovery_attempts: Some(attempts),
             ..response
         };
-        Outcome::Break(Box::new(self.no_tool.finalize(ended)))
+        Ok(Outcome::Break(Box::new(self.no_tool.finalize(ended))))
     }
 
     /// The escalation discards the cut response, so what it already put on
@@ -316,30 +316,30 @@ impl Run {
     }
 
     /// One context-changing retry after a safety-classifier stop.
-    fn resolve_refusal(&mut self, response: ModelResponse, has_content: bool) -> Outcome {
+    async fn resolve_refusal(&mut self, response: ModelResponse, has_content: bool) -> Result<Outcome, AgentError> {
         if self.no_tool.refusal_retry_used {
-            return Outcome::Break(Box::new(self.no_tool.finalize(response)));
+            return Ok(Outcome::Break(Box::new(self.no_tool.finalize(response))));
         }
         self.no_tool.refusal_retry_used = true;
         // Harmless narration before the classifier ended the turn is kept, but
         // never mistaken for a successful completion.
-        if has_content && self.commit_intermediate(&response) {
+        if has_content && self.commit_intermediate(&response).await? {
             self.record_segment(&response.content, true);
         }
-        self.push(AgentMessage::sourced(Source::RefusalRecovery, REFUSAL_RECOVERY_PROMPT).with_attempt(1));
-        Outcome::Continue
+        self.push(AgentMessage::sourced(Source::RefusalRecovery, REFUSAL_RECOVERY_PROMPT).with_attempt(1)).await?;
+        Ok(Outcome::Continue)
     }
 
     /// Structured provider continuations (`pause_turn`): honored, but they
     /// must not sustain an unbounded text-only loop. The text is mid-turn
     /// output: committed exactly once, sampling resumes in the same turn.
-    fn resume_continuation(&mut self, response: &ModelResponse, has_content: bool) -> bool {
+    async fn resume_continuation(&mut self, response: &ModelResponse, has_content: bool) -> Result<bool, AgentError> {
         if self.no_tool.continuations_since_tool_batch >= self.config.continuation_no_tool_limit.max(1)
         {
-            return false;
+            return Ok(false);
         }
-        if !self.commit_intermediate(response) {
-            return false;
+        if !self.commit_intermediate(response).await? {
+            return Ok(false);
         }
         if has_content {
             self.record_segment(&response.content, true);
@@ -348,18 +348,18 @@ impl Run {
         self.no_tool.continuations_since_tool_batch += 1;
         self.no_tool.empty_nudge_streak = 0;
         self.no_tool.reset_output_limit();
-        true
+        Ok(true)
     }
 
     /// The agent contract requires a tool call or final handoff text, so a
     /// public agent's empty turn is re-prompted with a bounded nudge. A model
     /// that answers the same nudge with another empty turn is in a
     /// deterministic livelock; that ends as an explicit empty termination.
-    fn nudge_empty_turn(&mut self, response: ModelResponse) -> Outcome {
+    async fn nudge_empty_turn(&mut self, response: ModelResponse) -> Result<Outcome, AgentError> {
         self.no_tool.empty_nudge_streak += 1;
         let streak = self.no_tool.empty_nudge_streak;
         if streak > EMPTY_NUDGE_MAX {
-            return Outcome::Break(Box::new(self.no_tool.finalize(response)));
+            return Ok(Outcome::Break(Box::new(self.no_tool.finalize(response))));
         }
         let text = match response.stop.as_ref().filter(|stop| is_incomplete(Some(stop))) {
             Some(stop) => format!(
@@ -370,8 +370,8 @@ impl Run {
                 "[mixdog-runtime] Empty response ({streak}/{EMPTY_NUDGE_MAX}). Return final text, or use tools only for required evidence still missing."
             ),
         };
-        self.push(AgentMessage::user(text));
-        Outcome::Continue
+        self.push(AgentMessage::user(text)).await?;
+        Ok(Outcome::Continue)
     }
 
     /// A tool batch ran with `calls`; its result messages start at
@@ -388,7 +388,7 @@ impl Run {
             .await
             .ok_or(AgentError::Aborted)?;
         if let Some(stale) = stale {
-            self.push(AgentMessage::sourced(Source::Hook, stale));
+            self.push(AgentMessage::sourced(Source::Hook, stale)).await?;
         }
         if self.no_tool.ended_parts_end > 0 {
             let end = self.no_tool.ended_parts_end.min(self.no_tool.parts.len());

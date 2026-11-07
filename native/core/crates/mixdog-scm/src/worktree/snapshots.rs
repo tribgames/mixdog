@@ -23,8 +23,41 @@ use crate::worktree::errors;
 use crate::worktree::manager::Worktrees;
 use crate::worktree::manager::entry_json;
 
-const RETRY_MS: u64 = 2_000;
-const RETRY_LIMIT: u32 = 5;
+/// How a snapshot cleanup retries the removals a command still runs in: the first delay, the
+/// number of attempts, and (when set) the doubling stops after that many steps. Node has two
+/// cleanups with different schedules, and each keeps its own.
+#[derive(Clone, Copy)]
+struct Retry {
+    ms: u64,
+    limit: u32,
+    cap_steps: Option<u32>,
+}
+
+impl Retry {
+    /// A worker's turn (`worker-snapshots.mjs`): `RETRY_MS` 2_000 and `RETRY_LIMIT` 5 (lines 13-14),
+    /// `retryMs * 2 ** (attempt - 1)` with no cap (line 73): 2 + 4 + 8 + 16 = 30 s.
+    const WORKER: Retry = Retry { ms: 2_000, limit: 5, cap_steps: None };
+    /// The Lead's turn (`transitions.mjs` `snapshotRetryMs = 2_000`, `snapshotRetryLimit = 20`,
+    /// lines 164-165; `side-checkouts.mjs` `SNAPSHOT_BACKOFF_STEPS = 5` line 11 and
+    /// `snapshotRetryMs * 2 ** Math.min(attempt - 1, SNAPSHOT_BACKOFF_STEPS)` line 141):
+    /// 2, 4, 8, 16, 32, 64 s, then 64 s for the rest of the 19 waits: 958 s in all.
+    const TURN: Retry = Retry { ms: 2_000, limit: 20, cap_steps: Some(5) };
+
+    /// The delay before attempt `attempt` (1-based among the retries; the first attempt has none).
+    fn delay(self, attempt: u32) -> Duration {
+        let steps = attempt - 1;
+        let steps = self.cap_steps.map_or(steps, |cap| steps.min(cap));
+        Duration::from_millis(self.ms * 2u64.pow(steps))
+    }
+
+    /// Waits it out on the tokio clock; a cancel ends the cleanup.
+    async fn wait(self, attempt: u32, cancel: &CancellationToken) -> Result<(), ScmFailure> {
+        tokio::select! {
+            _ = tokio::time::sleep(self.delay(attempt)) => Ok(()),
+            _ = cancel.cancelled() => Err(ScmFailure::Cancelled),
+        }
+    }
+}
 
 #[derive(Default)]
 struct Held {
@@ -210,27 +243,40 @@ impl Worktrees {
         Ok(json!({ "removed": removed, "kept": kept }))
     }
 
-    /// The worker's turn settled: removes the snapshots it made. One a command still runs in is
-    /// retried with a doubling delay a few times; the rest stays for the prune.
+    /// The worker's turn settled: removes the snapshots it made (`releaseWorkerSnapshots`). One a
+    /// command still runs in is retried with a doubling delay, 5 attempts in all; the rest stays for
+    /// the prune. `retry_ms` replaces the first delay.
     pub async fn release_worker_snapshots(
         &self,
         session_id: &str,
         retry_ms: Option<u64>,
         cancel: &CancellationToken,
     ) -> Result<Value, ScmFailure> {
+        self.release_snapshots(session_id, Retry { ms: retry_ms.unwrap_or(Retry::WORKER.ms), ..Retry::WORKER }, cancel).await
+    }
+
+    /// The Lead's turn settled: the same removal as the worker's with the Lead's schedule
+    /// (`removeTurnSnapshots`): up to 20 attempts, the doubling delay capped at 64 s. `retry_ms`
+    /// replaces the first delay.
+    pub async fn release_turn_snapshots(
+        &self,
+        session_id: &str,
+        retry_ms: Option<u64>,
+        cancel: &CancellationToken,
+    ) -> Result<Value, ScmFailure> {
+        self.release_snapshots(session_id, Retry { ms: retry_ms.unwrap_or(Retry::TURN.ms), ..Retry::TURN }, cancel).await
+    }
+
+    async fn release_snapshots(&self, session_id: &str, retry: Retry, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         let made = self.ledger().take_turns(session_id);
         let (mut removed, mut kept) = (Vec::<Value>::new(), Vec::<Value>::new());
         let mut pending = made;
-        for attempt in 0..RETRY_LIMIT {
+        for attempt in 0..retry.limit {
             if pending.is_empty() {
                 break;
             }
             if attempt > 0 {
-                let wait = retry_ms.unwrap_or(RETRY_MS) * 2u64.pow(attempt - 1);
-                tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_millis(wait)) => {}
-                    _ = cancel.cancelled() => return Err(ScmFailure::Cancelled),
-                }
+                retry.wait(attempt, cancel).await?;
             }
             kept.clear();
             let mut again = Vec::new();
@@ -271,5 +317,59 @@ mod tests {
         assert!(ledger.admit(Path::new("/data/worktrees-v1/h/snap")).is_err());
         ledger.end_removal("snap");
         assert!(ledger.admit(Path::new("/elsewhere")).is_ok());
+    }
+
+    /// What Node's own cleanups waited with a snapshot that stayed busy, recorded under a fake
+    /// clock (`record-snapshot-cleanup-schedule.mjs`): the Lead's `removeTurnSnapshots` and the
+    /// worker's `releaseWorkerSnapshots`, each with the default first delay and with a short one.
+    fn golden() -> Value {
+        serde_json::from_str(include_str!("../../../../fixtures/snapshot-cleanup-schedule/golden.json")).unwrap()
+    }
+
+    /// Runs the schedule's waits on the paused tokio clock: the attempt count it allows, and how
+    /// long each wait took.
+    async fn replay(retry: Retry) -> (usize, Vec<u64>) {
+        let cancel = CancellationToken::new();
+        let mut waits = Vec::new();
+        for attempt in 1..retry.limit {
+            let before = tokio::time::Instant::now();
+            retry.wait(attempt, &cancel).await.unwrap();
+            waits.push(before.elapsed().as_millis() as u64);
+        }
+        (retry.limit as usize, waits)
+    }
+
+    fn recorded(row: &Value) -> (usize, Vec<u64>) {
+        (row["attempts"].as_u64().unwrap() as usize, row["waitsMs"].as_array().unwrap().iter().map(|w| w.as_u64().unwrap()).collect())
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_leads_cleanup_waits_as_nodes_remove_turn_snapshots_does() {
+        let golden = golden();
+        let node = &golden["turn"];
+        assert_eq!(replay(Retry::TURN).await, recorded(&node["default"]));
+        let short = node["firstDelay10"]["firstDelayMs"].as_u64().unwrap();
+        assert_eq!(replay(Retry { ms: short, ..Retry::TURN }).await, recorded(&node["firstDelay10"]));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn the_workers_cleanup_waits_as_nodes_release_worker_snapshots_does() {
+        let golden = golden();
+        let node = &golden["worker"];
+        assert_eq!(replay(Retry::WORKER).await, recorded(&node["default"]));
+        let short = node["firstDelay1"]["firstDelayMs"].as_u64().unwrap();
+        assert_eq!(replay(Retry { ms: short, ..Retry::WORKER }).await, recorded(&node["firstDelay1"]));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_cancel_ends_the_wait_at_once() {
+        let cancel = CancellationToken::new();
+        let waiting = tokio::spawn({
+            let cancel = cancel.clone();
+            async move { Retry::TURN.wait(7, &cancel).await }
+        });
+        tokio::time::sleep(Duration::from_secs(10)).await;
+        cancel.cancel();
+        assert!(matches!(waiting.await.unwrap(), Err(ScmFailure::Cancelled)));
     }
 }

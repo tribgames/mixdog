@@ -661,8 +661,9 @@ impl FeatureActivity for Bridges {
 /// The session's live Lead route, as the recorded facade carried it.
 struct Route(Value, Arc<Getters>);
 
+#[async_trait]
 impl LiveRoute for Route {
-    fn route(&self) -> Value {
+    fn route(&self, _: &ThreadId) -> Value {
         self.0.clone()
     }
     fn lead_fallbacks(&self) -> Value {
@@ -670,8 +671,8 @@ impl LiveRoute for Route {
         let presets = self.1.0["listPresets"].as_array().cloned().unwrap_or_default();
         presets.iter().find(|preset| preset["id"] == "workflow-lead").map_or(Value::Null, |preset| preset["fallbacks"].clone())
     }
-    fn positions(&self, _: &ThreadId, _: bool) -> Value {
-        json!({ "sessions": [] })
+    async fn positions(&self, _: &ThreadId, _: bool) -> Result<Value, PortError> {
+        Ok(json!({ "sessions": [] }))
     }
 }
 

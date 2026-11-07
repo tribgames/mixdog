@@ -1,0 +1,83 @@
+{
+  "dead": 2147483646,
+  "entries": [
+    {
+      "name": "mixdog-commit-<dead>-orphan",
+      "kind": "dir",
+      "ageMs": 0,
+      "kept": false
+    },
+    {
+      "name": "mixdog-commit-<dead>-file",
+      "kind": "file",
+      "ageMs": 0,
+      "kept": false
+    },
+    {
+      "name": "mixdog-commit-+<dead>-plus",
+      "kind": "dir",
+      "ageMs": 0,
+      "kept": false
+    },
+    {
+      "name": "mixdog-commit-<dead>",
+      "kind": "dir",
+      "ageMs": 0,
+      "kept": false
+    },
+    {
+      "name": "mixdog-commit-<self>-live",
+      "kind": "dir",
+      "ageMs": 0,
+      "kept": true
+    },
+    {
+      "name": "mixdog-commit-<self>-slow",
+      "kind": "file",
+      "ageMs": 259200000,
+      "kept": true
+    },
+    {
+      "name": "mixdog-commit-abc-old",
+      "kind": "file",
+      "ageMs": 7200000,
+      "kept": false
+    },
+    {
+      "name": "mixdog-commit-abc-fresh",
+      "kind": "file",
+      "ageMs": 0,
+      "kept": true
+    },
+    {
+      "name": "mixdog-commit--old",
+      "kind": "file",
+      "ageMs": 7200000,
+      "kept": false
+    },
+    {
+      "name": "mixdog-commit-0-old",
+      "kind": "file",
+      "ageMs": 7200000,
+      "kept": false
+    },
+    {
+      "name": "mixdog-commit-0-fresh",
+      "kind": "file",
+      "ageMs": 0,
+      "kept": true
+    },
+    {
+      "name": "mixdog-other-<dead>-old",
+      "kind": "file",
+      "ageMs": 259200000,
+      "kept": true
+    },
+    {
+      "name": "unrelated",
+      "kind": "dir",
+      "ageMs": 259200000,
+      "kept": true
+    }
+  ]
+}

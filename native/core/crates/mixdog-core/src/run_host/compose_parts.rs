@@ -62,7 +62,7 @@ use mixdog_mcp::hook_bus::session::CommonOf;
 use mixdog_mcp::hook_bus::HookBus;
 use mixdog_mcp::hook_bus::HookCommon;
 use mixdog_mcp::McpHub;
-use mixdog_protocol::message_class::user_text::Blobs;
+use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::LaneTokens;
 use mixdog_services::effort_judge::judge::EffortJudgeModel;
@@ -74,7 +74,6 @@ use mixdog_tools::policy::ToolPolicy;
 use serde_json::json;
 use serde_json::Value;
 
-use super::compaction_world::CompactionServices;
 use super::config_hosts::ConfigHosts;
 use super::config_hosts::Env;
 use super::config_hosts::ThreadHeaders;
@@ -300,6 +299,11 @@ pub fn hops(
 
 /// Every part another owner builds. The daemon fills it as each lands; nothing here has a default.
 pub struct Owed {
+    /// `markUnattendedRun`'s registry over the late run stamps (`UnattendedRunRegistry::new(Arc::new(LateRunStamps(directory)))`): the setup tool's held
+    /// requests read it before the path exists, so the composition builds it and the path takes it.
+    pub unattended: Arc<super::unattended::UnattendedRunRegistry>,
+    /// The one set of tool exclusions (see `TurnPathParts::exclusions`).
+    pub exclusions: Arc<mixdog_core_session::session::SessionToolExclusions>,
     pub tokens: LaneTokens,
     pub clock: Arc<dyn Clock>,
     pub paths: Paths,
@@ -312,14 +316,15 @@ pub struct Owed {
     pub connectors: Arc<dyn ConnectorPermissions>,
     pub agents: Arc<AgentDefinitions>,
     pub hub: Arc<McpHub>,
-    pub blobs: Arc<dyn Blobs + Send + Sync>,
+    pub blobs: Arc<dyn BlobReads>,
     pub mcp: Arc<dyn SessionMcp>,
     pub skills: Arc<mixdog_mcp::skill_catalog::SkillCatalog>,
     pub ext_pool: Arc<dyn ExtPool>,
     pub hook_bus: Arc<HookBus>,
     pub config: Arc<dyn ConfigSeams>,
     pub deps: Box<dyn FnOnce(Arc<dyn RunFactory>) -> SessionDeps>,
-    pub compaction: CompactionServices,
+    /// `SessionCompactors::new(Arc::new(ProcessCompactionWorld::new(services)), clock)`, built by the composition with the world it keeps.
+    pub compactors: Arc<super::compactors::SessionCompactors>,
     /// `HopSessions` over the directory.
     pub hop_sessions: HopSessionsBuilder,
     pub directory: Arc<LateDirectory>,
@@ -346,7 +351,8 @@ pub fn turn_path_parts(process: &ProcessServices, registry: Arc<ProviderRegistry
         policy: owed.policy,
         connectors: owed.connectors,
         resolver: ready.resolver,
-        run_stamps: Arc::new(LateRunStamps(owed.directory.clone())),
+        unattended: owed.unattended.clone(),
+        exclusions: owed.exclusions.clone(),
         agents: owed.agents,
         allow_all: ready.allow_all,
         hub: owed.hub,
@@ -366,7 +372,7 @@ pub fn turn_path_parts(process: &ProcessServices, registry: Arc<ProviderRegistry
         settings: ready.settings,
         ladder: ready.ladder,
         deps: owed.deps,
-        compaction: owed.compaction,
+        compactors: owed.compactors.clone(),
         hops,
         shells: owed.shells,
     }
@@ -431,6 +437,22 @@ impl ThreadHeaders for LateHeaders {
     async fn header(&self, thread: &ThreadId) -> Result<Option<Header>, mixdog_core_api::CoreError> {
         let Some(directory) = self.0.directory() else { return Ok(None) };
         directory.try_stored_header(thread).await
+    }
+}
+
+/// `ApprovalSurfaces` over the late directory, for the held-request home, which is built before the
+/// directory (the setup tool reads it first). A thread the directory does not hold has no client
+/// attached; before the bind it holds none, and `verify_bound` keeps the listener closed until it does.
+pub struct LateApprovalSurfaces {
+    pub directory: Arc<LateDirectory>,
+    pub presence: Arc<dyn mixdog_core_api::ApprovalPresence>,
+}
+
+impl mixdog_core_api::ApprovalSurfaces for LateApprovalSurfaces {
+    fn attached(&self, thread: &ThreadId) -> bool {
+        self.directory
+            .directory()
+            .is_some_and(|directory| mixdog_core_session::session::approval_surfaces::attached_in(&directory, &*self.presence, thread))
     }
 }
 
@@ -565,6 +587,20 @@ mod tests {
         let common = common_of_header(&header(&[("permissionMode", json!("strict")), ("effort", json!(" High "))]));
         assert_eq!(common.permission_mode.as_deref(), Some("strict"));
         assert_eq!(common.effort, Some(json!({ "level": "high" })));
+    }
+
+    struct Everyone;
+    impl mixdog_core_api::ApprovalPresence for Everyone {
+        fn answerable(&self, _thread: &ThreadId, _surface: &ThreadId) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn no_client_is_attached_to_a_thread_before_the_directory_exists() {
+        use mixdog_core_api::ApprovalSurfaces;
+        let surfaces = LateApprovalSurfaces { directory: Arc::default(), presence: Arc::new(Everyone) };
+        assert!(!surfaces.attached(&ThreadId::from("sess_top")));
     }
 
     #[test]

@@ -5,6 +5,7 @@
 //! `fixtures/agent/compact` holds Node's recorded outputs this module is
 //! tested against.
 
+pub mod blob_reads;
 pub mod compactor;
 pub mod conversation;
 pub mod dropped;

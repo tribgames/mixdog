@@ -512,3 +512,23 @@ async fn pending_requests_survive_a_disconnect() {
     back.send(json!({ "id": "ap1", "result": { "approved": false } }));
     assert_eq!(owner.control_calls().len(), 1);
 }
+/// Presence is the delivery rule asked of the connections as they are (P §8.3): a live subscriber
+/// of the thread's feed or of its surface's feed, or an `approvalsInbox` connection.
+#[tokio::test]
+async fn presence_follows_the_connections_that_can_answer() {
+    use mixdog_core_api::ApprovalPresence;
+    let rig = Rig::new();
+    let _t1 = thread(&rig, "t1");
+    let (t1, t2, t3) = (ThreadId::from("t1"), ThreadId::from("t2"), ThreadId::from("t3"));
+    assert!(!rig.outgoing.answerable(&t1, &t1), "nobody is connected");
+
+    let viewer = rig.ready(1, json!({}));
+    assert!(!rig.outgoing.answerable(&t1, &t1), "connected, not watching");
+    watch(&viewer, 1, "t1").await;
+    assert!(rig.outgoing.answerable(&t1, &t1), "watching its feed");
+    assert!(rig.outgoing.answerable(&t3, &t1), "watching its surface's feed");
+    assert!(!rig.outgoing.answerable(&t2, &t2), "watching another thread");
+
+    let _inbox = rig.ready(2, json!({ "approvalsInbox": true }));
+    assert!(rig.outgoing.answerable(&t2, &t2), "an inbox answers every thread");
+}

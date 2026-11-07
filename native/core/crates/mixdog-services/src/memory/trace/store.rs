@@ -14,7 +14,7 @@ use bytes::BufMut;
 use bytes::BytesMut;
 use deadpool_postgres::Object;
 use serde_json::Value;
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::Semaphore;
 use tokio_postgres::types::IsNull;
 use tokio_postgres::types::ToSql;
 use tokio_postgres::types::Type;
@@ -401,7 +401,8 @@ struct Feed {
 struct Inner {
     db: Arc<Db>,
     queue: Mutex<Queue>,
-    flushing: AsyncMutex<()>,
+    /// One permit: a flush at a time (held across the insert's awaits, which a mutex must not be).
+    flushing: Semaphore,
     feed: Mutex<Feed>,
     /// Rows arrive from any thread (RowSink::row), so tasks are spawned on the runtime that opened the store.
     handle: tokio::runtime::Handle,
@@ -514,7 +515,7 @@ impl TraceStore {
         }
         bootstrap(&db).await?;
         let store = Self {
-            inner: Arc::new(Inner { db: db.clone(), queue: Mutex::new(Queue::default()), flushing: AsyncMutex::new(()), feed: Mutex::new(Feed::default()), handle: tokio::runtime::Handle::current() }),
+            inner: Arc::new(Inner { db: db.clone(), queue: Mutex::new(Queue::default()), flushing: Semaphore::new(1), feed: Mutex::new(Feed::default()), handle: tokio::runtime::Handle::current() }),
             retention: Arc::new(Mutex::new(None)),
         };
         let task_db = db;
@@ -537,7 +538,7 @@ impl TraceStore {
 
     /// The exit drain: what is still queued is written once, without retries.
     pub async fn drain(&self, now_ms: i64) {
-        let _guard = self.inner.flushing.lock().await;
+        let _guard = self.inner.flushing.acquire().await.ok();
         let events: Vec<Event> = {
             let mut queue = self.inner.queue.lock().unwrap_or_else(PoisonError::into_inner);
             std::mem::take(&mut queue.pending).into_iter().flat_map(|w| w.events).collect()
@@ -577,7 +578,7 @@ impl TraceStore {
 
 /// `_flushQueue`: one flush at a time; failed events are retried by the follow-up flush.
 async fn flush(inner: &Arc<Inner>, now_ms: i64) {
-    let guard = inner.flushing.lock().await;
+    let guard = inner.flushing.acquire().await.ok();
     let mut wrappers = std::mem::take(&mut inner.queue.lock().unwrap_or_else(PoisonError::into_inner).pending);
     if wrappers.is_empty() {
         return;

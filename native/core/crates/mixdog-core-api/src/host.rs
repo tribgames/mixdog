@@ -191,6 +191,21 @@ pub trait DesktopPresence: Send + Sync {
     fn desktop_attached(&self) -> bool;
 }
 
+/// Whether a connection that can answer a server request of `thread`, shown on `surface`, is
+/// attached right now: the eligibility rule of P §8.3 (a live subscriber of either feed, or an
+/// `approvalsInbox` connection past its handshake), asked of the connections as they are.
+pub trait ApprovalPresence: Send + Sync {
+    fn answerable(&self, thread: &crate::ids::ThreadId, surface: &crate::ids::ThreadId) -> bool;
+}
+
+/// Whether a person's approval card can be answered for a thread: a client that answers its
+/// approvals is attached to the thread's feed (Node: the run has a `toolApprovalHook`, which a
+/// client's turn sets for the turn's length; `resolvePreToolAskApproval` holds a run's request
+/// only when it has none).
+pub trait ApprovalSurfaces: Send + Sync {
+    fn attached(&self, thread: &crate::ids::ThreadId) -> bool;
+}
+
 /// Binary media frames from a host-role connection (X17: 16-byte header + payload), routed
 /// into the live-view encoder. Never waits; the receiver keeps only what its encoder can take.
 pub trait HostMediaSink: Send + Sync {

@@ -63,6 +63,8 @@ pub trait RoomRunner: Send + Sync {
     fn stop(&self, room_id: &str);
     /// Starts an exchange; `to` limits it to those members (empty: the whole room).
     async fn start(&self, room_id: &str, to: Vec<String>) -> Result<(), RoomError>;
+    /// `gone` left the room: what is owed to them ends (`cancelOwedTo`).
+    fn cancel_owed_to(&self, room_id: &str, gone: &[String]);
 }
 
 /// The create-call route fields of a catalog route: `provider` and `model` or nothing.
@@ -229,6 +231,9 @@ impl<S: RoomStore + 'static, H: RoomHost + 'static, R: RoomRunner + 'static> Roo
             share_tools: input.get("shareTools").and_then(Value::as_bool),
         };
         let updated = self.rooms.update(room_id, &patch).await?;
+        if !updated.gone.is_empty() {
+            self.runner.cancel_owed_to(room_id, &updated.gone);
+        }
         if updated.renamed {
             if let Some(session_id) = room_session_id(room_id) {
                 let _ = self.host.rename_session(&session_id, &updated.room.config.name).await;

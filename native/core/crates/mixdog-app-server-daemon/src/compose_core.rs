@@ -25,15 +25,20 @@ use mixdog_tools::policy::ToolPolicy;
 pub struct PolicyParts {
     pub policy: Arc<ToolPolicy>,
     pub connectors: Arc<dyn ConnectorPermissions>,
+    /// The grant store the tool gate holds: the agent permissions service (`AgentPermissions::new`) reads and writes the same one.
+    pub grants: Arc<FileGrantStore>,
+    /// The concrete connector policy `connectors` is: `McpConnectors::new(mcp, policy)` (the agent connector API) takes it.
+    pub connector_policy: Arc<ConnectorPolicy>,
 }
 
 pub fn build_policy(tokens: &LaneTokens, data_dir: &Path) -> PolicyParts {
     let grants = FileGrantStore::new(data_dir.join("human-gate"), tokens.interactive_io, tokens.durability_io);
-    let connectors: Arc<dyn ConnectorPermissions> = ConnectorPolicy::new(
+    let connector_policy = ConnectorPolicy::new(
         data_dir.to_path_buf(),
         PolicyIo { maintenance: tokens.maintenance_io, interactive: tokens.interactive_io, durability: tokens.durability_io },
     );
-    PolicyParts { policy: Arc::new(ToolPolicy::new(grants, connectors.clone())), connectors }
+    let connectors: Arc<dyn ConnectorPermissions> = connector_policy.clone();
+    PolicyParts { policy: Arc::new(ToolPolicy::new(grants.clone(), connectors.clone())), connectors, grants, connector_policy }
 }
 
 /// The one MCP hub and the hook bus that dispatches through it. Tool-result artifacts land under
@@ -43,13 +48,14 @@ pub struct McpParts {
     pub hook_bus: Arc<HookBus>,
 }
 
-pub fn build_mcp(tokens: &LaneTokens, data_dir: &Path, processes: Arc<dyn ProcessManager>) -> McpParts {
+/// `observer` is the hook event log (`createHookEventLog`) the bus emits every hook event into; `HookStatus` (the doctor, the `hooks` status) reads the same one.
+pub fn build_mcp(tokens: &LaneTokens, data_dir: &Path, processes: Arc<dyn ProcessManager>, observer: Arc<dyn mixdog_mcp::hook_bus::HookObserver>) -> McpParts {
     let hub = McpHub::new(
         McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io },
         data_dir.join("tool-results"),
         OutputPolicy::default(),
     );
-    let hook_bus = HookBus::new(data_dir.to_path_buf(), tokens.maintenance_io, processes, Some(hub.clone()), None, None);
+    let hook_bus = HookBus::new(data_dir.to_path_buf(), tokens.maintenance_io, processes, Some(hub.clone()), None, Some(observer));
     McpParts { hub, hook_bus }
 }
 
@@ -82,7 +88,7 @@ mod tests {
         let tokens = mixdog_rt::testing::tokens();
         let policy = build_policy(&tokens, dir.path());
         assert!(Arc::strong_count(&policy.connectors) >= 2, "the policy holds the same connector policy");
-        let mcp = build_mcp(&tokens, dir.path(), Arc::new(MockProcessManager::default()));
+        let mcp = build_mcp(&tokens, dir.path(), Arc::new(MockProcessManager::default()), crate::domain_seams::hook_status::HookEventLog::new(dir.path().to_path_buf()));
         assert!(Arc::strong_count(&mcp.hub) >= 2, "the hook bus dispatches through the hub");
     }
 }

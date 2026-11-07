@@ -63,7 +63,7 @@ async fn fresh_context_equals_node() {
 struct FixedHandoff(String);
 #[async_trait::async_trait]
 impl mixdog_agent::compact::compactor::HandoffSource for FixedHandoff {
-    fn triggered(&self, _: &[mixdog_agent::message::AgentMessage]) -> bool {
+    async fn triggered(&self, _: &[mixdog_agent::message::AgentMessage]) -> bool {
         !self.0.is_empty()
     }
     async fn handoff(

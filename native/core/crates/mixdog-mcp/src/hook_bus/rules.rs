@@ -116,7 +116,8 @@ pub fn normalize_rules(raw: &Value) -> Vec<Value> {
             .or_else(|| raw.get("beforeTool").and_then(Value::as_array))
             .or_else(|| raw.pointer("/hooks/toolBefore").and_then(Value::as_array))
     };
-    list.map(|rules| rules.iter().filter(|r| r.is_object()).cloned().collect()).unwrap_or_default()
+    // `rule && typeof rule === 'object'`: a JavaScript array is an object too.
+    list.map(|rules| rules.iter().filter(|r| r.is_object() || r.is_array()).cloned().collect()).unwrap_or_default()
 }
 
 /// The call a legacy rule is matched against.
@@ -270,7 +271,8 @@ mod tests {
 
     #[test]
     fn rules_are_found_in_every_supported_container() {
-        assert_eq!(normalize_rules(&json!([{"a": 1}, 3])).len(), 1);
+        assert_eq!(normalize_rules(&json!([{"a": 1}, 3, "x", null])).len(), 1);
+        assert_eq!(normalize_rules(&json!([{"a": 1}, [2]])).len(), 2);
         assert_eq!(normalize_rules(&json!({"hooks": {"toolBefore": [{"a": 1}]}})).len(), 1);
         assert!(normalize_rules(&json!({"other": 1})).is_empty());
     }

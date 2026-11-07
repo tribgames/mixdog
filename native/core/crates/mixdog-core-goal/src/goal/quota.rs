@@ -66,6 +66,11 @@ impl GoalQuotaResume {
         self.store.schedule(request).await
     }
 
+    /// `quotaResumeEntry(sessionId)`: the queued resume, if one waits.
+    pub fn entry(&self, session_id: &str) -> Option<mixdog_core_base::quota_resume::Entry> {
+        self.store.entry(session_id)
+    }
+
     /// `quotaResumeEntry(sessionId)?.generation`: the queued resume's generation, if one waits.
     pub fn entry_generation(&self, session_id: &str) -> Option<u64> {
         self.store.entry(session_id).map(|entry| entry.generation)

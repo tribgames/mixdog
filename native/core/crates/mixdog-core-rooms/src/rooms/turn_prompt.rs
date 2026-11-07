@@ -72,7 +72,7 @@ fn speaker_label(row: &Value) -> String {
 }
 
 /// `roomRowTargets(row)`: each recipient's id and the name shown for it.
-fn row_targets(row: &Value) -> Vec<(String, String)> {
+pub(crate) fn row_targets(row: &Value) -> Vec<(String, String)> {
     let listed = |field: &str| -> Vec<Value> {
         match row.get(field) {
             Some(Value::Array(items)) => items.clone(),
@@ -92,12 +92,12 @@ fn row_targets(row: &Value) -> Vec<(String, String)> {
         .collect()
 }
 
-fn is_attachment_ref(value: &str) -> bool {
+pub(crate) fn is_attachment_ref(value: &str) -> bool {
     value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// `storedParts`: a user row's files as its recipients get them, stored references only.
-fn stored_parts(value: Option<&Value>) -> Vec<Value> {
+pub(crate) fn stored_parts(value: Option<&Value>) -> Vec<Value> {
     let mut parts = Vec::new();
     for part in value.and_then(Value::as_array).into_iter().flatten() {
         if parts.len() >= ATTACHMENT_LIMIT {

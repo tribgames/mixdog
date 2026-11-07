@@ -446,6 +446,10 @@ pub struct McpInputs {
 pub struct McpComposed {
     /// Register each with `DomainsBuilder::register`: `mcp/*` and `connector/*`, then `skills/*`.
     pub services: Vec<Arc<dyn DomainService>>,
+    /// The `mcp/*` + `connector/*` service itself (also in `services`): the agent connector API (`McpConnectors::new(mcp, policy)`) calls it.
+    pub mcp_domain: Arc<dyn DomainService>,
+    /// The one `SetupCallers` (also inside the setup service): the host runtime's provenance reads (`scheduleCallerScope`) take the same value.
+    pub callers: Arc<dyn SetupCallers>,
     /// The `setup` tool's service.
     pub setup: Arc<SetupService>,
     /// Also the `rooms::AgentCatalog`.
@@ -516,11 +520,12 @@ pub fn mcp_services(inputs: McpInputs) -> McpComposed {
         .with_actions(Arc::new(HookRuleSetup::new(hook_rules_path(env, data_dir), tokens.maintenance_io, inputs.hooks.clone(), inputs.hook_observer.clone())))
         .with_actions(automation.clone())
         .with_status(automation)
-        .with_actions(Arc::new(DefinitionSetup::new(agents.clone(), callers, workflow.clone(), skills.clone())));
+        .with_actions(Arc::new(DefinitionSetup::new(agents.clone(), callers.clone(), workflow.clone(), skills.clone())));
+    let callers_out: Arc<dyn SetupCallers> = callers;
     for owner in &inputs.setup.other_actions {
         setup = setup.with_actions(owner.clone());
     }
-    McpComposed { services: vec![mcp, skills], setup: Arc::new(setup), agents, glue, catalog }
+    McpComposed { services: vec![mcp.clone(), skills], mcp_domain: mcp, callers: callers_out, setup: Arc::new(setup), agents, glue, catalog }
 }
 
 #[cfg(test)]

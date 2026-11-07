@@ -68,6 +68,9 @@ pub struct SessionHandle {
     /// originals (session-turns.mjs keeps the claim synchronous so a later send cannot
     /// overtake an earlier one).
     pub(crate) submits: Arc<mixdog_rt::SerialChain>,
+    /// The order threads were loaded in (the order of Node's `_liveSessions` Map, which lists
+    /// sessions in the order they entered it).
+    pub(crate) loaded_seq: u64,
 }
 
 fn window_of(window: &ResumeWindow) -> Window {

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_core_api::domain::provider::Usage;
 use mixdog_protocol::ProviderId;
-use mixdog_protocol::message_class::user_text::Blobs;
+use super::blob_reads::{with_blobs, BlobReads};
 use mixdog_protocol::message_class::user_text::UserText;
 
 use super::conversation::conversation_compaction_input;
@@ -63,7 +63,7 @@ pub struct Handoff {
 #[async_trait]
 pub trait HandoffSource: Send + Sync {
     /// Whether the conversation reaches the summary threshold.
-    fn triggered(&self, messages: &[AgentMessage]) -> bool;
+    async fn triggered(&self, messages: &[AgentMessage]) -> bool;
 
     /// Cancel-safe. Called only when [`triggered`](Self::triggered).
     async fn handoff(&self, messages: &[AgentMessage], budget_tokens: u64) -> Result<Handoff, CompactError>;
@@ -90,7 +90,7 @@ pub struct FreshParts {
     /// The session's sensitive-value redaction, applied before a dropped row's visibility is judged.
     pub redactor: Arc<dyn Redactor>,
     /// The attachment store the transcript reads user text from.
-    pub blobs: Arc<dyn Blobs + Send + Sync>,
+    pub blobs: Arc<dyn BlobReads>,
 }
 
 impl FreshParts {
@@ -195,12 +195,20 @@ impl Compactor for FreshCompactor {
         self.parts.meter().messages(messages)
     }
 
+    async fn prepare(&self, messages: &[AgentMessage]) {
+        self.parts.media.prepare(messages).await;
+    }
+
     /// Compares like-for-like local estimates using the actual rules; no
     /// model call and no archive write. A summary reserves its output ceiling
     /// instead of assuming a compression ratio.
     async fn reduces(&self, request: &CompactRequest<'_>) -> bool {
+        self.prepare(request.messages).await;
         let meter = self.parts.meter();
-        let summary_triggered = self.summary.as_ref().is_some_and(|s| s.triggered(request.messages));
+        let summary_triggered = match self.summary.as_ref() {
+            Some(summary) => summary.triggered(request.messages).await,
+            None => false,
+        };
         let ctx = self.parts.context(&meter, true);
         let options = self.options(request, String::new(), true, summary_triggered);
         match fresh_context_compact_messages(&ctx, request.messages, request.budget_tokens, &options).await {
@@ -229,9 +237,12 @@ impl Compactor for FreshCompactor {
     }
 
     async fn compact(&self, request: CompactRequest<'_>) -> Result<CompactOutput, CompactError> {
+        self.prepare(request.messages).await;
         let mut usage = None;
         let mut handoff_text = String::new();
-        if let Some(summary) = self.summary.as_ref().filter(|s| s.triggered(request.messages)) {
+        if let Some(summary) = self.summary.as_ref()
+            && summary.triggered(request.messages).await
+        {
             let handoff = summary.handoff(request.messages, request.budget_tokens).await?;
             handoff_text = handoff.text;
             usage = handoff.usage;
@@ -250,8 +261,11 @@ impl Compactor for FreshCompactor {
         let (dropped_count, dropped) = if result.messages == request.messages {
             (0, None)
         } else {
-            let mut text = UserText::new(&*self.parts.blobs);
-            dropped_summary(request.messages, &result.messages, &*self.parts.rows, &*self.parts.redactor, &mut text)
+            let (before, after) = (request.messages.to_vec(), result.messages.clone());
+            let (rows, redactor) = (Arc::clone(&self.parts.rows), Arc::clone(&self.parts.redactor));
+            with_blobs(&*self.parts.blobs, move |blobs| dropped_summary(&before, &after, &*rows, &*redactor, &mut UserText::new(blobs)))
+                .await
+                .map_err(|unavailable| CompactError::Failed(unavailable.to_string()))?
         };
         Ok(CompactOutput { messages: result.messages, usage, dropped_count, dropped, skipped: false })
     }
@@ -295,10 +309,10 @@ impl PlannedHandoff {
 
 #[async_trait]
 impl HandoffSource for PlannedHandoff {
-    fn triggered(&self, messages: &[AgentMessage]) -> bool {
+    async fn triggered(&self, messages: &[AgentMessage]) -> bool {
         let meter = self.parts.meter();
         let ctx = self.parts.context(&meter, true);
-        let input = conversation_compaction_input(&ctx, messages, false);
+        let input = conversation_compaction_input(&ctx, messages, false).await;
         let tokens = (meter.messages(&input) as f64 * self.calibration()).ceil() as u64;
         tokens >= self.threshold()
     }
@@ -306,7 +320,7 @@ impl HandoffSource for PlannedHandoff {
     async fn handoff(&self, messages: &[AgentMessage], budget_tokens: u64) -> Result<Handoff, CompactError> {
         let meter = self.parts.meter();
         let ctx = self.parts.context(&meter, false);
-        let input = conversation_compaction_input(&ctx, messages, true);
+        let input = conversation_compaction_input(&ctx, messages, true).await;
         let hard = 1.max((self.config.context_window as f64 / self.calibration()).floor() as u64);
         let mode = self.config.mode;
         let warm = self.fork.warm();

@@ -859,12 +859,16 @@ pub struct Rig {
     pub sensitive: Arc<mixdog_services::memory::sensitive::SensitiveStore>,
     /// What deletes did outside the session, in order.
     pub deletes: Arc<Deletes>,
+    /// The snapshot releases, stops and the dispose, in order.
+    pub snapshots: Arc<TestSnapshots>,
     /// The real Goal runtime over the temp data dir.
     pub goals: mixdog_core_goal::goal::GoalRuntime,
     /// The session's todo list, and the background work it waits on, as a Goal continuation
     /// reads them.
     pub todos: Arc<TestTodos>,
     pub work: Arc<TestWork>,
+    /// The agent status every session reads after a job of it changed.
+    pub agents: Arc<TestAgents>,
     /// The side-question store `thread/askSide` reads.
     pub side: Arc<TestSide>,
     /// The heir-route policy `thread/inheritancePreflight` measures on.
@@ -929,6 +933,21 @@ pub struct TestWork(pub AtomicBool);
 impl mixdog_core_run::run_host::guards::RunningWork for TestWork {
     async fn has_active(&self, _: &str, surface: &str, _: bool, _: Option<u64>) -> bool {
         surface == "agent" && self.0.load(Ordering::SeqCst)
+    }
+}
+
+/// The agent status the rig answers, and the threads it was read for, in order.
+#[derive(Default)]
+pub struct TestAgents {
+    pub status: Mutex<mixdog_app_protocol::v2::thread::ThreadAgents>,
+    pub reads: Mutex<Vec<ThreadId>>,
+}
+
+#[async_trait::async_trait]
+impl super::agent_activity::AgentStatus for TestAgents {
+    async fn status(&self, thread: &ThreadId) -> mixdog_app_protocol::v2::thread::ThreadAgents {
+        lock(&self.reads).push(thread.clone());
+        lock(&self.status).clone()
     }
 }
 
@@ -1027,6 +1046,24 @@ impl super::EffortPrewarm for Prewarms {
     }
 }
 
+/// The turn snapshot calls, in order: `settled:<thread>`, `stopped:<thread>`, `dispose`.
+#[derive(Default)]
+pub struct TestSnapshots(pub Mutex<Vec<String>>);
+
+impl super::turn_snapshots::TurnSnapshots for TestSnapshots {
+    fn turn_settled(&self, thread: &ThreadId) {
+        lock(&self.0).push(format!("settled:{}", thread.as_str()));
+    }
+
+    fn runtime_stopped(&self, thread: &ThreadId) {
+        lock(&self.0).push(format!("stopped:{}", thread.as_str()));
+    }
+
+    fn dispose(&self) {
+        lock(&self.0).push("dispose".to_owned());
+    }
+}
+
 impl Rig {
     pub fn new() -> Self {
         let store = Arc::new(MemStore::default());
@@ -1056,6 +1093,7 @@ impl Rig {
             goals,
             todos: Arc::default(),
             work: Arc::default(),
+            agents: Arc::default(),
             side: Arc::default(),
             inherit: Arc::default(),
             compaction: Arc::default(),
@@ -1075,6 +1113,7 @@ impl Rig {
             closes: Arc::default(),
             sensitive: Arc::default(),
             deletes: Arc::default(),
+            snapshots: Arc::default(),
         }
     }
 
@@ -1116,6 +1155,7 @@ impl Rig {
             clock: self.clock.clone(),
             turn_starts: self.turn_starts.clone(),
             runtime_hooks: Arc::new(super::runtime_hooks::NoRuntimeHooks),
+            snapshots: self.snapshots.clone(),
             turn_review: Arc::new(mixdog_core_review::turn_review::testing::test_review(&self._data.path().join("turn-review"))),
             route_change: self.route_change.clone(),
             deletion: self.deletes.clone(),
@@ -1123,6 +1163,7 @@ impl Rig {
             goals: Arc::new(self.goals.clone()),
             todos: self.todos.clone(),
             work: self.work.clone(),
+            agent_status: self.agents.clone(),
             side: self.side.clone(),
             inherit: self.inherit.clone(),
             compaction: self.compaction.clone(),

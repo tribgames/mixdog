@@ -593,28 +593,6 @@ impl Worktrees {
         Ok(item)
     }
 
-    /// Undoes a failed creation: the links it made, the checkout, the branch it created, the
-    /// record. Best effort: what cannot be undone stays for the cleanup to retry.
-    pub(crate) async fn rollback_creation(&self, record: &WorktreeRecord, repo_root: &Path, cancel: &CancellationToken) {
-        let items = ledger_of(record);
-        let _ = on_lane(self.scm().lane, cancel, move || remove_include_links(&items)).await;
-        let git = &self.scm().git;
-        let _ = git
-            .outcome(cancel, repo_root, &["worktree", "unlock", &record.path], &RunOptions::default())
-            .await;
-        let _ = git
-            .outcome(cancel, repo_root, &["worktree", "remove", "--force", &record.path], &RunOptions::default())
-            .await;
-        let _ = git.outcome(cancel, repo_root, &["worktree", "prune"], &RunOptions::default()).await;
-        let created_branch = record.extra.get("existingBranch") != Some(&serde_json::Value::Bool(true));
-        if let (Some(branch), true) = (&record.branch, created_branch) {
-            let _ = git.outcome(cancel, repo_root, &["branch", "-D", "--", branch], &RunOptions::default()).await;
-        }
-        let id = record.id.clone();
-        let registry = self.registry().clone();
-        let _ = on_lane(self.scm().lane, cancel, move || registry.delete(&id)).await;
-    }
-
     pub(crate) fn include_roots(&self, record: &WorktreeRecord) -> Vec<String> {
         ledger_of(record).into_iter().map(|i| i.rel).collect()
     }

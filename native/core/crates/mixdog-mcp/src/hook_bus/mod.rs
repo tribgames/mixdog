@@ -415,6 +415,14 @@ impl HookBus {
         self.dispatch(event, Value::Object(payload), cwd).await;
     }
 
+    /// `CwdChanged` (`cwd-apply.mjs` `applyResolvedCwd`, only when the folder really changed): the
+    /// session's `cwd` is its new one. No matcher field. The caller does not wait for it (Node's
+    /// `void hooks.dispatch(..)`); what the handlers decide changes nothing.
+    pub async fn cwd_changed(&self, session_id: &str, cwd: &Path, common: &HookCommon) {
+        let payload = base_payload("CwdChanged", session_id, cwd, common);
+        self.dispatch("CwdChanged", Value::Object(payload), cwd).await;
+    }
+
     fn identity(input: &ToolCall<'_>) -> Map<String, Value> {
         let mut identity = Map::new();
         identity.insert("sessionId".into(), if input.session_id.is_empty() { Value::Null } else { json!(input.session_id) });

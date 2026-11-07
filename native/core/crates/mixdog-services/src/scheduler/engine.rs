@@ -377,7 +377,10 @@ impl Inner {
                 let store = Arc::clone(&inner.store);
                 let n = name.clone();
                 tokio::spawn(async move {
-                    let _ = store.set_next_fire(&n, Some(next)).await;
+                    // `scheduler.mjs:311`: a failed write is logged, the schedule still runs.
+                    if let Err(err) = store.set_next_fire(&n, Some(next)).await {
+                        tracing::warn!(schedule = %n, "setNextFire failed: {err}");
+                    }
                 });
             }
             // node-cron's heartbeat: wait for the expected slot (at most a day at a time),
@@ -547,7 +550,8 @@ impl Inner {
         let _held = reserved.is_none().then(|| self.hold(name));
         let result = self.run_one_shot(name, now, reserved).await;
         if let Err(err) = result {
-            self.mark_one_shot_failed(name).await;
+            // `scheduler.mjs:374-376`: the failure mark of the catch is itself ignored.
+            let _ = self.mark_one_shot_failed(name).await;
             self.notify_failure(name, &format!("one-shot failed: {err} — left pending for retry"));
         }
     }
@@ -564,7 +568,8 @@ impl Inner {
             return Ok(());
         }
         if !fired {
-            self.mark_one_shot_failed(name).await;
+            // `scheduler.mjs:366`: awaited in the run's try, so a failed mark is the run's failure.
+            self.mark_one_shot_failed(name).await?;
             return Ok(());
         }
         let now = self.clock.now();
@@ -575,15 +580,16 @@ impl Inner {
         if let Err(err) = self.store.mark_fired(name, started).await {
             tracing::warn!(schedule = name, "markFired failed: {err}");
         }
-        let _ = self.store.mark_success(name, now).await;
+        // `scheduler.mjs:371`: a failed success mark is the run's failure (the caller marks it failed, logs and notifies).
+        self.store.mark_success(name, now).await?;
         self.mark_done_with_retry(name).await;
         Ok(())
     }
 
-    async fn mark_one_shot_failed(&self, name: &str) {
+    async fn mark_one_shot_failed(&self, name: &str) -> Result<(), ScheduleError> {
         let now = self.clock.now();
         self.update(name, |s| s.last_failed_at = Some(now));
-        let _ = self.store.mark_failure(name, now).await;
+        self.store.mark_failure(name, now).await
     }
 
     /// A deferred one-shot's timer already elapsed, so it re-arms for the later of its

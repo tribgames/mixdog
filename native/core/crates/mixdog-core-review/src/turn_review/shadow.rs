@@ -503,16 +503,19 @@ impl Root {
         values.into_iter().flat_map(|(key, value)| ["-c".to_owned(), format!("{key}={value}")]).collect()
     }
 
-    async fn sync_source_exclude(&self, source: Option<&str>) {
-        let Some(source) = source else { return };
+    /// `syncSourceExclude`: the `mkdir` is awaited bare (its failure fails the initialisation, as it
+    /// is one of `Promise.all`'s members); only the copy is `.catch(() => {})`.
+    async fn sync_source_exclude(&self, source: Option<&str>) -> Result<(), String> {
+        let Some(source) = source else { return Ok(()) };
         if !self.exists(Path::new(source)).await {
-            return;
+            return Ok(());
         }
         let target = self.git_dir.join("info").join("exclude");
         if let Some(dir) = target.parent() {
-            let _ = self.disk().create_dir_all(dir).await;
+            self.disk().create_dir_all(dir).await.map_err(|e| e.to_string())?;
         }
         let _ = self.disk().copy_file(Path::new(source), &target).await;
+        Ok(())
     }
 
     async fn sync_alternates(&self, common_dir: Option<&str>) {
@@ -609,7 +612,8 @@ impl Root {
         // Every (re)initialisation reads the source layout afresh.
         self.st().source_paths = None;
         let paths = self.source_git_paths().await?;
-        let (line_ending, ..) = tokio::join!(self.source_line_ending_args(), self.sync_source_exclude(paths.exclude.as_deref()), self.sync_alternates(paths.common_dir.as_deref()));
+        let (line_ending, exclude, ..) = tokio::join!(self.source_line_ending_args(), self.sync_source_exclude(paths.exclude.as_deref()), self.sync_alternates(paths.common_dir.as_deref()));
+        exclude?;
         self.st().line_ending_args = line_ending;
         self.refresh_source_tracked(true).await?;
         self.reset_shadow_index().await?;

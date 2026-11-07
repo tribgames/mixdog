@@ -116,9 +116,12 @@ pub struct StoredFacts {
     pub height: Option<f64>,
 }
 
-/// Facts of the stored attachments, by the reference's 64 hex digits.
+/// Facts of the stored attachments, by the reference's 64 hex digits. The synchronous meters read
+/// them from [`MediaLowering`]'s memo, filled by [`MediaMeter::prepare`] (the messages about to be
+/// measured, new input included) or [`MediaText::prepare_pdf_text`] first.
+#[async_trait]
 pub trait AttachmentFacts: Send + Sync {
-    fn facts(&self, reference: &str) -> Option<StoredFacts>;
+    async fn facts(&self, reference: &str) -> Option<StoredFacts>;
 }
 
 /// MAX_PDF_BYTES / MAX_PDF_PAGES of ttachments/limits.mjs.
@@ -185,6 +188,8 @@ struct Memo {
     resolved: HashMap<String, Resolved>,
     office: HashMap<String, Option<String>>,
     pdf: HashMap<String, String>,
+    /// What the store recorded of each reference read so far (`None`: nothing recorded).
+    facts: HashMap<String, Option<StoredFacts>>,
 }
 
 enum Lookup {
@@ -367,11 +372,37 @@ impl MediaLowering {
         })
     }
 
+    /// Reads the store's facts of `reference` into the memo, once.
+    async fn prime(&self, reference: &str) {
+        if self.memo().facts.contains_key(reference) {
+            return;
+        }
+        let facts = self.facts.facts(reference).await;
+        let mut memo = self.memo();
+        if memo.facts.len() > OFFICE_CACHE_CAP {
+            memo.facts.clear();
+        }
+        memo.facts.insert(reference.to_owned(), facts);
+    }
+
+    /// The memoized facts of a primed reference; `None` when nothing is recorded or it was not primed.
+    fn stored_facts(&self, reference: &str) -> Option<StoredFacts> {
+        self.memo().facts.get(reference).copied().flatten()
+    }
+
+    /// The base64 size a stored attachment expands to, from its recorded size.
+    fn stored_wire_bytes(&self, reference: Option<&str>) -> u64 {
+        reference.and_then(|r| self.stored_facts(r)).map_or(0, |f| f.size_bytes.div_ceil(3) * 4)
+    }
+
     /// Reads and extracts every file part of `messages` into the memo.
     async fn warm(&self, messages: &[Message]) -> Result<(), Box<ProviderError>> {
         for message in messages {
             let Content::Parts(parts) = &message.content else { continue };
             for part in parts {
+                if let Some(reference) = is_image_ref(part).or_else(|| is_pdf_ref(part)) {
+                    self.prime(reference).await;
+                }
                 self.resolve(part).await?;
                 if let Lookup::Info(file) = self.lookup(part) {
                     if inline_file_kind(&file.mime, &file.data, &file.filename) == FileKind::Office {
@@ -502,7 +533,21 @@ fn is_pdf_ref(part: &ContentPart) -> Option<&str> {
     }
 }
 
+#[async_trait]
 impl MediaMeter for MediaLowering {
+    /// Reads the facts of every stored image or PDF the messages carry into the memo.
+    async fn prepare(&self, messages: &[AgentMessage]) {
+        let mut references: Vec<String> = Vec::new();
+        for message in messages {
+            if let Content::Parts(parts) = &message.message.content {
+                references.extend(parts.iter().filter_map(|part| is_image_ref(part).or_else(|| is_pdf_ref(part))).map(str::to_owned));
+            }
+        }
+        for reference in references {
+            self.prime(&reference).await;
+        }
+    }
+
     /// `rawJsonFallbackFromPart` and the image and document allowances, for a part of a stored
     /// message. A stored file is read from the memo, so [`MediaText::prepare_pdf_text`] (or the
     /// host's warm of the history) comes first.
@@ -512,11 +557,11 @@ impl MediaMeter for MediaLowering {
             ContentPart::Image(_) => PartMeter { text: String::new(), tokens: IMAGE_TOKEN_ALLOWANCE },
             _ => {
                 if let Some(reference) = is_image_ref(part) {
-                    let f = self.facts.facts(reference).unwrap_or_default();
+                    let f = self.stored_facts(reference).unwrap_or_default();
                     return PartMeter { text: String::new(), tokens: image_allowance(f.width, f.height) };
                 }
                 if let Some(reference) = is_pdf_ref(part) {
-                    let f = self.facts.facts(reference).unwrap_or_default();
+                    let f = self.stored_facts(reference).unwrap_or_default();
                     return PartMeter { text: String::new(), tokens: pdf_allowance(f.size_bytes, f.page_count, f.text_chars, true) };
                 }
                 match self.lookup(part) {
@@ -545,8 +590,8 @@ impl ToolMediaMeter for MediaLowering {
                 ContentPart::Image(ImageSource::Base64 { data, .. }) => mixdog_js::utf16_len(data) as u64,
                 ContentPart::Image(ImageSource::Url(url)) if url.starts_with("data:") => mixdog_js::utf16_len(url) as u64,
                 ContentPart::Image(_) => 0,
-                _ if is_image_ref(part).is_some() => stored_wire_bytes(self.facts.as_ref(), is_image_ref(part)),
-                _ if native_pdf && is_pdf_ref(part).is_some() => stored_wire_bytes(self.facts.as_ref(), is_pdf_ref(part)),
+                _ if is_image_ref(part).is_some() => self.stored_wire_bytes(is_image_ref(part)),
+                _ if native_pdf && is_pdf_ref(part).is_some() => self.stored_wire_bytes(is_pdf_ref(part)),
                 ContentPart::File { source: BinarySource::Base64(data), mime_type, text: None, .. }
                     if native_pdf && inline_file_kind(&mime_of(mime_type), data, "") == FileKind::Pdf =>
                 {
@@ -582,11 +627,6 @@ impl ToolMediaMeter for MediaLowering {
     }
 }
 
-/// The base64 size a stored attachment expands to, from its recorded size.
-fn stored_wire_bytes(facts: &dyn AttachmentFacts, reference: Option<&str>) -> u64 {
-    reference.and_then(|r| facts.facts(r)).map_or(0, |f| f.size_bytes.div_ceil(3) * 4)
-}
-
 const _: &str = PDF_UNREADABLE_PREFIX;
 
 impl ImageIdentities for MediaLowering {
@@ -607,7 +647,7 @@ impl ImageIdentities for MediaLowering {
                                 ContentPart::File { mime_type, .. } => mime_type.as_str(),
                                 _ => "",
                             };
-                            let f = self.facts.facts(reference).unwrap_or_default();
+                            let f = self.stored_facts(reference).unwrap_or_default();
                             out.push(ImageDescriptor { identity: image_identity("attachment-ref", reference, mime), width: f.width.filter(|w| *w > 0.0), height: f.height.filter(|h| *h > 0.0), detail: "auto".to_owned() });
                         }
                     }
@@ -664,8 +704,9 @@ mod tests {
     }
 
     struct Facts;
+    #[async_trait]
     impl AttachmentFacts for Facts {
-        fn facts(&self, reference: &str) -> Option<StoredFacts> {
+        async fn facts(&self, reference: &str) -> Option<StoredFacts> {
             match reference {
                 "scan" => Some(StoredFacts { size_bytes: 5_000_000, page_count: Some(37), text_chars: None, ..Default::default() }),
                 "typed" => Some(StoredFacts { size_bytes: 90_000, page_count: Some(3), text_chars: Some(4_001), ..Default::default() }),
@@ -727,9 +768,16 @@ mod tests {
         assert_eq!(pdf_allowance(40_009, None, None, false), golden["cases"]["pdf_document"]["pdfText"]);
     }
 
-    #[test]
-    fn stored_media_is_priced_from_the_recorded_facts() {
+    #[tokio::test]
+    async fn stored_media_is_priced_from_the_recorded_facts() {
         let l = lowering(false);
+        // The meters read the memo: the messages that carry the references prime it.
+        let message = |r: &str, mime: &str| {
+            let mut m = AgentMessage::user("x");
+            m.message.content = Content::Parts(vec![reference(r, mime, None)]);
+            m
+        };
+        l.prepare(&[message("scan", "application/pdf"), message("typed", "application/pdf"), message("shot", "image/png"), message("unknown", "image/png")]).await;
         let content = |p: ContentPart| Content::Parts(vec![p]);
         // 37 pages, no text layer measured: 2 500 a page; 3 pages with 4 001 chars: 3*1568 + 2001.
         assert_eq!(l.part(&reference("scan", "application/pdf", None)).tokens, 92_500);

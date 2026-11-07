@@ -114,6 +114,8 @@ pub(crate) struct RoutineStart {
     pub trigger: Option<serde_json::Value>,
     /// `transcriptMeta.hop`: how deep in bot-descended turns the one that asked for this is.
     pub hop: Option<u32>,
+    /// 	ranscriptMeta.roomRow: the room's newest user row the prompt shows (a member's turn).
+    pub room_row: Option<String>,
     /// The trusted text the turn's skills are selected from.
     pub skill_selection: Option<String>,
     /// `onCommitted`: runs the moment the turn starts, before any tool can.
@@ -181,6 +183,10 @@ pub(crate) struct ControlCell {
     /// change (`tests::eventually_on`, and `SessionHandle::stepped` for the tests of other crates).
     #[cfg(any(test, feature = "test-support"))]
     pub stepped: tokio::sync::Notify,
+    /// The actor's `turn_busy()` after its last step: a turn runs, starts or is still settling.
+    /// The next turn is refused or queued until it is false, which `run` being empty does not say.
+    #[cfg(any(test, feature = "test-support"))]
+    pub busy: std::sync::atomic::AtomicBool,
 }
 
 impl ControlCell {

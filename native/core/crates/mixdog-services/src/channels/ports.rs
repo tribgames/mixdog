@@ -16,14 +16,28 @@ use crate::webhooks::{WebhookConfig, WebhookService};
 #[serde(rename_all = "camelCase")]
 pub struct WebhookSettings {
     pub enabled: bool,
-    pub port: u16,
+    /// Whatever number the settings hold (`config.port || 3333`); the listener refuses one that is
+    /// not a port, as Node's `listen` does.
+    pub port: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain: Option<String>,
 }
 
 impl Default for WebhookSettings {
     fn default() -> Self {
-        Self { enabled: true, port: 3333, domain: None }
+        Self { enabled: true, port: Value::from(3333), domain: None }
+    }
+}
+
+/// A JavaScript number as the JSON a settings file holds: an integral value is an integer, a
+/// non-finite one is `null` (`JSON.stringify`).
+pub fn js_port(n: f64) -> Value {
+    if !n.is_finite() {
+        Value::Null
+    } else if n.fract() == 0.0 && n.abs() < 9.0e15 {
+        Value::from(n as i64)
+    } else {
+        Value::from(n)
     }
 }
 
@@ -31,7 +45,7 @@ impl Default for WebhookSettings {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct WebhookPatch {
     pub enabled: Option<bool>,
-    pub port: Option<u16>,
+    pub port: Option<Value>,
     pub domain: Option<String>,
 }
 
@@ -45,8 +59,10 @@ impl WebhookPatch {
             Value::Bool(b) => Some(f64::from(u8::from(*b))),
             _ => None,
         };
-        let port = patch.get("port").filter(|p| is_truthy(p)).map(|p| {
-            number(p).filter(|n| n.is_finite() && *n >= 1.0 && *n <= f64::from(u16::MAX)).map_or(3333, |n| n as u16)
+        // `Number(patch.port) || 3333`: any number is kept, NaN and 0 give the default.
+        let port = patch.get("port").filter(|p| is_truthy(p)).map(|p| match number(p) {
+            Some(n) if !n.is_nan() && n != 0.0 => js_port(n),
+            _ => Value::from(3333),
         });
         let domain = patch.get("domain").filter(|d| is_truthy(d)).map(|d| match d {
             Value::String(s) => mixdog_js::js_trim(s).to_string(),
@@ -59,8 +75,8 @@ impl WebhookPatch {
         if let Some(enabled) = self.enabled {
             current.enabled = enabled;
         }
-        if let Some(port) = self.port {
-            current.port = port;
+        if let Some(port) = &self.port {
+            current.port = port.clone();
         }
         if let Some(domain) = &self.domain {
             current.domain = Some(domain.clone());
@@ -94,8 +110,11 @@ pub trait ChannelSettings: Send + Sync {
 }
 
 /// The relay tunnel's public base URL, once it has a hook identity (`readHookPublicBase`).
+/// `Ok(None)` is Node's `null` (the relay is switched off, or no tunnel has started yet); `Err`
+/// is what Node throws (an invalid `MIXDOG_RELAY_URL`, or a read that never ran).
+#[async_trait]
 pub trait PublicBase: Send + Sync {
-    fn hook_public_base(&self) -> Option<String>;
+    async fn hook_public_base(&self) -> Result<Option<String>, String>;
 }
 
 /// The agent runtime the channel runtime keeps in step: providers must be registered before
@@ -241,11 +260,15 @@ mod tests {
     #[test]
     fn patch_rules_follow_the_admin_helper() {
         let patch = WebhookPatch::from_params(&json!({"enabled": "yes", "port": "8080", "domain": "  hooks.example "}));
-        assert_eq!(patch, WebhookPatch { enabled: Some(false), port: Some(8080), domain: Some("hooks.example".into()) });
+        assert_eq!(patch, WebhookPatch { enabled: Some(false), port: Some(json!(8080)), domain: Some("hooks.example".into()) });
         let nothing = WebhookPatch::from_params(&json!({"port": 0, "domain": ""}));
         assert_eq!(nothing, WebhookPatch::default());
-        assert_eq!(WebhookPatch::from_params(&json!({"port": "abc"})).port, Some(3333));
+        assert_eq!(WebhookPatch::from_params(&json!({"port": "abc"})).port, Some(json!(3333)));
+        // Node keeps any number: `Number(patch.port) || 3333`.
+        for (given, kept) in [(json!(70000), json!(70000)), (json!("3.5"), json!(3.5)), (json!(-5), json!(-5)), (json!("1e3"), json!(1000)), (json!("Infinity"), Value::Null)] {
+            assert_eq!(WebhookPatch::from_params(&json!({ "port": given })).port, Some(kept), "{given}");
+        }
         let applied = WebhookPatch { enabled: Some(false), ..Default::default() }.apply(WebhookSettings::default());
-        assert_eq!(applied, WebhookSettings { enabled: false, port: 3333, domain: None });
+        assert_eq!(applied, WebhookSettings { enabled: false, port: json!(3333), domain: None });
     }
 }

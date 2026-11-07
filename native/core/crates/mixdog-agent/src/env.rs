@@ -317,11 +317,30 @@ pub trait RunObserver: Send + Sync {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Ticket(pub u64);
 
-/// Where committed messages go. `commit` queues a message for durability and
-/// returns at once; `durable` resolves when that message is on disk.
+/// A message could not be committed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CommitError {
+    /// The attachment store could not run the read the message's classification needs: nothing
+    /// was queued.
+    StoreUnavailable,
+}
+
+impl std::fmt::Display for CommitError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StoreUnavailable => f.write_str("the attachment store is unavailable; the message was not committed"),
+        }
+    }
+}
+
+impl std::error::Error for CommitError {}
+
+/// Where committed messages go. `commit` classifies the message (which may read the attachment
+/// store) and queues it for durability; `durable` resolves when that message is on disk.
 #[async_trait]
 pub trait TranscriptSink: Send + Sync {
-    fn commit(&self, message: &AgentMessage) -> Ticket;
+    /// Cancel-safe: the message is queued, and its ticket numbered, only after the classification.
+    async fn commit(&self, message: &AgentMessage) -> Result<Ticket, CommitError>;
 
     /// The transcript was rewritten (compaction or repair); `messages` is the new
     /// model context and `rewrite` what the pass took out of it.
@@ -378,8 +397,14 @@ pub enum CompactError {
 /// contains.
 #[async_trait]
 pub trait Compactor: Send + Sync {
-    /// Local token estimate of a transcript.
+    /// Local token estimate of a transcript. [`Self::prepare`] runs first on the messages measured.
     fn estimate_tokens(&self, messages: &[AgentMessage]) -> u64;
+
+    /// Reads what the estimates and triggers on `messages` need from the attachment store; awaited
+    /// before `estimate_tokens` and `request_media` are asked about new messages.
+    async fn prepare(&self, messages: &[AgentMessage]) {
+        let _ = messages;
+    }
 
     /// Whether compacting to `budget_tokens` would shrink the transcript.
     async fn reduces(&self, request: &CompactRequest<'_>) -> bool;

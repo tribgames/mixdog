@@ -148,6 +148,9 @@ const PROVIDER_STATE: &str = "providerState";
 /// How long a thread nobody ever watched may sit quiet before it unloads (`idleEvictMs` of
 /// `session-service.mjs`: `MIXDOG_SESSION_IDLE_EVICT_MS`, default 5 minutes).
 pub(super) const IDLE_EVICT: Duration = Duration::from_secs(5 * 60);
+/// `STATUS_SETTLE_MS` (`session-status-scheduler.mjs:14`): the beat a status pass waits after its
+/// first mark, here the load's.
+pub(super) const STATUS_SETTLE: Duration = Duration::from_millis(16);
 
 /// `item/completed` of an item a history row shows.
 fn item_completed(thread: &ThreadId, row: &ItemRecord, item: &ThreadItem) -> Note {
@@ -192,6 +195,9 @@ pub(crate) enum Inbox {
         /// session, `notification-bus.mjs:41`); one opened for the completion is never woken.
         live: bool,
     },
+    /// The job board's activity signal: a job of this thread was added or finished
+    /// (`agent_activity.rs`).
+    AgentActivity,
     Request {
         req: CoreRequest,
         tx: Waiter,
@@ -207,6 +213,8 @@ pub(crate) enum Inbox {
     QuotaFacts { tx: oneshot::Sender<super::quota_lane::ResumeCheck> },
     /// `cancelQuotaResume`: the explicit cancel of the pending resume.
     QuotaCancelled { tx: oneshot::Sender<()> },
+    /// `fireQuotaResume({ generation })`: the scheduler fires the queued resume of `generation`.
+    QuotaResumeFire { generation: u64, tx: oneshot::Sender<Result<super::quota_resume_scheduler::FireOutcome, String>> },
     /// `commitSessionCompaction`: a manual compaction's result, committed when no turn runs.
     /// `snapshot`: the model context (item ids) the compaction was planned on.
     CommitCompaction {
@@ -267,6 +275,11 @@ pub(crate) enum JobDone {
     ReminderGoal(Box<InputStart>, Option<Goal>),
     /// The quota-failed turn has nothing a resume could replay.
     QuotaUnresumable(TurnId),
+    /// `agentStatusState()` read on load or after a job of this thread changed; `listener`: the
+    /// status listener's read (see `read_agent_status`).
+    AgentStatus { agents: mixdog_app_protocol::v2::thread::ThreadAgents, listener: bool },
+    /// The idle deadline found the thread quiet; `working`: its background work still runs.
+    IdleChecked { working: bool },
     /// A turn operation's answer (`session/turn_ops.rs`) for the request that asked.
     Replied { op: Option<OpId>, tx: Waiter, result: Result<Value, CoreError> },
     /// A manual compaction ran and its PostCompact hook did: the actor re-marks the Goal reminder.
@@ -277,6 +290,12 @@ pub(crate) enum JobDone {
     SetupUiExpired(String),
     /// `retainedRetryInput()` for a `turn/retryFailed` that passed its first gates.
     RetryChecked { op: Option<OpId>, tx: Waiter, key: String, retained: Option<super::quota_lane::Retained> },
+    /// `retainedRetryInput()` for a scheduler fire that passed its first gates.
+    QuotaFireChecked {
+        generation: u64,
+        tx: oneshot::Sender<Result<super::quota_resume_scheduler::FireOutcome, String>>,
+        retained: Option<super::quota_lane::Retained>,
+    },
     /// `reactivateUsageLimitedGoal` of a Goal resume answered.
     Resumed(Box<ResumeDone>),
     /// The model context a manual compaction's commit reconciles with (`commitSessionCompaction`).
@@ -443,6 +462,10 @@ pub(crate) struct SessionActor {
     retry_claim: String,
     /// `flags.quotaResumePending`: a quota resume revives the Goal and holds the next turn back.
     quota_pending: Option<Arc<super::quota_lane::ResumeToken>>,
+    /// The generation of the queued resume this session last answered (fired, superseded or
+    /// found unreplayable). Node cancels that entry synchronously; here the cancel lands on the
+    /// quota lane after, so until then the entry is read as gone.
+    quota_answered: Option<u64>,
     /// `state.commandBusy` / `flags.autoClearRunning`: compactions running.
     compactions: u32,
     /// The next run's input row is already on screen (a retained retry's `suppressDisplay`).
@@ -548,6 +571,7 @@ impl SessionActor {
             quota: super::quota_lane::QuotaLane::new(&deps.quota),
             retry_claim: String::new(),
             quota_pending: None,
+            quota_answered: None,
             compactions: 0,
             retry_hidden: false,
             runs_begun: 0,
@@ -583,6 +607,11 @@ impl SessionActor {
         // A thread opened for a caller that never attaches a feed (a worker, a headless run) has
         // no last unsubscribe to unload it: it starts on the idle clock.
         self.arm_idle_evict();
+        // The runtime's status pass is registered dirty and runs once at load, one settle beat
+        // later (`session-status-scheduler.mjs` `register`), publishing the agent status it reads.
+        // There is no periodic pass: Node dropped the 2 s pulse for change marks (858b0b2d2), and
+        // the marks that move agent status are the status listener's signals.
+        self.read_agent_status(false);
         loop {
             let deadline = self.book.next_deadline();
             let producers_open = self.outbox.producer_room();
@@ -601,7 +630,10 @@ impl SessionActor {
             }
             self.pump();
             #[cfg(any(test, feature = "test-support"))]
-            self.cell.stepped.notify_waiters();
+            {
+                self.cell.busy.store(self.turn_busy(), SeqCst);
+                self.cell.stepped.notify_waiters();
+            }
             // An unloaded thread stops once its accepted records are handed off; a deleted one
             // also waits for its turn to end and its mark.
             if self.cell.closed.load(SeqCst)
@@ -613,6 +645,7 @@ impl SessionActor {
             }
         }
         self.deps.runtime_hooks.stopped(&self.id);
+        self.deps.snapshots.runtime_stopped(&self.id);
     }
 
     /// `Ctl::Delete`: see its doc.
@@ -740,13 +773,32 @@ impl SessionActor {
         self.idle_evict_at = (!self.cell.ever_attached()).then(|| tokio::time::Instant::now() + IDLE_EVICT);
     }
 
-    /// The idle deadline came: a thread found working waits the whole delay again.
+    /// The idle deadline came: a thread found working waits the whole delay again. Working is
+    /// also background work the thread started that still runs (`idle-clock.mjs` `working`:
+    /// `hasActiveBackgroundTasks({ callerSessionId })`, any surface), read before the unload.
     fn on_idle_evict(&mut self) {
         self.idle_evict_at = None;
-        if self.quiet() {
-            self.unload();
-        } else {
+        if !self.quiet() {
             self.arm_idle_evict();
+            return;
+        }
+        let (jobs, work, thread) = (self.jobs_tx.clone(), self.deps.work.clone(), self.id.clone());
+        tokio::spawn(async move {
+            let working = work.has_active(thread.as_str(), "agent", false, None).await || work.has_active(thread.as_str(), "shell", false, None).await;
+            let _ = jobs.send(JobDone::IdleChecked { working });
+        });
+    }
+
+    /// The idle deadline's background-work read answered. A clock armed again meanwhile (the
+    /// thread went quiet once more) is the newer one.
+    fn idle_checked(&mut self, working: bool) {
+        if self.idle_evict_at.is_some() {
+            return;
+        }
+        if working || !self.quiet() {
+            self.arm_idle_evict();
+        } else {
+            self.unload();
         }
     }
 
@@ -941,12 +993,15 @@ impl SessionActor {
             JobDone::CompactionEnded => self.compactions = self.compactions.saturating_sub(1),
             JobDone::SetupUiExpired(id) => self.setup_ui_settled(&id),
             JobDone::RetryChecked { op, tx, key, retained } => self.retry_checked(op, tx, key, retained),
+            JobDone::QuotaFireChecked { generation, tx, retained } => self.quota_fire_checked(generation, tx, retained),
             JobDone::Resumed(done) => self.resumed(*done),
             JobDone::CompactionRows(done) => self.compaction_rows(*done),
             JobDone::QuotaUnresumable(turn) => {
                 let item = super::transcript::notice_item(&new_id(), turn.as_str(), super::quota_lane::UNRESUMABLE, "warn");
                 self.show_live(turn, item, None);
             }
+            JobDone::AgentStatus { agents, listener } => self.agent_status(agents, listener),
+            JobDone::IdleChecked { working } => self.idle_checked(working),
             JobDone::GoalDecision(decision) => self.goal_decision(decision),
             JobDone::GoalEntryChecked { entry, seen } => self.goal_entry_checked(entry, seen),
             JobDone::SteerGoalsChecked { turn, request, reply, mut checked, seen } => {
@@ -1735,6 +1790,9 @@ impl SessionActor {
         // An ended turn has no working messages left (`liveTurnMessages` ends with the turn).
         self.cell.turn_messages.send_replace(Default::default());
         self.steer_marked.clear();
+        // `settleTurn`'s `releaseWorkspace()`: every settled turn, whatever its outcome, starts
+        // the removal of the snapshots it made, without waiting for it.
+        self.deps.snapshots.turn_settled(&self.id);
         // `onTurnSettled`: the run host's final result as it is, for a finished turn only.
         let settled = TurnOutcome {
             turn_id: turn.as_str().to_owned(),
@@ -2582,6 +2640,7 @@ impl SessionActor {
                 text,
                 live,
             } => self.task_notification(&surface, task_id, status, text, live),
+            Inbox::AgentActivity => self.agent_activity(),
             Inbox::ForkPlan { tx } => {
                 let plan = text(&self.log_id, "logId").map(|log_id| {
                     (
@@ -2606,6 +2665,7 @@ impl SessionActor {
                     let _ = tx.send(());
                 });
             }
+            Inbox::QuotaResumeFire { generation, tx } => self.quota_fire(generation, tx),
             Inbox::Op { call, tx } => self.op_call(call, tx),
             Inbox::Request { req, tx } => {
                 let tx = match &req.op {
@@ -3213,6 +3273,48 @@ impl SessionActor {
         }
     }
 
+    /// A job of this thread was added or finished (`emitSessionActivityChange(ownerSessionId)`).
+    /// The idle clock starts over (`refresh`), and the agent status is read again (the agent
+    /// tool's `statusMayHaveChanged`). A closed thread has no runtime to tell.
+    fn agent_activity(&mut self) {
+        if self.tombstoned || self.cell.closed.load(SeqCst) {
+            return;
+        }
+        if self.idle_evict_at.is_some() {
+            self.arm_idle_evict();
+        }
+        self.read_agent_status(true);
+    }
+
+    /// Reads the thread's agent status off the actor. `listener`: the read is the status
+    /// listener's (`onAgentStatusChange`), which also schedules the Goal continuation; the
+    /// load's first status pass (`runtimePulse`) only publishes.
+    fn read_agent_status(&self, listener: bool) {
+        let (jobs, status, thread) = (self.jobs_tx.clone(), self.deps.agent_status.clone(), self.id.clone());
+        tokio::spawn(async move {
+            if !listener {
+                tokio::time::sleep(STATUS_SETTLE).await;
+            }
+            let agents = status.status(&thread).await;
+            let _ = jobs.send(JobDone::AgentStatus { agents, listener });
+        });
+    }
+
+    /// `set({ ...agentStatusState() })` publishes the lists only when they changed. A thread
+    /// that never published them shows Node's initial empty lists (`initial-state.mjs:55`), so
+    /// empty lists are no change. The status listener then calls `scheduleGoalContinuation()`.
+    fn agent_status(&mut self, agents: mixdog_app_protocol::v2::thread::ThreadAgents, listener: bool) {
+        if self.tombstoned || self.cell.closed.load(SeqCst) {
+            return;
+        }
+        if self.projected.sections.agents.clone().unwrap_or_default() != agents {
+            self.accept_view(Change::Section(Section::Agents(agents)), Vec::new());
+        }
+        if listener {
+            self.schedule_goal_continuation();
+        }
+    }
+
     /// `pushAsyncAgentResponse` behind Node's card gates (`execution-delivery.mjs`): the
     /// completion's live card, a new item or the last inbound agent card extended. The card is
     /// view state: no record, so a reopen shows the completion where its turn took it in.
@@ -3338,6 +3440,9 @@ impl SessionActor {
                 }
                 if let Some(hop) = routine.hop {
                     body["meta"]["transcript"]["hop"] = json!(hop);
+                }
+                if let Some(room_row) = &routine.room_row {
+                    body["meta"]["transcript"]["roomRow"] = json!(room_row);
                 }
                 Some(routine)
             } else {

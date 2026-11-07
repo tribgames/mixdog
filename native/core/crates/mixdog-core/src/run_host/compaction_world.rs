@@ -225,7 +225,7 @@ pub(crate) mod tests {
     use mixdog_core_config::config::ConfigLanes;
     use crate::run_host::summary_host::SummaryDeps;
     use crate::run_host::assemble::CompactorInput;
-    use crate::run_host::attachment_reference::{OriginalFile, StoredFile};
+    use crate::run_host::attachment_reference::{InvalidReference, OriginalFile, StoredFile};
     use crate::run_host::compactors::SessionCompactors;
     use crate::run_host::host_seams::CompactorSource;
     use crate::run_host::media::StoredFacts;
@@ -255,21 +255,23 @@ pub(crate) mod tests {
         }
     }
     struct Recorded;
+    #[async_trait]
     impl AttachmentFacts for Recorded {
-        fn facts(&self, _: &str) -> Option<StoredFacts> {
+        async fn facts(&self, _: &str) -> Option<StoredFacts> {
             None
         }
     }
     struct Files;
+    #[async_trait]
     impl AttachmentFiles for Files {
-        fn store_inline(&self, _: &str, _: &str, _: &str) -> Option<StoredFile> {
+        async fn store_inline(&self, _: &str, _: &str, _: &str) -> Option<StoredFile> {
             None
         }
-        fn named_file(&self, _: &str, _: &str, _: &str, _: Option<&OriginalFile>) -> Result<String, ()> {
+        async fn named_file(&self, _: &str, _: &str, _: &str, _: Option<&OriginalFile>) -> Result<String, ()> {
             Err(())
         }
-        fn blob_path(&self, reference: &str) -> String {
-            reference.to_owned()
+        fn blob_path(&self, reference: &str) -> Result<String, InvalidReference> {
+            Ok(reference.to_owned())
         }
     }
     struct Archive;
@@ -283,6 +285,13 @@ pub(crate) mod tests {
         }
     }
     struct NoBlobs;
+    #[async_trait]
+    impl mixdog_agent::compact::blob_reads::BlobReads for NoBlobs {
+        async fn read_with(&self, work: mixdog_agent::compact::blob_reads::StoreWork) -> Result<(), mixdog_agent::compact::blob_reads::StoreUnavailable> {
+            work(self);
+            Ok(())
+        }
+    }
     impl Blobs for NoBlobs {
         fn text_within(&self, _: &str, _: u64) -> Result<Option<String>, mixdog_protocol::message_class::user_text::ReadError> {
             Ok(None)

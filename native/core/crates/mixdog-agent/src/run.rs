@@ -181,6 +181,8 @@ pub enum AgentError {
     RouteFailed(String),
     /// The slot could not be taken back after a provider request: the cancel's own text.
     Admission(String),
+    /// A message could not be committed to the transcript.
+    Commit(crate::env::CommitError),
 }
 
 #[derive(Debug)]
@@ -227,6 +229,7 @@ impl std::fmt::Display for AgentError {
             Self::Aborted => f.write_str("agent loop aborted"),
             Self::Provider(error) => f.write_str(&error.message),
             Self::RouteFailed(message) | Self::Admission(message) => f.write_str(message),
+            Self::Commit(error) => write!(f, "{error}"),
             Self::ContextOverflow(o) => write!(
                 f,
                 "agent context overflow ({}, stage={}): latest turn cannot fit target context budget={} reserve={} contextWindow={} messageTokensEst={}{}",
@@ -483,10 +486,10 @@ impl Run {
     }
 
     /// Appends to the model context and queues the message for durability.
-    pub(crate) fn push(&mut self, message: AgentMessage) -> Ticket {
-        let ticket = self.env.sink.commit(&message);
+    pub(crate) async fn push(&mut self, message: AgentMessage) -> Result<Ticket, AgentError> {
+        let ticket = self.env.sink.commit(&message).await.map_err(AgentError::Commit)?;
         self.messages.push(message);
-        ticket
+        Ok(ticket)
     }
 
     /// Takes the host's queued input for this boundary and appends it to the
@@ -500,7 +503,7 @@ impl Run {
         if merged.is_empty() {
             return Ok(false);
         }
-        self.inject_steering(merged, stage);
+        self.inject_steering(merged, stage).await?;
         Ok(true)
     }
 
@@ -523,13 +526,13 @@ impl Run {
         Ok(drained.iter().filter_map(steer::normalize).collect())
     }
 
-    pub(crate) fn inject_steering(&mut self, merged: Vec<steer::Merged>, stage: DrainStage) {
+    pub(crate) async fn inject_steering(&mut self, merged: Vec<steer::Merged>, stage: DrainStage) -> Result<(), AgentError> {
         for entry in merged {
             let now = self.env.clock.now_ms();
             let sink = Arc::clone(&self.env.sink);
             let prompt = (!entry.task_notification).then(|| entry.content.clone());
             let (message, event) = steer::inject(entry, stage, now, move || sink.message_id());
-            self.push(message);
+            self.push(message).await?;
             if let Some(content) = prompt {
                 self.pending_skill_prompts.push(content);
             }
@@ -537,6 +540,7 @@ impl Run {
         }
         // Input taken into the turn at any boundary is new work to answer.
         self.no_tool.note_new_input();
+        Ok(())
     }
 
     /// The loop. Completion, cancellation and terminal failures end it.
@@ -718,13 +722,13 @@ impl Run {
     /// Settles the caps after a tool batch: `overrun` (the batch came after
     /// the turn was told to reply) ends the turn; otherwise a reached cap
     /// tells the model once to reply.
-    pub(crate) fn settle_turn_limits(&mut self, overrun: bool) {
+    pub(crate) async fn settle_turn_limits(&mut self, overrun: bool) -> Result<(), AgentError> {
         if overrun {
             self.turn_limit_ended = true;
-            return;
+            return Ok(());
         }
         if self.turn_limit_noticed {
-            return;
+            return Ok(());
         }
         let now = self.env.clock.now_ms();
         let notice = limits::notice_if_reached(
@@ -735,8 +739,9 @@ impl Run {
         );
         if let Some(notice) = notice {
             self.turn_limit_noticed = true;
-            self.push(notice);
+            self.push(notice).await?;
         }
+        Ok(())
     }
 
     pub(crate) async fn until_durable(&self, ticket: Ticket) -> Result<(), AgentError> {

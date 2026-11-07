@@ -62,12 +62,10 @@ impl Clock for FixedClock {
     }
 }
 
-fn long_lived_ticker() {
-    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
-    let runtime = RUNTIME.get_or_init(|| tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap());
-    let _entered = runtime.enter();
+/// Installs the test backend. Its ticker is per runtime (hang-lanes-138), so each test's deadlines
+/// run on its own runtime's clock, paused or not, and nothing outlives the test.
+fn backend() {
     mixdog_rt::testing::tokens();
-    mixdog_rt::ticker();
 }
 
 async fn settle() {
@@ -805,9 +803,9 @@ fn drain(rig: &Rig, id: Option<&str>) -> (Value, Value) {
     (calls, notices)
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_spawn_equals_nodes() {
-    long_lived_ticker();
+    backend();
     for case in fixture("spawn.json") {
         let name = s(&case, "name");
         let scenario = &case["scenario"];
@@ -843,13 +841,27 @@ async fn a_spawn_equals_nodes() {
                 notice.as_object_mut().unwrap().remove("meta");
             }
         }
+        // The shells' own statuses are what Node's reap (the shell owner's, not the flow's) did to
+        // the registered jobs; the flow sees only the lists handed to it. So the statuses are not
+        // part of what the flow answers: they must agree with those lists, job by job.
+        let shell_tasks = want.as_object_mut().unwrap().remove("shellTasks");
         same(&name, "", &got, &want);
+        let handed = |key: &str| case["host"]["stoppedShellJobs"][key].as_array().cloned().unwrap_or_default();
+        let ended: Vec<Value> = handed("stopped").into_iter().chain(handed("stopping")).collect();
+        let jobs = scenario["shellJobs"].as_array().cloned().unwrap_or_default();
+        assert_eq!(shell_tasks.is_some(), !jobs.is_empty(), "{name}: shellTasks");
+        for job in &jobs {
+            let id = job["id"].clone();
+            let status = if ended.contains(&id) { "cancelled" } else { "running" };
+            assert_eq!(shell_tasks.as_ref().unwrap()[id.as_str().unwrap()], status, "{name}: {id}");
+        }
+        assert_eq!(shell_tasks.map_or(0, |tasks| tasks.as_object().unwrap().len()), jobs.len(), "{name}: shellTasks");
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_send_equals_nodes() {
-    long_lived_ticker();
+    backend();
     for case in fixture("send.json") {
         let name = s(&case, "name");
         let scenario = &case["scenario"];
@@ -930,9 +942,9 @@ async fn until(_what: &str, ready: impl Fn() -> bool) {
 /// Two requests meeting on one tag or worker, and a cancel meeting a settle, each as a script whose
 /// slow steps wait for the script to release them: the interleaving is forced, so the outcome Node's
 /// ordering gives is the one asserted (winner, losers, notifications, final job states).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn racing_requests_end_as_nodes_do() {
-    long_lived_ticker();
+    backend();
     for case in fixture("races.json") {
         let name = s(&case, "name");
         let scenario = &case["scenario"];
@@ -1057,9 +1069,9 @@ impl Sessions for RecordedCloses {
 
 /// `runToCompletion`: a foreground run resolves with the agent's final content and closes the
 /// agent's session with the executor reason, neither tombstoning nor as an owner close.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn a_foreground_run_ends_with_its_content_and_closes_its_session() {
-    long_lived_ticker();
+    backend();
     let case = fixture("spawn.json").into_iter().next().unwrap();
     let scenario = &case["scenario"];
     let rig = rig(scenario, Some(&case["host"]));

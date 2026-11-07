@@ -99,6 +99,8 @@ pub struct BridgeFiles {
     watching: Mutex<Option<Watching>>,
     /// `Date.now()` in milliseconds.
     now_ms: Box<dyn Fn() -> f64 + Send + Sync>,
+    /// Counts the reads taken into the copy; a test waits on it instead of polling.
+    applied: tokio::sync::watch::Sender<u64>,
 }
 
 /// The sink the core's `FolderWatcher` must be built with (composed with its other sinks): keeps
@@ -187,7 +189,12 @@ impl BridgeFiles {
     fn new_at(dir: PathBuf, io: MaintenanceIo, now_ms: Box<dyn Fn() -> f64 + Send + Sync>) -> Arc<Self> {
         let slot = || Slot { advert: Advert::Missing, failed: false, timer: false, loading: false, again: false };
         let slots = FEATURES.iter().map(|id| (*id, slot())).collect();
-        Arc::new(Self { dir, io, slots: Mutex::new(slots), watching: Mutex::new(None), now_ms })
+        Arc::new(Self { dir, io, slots: Mutex::new(slots), watching: Mutex::new(None), now_ms, applied: tokio::sync::watch::channel(0).0 })
+    }
+
+    #[cfg(test)]
+    fn applied(&self) -> tokio::sync::watch::Receiver<u64> {
+        self.applied.subscribe()
     }
 
     /// The sink the core's `FolderWatcher` must be built with (compose it with its other sinks).
@@ -299,7 +306,10 @@ impl BridgeFiles {
             }
         }
         slot.loading = false;
-        std::mem::take(&mut slot.again)
+        let again = std::mem::take(&mut slot.again);
+        drop(slots);
+        self.applied.send_modify(|reads| *reads += 1);
+        again
     }
 
     async fn read(io: MaintenanceIo, path: PathBuf) -> Loaded {
@@ -565,7 +575,10 @@ mod tests {
             let (env, dir) = env_of(case, base.path());
             lay_out(case, &dir);
             let found = discovery_dir(&env, &base.path().join("no-home"));
-            assert_eq!(found, dir, "{}: the folder", case["name"]);            let bridges = started(found, tokens.maintenance_io).await;
+            // The files lie in `dir`; a non-empty discovery variable names another folder to read.
+            let read_from = case["env"]["MIXDOG_BRIDGE_DISCOVERY_DIR"].as_str().filter(|set| !set.is_empty()).map_or_else(|| dir.clone(), |set| PathBuf::from(set.replace("{other}", &base.path().join("other").to_string_lossy())));
+            assert_eq!(found, read_from, "{}: the folder", case["name"]);
+            let bridges = started(found, tokens.maintenance_io).await;
             let agent = case["config"].as_object().cloned().unwrap_or_default();
             let settings = crate::compose_mcp::ConfigSkillSettings::new(Arc::new(Doc(agent)), env, bridges);
             let active = settings.current().gate.active_features;
@@ -589,15 +602,13 @@ mod tests {
         Arc::new(SharedBridgeFiles(files))
     }
 
-    /// Waits (the test polls, the copy does not) until the answer for `browser` is `want`.
+    /// Waits until the answer for `browser` is `want`, woken by each read the copy takes in (the
+    /// receiver is made before the answer is looked at, so no read is missed).
     async fn browser_becomes(bridges: &SharedBridgeFiles, want: bool) {
-        for _ in 0..250 {
-            if bridges.present("browser") == want {
-                return;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        let mut applied = bridges.0.applied();
+        while bridges.present("browser") != want {
+            applied.changed().await.expect("the copy is alive");
         }
-        panic!("the copy never showed browser = {want}");
     }
 
     fn advert() -> String {

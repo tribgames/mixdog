@@ -8,6 +8,7 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use mixdog_agent::compact::estimate::MediaMeter;
 use mixdog_agent::compact::fresh::AttachmentSeam;
 use mixdog_agent::message::AgentMessage;
@@ -32,19 +33,25 @@ pub struct OriginalFile {
     pub mime_type: Option<String>,
 }
 
+/// A reference that names no blob: Node's `attachmentPath` throws a TypeError for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidReference;
+
 /// The attachment store's files: where the bytes live and under what name.
+#[async_trait]
 pub trait AttachmentFiles: Send + Sync {
     /// `storeInlineImagePart` / `storeInlineDocumentPart`: writes an inline payload so it gets a
     /// path too; `None` when the store cannot take it.
-    fn store_inline(&self, base64: &str, mime_type: &str, filename: &str) -> Option<StoredFile>;
+    async fn store_inline(&self, base64: &str, mime_type: &str, filename: &str) -> Option<StoredFile>;
     /// `namedAttachmentFile`: the copy under the file's own name and extension, for a file
     /// chooser or an office tool.
     ///
     /// `original` is the file as it was picked, when the stored copy is a converted form of it
     /// (`record.original`).
-    fn named_file(&self, reference: &str, filename: &str, mime_type: &str, original: Option<&OriginalFile>) -> Result<String, ()>;
+    async fn named_file(&self, reference: &str, filename: &str, mime_type: &str, original: Option<&OriginalFile>) -> Result<String, ()>;
     /// `attachmentFilePath`: the bare blob path, the fallback when the named copy cannot be made.
-    fn blob_path(&self, reference: &str) -> String;
+    /// A reference that names no blob is an error, as it is a throw in Node.
+    fn blob_path(&self, reference: &str) -> Result<String, InvalidReference>;
 }
 
 /// `sizeLabel`.
@@ -158,35 +165,35 @@ impl ReferencedMedia {
 
     /// `mediaPartToReference`: the reference text part standing for one media part, or `None` when
     /// the part cannot travel by reference (a URL image, a non-PDF file, a store failure).
-    pub fn reference_part(&self, part: &ContentPart) -> Option<ContentPart> {
-        self.reference_part_with(part, None)
+    pub async fn reference_part(&self, part: &ContentPart) -> Option<ContentPart> {
+        self.reference_part_with(part, None).await
     }
 
     /// [`Self::reference_part`] with the message's own attachment record of the part (its name as
     /// picked and its original), which Node matches by `attachmentRef`.
-    pub fn reference_part_with(&self, part: &ContentPart, record: Option<&AttachedFile>) -> Option<ContentPart> {
+    pub async fn reference_part_with(&self, part: &ContentPart, record: Option<&AttachedFile>) -> Option<ContentPart> {
         if !is_referencable(part) {
             return None;
         }
         // The stored form: (reference, size, mime, filename, is_image).
         let (reference, size, mime, filename, image) = match part {
             ContentPart::Image(ImageSource::Base64 { data, mime_type }) => {
-                let stored = self.files.store_inline(data, mime_type, "")?;
+                let stored = self.files.store_inline(data, mime_type, "").await?;
                 (stored.reference, stored.size_bytes, mime_type.clone(), String::new(), true)
             }
             ContentPart::File { source: BinarySource::AttachmentRef(r), mime_type, filename, .. } => {
-                let size = self.facts.facts(r).map_or(0, |f| f.size_bytes);
+                let size = self.facts.facts(r).await.map_or(0, |f| f.size_bytes);
                 let image = is_image_mime(mime_type);
                 (r.clone(), size, mime_type.clone(), filename.clone().unwrap_or_default(), image)
             }
             ContentPart::File { source: BinarySource::Base64(data), mime_type, filename, .. } => {
                 let name = filename.clone().unwrap_or_default();
-                let stored = self.files.store_inline(data, &mime_or_pdf(mime_type), &name)?;
+                let stored = self.files.store_inline(data, &mime_or_pdf(mime_type), &name).await?;
                 (stored.reference, stored.size_bytes, mime_or_pdf(mime_type), name, false)
             }
             ContentPart::Document { source: DocumentSource::Base64 { media_type, data }, title } => {
                 let name = title.clone().unwrap_or_default();
-                let stored = self.files.store_inline(data, &mime_or_pdf(media_type), &name)?;
+                let stored = self.files.store_inline(data, &mime_or_pdf(media_type), &name).await?;
                 (stored.reference, stored.size_bytes, mime_or_pdf(media_type), name, false)
             }
             _ => return None,
@@ -195,7 +202,7 @@ impl ReferencedMedia {
         if !image && inline_file_kind(&mime, "", "") != FileKind::Pdf {
             return None;
         }
-        let facts = self.facts.facts(&reference).unwrap_or_default();
+        let facts = self.facts.facts(&reference).await.unwrap_or_default();
         let mime_type = if mime.is_empty() { if image { "image/png".to_owned() } else { "application/pdf".to_owned() } } else { mime };
         let filename = if filename.is_empty() { record.map(|r| r.name.clone()).unwrap_or_default() } else { filename };
         let info = Info {
@@ -207,7 +214,11 @@ impl ReferencedMedia {
         };
         // The named copy is the file the model hands to a file chooser or an office tool; the bare
         // blob path is only the fallback when the copy cannot be made.
-        let path = self.files.named_file(&reference, &info.filename, &mime_type, record.and_then(|r| r.original.as_ref())).unwrap_or_else(|()| self.files.blob_path(&reference));
+        // A reference that names no blob cannot travel by reference at all.
+        let path = match self.files.named_file(&reference, &info.filename, &mime_type, record.and_then(|r| r.original.as_ref())).await {
+            Ok(path) => path,
+            Err(()) => self.files.blob_path(&reference).ok()?,
+        };
         let mut meta = serde_json::Map::new();
         meta.insert("attachmentRef".into(), serde_json::Value::String(reference.clone()));
         meta.insert("kind".into(), serde_json::Value::String(if image { "image" } else { "pdf" }.to_owned()));
@@ -224,10 +235,11 @@ impl ReferencedMedia {
     }
 }
 
+#[async_trait]
 impl AttachmentSeam for ReferencedMedia {
     /// `referenceMessageMedia`: a user message with every referencable media part of its own
     /// content replaced by its reference text (other roles and tool results stay as they are).
-    fn reference_media(&self, message: &AgentMessage) -> AgentMessage {
+    async fn reference_media(&self, message: &AgentMessage) -> AgentMessage {
         // The message's own attachment records name each file as picked.
         let records = attached_records(message);
         if message.role() != Role::User {
@@ -235,16 +247,17 @@ impl AttachmentSeam for ReferencedMedia {
         }
         let Content::Parts(parts) = &message.message.content else { return message.clone() };
         let mut changed = false;
-        let next: Vec<ContentPart> = parts
-            .iter()
-            .map(|part| match self.reference_part_with(part, records.iter().find(|r| matches!(part, ContentPart::File { source: BinarySource::AttachmentRef(a), .. } if *a == r.attachment_ref))) {
+        let mut next: Vec<ContentPart> = Vec::with_capacity(parts.len());
+        for part in parts {
+            let record = records.iter().find(|r| matches!(part, ContentPart::File { source: BinarySource::AttachmentRef(a), .. } if *a == r.attachment_ref));
+            match self.reference_part_with(part, record).await {
                 Some(reference) => {
                     changed = true;
-                    reference
+                    next.push(reference);
                 }
-                None => part.clone(),
-            })
-            .collect();
+                None => next.push(part.clone()),
+            }
+        }
         if !changed {
             return message.clone();
         }
@@ -300,7 +313,7 @@ impl ReferencedMedia {
     /// PC, each under its original name. `pasted` are the pasted texts, which are not files; a file
     /// whose named copy cannot be made is left out. `None` when nothing is left to name. The part's
     /// object is `{kind: "files", files: [...]}`, as Node stores it.
-    pub fn attached_files_note(&self, records: &[AttachedFile], pasted: &std::collections::HashSet<String>) -> Option<ContentPart> {
+    pub async fn attached_files_note(&self, records: &[AttachedFile], pasted: &std::collections::HashSet<String>) -> Option<ContentPart> {
         use serde_json::{json, Value};
         let mut files: Vec<Value> = Vec::new();
         let mut lines: Vec<String> = Vec::new();
@@ -308,7 +321,7 @@ impl ReferencedMedia {
             if pasted.contains(&record.attachment_ref) {
                 continue;
             }
-            let Ok(path) = self.files.named_file(&record.attachment_ref, &record.name, &record.mime_type, record.original.as_ref()) else { continue };
+            let Ok(path) = self.files.named_file(&record.attachment_ref, &record.name, &record.mime_type, record.original.as_ref()).await else { continue };
             files.push(json!({ "attachmentRef": record.attachment_ref, "name": record.name, "mimeType": record.mime_type, "sizeBytes": record.size_bytes, "path": path }));
             lines.push(format!("- {path}"));
         }
@@ -334,12 +347,14 @@ mod tests {
 
     /// A store that names a payload by its filename and finds the path Node's run gave it.
     struct Files(Value);
+    #[async_trait]
     impl AttachmentFiles for Files {
-        fn store_inline(&self, base64: &str, _: &str, filename: &str) -> Option<StoredFile> {
+        async fn store_inline(&self, base64: &str, _: &str, filename: &str) -> Option<StoredFile> {
             Some(StoredFile { reference: filename.to_owned(), size_bytes: STANDARD.decode(base64).unwrap().len() as u64 })
         }
-        fn named_file(&self, reference: &str, _: &str, _: &str, _: Option<&OriginalFile>) -> Result<String, ()> {
+        async fn named_file(&self, reference: &str, _: &str, _: &str, _: Option<&OriginalFile>) -> Result<String, ()> {
             let case = match reference {
+                "bad" => return Err(()),
                 "C:\\docs\\Q1 \"report\".pdf" => "pdf_pages",
                 "one.pdf" => "pdf_one_page_all_text",
                 "scan.pdf" => "pdf_scanned",
@@ -349,14 +364,15 @@ mod tests {
             let text = self.0[case]["text"].as_str().unwrap_or("");
             text.lines().find_map(|l| l.strip_prefix("Path: ")).map(str::to_owned).ok_or(())
         }
-        fn blob_path(&self, reference: &str) -> String {
-            format!("blob:{reference}")
+        fn blob_path(&self, reference: &str) -> Result<String, InvalidReference> {
+            if reference == "bad" { Err(InvalidReference) } else { Ok(format!("blob:{reference}")) }
         }
     }
 
     struct Facts;
+    #[async_trait]
     impl AttachmentFacts for Facts {
-        fn facts(&self, reference: &str) -> Option<StoredFacts> {
+        async fn facts(&self, reference: &str) -> Option<StoredFacts> {
             let (pages, text) = match reference {
                 "C:\\docs\\Q1 \"report\".pdf" => (3, 2),
                 "one.pdf" => (1, 1),
@@ -383,8 +399,8 @@ mod tests {
     }
 
     /// Node's `mediaPartToReference` text on eight parts; the path line is the one the store gave.
-    #[test]
-    fn reference_texts_follow_node() {
+    #[tokio::test]
+    async fn reference_texts_follow_node() {
         let golden: Value = serde_json::from_str(include_str!("golden/attachment_reference.json")).unwrap();
         let pdf = b64(&format!("%PDF-1.4 {}", "x".repeat(2000)));
         let file = |name: Option<&str>| ContentPart::File {
@@ -407,7 +423,7 @@ mod tests {
         for (id, part) in &cases {
             let want = &golden[*id];
             assert_eq!(is_referencable(part), want["referencable"].as_bool().unwrap(), "{id} referencable");
-            let got = s.reference_part(part);
+            let got = s.reference_part(part).await;
             match want["text"].as_str().filter(|t| !t.is_empty()) {
                 Some(text) => {
                     let Some(ContentPart::Text(got_text, Some(info))) = got else { panic!("{id}: a text part with its reference object") };
@@ -421,13 +437,13 @@ mod tests {
             }
         }
         // The image part: Node named it by file name, which an inline Rust image part does not carry.
-        let image = s.reference_part(&ContentPart::Image(ImageSource::Base64 { data: png.into(), mime_type: "image/png".into() })).unwrap();
+        let image = s.reference_part(&ContentPart::Image(ImageSource::Base64 { data: png.into(), mime_type: "image/png".into() })).await.unwrap();
         let ContentPart::Text(text, _) = image else { panic!("text") };
         assert!(text.starts_with("[Image kept on disk, not inlined: \"image\" (image/png, 70 bytes)\n"), "{text}");
     }
 
-    #[test]
-    fn only_a_user_messages_media_is_referenced_and_tokens_count_media_only() {
+    #[tokio::test]
+    async fn only_a_user_messages_media_is_referenced_and_tokens_count_media_only() {
         let golden: Value = serde_json::from_str(include_str!("golden/attachment_reference.json")).unwrap();
         let s = seam(&golden);
         let pdf = ContentPart::File { source: BinarySource::Base64(b64("%PDF-1.4 abc")), mime_type: "application/pdf".into(), filename: Some("one.pdf".into()), text: None };
@@ -435,7 +451,7 @@ mod tests {
         user.message.content = Content::Parts(vec![ContentPart::Text("see".into(), None), pdf.clone()]);
         assert!(s.has_referencable_media(&user));
         assert_eq!(s.attachment_tokens(&user), 100);
-        let referenced = s.reference_media(&user);
+        let referenced = s.reference_media(&user).await;
         let Content::Parts(parts) = &referenced.message.content else { panic!("parts") };
         assert_eq!(parts[0], ContentPart::Text("see".into(), None));
         assert!(matches!(&parts[1], ContentPart::Text(t, _) if t.starts_with("[Attachment kept on disk, not inlined: \"one.pdf\" (PDF, 1 page, text layer on every page, 12 bytes)")));
@@ -443,17 +459,27 @@ mod tests {
         // A tool result is left as it is.
         let mut tool = AgentMessage::tool_text("c1", "x", mixdog_agent::message::ToolKind::Normal);
         tool.message.content = Content::Parts(vec![pdf]);
-        assert_eq!(s.reference_media(&tool), tool);
+        assert_eq!(s.reference_media(&tool).await, tool);
     }
 
-    #[test]
-    fn the_attached_files_note_names_each_path_and_keeps_the_files_object() {
+    /// Neither the named copy nor the bare blob path can be made for a reference that names no blob
+    /// (Node throws): the part stays inline.
+    #[tokio::test]
+    async fn a_reference_that_names_no_blob_is_not_referenced() {
+        let golden: Value = serde_json::from_str(include_str!("golden/attachment_reference.json")).unwrap();
+        let s = seam(&golden);
+        let part = ContentPart::File { source: BinarySource::AttachmentRef("bad".into()), mime_type: "application/pdf".into(), filename: Some("a.pdf".into()), text: None };
+        assert_eq!(s.reference_part(&part).await, None);
+    }
+
+    #[tokio::test]
+    async fn the_attached_files_note_names_each_path_and_keeps_the_files_object() {
         let golden: Value = serde_json::from_str(include_str!("golden/attachment_reference.json")).unwrap();
         let s = seam(&golden);
         let record = |r: &str| AttachedFile { attachment_ref: r.into(), name: format!("{r}.pdf"), mime_type: "application/pdf".into(), size_bytes: 7, original: None };
         let pasted = std::collections::HashSet::from(["p".to_owned()]);
-        assert_eq!(s.attached_files_note(&[record("p")], &pasted), None);
-        let Some(ContentPart::Text(text, Some(meta))) = s.attached_files_note(&[record("one.pdf"), record("p")], &pasted) else { panic!("note") };
+        assert_eq!(s.attached_files_note(&[record("p")], &pasted).await, None);
+        let Some(ContentPart::Text(text, Some(meta))) = s.attached_files_note(&[record("one.pdf"), record("p")], &pasted).await else { panic!("note") };
         assert!(text.starts_with("[Attached files on this PC:\n- ") && text.ends_with("\n]"), "{text}");
         assert_eq!(meta["kind"], "files");
         assert_eq!(meta["files"].as_array().unwrap().len(), 1);

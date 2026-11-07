@@ -3,6 +3,11 @@
 
 use super::*;
 
+/// The scheduler's answer channel for a fire (`ResumeHost::fire`).
+type FireReply = oneshot::Sender<Result<super::super::quota_resume_scheduler::FireOutcome, String>>;
+
+use super::super::quota_lane::failure_text as error_text;
+
 impl SessionActor {
     /// Routes one of [`super::super::turn_ops::is_actor_method`].
     pub(super) fn turn_op(&mut self, req: CoreRequest, tx: Waiter) -> Result<(), (CoreError, Waiter)> {
@@ -208,9 +213,107 @@ impl SessionActor {
     /// `finishResume(id, entry, goalId)`: the entry the resume answered goes, and the note of
     /// the Goal it revived.
     fn finish_resume(&mut self, key: &str, goal_id: &str, generation: Option<u64>) {
+        if generation.is_some() {
+            self.quota_answered = generation;
+        }
         let (goals, id, key, goal_id) = (self.deps.quota.goals.clone(), self.id.as_str().to_owned(), key.to_owned(), goal_id.to_owned());
         self.quota.call(async move {
             let _ = goals.finish_resume(&id, &key, &goal_id, generation).await;
+        });
+    }
+
+    /// The queued entry `fireQuotaResume` reads (`quotaResumeEntry(id)`): one this session already
+    /// answered reads as gone, as Node's synchronous cancel leaves it.
+    fn quota_entry(&self) -> Option<mixdog_core_base::quota_resume::Entry> {
+        self.deps.quota.goals.entry(self.id.as_str()).filter(|entry| Some(entry.generation) != self.quota_answered)
+    }
+
+    /// `fireQuotaResume`'s decision over the session as it is now.
+    fn fire_step(&self, generation: u64, retained: bool) -> super::super::quota_lane::FireStep {
+        let entry = self.quota_entry();
+        let items = self.failed_turn_items();
+        let (goals, id) = (&self.deps.quota.goals, self.id.as_str());
+        let suspended = |key: &str| goals.suspended(id, key);
+        let claimed = |key: &str| self.retry_claim == format!("{id}\0{key}");
+        let facts = super::super::quota_lane::FireFacts {
+            entry: entry.as_ref().map(|entry| (entry.turn_key.as_str(), entry.generation)),
+            blocked: self.retry_blocked(),
+            items: &items,
+            retained,
+            suspended: &suspended,
+            claimed: &claimed,
+        };
+        super::super::quota_lane::fire_step(generation, &facts)
+    }
+
+    /// `fireQuotaResume({ generation })`, first half: the answers Node gives before it looks at
+    /// the retained failed message (no current entry, busy, superseded). That message lives in
+    /// the model context, so everything else is decided again once it is read.
+    pub(super) fn quota_fire(&mut self, generation: u64, tx: FireReply) {
+        use super::super::quota_lane::FireStep;
+        let current = self.quota_entry().is_some_and(|entry| entry.generation == generation);
+        let step = self.fire_step(generation, true);
+        if !current || matches!(step, FireStep::Busy | FireStep::Superseded) {
+            return self.quota_fire_act(generation, step, None, tx);
+        }
+        let (check, jobs) = (self.resume_check(), self.jobs_tx.clone());
+        tokio::spawn(async move {
+            let retained = check.retained_retry().await;
+            let _ = jobs.send(JobDone::QuotaFireChecked { generation, tx, retained });
+        });
+    }
+
+    /// The rest of `fireQuotaResume`, synchronous from the generation check to the admitted retry
+    /// (no cancellation lands between them), as in Node.
+    pub(super) fn quota_fire_checked(&mut self, generation: u64, tx: FireReply, retained: Option<super::super::quota_lane::Retained>) {
+        let step = self.fire_step(generation, retained.is_some());
+        self.quota_fire_act(generation, step, retained, tx);
+    }
+
+    fn quota_fire_act(&mut self, generation: u64, step: super::super::quota_lane::FireStep, retained: Option<super::super::quota_lane::Retained>, tx: FireReply) {
+        use super::super::quota_lane::FireStep;
+        use super::super::quota_resume_scheduler::FireOutcome;
+        let (turn_key, goal_id) = match step {
+            FireStep::Stale => return drop(tx.send(Ok(FireOutcome::Stale))),
+            FireStep::Busy => return drop(tx.send(Ok(FireOutcome::Busy))),
+            FireStep::Superseded => {
+                self.finish_resume("", "", Some(generation));
+                return drop(tx.send(Ok(FireOutcome::Superseded)));
+            }
+            FireStep::Unreplayable => {
+                let item = super::super::transcript::idle_notice_item(&new_id(), super::super::quota_lane::UNRESUMABLE, "warn");
+                self.show_live(TurnId::from(""), item, None);
+                self.finish_resume("", "", Some(generation));
+                return drop(tx.send(Ok(FireOutcome::Unreplayable)));
+            }
+            FireStep::ResumeGoal { turn_key, goal_id } => (turn_key, goal_id),
+            FireStep::Retry { turn_key } => (turn_key, String::new()),
+        };
+        let prompt = mixdog_core_goal::quota_settlement::failed_turn_retry_prompt(&self.failed_turn_items(), &turn_key);
+        let retry = match Self::retry_turn(retained, prompt) {
+            Ok(retry) => retry,
+            Err(error) => return drop(tx.send(Err(error_text(&error)))),
+        };
+        self.retry_claim = format!("{}\0{turn_key}", self.id.as_str());
+        if goal_id.is_empty() {
+            if let Some(retry) = retry {
+                self.begin_retry(retry);
+            }
+            self.finish_resume(&turn_key, "", Some(generation));
+            return drop(tx.send(Ok(FireOutcome::Fired)));
+        }
+        // `resumeGoal(...).then((accepted) => (accepted ? 'fired' : 'rejected'))`; its failure is
+        // the rejection the fire raises.
+        let (answer_tx, answer) = oneshot::channel();
+        self.resume_goal(None, answer_tx, turn_key, goal_id, Some(generation), retry);
+        tokio::spawn(async move {
+            let outcome = match answer.await {
+                Ok(Ok(Reply::Value(Value::Bool(true)))) => Ok(FireOutcome::Fired),
+                Ok(Ok(_)) => Ok(FireOutcome::Rejected),
+                Ok(Err(error)) => Err(error_text(&error)),
+                Err(_) => Err("the session closed".to_owned()),
+            };
+            let _ = tx.send(outcome);
         });
     }
 

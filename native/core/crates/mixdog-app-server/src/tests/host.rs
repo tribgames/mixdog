@@ -373,3 +373,49 @@ async fn a_host_request_the_claimant_never_answers_ends_at_its_capability_deadli
     tokio::time::advance(limit + std::time::Duration::from_secs(1)).await;
     assert_eq!(call.await.unwrap(), Err(unavailable("timedOut")));
 }
+/// Counts what a [`ClaimHook`] attached and detached.
+struct Attach(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+struct Guard(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+impl Drop for Guard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+impl crate::ClaimHook for Attach {
+    fn claimed(&self, serves: &[HostCapability]) -> Option<Box<dyn std::any::Any + Send>> {
+        if !serves.contains(&HostCapability::SystemProxy) {
+            return None;
+        }
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Some(Box::new(Guard(self.0.clone())))
+    }
+}
+
+/// The hook attaches for a claim that serves `SystemProxy` only, and what it attached is detached
+/// when the claim is replaced, when its connection closes.
+#[tokio::test]
+async fn a_claim_attaches_through_the_hook_until_it_is_replaced_or_its_connection_closes() {
+    use mixdog_core_api::ids::ConnectionId;
+    let attached = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let live = || attached.load(std::sync::atomic::Ordering::SeqCst);
+    let rig = Rig::new();
+    assert!(rig.outgoing.set_claim_hook(std::sync::Arc::new(Attach(attached.clone()))).is_ok());
+    assert!(rig.outgoing.set_claim_hook(std::sync::Arc::new(Attach(attached.clone()))).is_err(), "a second hook is refused");
+
+    let browser_only = claimed_as(&rig, 1, "other", json!({ "browser": true })).await;
+    assert_eq!(live(), 0, "a claim that does not serve SystemProxy attaches nothing");
+
+    let first = claimed(&rig, 2).await;
+    assert_eq!(live(), 1);
+    // The same host claimed by a new connection replaces the stale claim: one attachment remains.
+    let second = claimed(&rig, 3).await;
+    assert_eq!(live(), 1, "the replaced claim detached, the new one attached");
+
+    let conn = rig.outgoing.connection(ConnectionId(3)).unwrap();
+    rig.outgoing.unregister(&conn);
+    assert_eq!(live(), 0, "a closed connection detaches its claim");
+    drop((browser_only, first, second));
+}
