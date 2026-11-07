@@ -3,6 +3,7 @@
 //! complete); a body that ends without it is `TruncatedStream`.
 
 use std::collections::BTreeMap;
+use std::collections::HashSet;
 
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::Exposure;
@@ -22,6 +23,10 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::errors::classify_stream_error;
+use crate::providers::leak;
+use crate::providers::leak::Dedupe;
+use crate::providers::leak::LeakGuard;
+use crate::providers::leak::Recovered;
 
 const NATIVE_CALL_TYPES: [&str; 2] = ["server_tool_use", "mcp_tool_use"];
 const NATIVE_RESULT_TYPES: [&str; 7] = [
@@ -157,6 +162,14 @@ pub(crate) struct AnthropicDecoder {
     terminal: bool,
     exposure: Exposure,
     pending_error: Option<ProviderError>,
+    /// The leaked tool-call guard over the text deltas (`anthropic-sse-turn/leak-guard.mjs`).
+    leak: LeakGuard,
+    /// One dispatch per call across the leaked and the native path.
+    dedupe: Dedupe,
+    /// Calls recovered from text: they have no content block, so the turn cannot replay its blocks.
+    leaked_dispatched: usize,
+    /// Native tool_use blocks the dedupe dropped: they stay out of the replay.
+    skipped: HashSet<u64>,
 }
 
 /// Node `message.stop_reason || null`: an absent reason stays absent.
@@ -183,6 +196,34 @@ impl AnthropicDecoder {
             terminal: false,
             exposure: Exposure::default(),
             pending_error: None,
+            leak: LeakGuard::new(HashSet::new(), false),
+            dedupe: Dedupe::default(),
+            leaked_dispatched: 0,
+            skipped: HashSet::new(),
+        }
+    }
+
+    /// Recover tool calls leaked into the text, naming only these tools (the request body's).
+    pub(crate) fn with_known_tools(mut self, names: HashSet<String>) -> Self {
+        self.leak = LeakGuard::new(names, false);
+        self
+    }
+
+    /// What the guard let through and recovered: visible text first, then the calls.
+    fn relay_leak(&mut self, (text, calls): (String, Vec<Recovered>), out: &mut Vec<StreamEvent>) {
+        if !text.is_empty() {
+            self.exposure.text_emitted = true;
+            out.push(StreamEvent::TextDelta(text));
+        }
+        for recovered in calls {
+            let call = leak::anthropic_call(recovered);
+            if !self.dedupe.should_dispatch(&call.name, &call.arguments, "") {
+                continue;
+            }
+            self.exposure.tool_dispatched = true;
+            self.leaked_dispatched += 1;
+            out.push(StreamEvent::ToolCallDone(call));
+            out.push(StreamEvent::Progress(ProgressKind::Tool));
         }
     }
 
@@ -219,7 +260,10 @@ impl AnthropicDecoder {
         let mut out: Vec<Value> = Vec::new();
         let mut separator_removed = false;
         let mut last_kept_thinking = false;
-        for block in self.blocks.values() {
+        for (index, block) in &self.blocks {
+            if self.skipped.contains(index) {
+                continue;
+            }
             let value = match block {
                 Block::Text { text, citations } => {
                     if text.is_empty() {
@@ -256,7 +300,24 @@ impl AnthropicDecoder {
 
     fn emit_completed(&mut self, out: &mut Vec<StreamEvent>) {
         self.terminal = true;
-        let blocks = self.replay_blocks();
+        // The stream ended: nothing is held back any more.
+        let tail = self.leak.flush();
+        self.relay_leak(tail, out);
+        // A recovered call has no content block, so the exact replay would silently omit it.
+        // The turn is stored flattened, content + `thinkingBlocks` + calls (`orderedThinkingBlocks`).
+        let blocks = if self.leaked_dispatched > 0 {
+            let thinking: Vec<Value> = self
+                .replay_blocks()
+                .into_iter()
+                .filter(|b| matches!(b.get("type").and_then(Value::as_str), Some("thinking" | "redacted_thinking")))
+                .collect();
+            if !thinking.is_empty() {
+                out.push(StreamEvent::ThinkingBlocks(Value::Array(thinking)));
+            }
+            Vec::new()
+        } else {
+            self.replay_blocks()
+        };
         if !blocks.is_empty() {
             out.push(StreamEvent::ReasoningReplay(ProviderReplay {
                 owner: self.owner.clone(),
@@ -364,7 +425,10 @@ impl AnthropicDecoder {
             return;
         };
         text.push_str(delta);
-        if !delta.is_empty() {
+        if self.leak.enabled() {
+            let scanned = self.leak.push(delta, false);
+            self.relay_leak(scanned, out);
+        } else if !delta.is_empty() {
             self.exposure.text_emitted = true;
             out.push(StreamEvent::TextDelta(delta.to_owned()));
         }
@@ -455,13 +519,18 @@ impl AnthropicDecoder {
                     }
                 };
                 *done = Some(arguments.clone());
-                self.exposure.tool_dispatched = true;
-                out.push(StreamEvent::ToolCallDone(ToolCall {
-                    id: id.clone(),
-                    name: name.clone(),
-                    arguments,
-                    native_type: None,
-                }));
+                // A text-leaked call of the same name and arguments already ran: this one is skipped whole.
+                if self.dedupe.should_dispatch(name, &arguments, id) {
+                    self.exposure.tool_dispatched = true;
+                    out.push(StreamEvent::ToolCallDone(ToolCall {
+                        id: id.clone(),
+                        name: name.clone(),
+                        arguments,
+                        native_type: None,
+                    }));
+                } else {
+                    self.skipped.insert(index);
+                }
                 out.push(StreamEvent::Progress(ProgressKind::Tool));
             }
             Some(Block::NativeCall { block, json, done }) => {

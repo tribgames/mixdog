@@ -447,6 +447,11 @@ impl TranscriptSink for PortSink {
         let n = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
         self.rows.record(message, row.clone());
         if message.role() == Role::Tool {
+            // The authoritative result is in the transcript now: an early notice of it is no longer pending
+            // (`recordToolResult` deletes it).
+            if let Some(id) = message.tool_call_id() {
+                lock(&self.observed).results.retain(|early| early.tool_call_id() != Some(id));
+            }
             if let Some(hook) = &self.on_tool_result {
                 hook(&mixdog_agent::agent_tool::flow::seams::ToolResultMessage { ui_diff: message.ui_diff.clone() });
             }
@@ -549,6 +554,9 @@ struct PortObserver {
     last_send_tools: Mutex<Vec<mixdog_core_api::domain::provider::ToolDefinition>>,
     /// The stream announces its chunks (`RunEvent::Chunk`): its deltas report no kind of their own.
     chunked: std::sync::atomic::AtomicBool,
+    /// The turn's live messages, which an early tool notice joins until its result commits.
+    live: LiveTurnPublisher,
+    rows: Arc<StoredRows>,
 }
 
 impl PortObserver {
@@ -703,7 +711,12 @@ impl RunObserver for PortObserver {
                     self.progress.tool_call(Some(&call.name));
                 }
             }
+            // Node's early notice, `recordToolResult`: the interruption keeps it, and the card completes now in the
+            // live turn rows, in completion order, until the call-order result commits.
             RunEvent::EarlyResult(message) => {
+                if let Some(id) = message.tool_call_id() {
+                    self.live.early(id, mixdog_agent::compact::execution_tail::MessageRows::row(&*self.rows, &message));
+                }
                 let mut observed = lock(&self.observed);
                 observed.started = true;
                 observed.results.push(message);
@@ -1006,7 +1019,7 @@ async fn drive(
     let streaming = Arc::new(Mutex::new(None));
     let stamp = TurnStamp::of(&input_body, verb, clock.now_ms());
     let observed = Arc::new(Mutex::new(Observed::default()));
-    let sink = PortSink::spawn(port.clone(), rows.clone(), live, streaming.clone(), observed.clone(), clock.clone(), blobs, on_tool_result, stamp);
+    let sink = PortSink::spawn(port.clone(), rows.clone(), live.clone(), streaming.clone(), observed.clone(), clock.clone(), blobs, on_tool_result, stamp);
     // The system messages are the header's prompt fields, in Node's order and tiers (WP-PROMPT).
     let mut messages = system_messages(&header);
     // The context before the input row with the item each message is, for the rewrite a cancelled turn ends with.
@@ -1087,7 +1100,7 @@ async fn drive(
     let hears_search = search_usage.register(thread.as_str(), Arc::new(move |delta| {
         let _ = search_tx.send(Shown::SearchUsage(delta));
     }));
-    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false) });
+    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false), live: live.clone(), rows: rows.clone() });
     let closing = observer.clone();
 
     config.thread_id = thread.clone();

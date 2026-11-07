@@ -24,6 +24,7 @@ use super::models::ModelTable;
 use super::profile::CompatProfile;
 use super::schema::{Rule, SchemaMemo, report_exclusion};
 use crate::providers::google::tool_accept::gemini_accepted_tools;
+use crate::providers::leak::{ToolNames, body_tool_names};
 use crate::providers::google::traits::is_gemini_family_model;
 
 /// What differs between two instances of one profile.
@@ -183,8 +184,9 @@ impl WireCodec for CompatChatCodec {
         })
     }
 
-    fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
-        Box::new(ChatDecoder::new(self.profile.clone(), self.provider.clone()))
+    fn decoder(&self, request: &ModelRequest) -> Box<dyn WireDecoder> {
+        let known = body_tool_names(self, request, ToolNames::Chat);
+        Box::new(ChatDecoder::new(self.profile.clone(), self.provider.clone()).with_known_tools(known))
     }
 
     fn classify(&self, response: &ErrorResponse) -> ProviderError {
