@@ -549,6 +549,9 @@ pub(crate) struct SessionActor {
     retry_prior: Option<super::quota_lane::Prior>,
     /// Turns begun so far: a manual compaction's commit is refused when one began since its read.
     runs_begun: u64,
+    /// A model call of the running turn already counted its own usage (`usageMetricsTurnIncremental`),
+    /// so the turn's end adds no totals.
+    usage_incremental: bool,
 }
 
 fn invalid(path: &str, expected: &str) -> CoreError {
@@ -660,6 +663,7 @@ impl SessionActor {
             retry_provenance: None,
             retry_prior: None,
             runs_begun: 0,
+            usage_incremental: false,
             deps,
         }
     }
@@ -979,6 +983,14 @@ impl SessionActor {
             .push(Some((record.clone(), class)), change, notes, effects);
         self.submit_encode(entry, record, shown);
         entry
+    }
+
+    /// A header change the run's usage reports make, as one meta record; nothing when it changes nothing.
+    fn accept_header(&mut self, change: Option<HeaderChange>) {
+        if let Some(change) = change {
+            let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
+            self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
+        }
     }
 
     /// A view-only change, released in order with the records around it.
@@ -2070,10 +2082,6 @@ impl SessionActor {
             self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
         }
         if !slot.start_failed {
-            let counters = match &outcome {
-                RunOutcome::Completed(result) => Some((result.iterations, result.tool_calls_total)),
-                _ => None,
-            };
             let (phase, detail) = match outcome {
                 RunOutcome::Completed(_) => (RunPhase::Completed, None),
                 RunOutcome::Interrupted => (RunPhase::Interrupted, None),
@@ -2108,14 +2116,9 @@ impl SessionActor {
                 set.insert("lastUsedAt".into(), json!(at));
                 set.insert("closeProvenance".into(), json!(1));
                 set.insert("lastTurnCompletedAt".into(), json!(at));
-                if let Some((iterations, tool_calls)) = counters {
-                    // `session.turnCoverage = turnToken` (`ask-turn-settle.mjs`), the loop's last iteration
-                    // (`persistIterationMetrics`) and the session's tool-call total (`accumulateSessionUsage`).
-                    let total = self.projected.header.get("totalToolCalls").and_then(Value::as_u64).unwrap_or(0);
-                    set.insert("turnCoverage".into(), json!(turn.as_str()));
-                    set.insert("lastIterationIndex".into(), json!(iterations));
-                    set.insert("totalToolCalls".into(), json!(total + tool_calls));
-                }
+                // `session.turnCoverage = turnToken` (`ask-turn-settle.mjs`). The loop's last iteration and
+                // the session's tool-call total are written by each model call (`persistIterationMetrics`).
+                set.insert("turnCoverage".into(), json!(turn.as_str()));
                 let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
                 self.accept_record(meta, Class::Control, Display::None, Vec::new(), Vec::new());
             }
@@ -2850,14 +2853,35 @@ impl SessionActor {
                 if let Some(run) = self.run.as_mut() {
                     run.live.usage(report.usage.output_tokens);
                 }
-                let usage = super::live_rows::usage_delta(self.id.as_str(), &report, self.deps.clock.now_ms());
+                let now = self.deps.clock.now_ms();
+                let usage = super::live_rows::usage_delta(self.id.as_str(), &report, now);
+                // `onUsageDelta`: the call's metrics and the provider's reading go to the header.
+                self.usage_incremental = true;
+                let books = self.deps.compaction.books(&self.id, &self.projected.header);
+                let change = super::usage_books::usage_change(&self.projected.header, &usage, &report.outgoing, &report.send_tools, books.as_ref(), now as f64);
+                self.accept_header(change);
                 let note = Note::new(
                     "thread/tokenUsage/updated",
                     &mixdog_app_protocol::v2::thread::TokenUsageUpdatedParams { thread_id: self.id.clone(), usage },
                 );
                 self.accept_view(Change::Barrier, vec![note]);
             }
+            RunShown::Check(check) => {
+                if let Some(books) = self.deps.compaction.books(&self.id, &self.projected.header) {
+                    let change = super::usage_books::check_change(&self.projected.header, &check, &books, self.deps.clock.now_ms() as f64);
+                    self.accept_header(change);
+                }
+            }
+            RunShown::Settled(settled) => {
+                let books = self.deps.compaction.books(&self.id, &self.projected.header);
+                let change = super::usage_books::settled_change(&self.projected.header, &settled, self.usage_incremental, books.as_ref(), self.deps.clock.now_ms() as f64);
+                self.accept_header(change);
+            }
             RunShown::Compact(event) => {
+                if super::live_rows::compact_changed(&event) {
+                    let change = super::usage_books::compacted_change(&self.projected.header, self.deps.clock.now_ms() as f64);
+                    self.accept_header(change);
+                }
                 let label = super::live_rows::compact_event_label(&event);
                 let detail = super::live_rows::compact_event_detail(&event);
                 let item = super::transcript::compact_marker_item(&new_id(), turn.as_str(), label, &detail);
@@ -3977,6 +4001,9 @@ impl SessionActor {
             let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
             self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
         }
+        // `bumpUsageMetricsTurnId` (`whileTurnDispatched`): the turn's usage counts under a new id.
+        self.usage_incremental = false;
+        self.accept_header(super::usage_books::turn_started(&self.projected.header));
         let turn = TurnId::from(new_id());
         let mut op_ref = op_ref;
         let value = json!({ "kind": "started", "turnId": turn });

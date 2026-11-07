@@ -354,7 +354,7 @@ struct Policy {
 }
 
 /// `providerTokenCalibration(provider)`.
-fn provider_token_calibration(provider: Option<&Value>) -> f64 {
+pub fn provider_token_calibration(provider: Option<&Value>) -> f64 {
     let p = string_or_empty(provider).to_lowercase();
     let env = |name: &str| {
         let n = number(env_text(name).as_ref());
@@ -1216,7 +1216,9 @@ pub fn forced_target_budget(input: &StatusInput<'_>) -> Option<f64> {
 }
 
 mod commit;
+mod send_check;
 
+pub use send_check::pre_send_check;
 pub use commit::Archived;
 pub use commit::CONFIG_KEYS as COMPACTION_CONFIG_KEYS;
 pub use commit::CommitInput;

@@ -1,0 +1,324 @@
+// Records Node's usage bookkeeping on the session header: what one model call writes
+// (`persistIterationMetrics`, `onUsageDelta`), the turn's end (`applyAskTerminalUsageTotals` and the complete
+// `recordProviderContextBaseline` of `settleAskTurn`), the check before a send that compacts nothing
+// (`compactTelemetry(ctx, 'pre_send_check')`, i.e. `rememberCompactTelemetry`), the turn id bump and what an
+// adopted compaction writes.
+//
+//   node native/core/fixtures/agent/compact/record_usage.mjs [--tree <node checkout with node_modules>]
+//
+// `golden/usage.json`: per case the session header before the call, the transcript, the call's arguments and the
+// header after it (Node mutates the session; a deleted field is absent from `after`), at the case's clock.
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { parseArgs, refreshSetManifest, resolveTree } from '../../../../../benchmarks/rust-core/recorders/lib/common.mjs';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const nodeRoot = resolveTree(parseArgs());
+process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'mixdog-usage-golden-'));
+const agentDir = resolve(here, '..');
+mkdirSync(join(here, 'golden'), { recursive: true });
+const load = (rel) => import(pathToFileURL(join(nodeRoot, rel)).href);
+
+let clock = 1_700_000_000_000;
+Date.now = () => clock;
+
+const sessionDir = 'src/runtime/agent/orchestrator/session';
+const metrics = await load(`${sessionDir}/manager/usage-metrics.mjs`);
+const policy = await load(`${sessionDir}/loop/compact-policy.mjs`);
+const debug = await load(`${sessionDir}/loop/compact-debug.mjs`);
+const utils = await load(`${sessionDir}/context-utils.mjs`);
+const agentMode = await load(`${sessionDir}/agent-mode.mjs`);
+const registry = await load('src/runtime/agent/orchestrator/providers/registry.mjs');
+const { finalizeProviderRequestTools } = await load('src/runtime/agent/orchestrator/runtime-core/provider-request-tools.mjs');
+
+const clone = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
+const entries = new Map();
+metrics.configureUsageMetricsRuntime({ getRuntimeEntry: (id) => entries.get(id) });
+
+const rows = {
+  user: { role: 'user', content: 'hello  world' },
+  call: { role: 'assistant', content: '', toolCalls: [{ id: 'c1', name: 'read', arguments: { path: 'a.txt' } }] },
+  tool: { role: 'tool', toolCallId: 'c1', content: 'file body' },
+  answer: { role: 'assistant', content: 'done' },
+};
+const transcript = (...names) => names.map((name) => clone(rows[name]));
+const tools = [
+  { name: 'read', description: 'Read a file', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } },
+  { name: 'search', description: 'Search', inputSchema: { type: 'object' }, deferLoading: true },
+];
+const wireTools = (list) =>
+  list.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema, deferLoading: t.deferLoading === true }));
+const nativeTools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }];
+
+const newSession = (id, over = {}) => {
+  const session = {
+    id,
+    provider: 'custom-harness',
+    model: 'harness-model',
+    contextWindow: 128000,
+    rawContextWindow: 128000,
+    effectiveContextWindowPercent: 100,
+    autoCompactTokenLimit: null,
+    compactBoundaryTokens: 128000,
+    compaction: { boundaryTokens: 128000, auto: true, contextWindow: 128000, rawContextWindow: 128000, autoCompactTokenLimit: null },
+    // The session store's own bookkeeping, which a save adds to the object when it is missing.
+    generation: 0,
+    closed: false,
+    tools: [],
+  };
+  // A key stated as undefined is a field the session does not have.
+  for (const [key, value] of Object.entries(over)) {
+    if (value === undefined) delete session[key];
+    else session[key] = clone(value);
+  }
+  entries.set(id, { session });
+  return session;
+};
+const header = (session) => {
+  const { messages: _messages, ...rest } = session;
+  return clone(rest);
+};
+
+const cases = [];
+const step = (name, op, session, messages, args, run) => {
+  const before = header(session);
+  const result = run();
+  cases.push({ name, op, header: before, messages: clone(messages), args: clone(args), now: clock, result: result === undefined ? null : clone(result), after: header(session) });
+  clock += 1000;
+};
+const excludesCache = (session) => registry.providerInputExcludesCache(session.provider);
+
+// The delta `usageDeltaEvent` makes of one model call, as the Rust run reports it: the context figures are the billed ones.
+const callDelta = (session, over = {}) => {
+  const base = {
+    sessionId: session.id,
+    iterationIndex: 1,
+    source: 'provider_send',
+    requestedModel: 'harness-model',
+    model: 'harness-model',
+    deltaInput: 0,
+    deltaOutput: 0,
+    deltaToolCalls: 0,
+    reasoningTokens: null,
+    reasoningTokensComplete: false,
+    deltaPrompt: 0,
+    requestMs: 0,
+    promptKnown: true,
+    deltaCachedRead: 0,
+    deltaCacheWrite: 0,
+    ...over,
+  };
+  const pick = (key, fallback) => (key in over ? over[key] : base[fallback]);
+  return {
+    ...base,
+    contextInputTokens: pick('contextInputTokens', 'deltaInput'),
+    contextOutputTokens: pick('contextOutputTokens', 'deltaOutput'),
+    contextPromptTokens: pick('contextPromptTokens', 'deltaPrompt'),
+    contextCachedReadTokens: pick('contextCachedReadTokens', 'deltaCachedRead'),
+    contextCacheWriteTokens: pick('contextCacheWriteTokens', 'deltaCacheWrite'),
+    contextMeasuredTokens: 'contextMeasuredTokens' in over ? over.contextMeasuredTokens : null,
+    sendTools: [],
+    ts: 'ts' in over ? over.ts : clock,
+  };
+};
+
+const turnStart = (name, session) => step(name, 'turnStart', session, [], {}, () => metrics.bumpUsageMetricsTurnId(session));
+
+// persistIterationMetrics alone (the port under test is the metrics, not the baseline).
+const iteration = (name, session, over) => {
+  const delta = callDelta(session, over);
+  step(name, 'iteration', session, [], { delta, excludesCache: excludesCache(session) }, () => {
+    metrics.persistIterationMetrics(delta);
+  });
+};
+
+// onUsageDelta (ask-turn-loop-options.mjs): the metrics, then for a provider send the request-boundary baseline.
+const usageDelta = (name, session, messages, over, sendTools = tools, native = []) => {
+  const sent = native.length ? finalizeProviderRequestTools([...clone(native), ...sendTools], native.length) : sendTools;
+  const delta = { ...callDelta(session, over), sendTools: wireTools(sent) };
+  const args = { delta, native, tools: wireTools(sendTools), excludesCache: excludesCache(session), calibration: utils.providerTokenCalibration(session.provider) };
+  step(name, 'usage', session, messages, args, () => {
+    const d = clone(delta);
+    d.sendTools = sent;
+    metrics.persistIterationMetrics(d);
+    if (d.source === 'provider_send') {
+      policy.recordProviderContextBaseline(
+        session,
+        clone(messages),
+        {
+          inputTokens: d.contextInputTokens ?? d.deltaInput,
+          outputTokens: d.contextOutputTokens ?? d.deltaOutput,
+          promptTokens: d.contextPromptTokens ?? d.deltaPrompt,
+          cachedTokens: d.contextCachedReadTokens ?? d.deltaCachedRead,
+          cacheWriteTokens: d.contextCacheWriteTokens ?? d.deltaCacheWrite,
+          contextTokens: d.contextMeasuredTokens ?? null,
+        },
+        { boundary: 'request', sendTools: d.sendTools }
+      );
+    }
+  });
+};
+
+// applyAskTerminalUsageTotals alone.
+const terminal = (name, session, result, incremental) =>
+  step(name, 'terminal', session, [], { result, incremental, excludesCache: excludesCache(session) }, () =>
+    metrics.applyAskTerminalUsageTotals(session, clone(result), { skipTotalsIfIncremental: incremental })
+  );
+
+// settleAskTurn: the terminal totals, then the complete-boundary baseline.
+const settled = (name, session, messages, result, incremental, sendTools = tools) =>
+  step(name, 'settled', session, messages, { result, incremental, tools: wireTools(sendTools), excludesCache: excludesCache(session), calibration: utils.providerTokenCalibration(session.provider) }, () => {
+    metrics.applyAskTerminalUsageTotals(session, clone(result), { skipTotalsIfIncremental: incremental });
+    policy.recordProviderContextBaseline(session, clone(messages), result.lastTurnUsage || result.usage, { sendTools });
+  });
+
+// The decision of pre-send-compact.mjs for a send that compacts nothing, then its telemetry.
+const providerAwareTokens = (tokens, messages, session) =>
+  tokens == null || registry.providerNativePdf(session.provider) ? tokens : Math.max(0, tokens - utils.textPdfAllowanceDiscount(messages));
+const check = (name, session, messages, { reactive = false, native = [], sendTools = tools } = {}) => {
+  const requestTools = wireTools(sendTools);
+  const args = { tools: requestTools, native, reactive, agentMode: agentMode.isAgentModeSession(session) };
+  step(name, 'check', session, messages, args, () => {
+    const live = clone(messages);
+    const pol = policy.resolveWorkerCompactPolicy(session, native.length ? finalizeProviderRequestTools([...clone(native), ...sendTools], native.length) : sendTools);
+    if (!pol?.auto) return false;
+    const estimate = providerAwareTokens(debug.estimateMessagesTokensSafe(live), live, session);
+    const pressure = policy.compactionTelemetryPressureTokens(estimate, pol, { reactivePending: reactive, messages: live, sessionRef: session });
+    policy.rememberCompactTelemetry(session, pol, { stage: 'pre_send_check', beforeTokens: pressure, afterTokens: pressure, messageTokensEst: estimate, pressureTokens: pressure });
+    return true;
+  });
+};
+
+// ---- a turn of the harness: turn id, a check, a call, a check, a call, the settlement ---------------------------
+const turn = newSession('s-turn');
+turnStart('turn-start-first', turn);
+check('check-first-send-has-no-baseline', turn, transcript('user'));
+usageDelta('usage-first-call-records-request-baseline', turn, transcript('user'), { deltaInput: 1200, deltaOutput: 24, deltaPrompt: 1200, deltaToolCalls: 1, requestMs: 160 });
+check('check-second-send-adds-growth-to-the-baseline', turn, transcript('user', 'call', 'tool'));
+usageDelta('usage-second-call', turn, transcript('user', 'call', 'tool'), { iterationIndex: 2, deltaInput: 1200, deltaOutput: 24, deltaPrompt: 1200, requestMs: 160 });
+settled(
+  'settled-complete-boundary-baseline',
+  turn,
+  transcript('user', 'call', 'tool', 'answer'),
+  {
+    usage: { inputTokens: 2400, outputTokens: 48, cachedTokens: 0, cacheWriteTokens: 0, reasoningTokens: null, reasoningTokensComplete: false },
+    lastTurnUsage: { inputTokens: 1200, outputTokens: 24, cachedTokens: 0, cacheWriteTokens: 0, reasoningTokens: null, reasoningTokensComplete: false },
+    toolCallsTotal: 1,
+  },
+  true
+);
+turnStart('turn-start-second', turn);
+
+// ---- the ring of the last eight checks ----------------------------------------------------------------------------
+const ring = newSession('s-ring');
+for (let n = 0; n < 10; n += 1) check(`check-ring-${n}`, ring, transcript('user', 'call', 'tool').slice(0, 1 + (n % 3)));
+
+// ---- check variants -----------------------------------------------------------------------------------------------
+check('check-reactive-pending-floors-the-pressure', newSession('s-reactive'), transcript('user'), { reactive: true });
+check('check-native-tool-prefix', newSession('s-native'), transcript('user'), { native: nativeTools });
+check('check-no-tools', newSession('s-notools'), transcript('user', 'call'), { sendTools: [] });
+check(
+  'check-keeps-prior-telemetry-and-clears-errors',
+  newSession('s-prior', {
+    lastContextTokens: 900,
+    compaction: {
+      boundaryTokens: 128000,
+      auto: true,
+      semantic: true,
+      tailTurns: 3,
+      timeoutMs: 45000,
+      bufferTokens: 9,
+      lastDurationMs: 4200.4,
+      lastTrigger: 'auto',
+      lastHandoffSource: 'session-local',
+      lastError: 'boom',
+      lastFreshContextError: 'bad',
+      compactCount: 3,
+      singleShotConsumed: true,
+      archive: { nextSeq: 4 },
+    },
+  }),
+  transcript('user')
+);
+check('check-explicit-limit-below-the-boundary-is-kept', newSession('s-limit', { autoCompactTokenLimit: 90000 }), transcript('user'));
+check('check-boundary-sized-limit-is-cleared', newSession('s-stale-limit', { autoCompactTokenLimit: 128000 }), transcript('user'));
+check('check-window-percent', newSession('s-percent', { effectiveContextWindowPercent: 95, contextWindow: 200000, compactBoundaryTokens: undefined }), transcript('user'));
+check('check-agent-session', newSession('s-agent', { sessionMode: 'agent', agent: 'worker' }), transcript('user'));
+check('check-auto-off-records-nothing', newSession('s-off', { compaction: { auto: false, boundaryTokens: 128000 } }), transcript('user'));
+check('check-no-window-records-nothing', newSession('s-nowindow', { contextWindow: undefined, rawContextWindow: undefined, compactBoundaryTokens: undefined, compaction: { auto: true } }), transcript('user'));
+check('check-anthropic-provider-calibration', newSession('s-anthropic', { provider: 'anthropic', model: 'claude-x' }), transcript('user', 'call', 'tool'));
+
+// ---- one model call -----------------------------------------------------------------------------------------------
+const calls = newSession('s-calls');
+turnStart('turn-start-calls', calls);
+iteration('iteration-inclusive-input', calls, { deltaInput: 1000, deltaOutput: 30, deltaPrompt: 1000, deltaCachedRead: 800, deltaToolCalls: 2, requestMs: 400, reasoningTokens: 5, reasoningTokensComplete: true });
+iteration('iteration-second-call-folds-into-the-totals', calls, { iterationIndex: 2, deltaInput: 1200, deltaOutput: 14, deltaPrompt: 1200, deltaCachedRead: 1000, requestMs: 250 });
+iteration('iteration-reasoning-subtotal-turns-incomplete', calls, { iterationIndex: 3, deltaInput: 10, deltaOutput: 4, deltaPrompt: 10, reasoningTokens: 3, reasoningTokensComplete: false });
+iteration('iteration-request-time-without-output-is-not-timed', calls, { iterationIndex: 4, deltaInput: 10, deltaOutput: 0, deltaPrompt: 10, requestMs: 900 });
+const exclusive = newSession('s-exclusive', { provider: 'anthropic', model: 'claude-x' });
+iteration('iteration-exclusive-input-counts-the-cache-beside-it', exclusive, { deltaInput: 100, deltaOutput: 20, deltaPrompt: 1150, deltaCachedRead: 900, deltaCacheWrite: 50, requestMs: 100 });
+iteration('iteration-unmeasured-prompt-adds-nothing-to-the-readout', newSession('s-unknown'), { deltaInput: 0, deltaOutput: 14, promptKnown: false, requestMs: 70 });
+iteration('iteration-occupancy-reading-keeps-the-split-unknown', newSession('s-occupancy'), { deltaInput: 0, deltaOutput: 40, contextMeasuredTokens: 5000.4 });
+iteration('iteration-no-prompt-and-no-reading-clears-the-snapshot', newSession('s-clear', { lastContextTokens: 77 }), { deltaInput: 0, deltaOutput: 3 });
+iteration('iteration-output-in-the-window', newSession('s-window'), { deltaInput: 500, deltaOutput: 60, deltaPrompt: 500, contextInputTokens: 400, contextOutputInWindow: true });
+iteration('iteration-explicit-uncached-input', newSession('s-uncached'), { deltaInput: 500, deltaOutput: 6, deltaPrompt: 500, deltaUncachedInput: 77 });
+iteration('iteration-without-a-stamp-takes-the-clock', newSession('s-stamp'), { deltaInput: 5, deltaOutput: 1, deltaPrompt: 5, ts: undefined });
+iteration('iteration-counter-going-back-starts-an-epoch', newSession('s-epoch', { lastIterationIndex: 3, usageMetricsEpoch: 1, usageMetricsTurnId: 2 }), { iterationIndex: 1, deltaInput: 9, deltaOutput: 1, deltaPrompt: 9 });
+iteration('iteration-stated-epoch-wins', newSession('s-stated', { lastIterationIndex: 3, usageMetricsEpoch: 1 }), { iterationIndex: 1, usageMetricsEpoch: 4, deltaInput: 9, deltaOutput: 1, deltaPrompt: 9 });
+iteration(
+  'iteration-old-session-keeps-its-reasoning-unknown',
+  newSession('s-legacy', { totalInputTokens: 500, totalOutputTokens: 50, tokensCumulative: 550, usageReadout: { input: 1, cacheRead: 0, cacheWrite: 0 } }),
+  { deltaInput: 10, deltaOutput: 2, deltaPrompt: 10, reasoningTokens: 1, reasoningTokensComplete: true, requestMs: 30 }
+);
+
+// ---- onUsageDelta -------------------------------------------------------------------------------------------------
+usageDelta('usage-native-tool-prefix', newSession('s-usage-native'), transcript('user'), { deltaInput: 900, deltaOutput: 100, deltaPrompt: 900 }, tools, nativeTools);
+usageDelta('usage-exclusive-input-baseline', newSession('s-usage-ex', { provider: 'anthropic', model: 'claude-x' }), transcript('user', 'call'), { deltaInput: 10, deltaOutput: 30, deltaPrompt: 5210, deltaCachedRead: 5000, deltaCacheWrite: 200 });
+usageDelta('usage-occupancy-baseline', newSession('s-usage-occ'), transcript('user'), { deltaInput: 0, deltaOutput: 40, contextMeasuredTokens: 4321 });
+usageDelta('usage-other-sources-record-no-baseline', newSession('s-usage-side'), transcript('user'), { deltaInput: 50, deltaOutput: 5, deltaPrompt: 50, source: 'side_question' });
+usageDelta('usage-unmeasured-call-records-no-baseline', newSession('s-usage-none'), transcript('user'), { deltaInput: 0, deltaOutput: 0 });
+
+// ---- the turn's end -----------------------------------------------------------------------------------------------
+const usage = (inputTokens, outputTokens, extra = {}) => ({ inputTokens, outputTokens, cachedTokens: 0, cacheWriteTokens: 0, reasoningTokens: null, reasoningTokensComplete: false, ...extra });
+terminal('terminal-counted-by-the-calls-adds-no-totals', newSession('s-t1'), { usage: usage(100, 10), lastTurnUsage: usage(60, 6), toolCallsTotal: 2 }, true);
+terminal('terminal-without-calls-adds-the-totals', newSession('s-t2'), { usage: usage(100, 10, { cachedTokens: 40, cacheWriteTokens: 5, reasoningTokens: 4, reasoningTokensComplete: true }), lastTurnUsage: usage(60, 6, { cachedTokens: 20 }), toolCallsTotal: 3 }, false);
+terminal('terminal-without-usage-marks-the-reasoning-incomplete', newSession('s-t3', { reasoningUsage: { reasoningTokens: 9, reasoningTokensComplete: true } }), { toolCallsTotal: 0 }, true);
+terminal('terminal-last-turn-defaults-to-the-aggregate', newSession('s-t4'), { usage: usage(80, 8), toolCallsTotal: 1 }, true);
+terminal('terminal-occupancy', newSession('s-t5'), { usage: usage(0, 0), lastTurnUsage: { inputTokens: 0, outputTokens: 12, contextTokens: 7000.6 }, toolCallsTotal: 0 }, true);
+terminal('terminal-unmeasured-clears-the-snapshot', newSession('s-t6', { lastContextTokens: 5 }), { usage: usage(0, 0), lastTurnUsage: usage(0, 0), toolCallsTotal: 0 }, true);
+terminal('terminal-context-input-puts-the-output-in-the-window', newSession('s-t7'), { usage: usage(900, 30), lastTurnUsage: usage(900, 30, { contextInputTokens: 400, contextCachedTokens: 10 }), toolCallsTotal: 0 }, true);
+terminal('terminal-exclusive-input', newSession('s-t8', { provider: 'anthropic', model: 'claude-x' }), { usage: usage(10, 5, { cachedTokens: 300, cacheWriteTokens: 40 }), lastTurnUsage: usage(10, 5, { cachedTokens: 300, cacheWriteTokens: 40 }), toolCallsTotal: 1 }, false);
+settled('settled-exclusive-input', newSession('s-settled-ex', { provider: 'anthropic', model: 'claude-x' }), transcript('user', 'answer'), { usage: usage(10, 5, { cachedTokens: 300, cacheWriteTokens: 40 }), lastTurnUsage: usage(10, 5, { cachedTokens: 300, cacheWriteTokens: 40 }), toolCallsTotal: 0 }, false);
+settled('settled-unmeasured-records-no-baseline', newSession('s-settled-none'), transcript('user', 'answer'), { usage: usage(0, 0), lastTurnUsage: usage(0, 0), toolCallsTotal: 0 }, true);
+
+// ---- an adopted compaction: the epoch and the voided reading (rememberCompactTelemetry with compactChanged) ----------------
+{
+  const session = newSession('s-compacted');
+  turnStart('turn-start-compacted', session);
+  usageDelta('usage-before-compaction', session, transcript('user'), { deltaInput: 800, deltaOutput: 20, deltaPrompt: 800 });
+  const before = header(session);
+  metrics.bumpUsageMetricsEpoch(session);
+  const pol = policy.resolveWorkerCompactPolicy(session, tools);
+  policy.rememberCompactTelemetry(session, pol, { stage: 'pre_send', beforeTokens: 800, afterTokens: 300, messageTokensEst: 300, pressureTokens: 800, compactChanged: true });
+  const after = header(session);
+  // The record keeps only what the adoption itself writes: the telemetry of the pass is another writer's.
+  const keys = ['usageMetricsEpoch', 'lastContextTokensStaleAfterCompact', ...Object.keys(after).filter((key) => key.startsWith('contextPressureBaseline'))];
+  const picked = Object.fromEntries(keys.map((key) => [key, after[key]]));
+  cases.push({
+    name: 'compacted-bumps-the-epoch-and-voids-the-reading',
+    op: 'compacted',
+    header: before,
+    messages: [],
+    args: {},
+    now: clock,
+    result: { ...picked, lastChangedAt: after.compaction.lastChangedAt, lastCompactAt: after.compaction.lastCompactAt },
+    after: picked,
+  });
+  clock += 1000;
+}
+
+writeFileSync(join(here, 'golden', 'usage.json'), `${JSON.stringify({ cases }, null, 2)}\n`);
+refreshSetManifest(agentDir, nodeRoot);
+process.exit(0);

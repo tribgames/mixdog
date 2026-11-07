@@ -812,6 +812,7 @@ async fn play(run: &super::RunStart, clock: &super::testing::FixedClock, script:
                 send_tools: Vec::new(),
                 reasoning_tokens: None,
                 reasoning_tokens_complete: false,
+                outgoing: Vec::new(),
             };
             port.usage(report).await.expect("usage");
         }

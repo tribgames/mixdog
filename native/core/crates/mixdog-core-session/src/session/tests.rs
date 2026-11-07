@@ -1771,6 +1771,7 @@ async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
                     send_tools: vec![tool],
                     reasoning_tokens: Some(4),
                     reasoning_tokens_complete: true,
+                    outgoing: Vec::new(),
                 })
                 .await
                 .expect("usage");
@@ -1885,6 +1886,65 @@ async fn a_runs_live_events_show_as_nodes_turn_shows_them() {
     assert_eq!(completed.len(), 1);
     assert_eq!((completed[0]["item"]["id"].clone(), completed[0]["item"]["content"].clone()), (json!("r1"), json!(["think more"])));
     assert_eq!(shown.iter().filter(|item| matches!(item, ThreadItem::Reasoning { .. })).count(), 1);
+}
+
+/// A model call's usage is written to the session header when it is reported (`persistIterationMetrics`), not at
+/// the turn's end, and every turn counts its calls under a new id (`bumpUsageMetricsTurnId`).
+#[tokio::test(start_paused = true)]
+async fn a_model_calls_usage_reaches_the_header_when_it_is_reported() {
+    let rig = Rig::new();
+    let gate: Arc<tokio::sync::Notify> = Arc::default();
+    let release = gate.clone();
+    rig.set_script(Arc::new(move |run| {
+        let release = release.clone();
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let usage = mixdog_core_api::domain::provider::Usage { input_tokens: 10, output_tokens: 5, cache_read_tokens: 3, cache_write_tokens: 2, ..Default::default() };
+            run.port
+                .usage(crate::session::UsageReport {
+                    iteration: 1,
+                    usage,
+                    model: "m".into(),
+                    requested_model: "m".into(),
+                    delta_tool_calls: 2,
+                    request_ms: 340,
+                    delta_prompt: 15,
+                    send_tools: Vec::new(),
+                    reasoning_tokens: Some(4),
+                    reasoning_tokens_complete: true,
+                    outgoing: Vec::new(),
+                })
+                .await
+                .expect("usage");
+            release.notified().await;
+            RunOutcome::Completed(Default::default())
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    turn(&handle, "go", "op-1").await;
+    // While the turn still runs: the call is already counted.
+    eventually(|| (handle.live_header().header().get("totalInputTokens") == Some(&json!(10))).then_some(())).await;
+    gate.notify_one();
+    eventually(|| idle(&handle).then_some(())).await;
+    let live = handle.live_header();
+    let header = live.header();
+    for (key, want) in [
+        ("usageMetricsTurnId", json!(1)),
+        ("totalInputTokens", json!(10)),
+        ("totalOutputTokens", json!(5)),
+        ("totalToolCalls", json!(2)),
+        ("tokensCumulative", json!(15)),
+        ("totalCachedReadTokens", json!(3)),
+        ("totalCacheWriteTokens", json!(2)),
+        ("totalUncachedInputTokens", json!(5)),
+        ("lastContextTokens", json!(10)),
+        ("lastIterationIndex", json!(1)),
+        ("reasoningUsage", json!({ "reasoningTokens": 4, "reasoningTokensComplete": true })),
+        ("usageReadout", json!({ "input": 10, "cacheRead": 3, "cacheWrite": 2, "output": 5, "requestOutputTokens": 5, "requestMs": 340 })),
+    ] {
+        assert_eq!(header.get(key), Some(&want), "{key}");
+    }
 }
 
 /// A Goal set during a user turn continues across it: once the turn settles with the Goal

@@ -105,6 +105,7 @@ pub mod session_title;
 pub mod quota_lane;
 #[cfg(test)]
 mod quota_lane_tests;
+mod usage_books;
 mod usage_metadata;
 pub mod quota_resume_host;
 #[cfg(test)]

@@ -329,6 +329,9 @@ impl Run {
             trigger_tokens: policy.trigger_tokens,
             boundary_tokens: policy.boundary_tokens,
             will_compact: should,
+            messages: self.messages.clone(),
+            tools: self.tools.definitions(),
+            reactive,
         });
         if !should {
             return Ok(false);
