@@ -118,6 +118,14 @@ impl UpdateInstaller for StagedInstaller {
         self.dev
     }
 
+    async fn is_staged(&self, version: &str) -> bool {
+        let (config, version) = (self.config.clone(), version.trim().to_owned());
+        // A lane that refused the job reads as "not staged"; the next poll asks again.
+        mixdog_core_base::support::on_lane(self.lane, &CancellationToken::new(), move |lane| blocking::is_staged(lane, &config, &version))
+            .await
+            .unwrap_or(false)
+    }
+
     async fn stage(&self, version: &str) -> Result<Option<String>, String> {
         let version = version.trim().to_owned();
         if version.is_empty() {
@@ -400,6 +408,11 @@ pub(crate) mod blocking {
         }
         let pkg_dir = marker["pkgDir"].as_str().map_or_else(|| ver_dir.join(PKG_SUBDIR), PathBuf::from);
         package_complete(lane, &pkg_dir)
+    }
+
+    /// `isStagedComplete(version)` over the staging area of `config`.
+    pub fn is_staged(lane: &InLane<MaintenanceIo>, config: &StagedConfig, version: &str) -> bool {
+        is_staged_complete(lane, &staging_root(config), version)
     }
 
     fn now_ms() -> u128 {

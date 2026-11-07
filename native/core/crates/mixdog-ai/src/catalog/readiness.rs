@@ -21,6 +21,9 @@ use futures::future::Shared;
 use serde_json::Map;
 use serde_json::Value;
 
+use mixdog_protocol::ProviderId;
+
+use super::ModelSource;
 use super::service::CatalogService;
 use crate::registry::providers::ProviderRegistry;
 use crate::registry::providers::RegistryError;
@@ -155,7 +158,16 @@ impl ProviderReadiness {
                 return Err(closing());
             }
             if generation == current {
-                return self.registry.init_providers(&providers).await;
+                let result = self.registry.init_providers(&providers).await;
+                // Node's catalog load walks the registered providers (`sharedProviderCatalog(reg())`).
+                self.catalog.set_sources(
+                    self.registry
+                        .all()
+                        .into_iter()
+                        .filter_map(|(name, adapter)| ModelSource::of_adapter(ProviderId::from(name.as_str()), adapter))
+                        .collect(),
+                );
+                return result;
             }
             // Superseded: the latest config wins, with the providers this request turned on.
             for name in forced {

@@ -23,7 +23,9 @@ pub const USAGE_REFRESH_REUSE_MS: i64 = 30_000;
 pub trait SetupSource: Send + Sync {
     /// `cachedProviderSetup({ force, quick })`.
     async fn setup(&self, force: bool, quick: bool) -> Result<Value, String>;
-    fn display_config(&self) -> Value;
+    /// `displayConfig()`: the loaded config, providers with their defaults. `Err` only when a
+    /// keychain read never ran.
+    async fn display_config(&self) -> Result<Value, String>;
 }
 
 #[derive(Default, Clone)]
@@ -117,8 +119,9 @@ impl Dashboards {
                 .map(|l| l.iter().map(|v| super::js::clean(Some(v))).collect()),
             preview: false,
         };
+        let config = self.setup.display_config().await.map_err(Failure::error)?;
         let at = now_ms();
-        let dashboard = create_usage_dashboard(&self.setup.display_config(), &setup, &dashboard_options, at, sources, accounts).await;
+        let dashboard = create_usage_dashboard(&config, &setup, &dashboard_options, at, sources, accounts).await;
         *self.cache() = Cache {
             dashboard: Some(dashboard.clone()),
             at,

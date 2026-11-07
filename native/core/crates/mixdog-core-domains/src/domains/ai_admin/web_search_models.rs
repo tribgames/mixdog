@@ -67,7 +67,11 @@ struct Facts {
 }
 
 impl Facts {
+    /// `displayConfig().providers`: the providers of the loaded config as the last load saw them.
     fn providers(&self) -> Vec<(String, Value)> {
+        if let Some(host) = &self.list.host {
+            return host.last_providers();
+        }
         self.config
             .agent()
             .get("providers")
@@ -175,7 +179,12 @@ impl CatalogFacts for Facts {
         self.providers()
     }
 
+    /// `ensureProvidersReady(config.providers)`. The trait has no error channel: a provider load that
+    /// failed leaves the registry as it was, and the scan lists what the catalog holds.
     async fn ensure_providers_ready(&self) {
+        if self.list.prepare().await == Ok(false) {
+            return;
+        }
         self.list.ready(false, None).await;
     }
 

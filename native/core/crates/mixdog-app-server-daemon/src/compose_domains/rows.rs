@@ -125,6 +125,15 @@ pub(super) async fn build(
         UpdateConfig {
             current_version: current_version.clone(),
             registry_url: REGISTRY_URL.to_owned(),
+            registry: Arc::new(mixdog_core_domains::domains::update::ReqwestRegistry),
+            // Node's `emitNotification('update ready', { kind: 'update-notice', version })` reaches the
+            // user as a notice; here it is the `notice` section entry the desktop words as a toast.
+            ready_notice: {
+                let notices = mixdog_core_domains::notify::desktop_notice::DesktopNotices::new(inputs.state.publisher.clone());
+                Arc::new(move |version: &str| {
+                    notices.raise("update-ready", "update-ready", &[("version", version)]);
+                })
+            },
             data_dir: inputs.paths.data_dir.clone(),
             // `config.update.auto !== false` of the agent config, read on each use.
             auto_update: Arc::new(move || {

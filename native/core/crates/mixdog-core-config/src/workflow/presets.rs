@@ -156,6 +156,11 @@ pub(crate) struct Effective {
     pub onboarding: Doc,
 }
 
+/// The effective presets of `agent`: what `loadConfig().presets` holds.
+pub fn effective_presets(agent: &Doc) -> Vec<Value> {
+    effective(agent).config.get("presets").and_then(Value::as_array).cloned().unwrap_or_default()
+}
+
 pub(crate) fn effective(agent: &Doc) -> Effective {
     effective_keeping(agent, &[])
 }

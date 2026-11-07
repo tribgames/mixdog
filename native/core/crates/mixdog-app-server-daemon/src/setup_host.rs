@@ -29,6 +29,8 @@ use mixdog_rt::TaskClass;
 pub struct SetupSourceOf {
     pub setup: Arc<CachedProviderSetup>,
     pub config: Config,
+    /// The providers of the loaded config (`loadConfig().providers`).
+    pub effective: Arc<mixdog_ai::registry::effective::EffectiveProviders>,
 }
 
 #[async_trait::async_trait]
@@ -37,8 +39,11 @@ impl mixdog_core_domains::domains::ai_account::SetupSource for SetupSourceOf {
         self.setup.cached(force, quick).await.map_err(|failure| failure.message().to_owned())
     }
 
-    fn display_config(&self) -> serde_json::Value {
-        serde_json::Value::Object(self.config.agent())
+    async fn display_config(&self) -> Result<serde_json::Value, String> {
+        let mut config = self.config.agent();
+        let providers = self.effective.load(&config, true).await?;
+        config.insert("providers".into(), serde_json::Value::Object(providers));
+        Ok(serde_json::Value::Object(config))
     }
 }
 /// `MIXDOG_PROVIDER_SETUP_WARMUP_DELAY_MS` and its default (`runtime-tunables.mjs:14`).
