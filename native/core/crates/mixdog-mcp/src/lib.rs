@@ -57,6 +57,7 @@ pub mod stdio;
 pub mod tools;
 pub mod sign_in_notice;
 pub mod transport;
+pub mod uv_error;
 pub mod ws;
 
 pub use config::McpServerConfig;
