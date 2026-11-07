@@ -41,6 +41,7 @@ import { isSessionMissingError } from './session-final-answer';
 import { reportTranscriptRead, transcriptReadTraceId } from '../shared/transcript-read-diagnostics';
 import { normalizeSessionTitle, promptTitle } from '../shared/session-title.mjs';
 import { TRANSCRIPT_READ_TIMEOUT_MS } from '../shared/transcript-read-policy';
+import type { CapabilityLane } from './protocol/capability-route';
 import { copyCapabilityValue, normalizedProviderModels } from './desktop-support';
 import type { DesktopSessionMetadata } from './desktop-session-metadata';
 import type { SessionRetentionState } from './session-auto-retention';
@@ -66,6 +67,8 @@ export interface SessionHostLifecycleOwner {
   /** Take a deleted agent out of every room's members. */
   forgetRoomMember(agentId: string): Promise<void>;
   readonly client: SessionClient;
+  /** Set on a core connection: renames go to the core (`thread/name/set`) instead of the Node runtime. */
+  readonly coreLane?: Pick<CapabilityLane, 'renameSession'>;
   readonly publication: SessionHostPublication;
   readonly sessionViews: SessionViewRegistry;
   readonly visibleSessionIds: Set<string>;
@@ -224,7 +227,10 @@ export class SessionHostLifecycle {
     const id = sessionIdOf(sessionId);
     const normalized = normalizeSessionTitle(title, '');
     if (!normalized) throw new TypeError('Session title is invalid.');
-    if ((await this.owner.invokeControl('renameSessionTitle', [id, normalized])) !== true) {
+    if (this.owner.coreLane) {
+      // The core refuses with the same text ("Session is not available.") as a code-less `domainError`.
+      await this.owner.coreLane.renameSession(id, normalized);
+    } else if ((await this.owner.invokeControl('renameSessionTitle', [id, normalized])) !== true) {
       throw new Error('Session is not available.');
     }
     await this.owner.sessionMetadata.setName(id, normalized);

@@ -55,6 +55,7 @@ import { SessionHostLifecycle } from './session-host-lifecycle';
 import { SessionHostTransport, sessionIdOf } from './session-host-transport';
 import { SessionTranscriptWindows } from './session-transcript-windows';
 import type { SessionCallOptions, SessionClient } from './session-host-transport';
+import { type CapabilityLane, hostControlAction, hostSessionAction } from './protocol/capability-route';
 export type { SessionClient } from './session-host-transport';
 import {
   DESKTOP_TRANSCRIPT_ITEM_LIMIT,
@@ -97,6 +98,9 @@ interface SessionHostRuntime {
   /** Worktree registry; optional: an older daemon has no managed worktrees. */
   loadWorktrees?(): Promise<MixdogWorktreesModule>;
   loadSessionStore(): Promise<MixdogSessionStoreModule>;
+  /** The lane of a core connection (protocol.md §12.3-12.4): the one entry through which the host's session mutations
+   *  that have a protocol method reach the core. Absent on a Node connection. */
+  capabilityLane?: CapabilityLane;
   loadSessionSearch?(): Promise<MixdogSessionSearchModule>;
   loadStatuslineSegments(): Promise<StatuslineSegmentsModule>;
   executeCodeGraphTool(name: string, args: Record<string, unknown>, cwd: string): Promise<unknown>;
@@ -266,10 +270,17 @@ export class SessionHost implements DesktopService {
       openHints: (sessionId) => this.openHints(sessionId),
       readSession: (sessionId, forceFull, publish, readTraceId, page) =>
         this.readSession(sessionId, forceFull, publish, readTraceId, page),
-      invokeSession: (sessionId, method, args) => this.transport.invokeSession(sessionId, method, args),
+      ...(this.runtime.capabilityLane ? { coreLane: this.runtime.capabilityLane } : {}),
+      invokeSession: (sessionId, method, args) =>
+        hostSessionAction(this.runtime.capabilityLane, sessionId, method, args ?? [], () =>
+          this.transport.invokeSession(sessionId, method, args)
+        ),
       ensureControlSession: () => this.transport.ensureControlSession(),
       invokeControlResult: (method, args) => this.transport.invokeControlResult(method, args),
-      invokeControl: (method, args) => this.transport.invokeControl(method, args),
+      invokeControl: (method, args) =>
+        hostControlAction(this.runtime.capabilityLane, method, args ?? [], () =>
+          this.transport.invokeControl(method, args)
+        ),
       applySessionResult: (sessionId, value, publish) => this.publication.applySessionResult(sessionId, value, publish),
       publishSession: (sessionId, snapshot, frameSource, readTraceId) =>
         this.publishSession(sessionId, snapshot, frameSource, readTraceId),
