@@ -38,7 +38,7 @@ use super::session_tools::Resolve;
 use super::session_tools::SessionMcp;
 use super::session_tools::SkillsListed;
 use super::session_tools::resolve;
-use super::surface_host::tool_doc;
+use super::session_tools::session_doc;
 use super::tool_surface::truthy;
 
 /// `DEFAULT_MCP_SCOPE_ID` (`mcp/client.mjs:72`): the scope a session without `mcpScopeId` reads.
@@ -86,8 +86,8 @@ fn strings(value: Option<&Value>) -> Option<Vec<String>> {
 /// A tool's definition as the session holds it (`ToolSpec::definition`). A connected MCP tool
 /// whose name was shortened to fit provider limits also names its server's own tool and the server,
 /// right after `name` (`mcpServerTools`, `mcp/client.mjs:1641-1646`).
-fn definition(tool: &Arc<dyn Tool>, names: &dyn McpToolNames) -> Value {
-    let doc = tool_doc(tool);
+fn definition(pool: &[Arc<dyn Tool>], tool: &Arc<dyn Tool>, names: &dyn McpToolNames) -> Value {
+    let doc = session_doc(pool, tool);
     let qualified = &tool.spec().name;
     let Some((server, leaf)) = names.names(qualified) else { return doc };
     if *qualified == format!("mcp__{server}__{leaf}") {
@@ -152,7 +152,7 @@ impl ResumeTools {
                 disallowed: &disallowed,
             },
         );
-        let docs: Vec<Value> = tools.iter().map(|tool| definition(tool, self.mcp_names.as_ref())).collect();
+        let docs: Vec<Value> = tools.iter().map(|tool| definition(&self.pool, tool, self.mcp_names.as_ref())).collect();
         // `bindAgentOwner` (`finalizeSessionToolList`, `tool-resolution.mjs:72-75`): an agent's
         // session holds the agent text of `git` and `task` (`Tool::agent_spec`).
         let docs = if owner_is_agent { bind_agent_docs(docs, &agent_definitions(&self.pool)) } else { docs };

@@ -195,7 +195,7 @@ pub fn lead_route(agent: &Doc) -> Option<Value> {
 const DEFAULT_ORCHESTRATION_MODE: &str = "balanced";
 const DEFAULT_HEARTBEAT_INTERVAL_MINUTES: i64 = 60;
 const HEARTBEAT_INTERVAL_CHOICES: [i64; 4] = [30, 60, 120, 240];
-const DEFAULT_DISABLED_ROSTER: [&str; 9] =
+pub(super) const DEFAULT_DISABLED_ROSTER: [&str; 9] =
     ["worker", "heavy-worker", "reviewer", "advisor", "security", "front-worker", "writer", "maintainer", "explore"];
 const PROVIDER_EPHEMERAL_KEYS: [&str; 4] = ["apiKey", "enabled", "baseURL", "credentialProbeUnavailable"];
 
@@ -352,9 +352,11 @@ fn slim_providers(providers: Option<&Value>) -> Doc {
 /// `disabledAgentDelta(disabledAgents)`: what the user turned off beyond the default roster, and
 /// the default-off agents they turned on.
 fn disabled_delta(effective: Option<&Value>) -> (Vec<String>, Vec<String>) {
-    let mut wanted: Vec<String> = super::agent_routes::id_list(effective);
-    wanted.sort();
-    wanted.dedup();
+    disabled_delta_of(&super::agent_routes::id_list(effective))
+}
+
+/// `disabledAgentDelta` over an id list that is already key-normalised, sorted and de-duplicated.
+pub(super) fn disabled_delta_of(wanted: &[String]) -> (Vec<String>, Vec<String>) {
     let disabled = wanted.iter().filter(|id| !DEFAULT_DISABLED_ROSTER.contains(&id.as_str())).cloned().collect();
     let mut enabled: Vec<String> =
         DEFAULT_DISABLED_ROSTER.iter().filter(|id| !wanted.iter().any(|w| w == **id)).map(|s| (*s).to_owned()).collect();
