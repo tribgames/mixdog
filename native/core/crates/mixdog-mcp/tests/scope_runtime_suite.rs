@@ -450,3 +450,35 @@ async fn a_control_thread_in_the_runtime_scope_neither_owns_nor_releases_it() {
     assert_eq!(runtime.runtime_ready().await.as_deref(), Some(scope.as_str()), "the control thread's close leaves the scope");
     assert!(!hub.is_released(&scope) && ready(&hub.server_in(&scope, "alpha").unwrap().state()));
 }
+
+/// A request with no session starts the runtime scope and gets its id back while the first connect is
+/// still pending, as Node's `mcpStatus()` answers during the boot's background connect; a second start
+/// is the same scope and opens nothing; what waits in Node (an operation) queues behind the connect on the
+/// scope's barrier and runs after it, in its own turn.
+#[tokio::test(flavor = "multi_thread")]
+async fn starting_the_runtime_scope_does_not_wait_for_its_connect_but_an_operation_does() {
+    let Rig { runtime, hub, configs, .. } = rig();
+    configs.set(&["alpha"]);
+    let (entered, go) = configs.arm();
+    let scope = runtime.start_runtime("/w").expect("started");
+    assert_eq!(scope.as_str(), hub.runtime_scope());
+    entered.await.unwrap();
+    assert_eq!(runtime.start_runtime("/w").unwrap(), scope, "a second start is the same scope");
+    assert!(runtime.is_open(&scope) && hub.servers_in(&scope).is_empty(), "pending: open, nothing connected yet");
+    assert_eq!(configs.resolves(), 1, "the second start resolved nothing");
+
+    let queued = tokio::spawn({
+        let (runtime, scope) = (runtime.clone(), scope.clone());
+        async move { runtime.run(&scope, Op::Reconcile).await }
+    });
+    let mut waiting = runtime.waiting(&scope).expect("the scope is open");
+    waiting.wait_for(|count| *count == 1).await.unwrap();
+    assert!(!queued.is_finished(), "the operation waits at the barrier");
+    assert_eq!(configs.resolves(), 1, "and has resolved nothing");
+
+    go.send(()).unwrap();
+    queued.await.unwrap();
+    assert!(ready(&hub.server_in(&scope, "alpha").unwrap().state()));
+    assert_eq!(configs.resolves(), 2, "the operation resolved after the first connect, in its own turn");
+    assert_eq!(runtime.runtime_ready().await.as_deref(), Some(scope.as_str()));
+}

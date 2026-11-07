@@ -172,6 +172,14 @@ impl ScopeRuntime {
     /// scope already open (or opening) is not opened again: the caller waits for the opener's
     /// connect. `Err`: the scope, or the owner, was released.
     pub async fn open(self: &Arc<Self>, scope: &str, owner: &str, cwd: &str) -> Result<(), ScopeReleased> {
+        let cell = self.begin(scope, owner, cwd)?;
+        Self::ready(&cell).await;
+        if self.hub.is_released(&cell.scope) { Err(ScopeReleased) } else { Ok(()) }
+    }
+
+    /// [`open`](Self::open) without the wait: the scope is registered and its first connect started
+    /// (by the first caller only), and the cell is handed back while that connect may still be pending.
+    fn begin(self: &Arc<Self>, scope: &str, owner: &str, cwd: &str) -> Result<Arc<Cell>, ScopeReleased> {
         let key = normalize_scope(Some(scope));
         let (cell, first) = {
             let mut table = lock(&self.table);
@@ -206,8 +214,7 @@ impl ScopeRuntime {
             let opening = cell.clone();
             drop(mixdog_rt::spawn("mcp.scope.open", TaskClass::Work, async move { runtime.first_connect(&opening).await }));
         }
-        Self::ready(&cell).await;
-        if self.hub.is_released(&key) { Err(ScopeReleased) } else { Ok(()) }
+        Ok(cell)
     }
 
     /// The scope's first connect: a full connect (`connectAll`, `connect.mjs:98`). The readiness
@@ -256,6 +263,17 @@ impl ScopeRuntime {
     pub async fn open_runtime(self: &Arc<Self>, cwd: &str) -> Result<String, ScopeReleased> {
         let scope = self.hub.runtime_scope().to_owned();
         self.open(&scope, RUNTIME_OWNER, cwd).await?;
+        Ok(scope)
+    }
+
+    /// Starts the runtime scope if nothing has, and returns its id at once, whether or not its first
+    /// connect has settled: what a request with no session addresses. Node's `mcpStatus()` answers the
+    /// status of the moment while the boot connects in the background (`server-catalog.mjs:239`,
+    /// `boot/tools.mjs:56`); an operation that waits in Node queues behind the connect on the scope's
+    /// own barrier ([`run`](Self::run), [`fan_out`](Self::fan_out)), not here.
+    pub fn start_runtime(self: &Arc<Self>, cwd: &str) -> Result<String, ScopeReleased> {
+        let scope = self.hub.runtime_scope().to_owned();
+        self.begin(&scope, RUNTIME_OWNER, cwd)?;
         Ok(scope)
     }
     fn cell(&self, scope: &str) -> Option<Arc<Cell>> {
