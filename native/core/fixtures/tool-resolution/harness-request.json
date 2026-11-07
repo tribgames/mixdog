@@ -1,0 +1,90 @@
+{
+  "recorder": "benchmarks/rust-core/recorders/record-harness-request-tools.mjs",
+  "provider": "custom-harness",
+  "model": "harness-model",
+  "toolSpec": "full",
+  "disallowedTools": [
+    "get_goal",
+    "create_goal",
+    "set_goal_tasks",
+    "update_goal",
+    "browser",
+    "browser_devtools",
+    "computer",
+    "terminal",
+    "tidy",
+    "visualize",
+    "explore",
+    "react"
+  ],
+  "tools": [
+    {
+      "name": "find",
+      "description": "Fuzzy filename/directory path lookup; returns paths only. Only when the target path is unknown and cannot be directly resolved but a fragment is known; general discovery: glob."
+    },
+    {
+      "name": "glob",
+      "description": "Wildcard file-path lookup under a known directory; directories never match. No preliminary listing. Unknown base: find first with a known path fragment."
+    },
+    {
+      "name": "list",
+      "description": "Return a known directory's immediate entries (path + type); no wildcard. Only when those entries or metadata are needed, not to re-confirm a known listing or before read/glob."
+    },
+    {
+      "name": "grep",
+      "description": "Search literal/regex file contents (single-line ripgrep); returns path:line blocks with context, patch-ready. Broad reconnaissance: mode:files; locating: context:0; every pattern and scope in one call, and the anchors are the windows for one read. Symbol relations: code_graph."
+    },
+    {
+      "name": "code_graph",
+      "description": "Code structure and relations from the parsed graph, no text matching. symbols → file outline rows `[export ]kind name (Lstart-end) signature`; find_symbol returns declaration/body; references adds usages; callers/callees return locations; dependents/impact → importers and blast radius. Exact identifiers: find_symbol/references/callers/callees; keywords: symbol_search/search; literal text and regex belong to grep. Prefer it over read/grep for declarations and relations. symbols already outlines a file: never pair it with overview for one need."
+    },
+    {
+      "name": "read",
+      "description": "Read file windows or images. One call per read stage: {file_path, offset, limit} entries for every located site, never a whole large file. Content in context is never read again. Missing paths are reported, never replaced. Directories: list. Binaries: bounded hex. Rows carry no line numbers; `[lines a-b]` gives each block's range. Never count rows: before writing a line number, copy it from grep, code_graph or git diff output; otherwise cite path and symbol."
+    },
+    {
+      "name": "edit",
+      "description": "Replace exact text in one file. old_string must match once unless replace_all is true. Every non-overlapping edit of the stage in one response, using existing text, not text another edit creates; many files → one edit per file. Widened replacements keep intervening lines verbatim."
+    },
+    {
+      "name": "git",
+      "description": "Run Git here, never through shell. An array runs in order and stops on failure; batch read-only commands in one. diff for known changes, status to discover them; history only when needed. git diff or git diff -- <paths> includes untracked files. Set include_stage_ids:true to select changes, then action:stage with diff_id/change_ids. Staging rejects stale or cross-Project diffs and returns per-file staged counts. Worktrees are managed only: action:worktree; git worktree add/remove/list/prune map to managed operations (add -b keeps the session in place; add --detach makes a read-only snapshot worktree, removed when its turn ends, and is the one add a delegated worker may run; list --porcelain stays raw git; move/lock/unlock/repair are refused). Merge or remove only when the user asks."
+    },
+    {
+      "name": "shell",
+      "description": "Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools cover: Get-Content/gc/cat/type→read; Get-ChildItem/dir/ls→list/glob/find; Select-String/findstr→grep; Set-Content/Add-Content/Out-File/`>`→edit; git→git (-C <dir> for other folders); gh→github, except what it lacks (repo rename/settings, account switching); code structure→code_graph. Holds 60s; then, or on input/task notification, backgrounds with task_id (command keeps running). Completion is automatic; never poll, and never sleep/poll-loop inside the shell (background:true or wait_ms instead; for an external job, background a command that exits when it ends). Result needed now: task wait. Independent long runs: background:true; cancel when done."
+    },
+    {
+      "name": "task",
+      "description": "Manage shell tasks. Completion is delivered automatically; wait only when you need the result now, never poll with read. wait returns when the task finishes, or when new user input or any task notification arrives (the task keeps running). read/wait return new output, prioritizing the tail on completion. Use read on the log path for omitted content."
+    },
+    {
+      "name": "agent",
+      "description": "Run scoped agent work as background tasks. spawn/send return task_id immediately. Reuse one tag for one scope for its whole lifetime; give distinct tags only to independent scopes. Never mint a new tag because a session expired or was lost — same-tag spawn respawns it with the full brief. Completion notifications arrive automatically; use status/read only for manual recovery. Close finished agents yourself."
+    },
+    {
+      "name": "web_search",
+      "description": "Search the web for recent, external or unfamiliar facts (names, products, models) before answering from memory."
+    },
+    {
+      "name": "Skill",
+      "description": "Load or refresh an available skill’s SKILL.md before task actions when its body is missing or needs an update."
+    },
+    {
+      "name": "ask_user",
+      "description": "Ask the user multiple-choice questions and wait. Only for a decision only the user can make, with clear options; never for minor choices or approval of requested work, and open questions go in chat. Do not repeat the options in your message. A step only the user can do on a page or app (CAPTCHA, human check, sign-in, 2FA, a password) goes to handoff_user, never a request in plain chat. Load handoff_user directly if needed; browser/computer skills are not prerequisites."
+    },
+    {
+      "name": "todo",
+      "description": "The step list for this request; the Lead and each agent keep their own. Use it whenever the work has three or more steps or several asks (a delegated brief with several parts counts); skip it only for a single step or a plain answer. Create it before the first real action: init with every ask as its own item, in order, covering investigation through verification. A follow-up that adds to the request: append its asks and any steps you discover; init is for a new, unrelated request and refuses while items are open. An item is named by its outcome in 3-8 words and keeps that exact wording; it is how you refer to it — lost the wording: view, never guess. Keep it current while you work, not at the end: the moment an item is finished and its result is read, mark it done with your next call — never batch completions. The runtime keeps exactly one item in progress; done moves it to the next. Send todo beside your next real tool call; when no real call is due, call it alone rather than skip the update. Mark an item done only after reading its result; an item waiting on the user, an agent or a shell stays open."
+    },
+    {
+      "name": "load_tool",
+      "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call."
+    },
+    {
+      "name": "call_tool",
+      "description": "Run one tool that is available in this session but not directly exposed, with the arguments its schema requires. The call has the same permissions, approvals and result as calling that tool directly."
+    }
+  ]
+}

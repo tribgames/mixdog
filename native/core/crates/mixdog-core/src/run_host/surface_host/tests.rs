@@ -1230,3 +1230,35 @@ fn the_internal_tools_are_in_nodes_order_whatever_the_pool_order() {
     let ours: Vec<String> = internal_tools(&pool).iter().map(|tool| tool.spec().name.clone()).collect();
     assert_eq!(ours, names(&r["pool"]["standalone"]));
 }
+
+/// A Lead thread as `thread/start` makes it: seeded with no route on its header, then seated on its route
+/// (`seat_route`: the route's fields land and the route before was none). The seat must leave the seeded deferred
+/// surface alone, so the first request carries the array a real-turn harness request carried
+/// (`fixtures/tool-resolution/harness-request.json`, `record-harness-request-tools.mjs`): the default tools and
+/// `load_tool`, `call_tool`, with the announced tools deferred behind them, in Node's order.
+#[tokio::test]
+async fn a_started_lead_sends_the_array_of_a_recorded_harness_request() {
+    use crate::run_host::route_surface::{route_surface_change, PreparedTools};
+    let r = recording();
+    let (pool, mcp) = (recorded_pool(&r), recorded_mcp(&r));
+    let harness: Value = serde_json::from_str(include_str!("../../../../../fixtures/tool-resolution/harness-request.json")).expect("harness request");
+    let route = json!({ "provider": harness["provider"], "model": harness["model"] });
+    let rig = rig(&Value::Null, Setup { route: route.clone(), feature_denied: names(&harness["disallowedTools"]), pool: Some(pool.clone()), mcp: mcp.clone(), ..setup("lead") });
+    let mut header = Header::new();
+    header.insert("toolSpec".into(), harness["toolSpec"].clone());
+    header.insert("cwd".into(), json!("/work"));
+    let thread = ThreadId::from("sess_harness");
+    let mut seated = rig.host.seed(&thread, &header).await.expect("seed");
+    assert!(!seated.contains_key("provider") && !seated.contains_key("model"), "the route's fields are the seat's");
+    seated.insert("provider".into(), route["provider"].clone());
+    seated.insert("model".into(), route["model"].clone());
+    let resume = ResumeTools { pool: pool.clone(), mcp: Arc::new(Mcp(mcp.clone())), mcp_names: Arc::new(Unshortened), skills: Arc::new(NoSkills), policy: Arc::new(Role(false)) };
+    let prepared: PreparedTools = resume.prepare_tools(&seated).await.expect("prepared");
+    let host = Bridge(bridge_docs(&pool));
+    let surface = ToolSurface { host: &host, clock: &Fixed };
+    let change = route_surface_change(&surface, &Fixed, &seated, &mixdog_core_ports::ports::route::Route::new(), Some(prepared), false);
+    assert!(change.set.is_empty() && change.unset.is_empty(), "the first route's seat rebuilds no surface");
+    let sent: Vec<String> = request_tools(&pool, &mcp, &seated).await.iter().map(|tool| tool.name.clone()).collect();
+    let node: Vec<String> = harness["tools"].as_array().expect("tools").iter().map(|tool| tool["name"].as_str().expect("name").to_owned()).collect();
+    assert_eq!(sent, node);
+}
