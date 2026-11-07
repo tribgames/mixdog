@@ -67,7 +67,7 @@ async fn open_world(world: &Value) -> (tempfile::TempDir, AgentDefinitions) {
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
     let config_path = dir.path().join("mixdog-config.json");
-    std::fs::write(&config_path, serde_json::to_vec(&json!({ "agent": world["config"] })).unwrap()).unwrap();
+    std::fs::write(&config_path, serde_json::to_vec(&mixdog_core_config::config::agent_routes::stored_file_of(&world["config"])).unwrap()).unwrap();
     let (config, _) = Config::open(config_path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
     let evidence_of = |field: &str| -> HashMap<String, bool> {
         world["evidence"].as_object().unwrap().iter().map(|(id, e)| (id.clone(), e[field].as_bool().unwrap())).collect()
@@ -312,7 +312,7 @@ pub(crate) async fn writable(agent: Value) -> (tempfile::TempDir, AgentDefinitio
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
     let path = dir.path().join("mixdog-config.json");
-    std::fs::write(&path, serde_json::to_vec(&json!({ "agent": agent })).unwrap()).unwrap();
+    std::fs::write(&path, serde_json::to_vec(&mixdog_core_config::config::agent_routes::stored_file_of(&agent)).unwrap()).unwrap();
     let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
     let agents = AgentDefinitions::new(
         dir.path().join("shipped"),

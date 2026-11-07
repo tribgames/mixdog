@@ -82,7 +82,7 @@ async fn set_agent_route_matches_node() {
         let tokens = mixdog_rt::testing::tokens();
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
         let path = dir.path().join("mixdog-config.json");
-        std::fs::write(&path, serde_json::to_vec(&json!({ "agent": case["config"] })).unwrap()).unwrap();
+        std::fs::write(&path, serde_json::to_vec(&mixdog_core_config::config::agent_routes::stored_file_of(&case["config"])).unwrap()).unwrap();
         let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
         let published = Arc::new(Published::default());
         let setter = AgentRouteSetter {

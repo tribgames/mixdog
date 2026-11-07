@@ -234,8 +234,9 @@ fn saved_models(bytes: &[u8], version: u64, ttl_ms: Option<f64>, now_ms: f64) ->
 mod tests {
     use super::*;
 
+    /// The config file's agent section for a config built the way Node's recording builds it: its roster in memory form.
     fn config(value: Value) -> Map<String, Value> {
-        value.as_object().cloned().unwrap()
+        mixdog_core_config::config::agent_routes::stored_file_of(&value)["agent"].as_object().cloned().unwrap()
     }
 
     /// `resolveMaintenanceRoute({ agent: 'cycle1-agent', includeDefault: false })` followed by

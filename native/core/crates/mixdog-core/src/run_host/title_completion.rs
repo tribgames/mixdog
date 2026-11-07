@@ -182,8 +182,9 @@ mod tests {
         serde_json::from_str(include_str!("../../../../fixtures/session-titles/golden.json")).unwrap()
     }
 
+    /// The config file's agent section for a config built the way Node's recording builds it: its roster in memory form.
     fn config(value: Value) -> Map<String, Value> {
-        value.as_object().unwrap().clone()
+        mixdog_core_config::config::agent_routes::stored_file_of(&value)["agent"].as_object().unwrap().clone()
     }
 
     /// The system prompt Node sent in the recorded title requests, with and without a locale.

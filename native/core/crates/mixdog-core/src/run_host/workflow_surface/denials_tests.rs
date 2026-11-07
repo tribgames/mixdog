@@ -21,7 +21,8 @@ fn strings(value: &Value) -> Vec<String> {
 fn the_feature_gates_equal_nodes() {
     for case in golden()["features"].as_array().expect("features") {
         let name = case["name"].as_str().expect("name");
-        let config = with_grandfathered_builtins(case["config"].as_object().expect("config"));
+        let stored = mixdog_core_config::config::agent_routes::stored_file_of(&case["config"]);
+        let config = with_grandfathered_builtins(stored["agent"].as_object().expect("config"));
         let facts = &case["facts"];
         let facts = FeatureFacts {
             browser: facts["browser"] == true,

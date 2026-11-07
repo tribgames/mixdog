@@ -433,6 +433,7 @@ pub struct DaemonMcpSurface {
     extensions: Arc<ConfigExtensions>,
     announce: Arc<dyn Fn() + Send + Sync>,
     opener: Arc<UrlOpener>,
+    generation: mixdog_core::run_host::surface_host::SurfaceGeneration,
 }
 
 impl DaemonMcpSurface {
@@ -445,8 +446,9 @@ impl DaemonMcpSurface {
         extensions: Arc<ConfigExtensions>,
         announce: Arc<dyn Fn() + Send + Sync>,
         opener: Arc<UrlOpener>,
+        generation: mixdog_core::run_host::surface_host::SurfaceGeneration,
     ) -> Arc<Self> {
-        Arc::new(Self { cwd, headers, surface, extensions, announce, opener })
+        Arc::new(Self { cwd, headers, surface, extensions, announce, opener, generation })
     }
 }
 
@@ -474,8 +476,11 @@ impl McpSurface for DaemonMcpSurface {
 
     /// `invalidatePreSessionToolSurface()`: the core builds a session's tool surface from its
     /// sources on every call and keeps no copy before the session exists, so there is nothing to
-    /// drop (the same ruling as `DaemonFeatureEffects::invalidate_pre_session_tool_surface`).
-    async fn refresh_surface(&self) {}
+    /// drop (the same ruling as `DaemonFeatureEffects::invalidate_pre_session_tool_surface`); the
+    /// surface generation moves, as Node's does.
+    async fn refresh_surface(&self) {
+        self.generation.bump();
+    }
 
     /// `getTools().map(t => t.name)`: the live surface's tool names (`StatusSurface::listed`: eager
     /// tools, deferred catalog, late deferred catalog; each once).

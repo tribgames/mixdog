@@ -163,7 +163,7 @@ async fn the_actions_answer_and_write_what_the_recorded_node_handlers_did() {
         let tokens = mixdog_rt::testing::tokens();
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
         let config_path = dir.path().join("mixdog-config.json");
-        std::fs::write(&config_path, serde_json::to_vec(&json!({ "agent": world["config"] })).unwrap()).unwrap();
+        std::fs::write(&config_path, serde_json::to_vec(&mixdog_core_config::config::agent_routes::stored_file_of(&world["config"])).unwrap()).unwrap();
         let (config, _) = Config::open(config_path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
         let routes = AgentRoutes::new(config.clone(), &data);
         let main = world["main"].clone();

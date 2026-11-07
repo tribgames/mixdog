@@ -204,7 +204,7 @@ impl DispatchSessions for Fake {
 
 impl DispatchWorld for Fake {
     fn config(&self) -> Map<String, Value> {
-        self.input["options"]["config"].as_object().cloned().unwrap_or_default()
+        mixdog_core_config::config::agent_routes::stored_file_of(&self.input["options"]["config"])["agent"].as_object().cloned().unwrap_or_default()
     }
 
     fn hidden_agent(&self, name: &str) -> Option<Value> {

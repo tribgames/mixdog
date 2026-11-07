@@ -21,6 +21,7 @@ pub struct DaemonFeatureEffects {
     readiness: Arc<ProviderReadiness>,
     registry: Arc<ProviderRegistry>,
     context_status: Arc<dyn ContextStatusCaches>,
+    surface: mixdog_core::run_host::surface_host::SurfaceGeneration,
 }
 
 impl DaemonFeatureEffects {
@@ -30,8 +31,9 @@ impl DaemonFeatureEffects {
         readiness: Arc<ProviderReadiness>,
         registry: Arc<ProviderRegistry>,
         context_status: Arc<dyn ContextStatusCaches>,
+        surface: mixdog_core::run_host::surface_host::SurfaceGeneration,
     ) -> Arc<Self> {
-        Arc::new(Self { fonts, config, readiness, registry, context_status })
+        Arc::new(Self { fonts, config, readiness, registry, context_status, surface })
     }
 }
 
@@ -60,6 +62,9 @@ impl FeatureEffects for DaemonFeatureEffects {
     }
 
     /// The core builds a session's tool surface from its sources on every call; no copy of it is
-    /// kept before the session exists, so there is nothing to drop (decisions.md, domain seams).
-    fn invalidate_pre_session_tool_surface(&self) {}
+    /// kept before the session exists, so there is nothing to drop (decisions.md, domain seams). What it
+    /// does move is `surfaceGeneration`, which an empty thread's surface is checked against.
+    fn invalidate_pre_session_tool_surface(&self) {
+        self.surface.bump();
+    }
 }

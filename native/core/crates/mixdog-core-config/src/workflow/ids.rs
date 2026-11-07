@@ -193,7 +193,7 @@ pub fn configured_orchestration_mode(config: &Doc) -> String {
 }
 
 /// `legacyWorkflowOrchestrationMode(active)`.
-fn legacy_workflow_mode(active: Option<&Value>) -> &'static str {
+pub(crate) fn legacy_workflow_mode(active: Option<&Value>) -> &'static str {
     match active {
         Some(value) if truthy(Some(value)) && value.as_str() != Some("solo") && value.as_str() != Some("headless") => "swarm",
         _ => "none",

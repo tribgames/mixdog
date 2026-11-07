@@ -34,8 +34,15 @@ fn anthropic_family_model(family: &str) -> String {
     .to_owned()
 }
 
+/// `DEFAULT_MAINTENANCE`: the shipped route of each maintenance slot.
+pub(crate) fn default_maintenance() -> Map<String, Value> {
+    let mut slots = Map::new();
+    slots.insert("webhook".into(), json!({ "provider": "anthropic-oauth", "model": anthropic_family_model("haiku") }));
+    slots
+}
+
 /// `DEFAULT_PRESETS`.
-fn default_presets() -> Vec<Value> {
+pub(crate) fn default_presets() -> Vec<Value> {
     let preset = |id: &str, name: &str, family: &str, effort: Option<&str>| {
         let mut preset = json!({ "id": id, "name": name, "type": "agent", "provider": "anthropic-oauth", "model": anthropic_family_model(family) });
         if let Some(effort) = effort {
@@ -135,7 +142,7 @@ pub(crate) fn stored_web_search_route(route: &Value) -> Value {
 }
 
 /// `isRedundantGeneratedRoutePreset(preset, default)`.
-fn redundant_generated(preset: &Value, default: &str) -> bool {
+pub(crate) fn redundant_generated(preset: &Value, default: &str) -> bool {
     let id = clean(preset.get("id"));
     !id.is_empty() && id != default && (id == "workflow-agent" || id == "workflow-memory" || id.starts_with("workflow-agent-"))
 }

@@ -399,7 +399,7 @@ fn same_id(value: &Value, id: &str) -> bool {
 }
 
 /// `packDefinitionFromDir(dir, entry, id)`.
-fn definition_from_dir(dir: &Path, entry: &str, id: &str) -> Option<Definition> {
+pub(crate) fn definition_from_dir(dir: &Path, entry: &str, id: &str) -> Option<Definition> {
     let manifest = read_raw(&dir.join("agent.json"))
         .filter(|text| !text.is_empty())
         .and_then(|text| serde_json::from_str::<Value>(&text).ok())

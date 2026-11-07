@@ -331,7 +331,7 @@ async fn the_lead_service_answers_and_leaves_what_nodes_editor_does() {
         make_dirs(&data);
         write_files(&shipped, &world["shipped"]);
         write_files(&data, &world["data"]);
-        let config = open_config(&root.join("mixdog-config.json"), &serde_json::to_string(&json!({ "agent": world["config"] })).unwrap()).await;
+        let config = open_config(&root.join("mixdog-config.json"), &serde_json::to_string(&mixdog_core_config::config::agent_routes::stored_file_of(&world["config"])).unwrap()).await;
         let published = Arc::new(Published::default());
         let state = tempfile::tempdir().unwrap();
         let service = lead_service(&shipped, &data, config, world["main"].clone(), state.path(), published.clone()).await;

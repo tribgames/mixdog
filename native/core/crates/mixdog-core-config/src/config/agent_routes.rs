@@ -20,6 +20,7 @@ use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
 use serde_json::Map;
 use serde_json::Value;
+use serde_json::json;
 
 use super::Config;
 use super::ConfigError;
@@ -101,12 +102,9 @@ impl AgentRoutes {
         crate::workflow::presets::route_of_candidate(&effective.config, candidate).ok().flatten()
     }
 
-    /// Whether the agent is switched off (`isAgentDisabled` over the file's effective roster).
+    /// Whether the agent is switched off (`isAgentDisabled`).
     pub fn is_disabled(&self, id: &str) -> bool {
-        let root = self.config.full();
-        let none = Map::new();
-        let agent = root.get(super::AGENT_SECTION).and_then(Value::as_object).unwrap_or(&none);
-        off_roster(agent, legacy_roster(&root)).contains(&agent_id_key(id))
+        agent_disabled(&self.config.agent(), id)
     }
 
     /// Switches the agent on or off, keeping its stored model (`saveDisabled`).
@@ -122,10 +120,9 @@ impl AgentRoutes {
 
     async fn write_disabled(&self, id: &str, disabled: bool, scrub: bool) -> Result<(), ConfigError> {
         let id = agent_id_key(id);
-        let legacy = legacy_roster(&self.config.full());
         self.config
             .update_agent(move |agent| {
-                with_disabled(agent, &id, disabled, legacy);
+                with_disabled(agent, &id, disabled);
                 if scrub {
                     canonicalize(agent);
                 }
@@ -146,10 +143,9 @@ impl AgentRoutes {
             }
             RouteHome::Config => {
                 let (key, id) = (agent_id_key(id), id.to_owned());
-                let legacy = legacy_roster(&self.config.full());
                 self.config
                     .update_agent(move |agent| {
-                        with_disabled(agent, &key, keep_off, legacy);
+                        with_disabled(agent, &key, keep_off);
                         let agents = agent.entry("agents").or_insert_with(|| Value::Object(Map::new()));
                         if let Value::Object(agents) = agents {
                             agents.insert(id, route);
@@ -241,7 +237,7 @@ fn agent_id_key(value: &str) -> String {
 
 /// `isAgentDisabled(config, id)` over an agent config document.
 pub fn agent_disabled(agent: &Map<String, Value>, id: &str) -> bool {
-    disabled_ids(agent).contains(&agent_id_key(id))
+    off_roster(agent).contains(&agent_id_key(id))
 }
 
 /// `disabledAgentIds`: the sorted, de-duplicated, key-normalised list.
@@ -269,33 +265,13 @@ fn js_string(value: &Value) -> String {
     }
 }
 
-const DEFAULTS_VERSION_KEY: &str = "defaultsVersion";
-/// `DEFAULTS_VERSION` (`runtime/shared/config.mjs`).
-const DEFAULTS_VERSION: f64 = 2.0;
 /// `PREVIOUS_DISABLED_AGENT_ROSTER` (`defaults-separation.mjs`): the roster shipped before `advisor`
-/// joined the defaults, which a stored full list is read against.
+/// joined the defaults, which the full list of a file from before the separation is read against.
 const PREVIOUS_DISABLED_ROSTER: [&str; 7] = ["front-worker", "heavy-worker", "maintainer", "reviewer", "security", "worker", "writer"];
 
-/// `Number(root.defaultsVersion) || 0`.
-fn version_of(root: &Map<String, Value>) -> f64 {
-    let version = mixdog_js::to_number_of(root.get(DEFAULTS_VERSION_KEY));
-    if version.is_nan() { 0.0 } else { version }
-}
-
-/// `storedDefaultsVersion() < 1`: a file without the marker keeps the full list of agents that are
-/// off in `disabledAgents`; a separated one keeps only the user's delta against the default roster.
-/// A missing file counts as unmarked, where Node says it is born current: nothing here writes the
-/// marker, so the file this core writes first reads as unmarked at its next start in any case.
-fn legacy_roster(root: &Map<String, Value>) -> bool {
-    version_of(root) < 1.0
-}
-
-/// The agents that are off: `effectiveDisabledAgents(stored)` of a separated file (the default roster
-/// and `disabledAgents`, less `enabledAgents`), `disabledAgentIds` of a legacy one.
-fn off_roster(agent: &Map<String, Value>, legacy: bool) -> Vec<String> {
-    if legacy {
-        return disabled_ids(agent);
-    }
+/// The agents that are off: `effectiveDisabledAgents(stored)`, the default roster and `disabledAgents`
+/// less `enabledAgents`. The one form a config file holds once the boot pass has run.
+fn off_roster(agent: &Map<String, Value>) -> Vec<String> {
     let enabled = id_list(agent.get("enabledAgents"));
     let mut ids: Vec<String> = super::patch::DEFAULT_DISABLED_ROSTER
         .iter()
@@ -308,12 +284,12 @@ fn off_roster(agent: &Map<String, Value>, legacy: bool) -> Vec<String> {
     ids
 }
 
-/// The off roster as the file stores it: the full list in a legacy file, the delta against the
-/// default roster (`disabledAgentDelta`) in a separated one.
-fn store_roster(agent: &mut Map<String, Value>, ids: &[String], legacy: bool) {
+/// The off roster as the file stores it: the user's delta against the default roster
+/// (`disabledAgentDelta`).
+fn store_roster(agent: &mut Map<String, Value>, ids: &[String]) {
     agent.shift_remove("disabledAgents");
     agent.shift_remove("enabledAgents");
-    let (disabled, enabled) = if legacy { (ids.to_vec(), Vec::new()) } else { super::patch::disabled_delta_of(ids) };
+    let (disabled, enabled) = super::patch::disabled_delta_of(ids);
     if !disabled.is_empty() {
         agent.insert("disabledAgents".into(), Value::from(disabled));
     }
@@ -323,22 +299,33 @@ fn store_roster(agent: &mut Map<String, Value>, ids: &[String], legacy: bool) {
 }
 
 /// `withAgentDisabled`, over the stored agent section.
-fn with_disabled(agent: &mut Map<String, Value>, key: &str, disabled: bool, legacy: bool) {
+fn with_disabled(agent: &mut Map<String, Value>, key: &str, disabled: bool) {
     if key.is_empty() {
         return;
     }
-    let mut ids = off_roster(agent, legacy);
+    let mut ids = off_roster(agent);
     ids.retain(|id| id != key);
     if disabled {
         ids.push(key.to_owned());
         ids.sort();
     }
-    store_roster(agent, &ids, legacy);
+    store_roster(agent, &ids);
 }
 
-/// `separateDisabledAgents`: the stored full list is read against the previous roster, then stored as
-/// the delta against the current defaults, so an agent that became default-off since (`advisor`) starts off.
-fn separate_roster(agent: &mut Map<String, Value>) {
+/// The config file that holds `agent`, an in-memory agent config whose `disabledAgents` is the whole
+/// effective roster (what Node's tests and recordings build configs from): the roster stored as the
+/// delta (`withStoredDisabledAgents`), under the current marker. For tests that open such a config as a file.
+pub fn stored_file_of(agent: &Value) -> Value {
+    let Some(map) = agent.as_object() else { return json!({ "defaultsVersion": 2, "agent": agent }) };
+    let mut stored = map.clone();
+    store_roster(&mut stored, &id_list(map.get("disabledAgents")));
+    json!({ "defaultsVersion": 2, "agent": stored })
+}
+
+/// `separateDisabledAgents`: the full list of a file from before the separation is read against the
+/// previous roster, then stored as the delta against the current defaults, so an agent that became
+/// default-off since (`advisor`) starts off.
+pub(super) fn separate_roster(agent: &mut Map<String, Value>) {
     if agent.contains_key("enabledAgents") {
         return;
     }
@@ -351,32 +338,8 @@ fn separate_roster(agent: &mut Map<String, Value>) {
     }
     effective.retain(|id| !PREVIOUS_DISABLED_ROSTER.contains(&id.as_str()) || stored.contains(id));
     effective.sort();
-    store_roster(agent, &effective, false);
+    store_roster(agent, &effective);
 }
-
-/// `ensureDefaultsSeparated`, as far as the agent roster goes: a file that has not seen this
-/// `DEFAULTS_VERSION` (not empty, no marker at the current version) has its stored full roster turned
-/// into the delta (a file from before version 1 only) and takes the marker. Node runs it when it boots,
-/// before any session reads the roster. The pass's other steps (default values dropped from the file,
-/// the backup copy) change no value the core reads and are not ported.
-pub async fn separate_agent_roster(config: &Config) -> Result<(), ConfigError> {
-    config
-        .update(|doc| {
-            if doc.is_empty() || version_of(doc) >= DEFAULTS_VERSION {
-                return Ok(());
-            }
-            if version_of(doc) < 1.0
-                && let Some(agent) = doc.get_mut(super::AGENT_SECTION).and_then(Value::as_object_mut)
-            {
-                separate_roster(agent);
-            }
-            doc.insert(DEFAULTS_VERSION_KEY.into(), Value::from(2));
-            Ok(())
-        })
-        .await
-        .map(|_| ())
-}
-
 /// `canonicalizeAgentRouteStorage` on the agent config: only complete routes survive in
 /// `agents`, `agents.maintenance` / `maintenance.memory` / `workflowRoutes` and the generated
 /// workflow presets are scrubbed, and the disabled list is normalised.

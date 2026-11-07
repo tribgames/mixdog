@@ -289,6 +289,7 @@ struct Rig {
     threads: Arc<Threads>,
     prompts: Arc<FakePrompt>,
     connectors: Arc<Connectors>,
+    generation: SurfaceGeneration,
 }
 
 /// What a test varies: the mode, the Lead's route, the gates, and the thread under reconcile.
@@ -341,6 +342,7 @@ fn try_rig(g: &Value, setup: Setup) -> Result<Rig, VariantError> {
     let threads = Arc::new(Threads { header: Mutex::new(header), patches: Mutex::default() });
     let prompts = Arc::new(FakePrompt(Mutex::default()));
     let connectors = Arc::new(Connectors(Mutex::default()));
+    let generation = SurfaceGeneration::default();
     let standalone = standalone.unwrap_or_else(|| internal_tools(&pool).iter().map(tool_doc).collect());
     let host = LeadSurfaceHost::new(SurfaceSources {
         mode,
@@ -362,8 +364,9 @@ fn try_rig(g: &Value, setup: Setup) -> Result<Rig, VariantError> {
         live: Arc::new(Live(running)),
         workflow: Arc::new(Workflow { denied, standalone, summary, orchestration }),
         config_revision: Arc::new(|| 0),
+        surface_generation: generation.clone(),
     })?;
-    Ok(Rig { host, threads, prompts, connectors })
+    Ok(Rig { host, threads, prompts, connectors, generation })
 }
 
 /// Node's pre-session surface (`createToolSurface().activeToolSurface()`) over the real tool
@@ -471,6 +474,10 @@ async fn a_just_created_thread_is_not_rebuilt_at_its_first_turn() {
     assert_eq!(rig.prompts.0.lock().unwrap().len(), 2, "composed at creation and read again at the turn");
     // The connectors' baseline is the one thing a first turn records.
     assert!(rig.threads.patches.lock().unwrap().iter().all(|(set, unset)| unset.is_empty() && set.keys().all(|key| key == "agentConnectorTools")));
+    // A skill, plugin or MCP change moves the surface generation: the next turn rebuilds and is brought to the new key.
+    rig.generation.bump();
+    rig.host.reconcile_empty(&thread).await.expect("after a change");
+    assert!(rig.host.applied_to(&thread) == Some(Applied { gates: "0|1|".to_owned(), settings: "r1".to_owned() }));
 }
 
 /// `leadRosterRevision` over the slices Node's recorder gave it (`create_goldens/lead.json`).
