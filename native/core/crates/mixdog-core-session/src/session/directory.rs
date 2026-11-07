@@ -1223,6 +1223,10 @@ impl ThreadDirectory for SessionDirectory {
                 super::session_options::write_header(&params.session.clone().unwrap_or_default(), &mut header);
                 // `createSession`'s tool surface and `seedToolSurface`, for the id it will have.
                 let id = ThreadId::from(new_id());
+                // The route the thread begins on is settled first: the tools and the prompt below are
+                // composed for it, as Node composes the session from `rt.route`.
+                let pick = params.draft.as_ref().and_then(|draft| draft.route.as_ref()).map(super::new_route::draft_pick);
+                self.inner.deps.new_route.adopt(&id, pick.as_ref()).await.map_err(|message| mixdog_core_base::support::failed("route", message))?;
                 let header = self.inner.deps.new_tools.seed(&id, &header).await.map_err(|message| {
                     mixdog_core_base::support::failed("session", format!("session: tools: {message}"))
                 })?;
@@ -1237,6 +1241,7 @@ impl ThreadDirectory for SessionDirectory {
                         params: req.params.clone(),
                     })
                     .await?;
+                self.inner.deps.new_route.seat(&handle.id).await.map_err(|message| mixdog_core_base::support::failed("route", message))?;
                 let mut result = json!({ "thread": handle.cell.view.load_full().summary });
                 if let Some(input) = params.initial_input {
                     let turn = handle

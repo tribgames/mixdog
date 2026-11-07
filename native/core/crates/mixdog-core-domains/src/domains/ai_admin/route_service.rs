@@ -84,7 +84,7 @@ fn text(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-fn port(e: PortError) -> String {
+pub fn port(e: PortError) -> String {
     match e {
         PortError::Failed { message, .. } | PortError::Unavailable { message, .. } | PortError::Refused { message, .. } => message,
         PortError::NotFound { message, .. } => message,
@@ -325,6 +325,41 @@ impl RouteService {
             }
             None => live(),
         })
+    }
+
+    /// A new task's draft route (`configureDraft`'s `setRoute(pick, { applyToCurrentSession: true,
+    /// keepMainModel: false })`): an explicit main-model choice, adopted as the live route of the
+    /// thread-to-be before its record is composed. Fast mode the route cannot hold is refused.
+    pub async fn adopt_draft(&self, thread: &ThreadId, draft: &Obj) -> Result<(), String> {
+        let options = SetRouteOptions { keep_main_model: Some(false), ..SetRouteOptions::default() };
+        self.adopt_route(thread, draft, &options, None).await?;
+        if draft.get("fast") == Some(&Value::Bool(true)) && self.writer.route(thread).get("fast") != Some(&Value::Bool(true)) {
+            let named = |key: &str| draft.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
+            return Err(format!("fast mode is not available for {}/{}", named("provider"), named("model")));
+        }
+        Ok(())
+    }
+
+    /// The route a new task runs on when its draft names none: the live route the config resolved
+    /// to, with the effort and Fast facts of its model (`prepareRoute`'s `refreshRouteEffort`). A
+    /// route without a model is left as it is: Node refuses a model-less session at its first turn
+    /// (`requireModelRoute`), not here.
+    pub async fn ready_default(&self, thread: &ThreadId) -> Result<(), String> {
+        if clean(self.writer.route(thread).get("model")).is_empty() {
+            return Ok(());
+        }
+        self.writer.refresh_route_effort(thread, None, true, None).await.map_err(port)?;
+        Ok(())
+    }
+
+    /// The created, empty thread takes the live route onto its header (`updateSessionInPlace`, the
+    /// follow of an `applyToCurrentSession` selection); a route without a model writes nothing.
+    pub async fn seat_route(&self, thread: &ThreadId) -> Result<(), String> {
+        if clean(self.writer.route(thread).get("model")).is_empty() {
+            return Ok(());
+        }
+        let follow = FollowOptions { apply_to_current_session: true, lease: Some(self.session.open_lease(thread, None)), ..FollowOptions::default() };
+        self.session.follow(thread, &follow).await.map(|_| ()).map_err(port)
     }
 
     /// `continueSessionInModel(sessionId, next)`: the quota escape hatch. The selection is adopted

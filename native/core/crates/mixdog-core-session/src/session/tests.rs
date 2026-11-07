@@ -952,6 +952,52 @@ async fn a_started_thread_begins_with_the_tools_its_seed_wrote() {
     assert_eq!(header["toolSpec"], json!(["tools:readonly"]));
 }
 
+/// A new thread's route is settled under its future id before its tools are composed, and seated on
+/// it once it exists; a draft's route reaches the adoption as `configureDraft` sends it, a start with
+/// no draft adopts the default.
+#[tokio::test(start_paused = true)]
+async fn a_started_thread_adopts_its_route_before_its_tools_and_seats_it_once_created() {
+    use mixdog_store::schema::record::Header;
+    type Steps = Arc<Mutex<Vec<Value>>>;
+    struct Route(Steps);
+    #[async_trait::async_trait]
+    impl super::NewThreadRoute for Route {
+        async fn adopt(&self, thread: &ThreadId, draft: Option<&serde_json::Map<String, Value>>) -> Result<(), String> {
+            lock(&self.0).push(json!(["adopt", thread, draft]));
+            Ok(())
+        }
+        async fn seat(&self, thread: &ThreadId) -> Result<(), String> {
+            lock(&self.0).push(json!(["seat", thread]));
+            Ok(())
+        }
+    }
+    struct Tools(Steps);
+    #[async_trait::async_trait]
+    impl super::NewThreadTools for Tools {
+        async fn seed(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+            lock(&self.0).push(json!(["seed", thread]));
+            Ok(header.clone())
+        }
+    }
+    let rig = Rig::new();
+    let steps: Steps = Arc::default();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_route = Arc::new(Route(steps.clone()));
+    deps.new_tools = Arc::new(Tools(steps.clone()));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let started = |reply: Reply| match reply {
+        Reply::Subscribe(started) => ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id")),
+        Reply::Value(_) => panic!("thread/start subscribes"),
+    };
+    let draft = json!({ "route": { "provider": "custom-harness", "model": "harness-model", "fast": false } });
+    let first = started(directory.request(request("thread/start", json!({ "opId": "op-draft", "kind": "task", "draft": draft }), "op-draft")).await.expect("thread/start"));
+    let pick = json!({ "provider": "custom-harness", "model": "harness-model", "fast": false });
+    assert_eq!(*lock(&steps), [json!(["adopt", first, pick]), json!(["seed", first]), json!(["seat", first])]);
+    lock(&steps).clear();
+    let second = started(directory.request(request("thread/start", json!({ "opId": "op-plain", "kind": "task" }), "op-plain")).await.expect("thread/start"));
+    assert_eq!(*lock(&steps), [json!(["adopt", second, Value::Null]), json!(["seed", second]), json!(["seat", second])]);
+}
+
 /// A `thread/start` with no `session` options is a `full` Lead denied the goal tools, as
 /// Node's `sessionOptions` makes it.
 #[tokio::test(start_paused = true)]
