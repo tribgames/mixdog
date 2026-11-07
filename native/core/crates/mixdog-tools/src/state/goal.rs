@@ -132,22 +132,22 @@ fn validate(args: &Value) -> Result<String, String> {
     Ok(action)
 }
 
-/// A minutes field (`time_limit_minutes`) as a duration in ms; `None` when the call carries none.
-fn minutes_ms(args: &Value, field: &str) -> Result<Option<u64>, String> {
-    let max_minutes = MAX_GOAL_TIME_LIMIT_MS as f64 / 60_000.0;
-    let minutes = match args.get(field) {
-        None | Some(Value::Null) => return Ok(None),
-        Some(Value::Number(n)) => n.as_f64(),
-        Some(_) => None,
-    };
-    let minutes = minutes
-        .filter(|m| m.is_finite() && (1.0..=max_minutes).contains(m))
-        .ok_or_else(|| format!("goal {field} must be a number from 1 to {max_minutes} minutes"))?;
-    Ok(Some((minutes * 60_000.0).round() as u64))
-}
-
+/// `toolTimeLimitMs` (`goal-tool-exec.mjs`): `Number(minutes)` must be positive, then `parseGoalDuration` of the ms
+/// (rounded, at most 7 days); `None` when the call carries none.
 fn time_limit_ms(args: &Value) -> Result<Option<u64>, String> {
-    minutes_ms(args, "time_limit_minutes")
+    let minutes = match args.get("time_limit_minutes") {
+        None | Some(Value::Null) => return Ok(None),
+        Some(Value::String(s)) if s.is_empty() => return Ok(None),
+        Some(value) => mixdog_js::to_number(value),
+    };
+    if !minutes.is_finite() || minutes <= 0.0 {
+        return Err("goal time_limit_minutes must be a positive number".to_owned());
+    }
+    let ms = (minutes * 60_000.0 + 0.5).floor();
+    if ms > MAX_GOAL_TIME_LIMIT_MS as f64 {
+        return Err("goal duration exceeds 7 days".to_owned());
+    }
+    Ok(Some(ms as u64))
 }
 
 pub struct GoalTool {
@@ -255,19 +255,20 @@ mod tests {
     }
 
     #[test]
-    fn the_time_limit_accepts_whole_numbers_of_minutes_in_range_and_coerces_nothing() {
-        for ok in [json!(1), json!(2.5), json!(10080)] {
-            let want = (ok.as_f64().unwrap() * 60_000.0).round() as u64;
+    fn the_time_limit_is_js_number_coerced_positive_and_at_most_seven_days() {
+        for (ok, want) in [(json!(1), 60_000), (json!(0.5), 30_000), (json!(2.5), 150_000), (json!(10080), 604_800_000), (json!("5"), 300_000), (json!(true), 60_000), (json!([2]), 120_000)] {
             assert_eq!(time_limit_ms(&json!({"time_limit_minutes": ok})), Ok(Some(want)), "create {ok}");
         }
-        for bad in [json!(0.5), json!(0), json!(10081), json!(-5), json!(true), json!([2]), json!("5"), json!("")] {
+        for bad in [json!(0), json!(-5), json!(false), json!("x"), json!({})] {
             assert_eq!(
                 time_limit_ms(&json!({"time_limit_minutes": bad})).unwrap_err(),
-                "goal time_limit_minutes must be a number from 1 to 10080 minutes",
+                "goal time_limit_minutes must be a positive number",
                 "create {bad}"
             );
         }
+        assert_eq!(time_limit_ms(&json!({"time_limit_minutes": 10081})).unwrap_err(), "goal duration exceeds 7 days");
         assert_eq!(time_limit_ms(&json!({"time_limit_minutes": null})), Ok(None));
+        assert_eq!(time_limit_ms(&json!({"time_limit_minutes": ""})), Ok(None));
     }
 
     /// The tool definition is Node's own (`goal-tool-defs.mjs`): four actions, no `extend`.
@@ -285,9 +286,6 @@ mod tests {
         assert_eq!(time_limit_ms(&json!({"time_limit_minutes": 2})), Ok(Some(120_000)));
         assert_eq!(time_limit_ms(&json!({})), Ok(None));
         assert!(time_limit_ms(&json!({"time_limit_minutes": 0})).is_err());
-        assert_eq!(
-            time_limit_ms(&json!({"time_limit_minutes": 20000})).unwrap_err(),
-            "goal time_limit_minutes must be a number from 1 to 10080 minutes"
-        );
+        assert_eq!(time_limit_ms(&json!({"time_limit_minutes": 20000})).unwrap_err(), "goal duration exceeds 7 days");
     }
 }

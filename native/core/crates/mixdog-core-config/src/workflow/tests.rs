@@ -176,7 +176,10 @@ async fn methods_match_node() {
                 None => json!({ "result": step["result"] }),
             };
             assert_eq!(without_empty_params(got), without_empty_params(want), "{name} #{i} {method} {}", step["params"]);
-            assert_eq!(scrub(&Value::Object(config.agent()), &data.to_string_lossy()), step["config"], "{name} #{i} {method} config");
+            // The recording's config is Node's in-memory agent section (nothing off unless it lists `disabledAgents`); `Config` holds
+            // the stored delta form, which the seed above built the same way.
+            let want_config = crate::config::agent_routes::stored_file_of(&step["config"])["agent"].clone();
+            assert_eq!(scrub(&Value::Object(config.agent()), &data.to_string_lossy()), want_config, "{name} #{i} {method} config");
             let files: BTreeMap<String, String> = serde_json::from_value(step["files"].clone()).unwrap();
             assert_eq!(files_of(&data), files, "{name} #{i} {method} files");
         }

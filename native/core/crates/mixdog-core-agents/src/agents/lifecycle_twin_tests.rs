@@ -393,6 +393,8 @@ pub(super) fn quiet_lifecycle() -> AgentLifecycle {
 /// once. A lifecycle that ran one after the other would wait at its first gate for ever.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_list_read_starts_the_reconcile_and_the_greetings_together() {
+    // `listed` spawns both starts on the runtime, which is installed before anything spawns.
+    mixdog_rt::testing::tokens();
     let gates = std::sync::Arc::new(Gates::default());
     let quiet = std::sync::Arc::new(Quiet { gates: Some(gates.clone()) });
     let lifecycle = AgentLifecycle::new(AgentHomeSessions::new(quiet.clone()), AgentGreetings::new(quiet));

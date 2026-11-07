@@ -1243,6 +1243,8 @@ pub struct ModelRecord {
     /// The body field a reasoning model returns its thinking under and expects
     /// replayed (`reasoning_content`), as the listing or the catalog states it.
     pub reasoning_content_field: Option<String>,
+    /// The family token the adapter's own normalizer states (`_normalizeAnthropicModel`: `sonnet`).
+    pub family: Option<String>,
     /// The wire id(s) the picker id is sent under; kept in the catalog cache
     /// so a send resolves the picker id after a restart, before any listing.
     pub wire: Option<WireIds>,
@@ -1296,6 +1298,7 @@ impl ModelRecord {
             created: None,
             alias_target: None,
             reasoning_content_field: None,
+            family: None,
             wire: None,
             raw: None,
             enriched: EnrichedRow::default(),

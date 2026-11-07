@@ -166,7 +166,7 @@ fn a_device_patch_merges_onto_its_stored_or_default_record() {
 fn boot_stamps_migrated_at_into_an_unwritten_notification_subtree_only() {
     let dir = tempfile::tempdir().unwrap();
     let (config, _) = open(&dir, None);
-    assert!(on_disk(&dir).get("notifications").is_none(), "open writes nothing");
+    assert!(!dir.path().join("mixdog-config.json").exists(), "open writes nothing");
     block_on(config.stamp_notifications(4_242)).unwrap();
     assert_eq!(on_disk(&dir)["notifications"], json!({ "migratedAt": 4_242 }));
     block_on(config.stamp_notifications(9_999)).unwrap();
@@ -183,7 +183,7 @@ fn boot_stamps_migrated_at_into_an_unwritten_notification_subtree_only() {
 fn the_first_notification_write_stamps_migrated_at_once() {
     let dir = tempfile::tempdir().unwrap();
     let (config, _) = open(&dir, None);
-    assert!(on_disk(&dir).get("notifications").is_none());
+    assert!(!dir.path().join("mixdog-config.json").exists(), "open writes nothing");
     config.write("notifications.devices.cred1", json!({ "scope": "off" }), ConfigWriteMode::MergePatch).unwrap();
     let stamped = on_disk(&dir)["notifications"]["migratedAt"].as_i64().unwrap();
     assert!(stamped > 0);
@@ -480,9 +480,15 @@ fn ds_cfg_1_matches_the_recorded_node_store() {
             continue;
         }
         outcome.unwrap_or_else(|e| panic!("{id}: {path}: {e}"));
+        // The recorder's store is an in-memory stand-in; the real config module (`updateConfigAsync`,
+        // `withFreshDefaultsVersion`) stamps the first write into an empty config as born separated.
+        let mut want_config = canon(after["config"].clone());
+        if entry["config"] == json!({}) {
+            want_config.as_object_mut().unwrap().insert("defaultsVersion".into(), json!(2));
+        }
         assert_eq!(
             canon(Value::Object((*config.full()).clone())),
-            canon(after["config"].clone()),
+            want_config,
             "config after write of {id}"
         );
         assert_eq!(
