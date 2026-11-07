@@ -19,6 +19,7 @@ process.env.MIXDOG_CONFIG_READ_TTL_MS = '0';
 process.env.TZ = 'UTC';
 const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
+const { nodeRealTool, nodeToolDefinitions, writeJsonCompact } = await import('./lib/tool-definitions.mjs');
 const tree = resolveTree(parseArgs());
 const finalDir = join(FIXTURES_ROOT, 'surface-reconcile');
 const stage = stageSet(finalDir);
@@ -27,9 +28,13 @@ const at = (path) => importFrom(tree, path);
 const { createToolPolicyRefresh } = await at('src/session-runtime/tool-policy-refresh.mjs');
 const { composeSessionSystem, seedSessionMessages } = await at('src/runtime/agent/orchestrator/session/manager/session-prompt-composition.mjs');
 
-const doc = (name, extra = {}) => ({ name, description: `${name} tool`, inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: ['read', 'grep', 'find', 'web_search'].includes(name), ...extra } });
+// The product's own definitions: the tools a session holds, and `standaloneTools`, which `modelStandaloneTools()` offers.
+const real = await nodeRealTool(tree);
+const { standaloneTools } = await nodeToolDefinitions(tree);
+const doc = (name) => real(name);
 const TOOLS = ['read', 'grep', 'edit', 'shell', 'agent', 'ask_user', 'session', 'web_search', 'web_fetch', 'memory', 'recall', 'load_tool', 'todo'];
-const STANDALONE = TOOLS.map((name) => doc(name));
+const STANDALONE = standaloneTools.map((tool) => structuredClone(tool));
+const CATALOG = TOOLS.map((name) => doc(name));
 const FEATURE_DENIED = ['web_search', 'web_fetch', 'memory', 'recall'];
 
 function sessionOf({ owner, agent, schemaAllowedTools, messages = null, liveTurnMessages = null, provider = 'anthropic' }) {
@@ -55,7 +60,7 @@ function sessionOf({ owner, agent, schemaAllowedTools, messages = null, liveTurn
     disallowedTools: ['get_goal'],
     messages: messages ?? seedSessionMessages(prompt, []),
     tools,
-    deferredToolCatalog: STANDALONE,
+    deferredToolCatalog: CATALOG,
     deferredCallableTools: tools.map((tool) => tool.name),
     workflow: { id: 'default', name: 'Default', description: '', source: 'built-in', delegatesAgents: true },
     orchestrationMode: 'focused',
@@ -126,6 +131,6 @@ for (const [name, spec] of SCENARIOS) {
     route: { provider: spec.provider ?? 'anthropic', model: 'claude-opus-4-6' },
   });
 }
-writeJson(join(stage, 'golden.json'), { standalone: STANDALONE, cases });
+await writeJsonCompact(tree, join(stage, 'golden.json'), { standalone: STANDALONE, cases });
 writeSetManifest(stage, { set: 'surface-reconcile', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree });
 commitStage(stage, finalDir);

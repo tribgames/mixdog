@@ -55,6 +55,7 @@ tempfile = { workspace = true, optional = true }
 test-support = ["dep:tempfile", "dep:mixdog-core-review", "mixdog-core-review/test-support", "mixdog-core-api/mock", "mixdog-rt/test-support"]
 
 [dev-dependencies]
+mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-migrate = { workspace = true }
 tempfile = { workspace = true }
 tokio-util = { workspace = true }

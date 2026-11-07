@@ -30,7 +30,7 @@ fn recording(name: &str) -> Value {
         "context-switch.json" => include_str!("../../../../fixtures/thread-settings/context-switch.json"),
         _ => unreachable!("a recording of this set"),
     };
-    serde_json::from_str(text).expect("json")
+    mixdog_js::fixture_tools::parse_golden(text).expect("json")
 }
 
 /// The recorder's stubs for the prompt side, read from the recording itself.

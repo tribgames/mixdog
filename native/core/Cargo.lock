@@ -4435,6 +4435,7 @@ dependencies = [
  "icu_locale_core",
  "regress",
  "serde_json",
+ "sha2 0.10.9",
  "sys-locale",
 ]
 

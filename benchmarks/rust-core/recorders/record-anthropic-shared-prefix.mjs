@@ -14,11 +14,12 @@
 // manifest write. Run standalone it leaves the manifest alone.
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { nodeRealTool, writeJsonCompact } from './lib/tool-definitions.mjs';
 import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, writeJson } from './lib/common.mjs';
 
 const P = 'src/runtime/agent/orchestrator/providers';
 const MODEL = 'claude-sonnet-4-5';
-const TOOLS = [{ name: 'read', description: 'Read a file', inputSchema: { type: 'object', properties: {} } }];
+// The Lead's `read`: the product's own definition, taken inside the recorder from the tree under test.
 
 // A mid-turn request: it ends with a tool result.
 const PREFIX = [
@@ -55,6 +56,7 @@ const ROUTES = [
 ];
 
 export async function recordAnthropicSharedPrefix(tree, outFile) {
+  const TOOLS = [(await nodeRealTool(tree))('read')];
   const oauth = await importFrom(tree, `${P}/anthropic-oauth.mjs`);
   const api = await importFrom(tree, `${P}/anthropic-api-request.mjs`);
   const threads = await importFrom(tree, `${P}/anthropic-message-threads.mjs`);
@@ -124,7 +126,7 @@ export async function recordAnthropicSharedPrefix(tree, outFile) {
     }
   }
   threads._threadTest.reset();
-  writeJson(outFile, {
+  await writeJsonCompact(tree, outFile, {
     recorder: 'benchmarks/rust-core/recorders/record-anthropic-shared-prefix.mjs',
     requests,
     threads: plans,

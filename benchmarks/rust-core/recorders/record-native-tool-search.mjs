@@ -24,6 +24,7 @@ process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 process.env.TZ = 'UTC';
 const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
+const { nodeRealTool, writeJsonCompact } = await import('./lib/tool-definitions.mjs');
 const tree = resolveTree(parseArgs());
 const finalDir = join(FIXTURES_ROOT, 'native-tool-search');
 const stage = stageSet(finalDir);
@@ -38,9 +39,11 @@ const { toAnthropicMessages } = await U('runtime/agent/orchestrator/providers/li
 
 const json = (value) => JSON.parse(JSON.stringify(value));
 const doc = (name, extra = {}) => ({ name, description: `${name} tool`, inputSchema: { type: 'object', properties: {} }, ...extra });
-const skillTool = doc('Skill', { inputSchema: { type: 'object', properties: { name: { type: 'string' } } } });
-const read = doc('read', { description: 'Read content.', annotations: { readOnlyHint: true } });
-const office = doc('office', { description: 'Create a document.', inputSchema: { type: 'object', properties: { action: { type: 'string' } }, required: ['action'] } });
+// The runtime's own tools are the product's definitions; `patcher` (a free-form tool) is the recorder's input.
+const real = await nodeRealTool(tree);
+const skillTool = real('Skill');
+const read = real('read');
+const office = real('office');
 const patcher = doc('patcher', { description: 'Patch files.', freeformDescription: 'Free-form patch text.', freeform: { type: 'grammar', syntax: 'lark', definition: 'start: /.+/' } });
 
 // The result a Skill call returns for `dependencies` on a `provider` session, from the real loader.
@@ -110,7 +113,7 @@ const REQUESTS = PARSE.slice(0, SKILLS.length)
     ].map((request) => ({ ...request, skill: native?.name }));
   });
 
-writeJson(join(stage, 'golden.json'), { parse: PARSE, requests: REQUESTS });
+await writeJsonCompact(tree, join(stage, 'golden.json'), { parse: PARSE, requests: REQUESTS });
 writeSetManifest(stage, { set: 'native-tool-search', recorder, command: `node ${recorder} --tree <tree>`, identityTree: tree });
 commitStage(stage, finalDir);
 console.log(`native tool search: ${PARSE.length} parse cases, ${REQUESTS.length} requests`);

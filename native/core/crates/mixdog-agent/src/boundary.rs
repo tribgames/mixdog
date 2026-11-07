@@ -550,7 +550,7 @@ mod tests {
     /// sent follows the candidate by `adoptDynamicToolChanges`.
     #[test]
     fn the_request_tools_adopt_changes_as_node_does() {
-        let golden: serde_json::Value = serde_json::from_str(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/request-tools/golden.json"))).unwrap();
+        let golden: serde_json::Value = mixdog_js::fixture_tools::parse_golden(include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/request-tools/golden.json"))).unwrap();
         let tools = |list: &serde_json::Value| -> Vec<ToolDefinition> {
             list.as_array()
                 .unwrap()

@@ -385,7 +385,7 @@ mod tests {
     /// it discovered (and the anchor) added marked `defer_loading`.
     #[test]
     fn the_request_snapshot_follows_node() {
-        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/request-tools/golden.json")).expect("request tools golden");
+        let golden: Value = mixdog_js::fixture_tools::parse_golden(include_str!("../../../../fixtures/request-tools/golden.json")).expect("request tools golden");
         let (mut steps, mut deferred) = (0, 0);
         for case in golden["cases"].as_array().expect("cases") {
             for (n, step) in case["steps"].as_array().expect("steps").iter().enumerate() {

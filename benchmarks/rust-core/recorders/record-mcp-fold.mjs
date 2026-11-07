@@ -31,6 +31,7 @@ const NOW = 1_700_000_000_000;
 Date.now = () => NOW;
 const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
+const { nodeRealTool, writeJsonCompact } = await import('./lib/tool-definitions.mjs');
 const tree = resolveTree(parseArgs());
 const finalDir = join(FIXTURES_ROOT, 'mcp-fold');
 const stage = stageSet(finalDir);
@@ -43,14 +44,16 @@ const { applyDeferredToolSurface, reconcileDeferredMcpToolCatalog, refreshDeferr
 const { migrateToolExposureAtBoundary } = await U('runtime/agent/orchestrator/session/loop/tool-exposure-migration.mjs');
 
 const json = (value) => JSON.parse(JSON.stringify(value));
+// The runtime's own tools are the product's definitions; a connected server's tools (`mcp__`) are the recorder's inputs.
+const real = await nodeRealTool(tree);
 const doc = (name, extra = {}) => ({ name, description: `${name} tool`, inputSchema: { type: 'object', properties: {} }, ...extra });
-const mcp = (server, tool, description) =>
+const mcp =(server, tool, description) =>
   doc(`mcp__${server}__${tool}`, { description, mcpServerName: server, mcpToolName: tool });
 const alphaList = mcp('alpha', 'list', 'List the things. Pages of twenty.');
 const alphaGet = mcp('alpha', 'get', 'Get one thing by id.');
 const betaPing = mcp('beta', 'ping', `Ping the beta service ${'and report how long it took '.repeat(4)}in milliseconds.`);
-const EAGER = [doc('read', { annotations: { readOnlyHint: true } }), doc('shell'), doc('Skill'), doc('web_search'), doc('todo')];
-const DEFERRED = [doc('office', { description: 'Create a document.' }), doc('memory'), doc('github')];
+const EAGER = [real('read'), real('shell'), real('Skill'), real('web_search'), real('todo')];
+const DEFERRED = [real('office'), real('memory'), real('github')];
 
 // A session as `createSession` + `seedToolSurface` leave it: the four system blocks, the surface built by
 // `applyDeferredToolSurface` (which renders the deferred-tool block into the second one) and the first-turn flag.
@@ -176,7 +179,7 @@ const CASES = [
   };
 });
 
-writeJson(join(stage, 'golden.json'), { now: NOW, cases: CASES });
+await writeJsonCompact(tree, join(stage, 'golden.json'), { now: NOW, cases: CASES });
 writeSetManifest(stage, { set: 'mcp-fold', recorder, command: `node ${recorder} --tree <tree>`, identityTree: tree });
 commitStage(stage, finalDir);
 console.log(`mcp fold: ${CASES.length} cases`);

@@ -15,8 +15,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 174,
-              "reserveTokens": 174,
+              "requestReserveTokens": 923,
+              "reserveTokens": 923,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -26,11 +26,11 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594264,
-              "lastBeforeTokens": 190,
-              "lastAfterTokens": 190,
-              "lastPressureTokens": 190,
-              "currentEstimatedTokens": 190,
+              "lastCheckedAt": 1794068635245,
+              "lastBeforeTokens": 939,
+              "lastAfterTokens": 939,
+              "lastPressureTokens": 939,
+              "currentEstimatedTokens": 939,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -44,9 +44,9 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594264,
+                  "at": 1794068635246,
                   "stage": "pre_send_check",
-                  "pressure": 190,
+                  "pressure": 939,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -70,20 +70,12 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -99,20 +91,12 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -125,20 +109,12 @@
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -162,8 +138,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 174,
-              "reserveTokens": 174,
+              "requestReserveTokens": 923,
+              "reserveTokens": 923,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -173,11 +149,11 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594264,
-              "lastBeforeTokens": 190,
-              "lastAfterTokens": 190,
-              "lastPressureTokens": 190,
-              "currentEstimatedTokens": 190,
+              "lastCheckedAt": 1794068635246,
+              "lastBeforeTokens": 939,
+              "lastAfterTokens": 939,
+              "lastPressureTokens": 939,
+              "currentEstimatedTokens": 939,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -191,18 +167,18 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594264,
+                  "at": 1794068635246,
                   "stage": "pre_send_check",
-                  "pressure": 190,
+                  "pressure": 939,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594264,
+                  "at": 1794068635246,
                   "stage": "pre_send_check",
-                  "pressure": 190,
+                  "pressure": 939,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -227,20 +203,12 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -256,20 +224,12 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -282,20 +242,12 @@
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -319,8 +271,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 174,
-              "reserveTokens": 174,
+              "requestReserveTokens": 923,
+              "reserveTokens": 923,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -330,11 +282,11 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594265,
-              "lastBeforeTokens": 190,
-              "lastAfterTokens": 190,
-              "lastPressureTokens": 190,
-              "currentEstimatedTokens": 190,
+              "lastCheckedAt": 1794068635247,
+              "lastBeforeTokens": 939,
+              "lastAfterTokens": 939,
+              "lastPressureTokens": 939,
+              "currentEstimatedTokens": 939,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -348,27 +300,27 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594264,
+                  "at": 1794068635246,
                   "stage": "pre_send_check",
-                  "pressure": 190,
+                  "pressure": 939,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594264,
+                  "at": 1794068635246,
                   "stage": "pre_send_check",
-                  "pressure": 190,
+                  "pressure": 939,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594265,
+                  "at": 1794068635247,
                   "stage": "pre_send_check",
-                  "pressure": 190,
+                  "pressure": 939,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -393,20 +345,12 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -422,20 +366,12 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -448,20 +384,12 @@
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -491,8 +419,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 240,
-              "reserveTokens": 240,
+              "requestReserveTokens": 975,
+              "reserveTokens": 975,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -502,11 +430,11 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594265,
-              "lastBeforeTokens": 256,
-              "lastAfterTokens": 256,
-              "lastPressureTokens": 256,
-              "currentEstimatedTokens": 256,
+              "lastCheckedAt": 1794068635248,
+              "lastBeforeTokens": 991,
+              "lastAfterTokens": 991,
+              "lastPressureTokens": 991,
+              "currentEstimatedTokens": 991,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -520,9 +448,9 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594265,
+                  "at": 1794068635248,
                   "stage": "pre_send_check",
-                  "pressure": 256,
+                  "pressure": 991,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -546,12 +474,8 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -562,12 +486,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -584,12 +504,8 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -600,12 +516,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -618,12 +530,8 @@
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -634,12 +542,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -664,8 +568,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 238,
-              "reserveTokens": 238,
+              "requestReserveTokens": 973,
+              "reserveTokens": 973,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -675,11 +579,11 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594266,
-              "lastBeforeTokens": 254,
-              "lastAfterTokens": 254,
-              "lastPressureTokens": 254,
-              "currentEstimatedTokens": 254,
+              "lastCheckedAt": 1794068635249,
+              "lastBeforeTokens": 989,
+              "lastAfterTokens": 989,
+              "lastPressureTokens": 989,
+              "currentEstimatedTokens": 989,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -693,18 +597,18 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594265,
+                  "at": 1794068635248,
                   "stage": "pre_send_check",
-                  "pressure": 256,
+                  "pressure": 991,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594266,
+                  "at": 1794068635249,
                   "stage": "pre_send_check",
-                  "pressure": 254,
+                  "pressure": 989,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -729,12 +633,8 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -745,12 +645,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -767,12 +663,8 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -783,12 +675,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -801,12 +689,8 @@
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -817,12 +701,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -852,8 +732,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 240,
-              "reserveTokens": 240,
+              "requestReserveTokens": 975,
+              "reserveTokens": 975,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -863,11 +743,11 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594266,
-              "lastBeforeTokens": 256,
-              "lastAfterTokens": 256,
-              "lastPressureTokens": 256,
-              "currentEstimatedTokens": 256,
+              "lastCheckedAt": 1794068635250,
+              "lastBeforeTokens": 991,
+              "lastAfterTokens": 991,
+              "lastPressureTokens": 991,
+              "currentEstimatedTokens": 991,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -881,9 +761,9 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594266,
+                  "at": 1794068635250,
                   "stage": "pre_send_check",
-                  "pressure": 256,
+                  "pressure": 991,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -907,12 +787,8 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -923,12 +799,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -945,12 +817,8 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -961,12 +829,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -979,12 +843,8 @@
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -995,12 +855,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -1024,8 +880,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 172,
-              "reserveTokens": 172,
+              "requestReserveTokens": 921,
+              "reserveTokens": 921,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -1035,11 +891,11 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594267,
-              "lastBeforeTokens": 188,
-              "lastAfterTokens": 188,
-              "lastPressureTokens": 188,
-              "currentEstimatedTokens": 188,
+              "lastCheckedAt": 1794068635251,
+              "lastBeforeTokens": 937,
+              "lastAfterTokens": 937,
+              "lastPressureTokens": 937,
+              "currentEstimatedTokens": 937,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -1053,18 +909,18 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594266,
+                  "at": 1794068635250,
                   "stage": "pre_send_check",
-                  "pressure": 256,
+                  "pressure": 991,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594267,
+                  "at": 1794068635251,
                   "stage": "pre_send_check",
-                  "pressure": 188,
+                  "pressure": 937,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -1089,12 +945,8 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -1105,12 +957,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -1126,20 +974,12 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -1152,20 +992,12 @@
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -1187,8 +1019,8 @@
             "deferredMcpToolNames": [],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 106,
-              "reserveTokens": 106,
+              "requestReserveTokens": 895,
+              "reserveTokens": 895,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -1198,11 +1030,11 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594267,
-              "lastBeforeTokens": 122,
-              "lastAfterTokens": 122,
-              "lastPressureTokens": 122,
-              "currentEstimatedTokens": 122,
+              "lastCheckedAt": 1794068635251,
+              "lastBeforeTokens": 911,
+              "lastAfterTokens": 911,
+              "lastPressureTokens": 911,
+              "currentEstimatedTokens": 911,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -1216,27 +1048,27 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594266,
+                  "at": 1794068635250,
                   "stage": "pre_send_check",
-                  "pressure": 256,
+                  "pressure": 991,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594267,
+                  "at": 1794068635251,
                   "stage": "pre_send_check",
-                  "pressure": 188,
+                  "pressure": 937,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594267,
+                  "at": 1794068635251,
                   "stage": "pre_send_check",
-                  "pressure": 122,
+                  "pressure": 911,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -1261,12 +1093,8 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -1277,12 +1105,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -1296,38 +1120,22 @@
           "names": [],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ]
         }
@@ -1348,8 +1156,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 174,
-              "reserveTokens": 174,
+              "requestReserveTokens": 923,
+              "reserveTokens": 923,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -1359,11 +1167,11 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594267,
-              "lastBeforeTokens": 190,
-              "lastAfterTokens": 190,
-              "lastPressureTokens": 190,
-              "currentEstimatedTokens": 190,
+              "lastCheckedAt": 1794068635252,
+              "lastBeforeTokens": 939,
+              "lastAfterTokens": 939,
+              "lastPressureTokens": 939,
+              "currentEstimatedTokens": 939,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -1377,9 +1185,9 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594267,
+                  "at": 1794068635252,
                   "stage": "pre_send_check",
-                  "pressure": 190,
+                  "pressure": 939,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -1403,12 +1211,8 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -1419,12 +1223,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ],
           "names": [
@@ -1432,12 +1232,8 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -1448,22 +1244,14 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -1474,12 +1262,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ]
         },
@@ -1497,8 +1281,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 306,
-              "reserveTokens": 306,
+              "requestReserveTokens": 1042,
+              "reserveTokens": 1042,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -1508,11 +1292,11 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594268,
-              "lastBeforeTokens": 322,
-              "lastAfterTokens": 322,
-              "lastPressureTokens": 322,
-              "currentEstimatedTokens": 322,
+              "lastCheckedAt": 1794068635253,
+              "lastBeforeTokens": 1058,
+              "lastAfterTokens": 1058,
+              "lastPressureTokens": 1058,
+              "currentEstimatedTokens": 1058,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -1526,18 +1310,18 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594267,
+                  "at": 1794068635252,
                   "stage": "pre_send_check",
-                  "pressure": 190,
+                  "pressure": 939,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594268,
+                  "at": 1794068635253,
                   "stage": "pre_send_check",
-                  "pressure": 322,
+                  "pressure": 1058,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -1562,12 +1346,8 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -1578,12 +1358,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__get",
@@ -1609,12 +1385,8 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -1625,12 +1397,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__get",
@@ -1651,12 +1419,8 @@
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -1667,12 +1431,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__get",
@@ -1709,8 +1469,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 174,
-              "reserveTokens": 174,
+              "requestReserveTokens": 923,
+              "reserveTokens": 923,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -1720,11 +1480,11 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594268,
-              "lastBeforeTokens": 190,
-              "lastAfterTokens": 190,
-              "lastPressureTokens": 190,
-              "currentEstimatedTokens": 190,
+              "lastCheckedAt": 1794068635253,
+              "lastBeforeTokens": 939,
+              "lastAfterTokens": 939,
+              "lastPressureTokens": 939,
+              "currentEstimatedTokens": 939,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -1738,9 +1498,9 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594268,
+                  "at": 1794068635253,
                   "stage": "pre_send_check",
-                  "pressure": 190,
+                  "pressure": 939,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -1764,20 +1524,12 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -1793,20 +1545,12 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -1819,20 +1563,12 @@
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -1856,8 +1592,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 174,
-              "reserveTokens": 174,
+              "requestReserveTokens": 923,
+              "reserveTokens": 923,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -1867,11 +1603,11 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594268,
-              "lastBeforeTokens": 190,
-              "lastAfterTokens": 190,
-              "lastPressureTokens": 190,
-              "currentEstimatedTokens": 190,
+              "lastCheckedAt": 1794068635253,
+              "lastBeforeTokens": 939,
+              "lastAfterTokens": 939,
+              "lastPressureTokens": 939,
+              "currentEstimatedTokens": 939,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -1885,18 +1621,18 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594268,
+                  "at": 1794068635253,
                   "stage": "pre_send_check",
-                  "pressure": 190,
+                  "pressure": 939,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594268,
+                  "at": 1794068635253,
                   "stage": "pre_send_check",
-                  "pressure": 190,
+                  "pressure": 939,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -1921,20 +1657,15 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "Changed.",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a",
+              "override": {
+                "description": "Changed."
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -1950,20 +1681,15 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "Changed.",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a",
+              "override": {
+                "description": "Changed."
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -1976,20 +1702,12 @@
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -2013,8 +1731,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 174,
-              "reserveTokens": 174,
+              "requestReserveTokens": 923,
+              "reserveTokens": 923,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -2024,11 +1742,11 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594268,
-              "lastBeforeTokens": 190,
-              "lastAfterTokens": 190,
-              "lastPressureTokens": 190,
-              "currentEstimatedTokens": 190,
+              "lastCheckedAt": 1794068635254,
+              "lastBeforeTokens": 939,
+              "lastAfterTokens": 939,
+              "lastPressureTokens": 939,
+              "currentEstimatedTokens": 939,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -2042,27 +1760,27 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594268,
+                  "at": 1794068635253,
                   "stage": "pre_send_check",
-                  "pressure": 190,
+                  "pressure": 939,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594268,
+                  "at": 1794068635253,
                   "stage": "pre_send_check",
-                  "pressure": 190,
+                  "pressure": 939,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594268,
+                  "at": 1794068635254,
                   "stage": "pre_send_check",
-                  "pressure": 190,
+                  "pressure": 939,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -2087,20 +1805,12 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -2111,12 +1821,8 @@
               }
             },
             {
-              "name": "web_search",
-              "description": "web_search tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "web_search",
+              "hash": "74a04264feea1e79"
             }
           ],
           "names": [
@@ -2124,20 +1830,12 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -2148,30 +1846,18 @@
               }
             },
             {
-              "name": "web_search",
-              "description": "web_search tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "web_search",
+              "hash": "74a04264feea1e79"
             }
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -2201,8 +1887,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 240,
-              "reserveTokens": 240,
+              "requestReserveTokens": 975,
+              "reserveTokens": 975,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -2212,11 +1898,11 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594269,
-              "lastBeforeTokens": 256,
-              "lastAfterTokens": 256,
-              "lastPressureTokens": 256,
-              "currentEstimatedTokens": 256,
+              "lastCheckedAt": 1794068635255,
+              "lastBeforeTokens": 991,
+              "lastAfterTokens": 991,
+              "lastPressureTokens": 991,
+              "currentEstimatedTokens": 991,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -2230,9 +1916,9 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594269,
+                  "at": 1794068635255,
                   "stage": "pre_send_check",
-                  "pressure": 256,
+                  "pressure": 991,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -2256,12 +1942,8 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -2272,12 +1954,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -2294,12 +1972,8 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -2310,12 +1984,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -2328,12 +1998,8 @@
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -2344,12 +2010,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -2374,8 +2036,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 240,
-              "reserveTokens": 240,
+              "requestReserveTokens": 975,
+              "reserveTokens": 975,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -2385,11 +2047,11 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594269,
-              "lastBeforeTokens": 256,
-              "lastAfterTokens": 256,
-              "lastPressureTokens": 256,
-              "currentEstimatedTokens": 256,
+              "lastCheckedAt": 1794068635255,
+              "lastBeforeTokens": 991,
+              "lastAfterTokens": 991,
+              "lastPressureTokens": 991,
+              "currentEstimatedTokens": 991,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -2403,18 +2065,18 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594269,
+                  "at": 1794068635255,
                   "stage": "pre_send_check",
-                  "pressure": 256,
+                  "pressure": 991,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594269,
+                  "at": 1794068635255,
                   "stage": "pre_send_check",
-                  "pressure": 256,
+                  "pressure": 991,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -2447,12 +2109,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -2463,12 +2121,8 @@
               }
             },
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             }
           ],
           "names": [
@@ -2485,12 +2139,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -2501,22 +2151,14 @@
               }
             },
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             }
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -2527,12 +2169,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -2562,8 +2200,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 240,
-              "reserveTokens": 240,
+              "requestReserveTokens": 975,
+              "reserveTokens": 975,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -2573,11 +2211,11 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594269,
-              "lastBeforeTokens": 256,
-              "lastAfterTokens": 256,
-              "lastPressureTokens": 256,
-              "currentEstimatedTokens": 256,
+              "lastCheckedAt": 1794068635256,
+              "lastBeforeTokens": 991,
+              "lastAfterTokens": 991,
+              "lastPressureTokens": 991,
+              "currentEstimatedTokens": 991,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -2591,9 +2229,9 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594269,
+                  "at": 1794068635256,
                   "stage": "pre_send_check",
-                  "pressure": 256,
+                  "pressure": 991,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -2617,12 +2255,8 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -2633,12 +2267,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -2655,12 +2285,8 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -2671,12 +2297,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -2689,12 +2311,8 @@
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -2705,12 +2323,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -2734,8 +2348,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 172,
-              "reserveTokens": 172,
+              "requestReserveTokens": 921,
+              "reserveTokens": 921,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -2745,11 +2359,11 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594269,
-              "lastBeforeTokens": 188,
-              "lastAfterTokens": 188,
-              "lastPressureTokens": 188,
-              "currentEstimatedTokens": 188,
+              "lastCheckedAt": 1794068635256,
+              "lastBeforeTokens": 937,
+              "lastAfterTokens": 937,
+              "lastPressureTokens": 937,
+              "currentEstimatedTokens": 937,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -2763,18 +2377,18 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594269,
+                  "at": 1794068635256,
                   "stage": "pre_send_check",
-                  "pressure": 256,
+                  "pressure": 991,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594269,
+                  "at": 1794068635256,
                   "stage": "pre_send_check",
-                  "pressure": 188,
+                  "pressure": 937,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -2799,12 +2413,8 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -2815,12 +2425,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -2836,20 +2442,12 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -2862,20 +2460,12 @@
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -2900,8 +2490,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 240,
-              "reserveTokens": 240,
+              "requestReserveTokens": 975,
+              "reserveTokens": 975,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -2911,11 +2501,11 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594270,
-              "lastBeforeTokens": 256,
-              "lastAfterTokens": 256,
-              "lastPressureTokens": 256,
-              "currentEstimatedTokens": 256,
+              "lastCheckedAt": 1794068635256,
+              "lastBeforeTokens": 991,
+              "lastAfterTokens": 991,
+              "lastPressureTokens": 991,
+              "currentEstimatedTokens": 991,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -2929,27 +2519,27 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594269,
+                  "at": 1794068635256,
                   "stage": "pre_send_check",
-                  "pressure": 256,
+                  "pressure": 991,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594269,
+                  "at": 1794068635256,
                   "stage": "pre_send_check",
-                  "pressure": 188,
+                  "pressure": 937,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594270,
+                  "at": 1794068635256,
                   "stage": "pre_send_check",
-                  "pressure": 256,
+                  "pressure": 991,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -2974,12 +2564,8 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -2990,12 +2576,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -3012,12 +2594,8 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -3028,12 +2606,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -3046,20 +2620,12 @@
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -3093,8 +2659,8 @@
             "contextWindow": 1000000,
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 180,
-              "reserveTokens": 180,
+              "requestReserveTokens": 587,
+              "reserveTokens": 587,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -3104,11 +2670,11 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594270,
-              "lastBeforeTokens": 196,
-              "lastAfterTokens": 196,
-              "lastPressureTokens": 196,
-              "currentEstimatedTokens": 196,
+              "lastCheckedAt": 1794068635258,
+              "lastBeforeTokens": 603,
+              "lastAfterTokens": 603,
+              "lastPressureTokens": 603,
+              "currentEstimatedTokens": 603,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -3122,9 +2688,9 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594270,
+                  "at": 1794068635258,
                   "stage": "pre_send_check",
-                  "pressure": 196,
+                  "pressure": 603,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -3148,12 +2714,8 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -3175,12 +2737,8 @@
           "names": null,
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -3201,12 +2759,8 @@
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -3235,8 +2789,8 @@
             "contextWindow": 1000000,
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 247,
-              "reserveTokens": 247,
+              "requestReserveTokens": 653,
+              "reserveTokens": 653,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -3246,11 +2800,11 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594270,
-              "lastBeforeTokens": 263,
-              "lastAfterTokens": 263,
-              "lastPressureTokens": 263,
-              "currentEstimatedTokens": 263,
+              "lastCheckedAt": 1794068635259,
+              "lastBeforeTokens": 669,
+              "lastAfterTokens": 669,
+              "lastPressureTokens": 669,
+              "currentEstimatedTokens": 669,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -3264,18 +2818,18 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594270,
+                  "at": 1794068635258,
                   "stage": "pre_send_check",
-                  "pressure": 196,
+                  "pressure": 603,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594270,
+                  "at": 1794068635259,
                   "stage": "pre_send_check",
-                  "pressure": 263,
+                  "pressure": 669,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -3300,12 +2854,8 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -3335,12 +2885,8 @@
           "names": null,
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -3369,12 +2915,8 @@
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -3411,8 +2953,8 @@
             "contextWindow": 1000000,
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 112,
-              "reserveTokens": 112,
+              "requestReserveTokens": 518,
+              "reserveTokens": 518,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -3422,11 +2964,11 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594270,
-              "lastBeforeTokens": 128,
-              "lastAfterTokens": 128,
-              "lastPressureTokens": 128,
-              "currentEstimatedTokens": 128,
+              "lastCheckedAt": 1794068635261,
+              "lastBeforeTokens": 534,
+              "lastAfterTokens": 534,
+              "lastPressureTokens": 534,
+              "currentEstimatedTokens": 534,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -3440,27 +2982,27 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594270,
+                  "at": 1794068635258,
                   "stage": "pre_send_check",
-                  "pressure": 196,
+                  "pressure": 603,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594270,
+                  "at": 1794068635259,
                   "stage": "pre_send_check",
-                  "pressure": 263,
+                  "pressure": 669,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594270,
+                  "at": 1794068635261,
                   "stage": "pre_send_check",
-                  "pressure": 128,
+                  "pressure": 534,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -3488,12 +3030,8 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -3525,12 +3063,8 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__beta__ping",
@@ -3543,12 +3077,8 @@
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__beta__ping",
@@ -3577,8 +3107,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 174,
-              "reserveTokens": 174,
+              "requestReserveTokens": 923,
+              "reserveTokens": 923,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -3588,11 +3118,11 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594271,
-              "lastBeforeTokens": 190,
-              "lastAfterTokens": 190,
-              "lastPressureTokens": 190,
-              "currentEstimatedTokens": 190,
+              "lastCheckedAt": 1794068635261,
+              "lastBeforeTokens": 939,
+              "lastAfterTokens": 939,
+              "lastPressureTokens": 939,
+              "currentEstimatedTokens": 939,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -3606,9 +3136,9 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594271,
+                  "at": 1794068635261,
                   "stage": "pre_send_check",
-                  "pressure": 190,
+                  "pressure": 939,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -3632,12 +3162,8 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -3656,12 +3182,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ],
           "names": [
@@ -3669,12 +3191,8 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -3685,22 +3203,14 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -3711,12 +3221,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ]
         },
@@ -3732,8 +3238,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 173,
-              "reserveTokens": 173,
+              "requestReserveTokens": 921,
+              "reserveTokens": 921,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -3743,11 +3249,11 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594271,
-              "lastBeforeTokens": 189,
-              "lastAfterTokens": 189,
-              "lastPressureTokens": 189,
-              "currentEstimatedTokens": 189,
+              "lastCheckedAt": 1794068635262,
+              "lastBeforeTokens": 937,
+              "lastAfterTokens": 937,
+              "lastPressureTokens": 937,
+              "currentEstimatedTokens": 937,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -3761,18 +3267,18 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594271,
+                  "at": 1794068635261,
                   "stage": "pre_send_check",
-                  "pressure": 190,
+                  "pressure": 939,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594271,
+                  "at": 1794068635262,
                   "stage": "pre_send_check",
-                  "pressure": 189,
+                  "pressure": 937,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -3797,20 +3303,12 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -3834,20 +3332,12 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -3860,12 +3350,8 @@
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -3876,12 +3362,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ]
         }
@@ -3903,8 +3385,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 240,
-              "reserveTokens": 240,
+              "requestReserveTokens": 975,
+              "reserveTokens": 975,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -3914,11 +3396,11 @@
               "effectiveContextWindowPercent": null,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594271,
-              "lastBeforeTokens": 256,
-              "lastAfterTokens": 256,
-              "lastPressureTokens": 256,
-              "currentEstimatedTokens": 256,
+              "lastCheckedAt": 1794068635262,
+              "lastBeforeTokens": 991,
+              "lastAfterTokens": 991,
+              "lastPressureTokens": 991,
+              "currentEstimatedTokens": 991,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -3932,9 +3414,9 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594271,
+                  "at": 1794068635262,
                   "stage": "pre_send_check",
-                  "pressure": 256,
+                  "pressure": 991,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -3958,12 +3440,8 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -3974,12 +3452,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -3996,12 +3470,8 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -4012,12 +3482,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -4030,12 +3496,8 @@
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
               "name": "mcp__alpha__list",
@@ -4046,12 +3508,8 @@
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -4076,8 +3534,8 @@
             ],
             "compaction": {
               "auto": true,
-              "requestReserveTokens": 244,
-              "reserveTokens": 244,
+              "requestReserveTokens": 979,
+              "reserveTokens": 979,
               "boundaryTokens": 1000000,
               "triggerTokens": 1000000,
               "bufferTokens": 0,
@@ -4087,11 +3545,11 @@
               "effectiveContextWindowPercent": 0,
               "autoCompactTokenLimit": null,
               "handoffTimeoutMs": 300000,
-              "lastCheckedAt": 1794063594271,
-              "lastBeforeTokens": 260,
-              "lastAfterTokens": 260,
-              "lastPressureTokens": 260,
-              "currentEstimatedTokens": 260,
+              "lastCheckedAt": 1794068635263,
+              "lastBeforeTokens": 995,
+              "lastAfterTokens": 995,
+              "lastPressureTokens": 995,
+              "currentEstimatedTokens": 995,
               "lastApiRequestTokens": null,
               "lastStage": "pre_send_check",
               "lastChanged": false,
@@ -4105,18 +3563,18 @@
               "singleShotConsumed": false,
               "recentChecks": [
                 {
-                  "at": 1794063594271,
+                  "at": 1794068635262,
                   "stage": "pre_send_check",
-                  "pressure": 256,
+                  "pressure": 991,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
                   "baselineAt": null
                 },
                 {
-                  "at": 1794063594271,
+                  "at": 1794068635263,
                   "stage": "pre_send_check",
-                  "pressure": 260,
+                  "pressure": 995,
                   "est": 16,
                   "trigger": 1000000,
                   "baseline": null,
@@ -4141,12 +3599,8 @@
           ],
           "tools": [
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__gamma__run",
@@ -4165,12 +3619,8 @@
               }
             },
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             }
           ],
           "names": [
@@ -4179,12 +3629,8 @@
           ],
           "candidate": [
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__gamma__run",
@@ -4203,30 +3649,18 @@
               }
             },
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             }
           ],
           "sent": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__beta__ping",
@@ -4265,28 +3699,16 @@
             "deferredProviderMode": "native",
             "deferredToolCatalog": [
               {
-                "name": "office",
-                "description": "office tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "office",
+                "hash": "aaf910abf6b9410f"
               },
               {
-                "name": "memory",
-                "description": "memory tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "memory",
+                "hash": "a42ea86e4a0f8bfa"
               },
               {
-                "name": "github",
-                "description": "github tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "github",
+                "hash": "bc9ab9dc77efb53f"
               },
               {
                 "name": "mcp__alpha__get",
@@ -4311,20 +3733,12 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -4340,20 +3754,12 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -4364,13 +3770,11 @@
               }
             },
             {
-              "name": "office",
-              "description": "office tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              },
-              "deferLoading": true
+              "$tool": "office",
+              "hash": "aaf910abf6b9410f",
+              "override": {
+                "deferLoading": true
+              }
             }
           ],
           "sent": null
@@ -4389,28 +3793,16 @@
             "deferredProviderMode": "native",
             "deferredToolCatalog": [
               {
-                "name": "office",
-                "description": "office tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "office",
+                "hash": "aaf910abf6b9410f"
               },
               {
-                "name": "memory",
-                "description": "memory tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "memory",
+                "hash": "a42ea86e4a0f8bfa"
               },
               {
-                "name": "github",
-                "description": "github tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "github",
+                "hash": "bc9ab9dc77efb53f"
               },
               {
                 "name": "mcp__alpha__get",
@@ -4438,20 +3830,12 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -4467,20 +3851,12 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -4491,13 +3867,11 @@
               }
             },
             {
-              "name": "office",
-              "description": "office tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              },
-              "deferLoading": true
+              "$tool": "office",
+              "hash": "aaf910abf6b9410f",
+              "override": {
+                "deferLoading": true
+              }
             }
           ],
           "sent": null
@@ -4516,28 +3890,16 @@
             "deferredProviderMode": "native",
             "deferredToolCatalog": [
               {
-                "name": "office",
-                "description": "office tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "office",
+                "hash": "aaf910abf6b9410f"
               },
               {
-                "name": "memory",
-                "description": "memory tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "memory",
+                "hash": "a42ea86e4a0f8bfa"
               },
               {
-                "name": "github",
-                "description": "github tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "github",
+                "hash": "bc9ab9dc77efb53f"
               },
               {
                 "name": "mcp__alpha__get",
@@ -4567,20 +3929,12 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -4596,20 +3950,12 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -4620,13 +3966,11 @@
               }
             },
             {
-              "name": "office",
-              "description": "office tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              },
-              "deferLoading": true
+              "$tool": "office",
+              "hash": "aaf910abf6b9410f",
+              "override": {
+                "deferLoading": true
+              }
             }
           ],
           "sent": null
@@ -4645,28 +3989,16 @@
             "deferredProviderMode": "native",
             "deferredToolCatalog": [
               {
-                "name": "office",
-                "description": "office tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "office",
+                "hash": "aaf910abf6b9410f"
               },
               {
-                "name": "memory",
-                "description": "memory tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "memory",
+                "hash": "a42ea86e4a0f8bfa"
               },
               {
-                "name": "github",
-                "description": "github tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "github",
+                "hash": "bc9ab9dc77efb53f"
               },
               {
                 "name": "mcp__alpha__get",
@@ -4692,20 +4024,12 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -4721,20 +4045,12 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -4745,13 +4061,11 @@
               }
             },
             {
-              "name": "office",
-              "description": "office tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              },
-              "deferLoading": true
+              "$tool": "office",
+              "hash": "aaf910abf6b9410f",
+              "override": {
+                "deferLoading": true
+              }
             }
           ],
           "sent": null
@@ -4772,28 +4086,16 @@
             "deferredProviderMode": "native",
             "deferredToolCatalog": [
               {
-                "name": "office",
-                "description": "office tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "office",
+                "hash": "aaf910abf6b9410f"
               },
               {
-                "name": "memory",
-                "description": "memory tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "memory",
+                "hash": "a42ea86e4a0f8bfa"
               },
               {
-                "name": "github",
-                "description": "github tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "github",
+                "hash": "bc9ab9dc77efb53f"
               },
               {
                 "name": "mcp__alpha__get",
@@ -4818,48 +4120,30 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ],
           "names": null,
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
-              "name": "office",
-              "description": "office tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              },
-              "deferLoading": true
+              "$tool": "office",
+              "hash": "aaf910abf6b9410f",
+              "override": {
+                "deferLoading": true
+              }
             }
           ],
           "sent": null
@@ -4875,28 +4159,16 @@
             "deferredProviderMode": "native",
             "deferredToolCatalog": [
               {
-                "name": "office",
-                "description": "office tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "office",
+                "hash": "aaf910abf6b9410f"
               },
               {
-                "name": "memory",
-                "description": "memory tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "memory",
+                "hash": "a42ea86e4a0f8bfa"
               },
               {
-                "name": "github",
-                "description": "github tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "github",
+                "hash": "bc9ab9dc77efb53f"
               },
               {
                 "name": "mcp__alpha__get",
@@ -4932,57 +4204,37 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ],
           "names": null,
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
+            },
+            {
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
+            },
+            {
+              "$tool": "office",
+              "hash": "aaf910abf6b9410f",
+              "override": {
+                "deferLoading": true
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
+              "$tool": "memory",
+              "hash": "a42ea86e4a0f8bfa",
+              "override": {
+                "deferLoading": true
               }
-            },
-            {
-              "name": "office",
-              "description": "office tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              },
-              "deferLoading": true
-            },
-            {
-              "name": "memory",
-              "description": "memory tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              },
-              "deferLoading": true
             }
           ],
           "sent": null
@@ -4998,28 +4250,16 @@
             "deferredProviderMode": "native",
             "deferredToolCatalog": [
               {
-                "name": "office",
-                "description": "office tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "office",
+                "hash": "aaf910abf6b9410f"
               },
               {
-                "name": "memory",
-                "description": "memory tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "memory",
+                "hash": "a42ea86e4a0f8bfa"
               },
               {
-                "name": "github",
-                "description": "github tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "github",
+                "hash": "bc9ab9dc77efb53f"
               },
               {
                 "name": "mcp__alpha__get",
@@ -5066,57 +4306,37 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ],
           "names": null,
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
+            },
+            {
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
+            },
+            {
+              "$tool": "office",
+              "hash": "aaf910abf6b9410f",
+              "override": {
+                "deferLoading": true
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
+              "$tool": "github",
+              "hash": "bc9ab9dc77efb53f",
+              "override": {
+                "deferLoading": true
               }
-            },
-            {
-              "name": "office",
-              "description": "office tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              },
-              "deferLoading": true
-            },
-            {
-              "name": "github",
-              "description": "github tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              },
-              "deferLoading": true
             }
           ],
           "sent": null
@@ -5148,20 +4368,12 @@
                 }
               },
               {
-                "name": "office",
-                "description": "office tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "office",
+                "hash": "aaf910abf6b9410f"
               },
               {
-                "name": "memory",
-                "description": "memory tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "memory",
+                "hash": "a42ea86e4a0f8bfa"
               }
             ],
             "deferredLateToolCatalog": []
@@ -5178,20 +4390,12 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -5207,20 +4411,12 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -5231,13 +4427,11 @@
               }
             },
             {
-              "name": "office",
-              "description": "office tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              },
-              "deferLoading": true
+              "$tool": "office",
+              "hash": "aaf910abf6b9410f",
+              "override": {
+                "deferLoading": true
+              }
             }
           ],
           "sent": null
@@ -5264,20 +4458,12 @@
                 }
               },
               {
-                "name": "office",
-                "description": "office tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "office",
+                "hash": "aaf910abf6b9410f"
               },
               {
-                "name": "memory",
-                "description": "memory tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "memory",
+                "hash": "a42ea86e4a0f8bfa"
               }
             ],
             "deferredLateToolCatalog": []
@@ -5294,20 +4480,12 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -5323,20 +4501,12 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -5347,13 +4517,11 @@
               }
             },
             {
-              "name": "office",
-              "description": "office tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              },
-              "deferLoading": true
+              "$tool": "office",
+              "hash": "aaf910abf6b9410f",
+              "override": {
+                "deferLoading": true
+              }
             }
           ],
           "sent": null
@@ -5394,20 +4562,12 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -5423,20 +4583,12 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
               "name": "mcp__alpha__list",
@@ -5485,20 +4637,12 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "office",
-              "description": "office tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "office",
+              "hash": "aaf910abf6b9410f"
             },
             {
               "name": "mcp__alpha__list",
@@ -5514,20 +4658,12 @@
           ],
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "office",
-              "description": "office tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "office",
+              "hash": "aaf910abf6b9410f"
             },
             {
               "name": "mcp__alpha__list",
@@ -5556,28 +4692,16 @@
             "deferredProviderMode": "native",
             "deferredToolCatalog": [
               {
-                "name": "office",
-                "description": "office tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "office",
+                "hash": "aaf910abf6b9410f"
               },
               {
-                "name": "memory",
-                "description": "memory tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "memory",
+                "hash": "a42ea86e4a0f8bfa"
               },
               {
-                "name": "github",
-                "description": "github tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "github",
+                "hash": "bc9ab9dc77efb53f"
               },
               {
                 "name": "mcp__alpha__get",
@@ -5605,48 +4729,30 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ],
           "names": null,
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             },
             {
-              "name": "office",
-              "description": "office tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              },
-              "deferLoading": true
+              "$tool": "office",
+              "hash": "aaf910abf6b9410f",
+              "override": {
+                "deferLoading": true
+              }
             }
           ],
           "sent": null
@@ -5662,28 +4768,16 @@
             "deferredProviderMode": "native",
             "deferredToolCatalog": [
               {
-                "name": "office",
-                "description": "office tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "office",
+                "hash": "aaf910abf6b9410f"
               },
               {
-                "name": "memory",
-                "description": "memory tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "memory",
+                "hash": "a42ea86e4a0f8bfa"
               },
               {
-                "name": "github",
-                "description": "github tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "github",
+                "hash": "bc9ab9dc77efb53f"
               },
               {
                 "name": "mcp__alpha__get",
@@ -5711,39 +4805,23 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ],
           "names": null,
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ],
           "sent": null
@@ -5759,28 +4837,16 @@
             "deferredProviderMode": "native",
             "deferredToolCatalog": [
               {
-                "name": "office",
-                "description": "office tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "office",
+                "hash": "aaf910abf6b9410f"
               },
               {
-                "name": "memory",
-                "description": "memory tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "memory",
+                "hash": "a42ea86e4a0f8bfa"
               },
               {
-                "name": "github",
-                "description": "github tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "github",
+                "hash": "bc9ab9dc77efb53f"
               },
               {
                 "name": "mcp__alpha__get",
@@ -5811,39 +4877,23 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ],
           "names": null,
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ],
           "sent": null
@@ -5859,28 +4909,16 @@
             "deferredProviderMode": "native",
             "deferredToolCatalog": [
               {
-                "name": "office",
-                "description": "office tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "office",
+                "hash": "aaf910abf6b9410f"
               },
               {
-                "name": "memory",
-                "description": "memory tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "memory",
+                "hash": "a42ea86e4a0f8bfa"
               },
               {
-                "name": "github",
-                "description": "github tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "github",
+                "hash": "bc9ab9dc77efb53f"
               },
               {
                 "name": "mcp__alpha__get",
@@ -5911,39 +4949,23 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ],
           "names": null,
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ],
           "sent": null
@@ -5964,28 +4986,16 @@
             "deferredProviderMode": "native",
             "deferredToolCatalog": [
               {
-                "name": "office",
-                "description": "office tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "office",
+                "hash": "aaf910abf6b9410f"
               },
               {
-                "name": "memory",
-                "description": "memory tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "memory",
+                "hash": "a42ea86e4a0f8bfa"
               },
               {
-                "name": "github",
-                "description": "github tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "github",
+                "hash": "bc9ab9dc77efb53f"
               },
               {
                 "name": "mcp__alpha__get",
@@ -6014,57 +5024,37 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ],
           "names": null,
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
+            },
+            {
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
+            },
+            {
+              "$tool": "office",
+              "hash": "aaf910abf6b9410f",
+              "override": {
+                "deferLoading": true
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
+              "$tool": "github",
+              "hash": "bc9ab9dc77efb53f",
+              "override": {
+                "deferLoading": true
               }
-            },
-            {
-              "name": "office",
-              "description": "office tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              },
-              "deferLoading": true
-            },
-            {
-              "name": "github",
-              "description": "github tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              },
-              "deferLoading": true
             }
           ],
           "sent": null
@@ -6080,28 +5070,16 @@
             "deferredProviderMode": "native",
             "deferredToolCatalog": [
               {
-                "name": "office",
-                "description": "office tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "office",
+                "hash": "aaf910abf6b9410f"
               },
               {
-                "name": "memory",
-                "description": "memory tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "memory",
+                "hash": "a42ea86e4a0f8bfa"
               },
               {
-                "name": "github",
-                "description": "github tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "github",
+                "hash": "bc9ab9dc77efb53f"
               },
               {
                 "name": "mcp__alpha__get",
@@ -6114,20 +5092,15 @@
             ],
             "deferredLateToolCatalog": [
               {
-                "name": "office",
-                "description": "Late office.",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
+                "$tool": "office",
+                "hash": "aaf910abf6b9410f",
+                "override": {
+                  "description": "Late office."
                 }
               },
               {
-                "name": "github",
-                "description": "github tool",
-                "inputSchema": {
-                  "type": "object",
-                  "properties": {}
-                }
+                "$tool": "github",
+                "hash": "bc9ab9dc77efb53f"
               }
             ],
             "deferredDiscoveredTools": [
@@ -6147,57 +5120,38 @@
           ],
           "tools": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              }
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
             }
           ],
           "names": null,
           "candidate": [
             {
-              "name": "read",
-              "description": "read tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
+              "$tool": "read",
+              "hash": "6cac43e0095bf55a"
+            },
+            {
+              "$tool": "shell",
+              "hash": "6106817f821d8614"
+            },
+            {
+              "$tool": "office",
+              "hash": "aaf910abf6b9410f",
+              "override": {
+                "description": "Late office.",
+                "deferLoading": true
               }
             },
             {
-              "name": "shell",
-              "description": "shell tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
+              "$tool": "github",
+              "hash": "bc9ab9dc77efb53f",
+              "override": {
+                "deferLoading": true
               }
-            },
-            {
-              "name": "office",
-              "description": "Late office.",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              },
-              "deferLoading": true
-            },
-            {
-              "name": "github",
-              "description": "github tool",
-              "inputSchema": {
-                "type": "object",
-                "properties": {}
-              },
-              "deferLoading": true
             }
           ],
           "sent": null

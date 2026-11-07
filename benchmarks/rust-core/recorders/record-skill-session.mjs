@@ -25,6 +25,7 @@ process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 process.env.TZ = 'UTC';
 const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
+const { nodeRealTool, writeJsonCompact } = await import('./lib/tool-definitions.mjs');
 const tree = resolveTree(parseArgs());
 const finalDir = join(FIXTURES_ROOT, 'skill-session');
 const stage = stageSet(finalDir);
@@ -36,10 +37,12 @@ const { buildSkillResultEnvelope, buildSkillToolEnvelope, skillBodyPresentInSess
 
 const json = (value) => JSON.parse(JSON.stringify(value));
 const doc = (name, extra = {}) => ({ name, description: `${name} tool`, inputSchema: { type: 'object', properties: {} }, ...extra });
-const skillTool = doc('Skill', { inputSchema: { type: 'object', properties: { name: { type: 'string' } } } });
-const read = doc('read', { description: 'Read content.', annotations: { readOnlyHint: true } });
-const office = doc('office', { description: 'Create a document.', inputSchema: { type: 'object', properties: { action: { type: 'string' } }, required: ['action'] } });
-const handoff = doc('handoff_user');
+// The runtime's own tools are the product's definitions; connectors' tools and `patcher` are the recorder's inputs.
+const real = await nodeRealTool(tree);
+const skillTool = real('Skill');
+const read = real('read');
+const office = real('office');
+const handoff = real('handoff_user');
 const figma = doc('mcp__figma__get_design', { description: 'Read a design.', annotations: { readOnlyHint: true } });
 const other = doc('mcp__other__inspect', { annotations: { readOnlyHint: true } });
 const patcher = doc('patcher', { description: 'Patch files.', freeformDescription: 'Free-form patch text.', freeform: { type: 'grammar', syntax: 'lark', definition: 'start: /.+/' } });
@@ -140,7 +143,7 @@ const TRANSCRIPT = [
   present: skillBodyPresentInSession(json(current), body),
 }));
 
-writeJson(join(stage, 'golden.json'), { arm: ARM, transcript: TRANSCRIPT });
+await writeJsonCompact(tree, join(stage, 'golden.json'), { arm: ARM, transcript: TRANSCRIPT });
 writeSetManifest(stage, { set: 'skill-session', recorder, command: `node ${recorder} --tree <tree>`, identityTree: tree });
 commitStage(stage, finalDir);
 console.log(`skill session: ${ARM.length} arm cases, ${TRANSCRIPT.length} transcript cases`);

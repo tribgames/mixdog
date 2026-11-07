@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-shared-tool-definitions.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 452716,
+      "path": "definitions.json",
+      "sha256": "61b4d1b4c537d67e707d5e02076f7822ea3b2a9ba0167e14505a519a7d6d76af"
+    }
+  ],
+  "product": {
+    "appsSha256": "aceede98659c44d00841dcebd6e231994155fbf785a74b44b542e1857c445d21",
+    "commit": "f566c7373f9f23d4924d7f8e648064a817abb1f7",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9252,
+    "refComparison": {
+      "closestCommit": "f566c7373f9f23d4924d7f8e648064a817abb1f7",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "4487be07c8f73b301f4522e8f7d66d9ffcb2f3f1b8f0093f64fb4f4553e06852",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-shared-tool-definitions.mjs",
+  "set": "tool-definitions",
+  "totalBytes": 452716
+}

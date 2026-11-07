@@ -30,6 +30,7 @@ tokio-util = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]
+mixdog-js = { workspace = true, features = ["fixture-tools"] }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "sync", "test-util"] }

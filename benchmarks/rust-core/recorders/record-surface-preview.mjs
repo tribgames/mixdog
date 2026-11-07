@@ -17,6 +17,7 @@ process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 process.env.TZ = 'UTC';
 const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
+const { writeJsonCompact } = await import('./lib/tool-definitions.mjs');
 const tree = resolveTree(parseArgs());
 const finalDir = join(FIXTURES_ROOT, 'surface-host');
 const stage = stageSet(finalDir);
@@ -101,6 +102,6 @@ const cases = SCENARIOS.map(([name, mode, route, featureDenied]) => {
     },
   };
 });
-writeJson(join(stage, 'golden.json'), { pool, standalone: names(standaloneTools), agentTools: [...agentToolNames], cases });
+await writeJsonCompact(tree, join(stage, 'golden.json'), { pool, standalone: names(standaloneTools), agentTools: [...agentToolNames], cases });
 writeSetManifest(stage, { set: 'surface-host', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree });
 commitStage(stage, finalDir);

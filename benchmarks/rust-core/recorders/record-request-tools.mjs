@@ -19,6 +19,7 @@ process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 process.env.TZ = 'UTC';
 const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
+const { nodeRealTool, writeJsonCompact } = await import('./lib/tool-definitions.mjs');
 const tree = resolveTree(parseArgs());
 const finalDir = join(FIXTURES_ROOT, 'request-tools');
 const stage = stageSet(finalDir);
@@ -28,7 +29,11 @@ const { prepareProviderRequest } = await U('runtime/agent/orchestrator/session/l
 const { snapshotProviderRequestTools } = await U('runtime/agent/orchestrator/runtime-core/tool-catalog.mjs');
 
 const json = (value) => JSON.parse(JSON.stringify(value));
-const doc = (name, description = `${name} tool`) => ({ name, description, inputSchema: { type: 'object', properties: {} } });
+// The runtime's own tools are the product's definitions (`description` overrides one where a case needs a changed
+// definition); a connected server's tools (`mcp__`) are the recorder's inputs.
+const real = await nodeRealTool(tree);
+const doc = (name, description = `${name} tool`) =>
+  name.startsWith('mcp__') ? { name, description, inputSchema: { type: 'object', properties: {} } } : { ...real(name), ...(description === `${name} tool` ? {} : { description }) };
 const read = doc('read');
 const shell = doc('shell');
 const alpha = doc('mcp__alpha__list', 'List the things.');
@@ -120,7 +125,7 @@ for (const [name, before, changes, only] of SCENARIOS) {
   CASES.push({ name, steps });
 }
 
-writeJson(join(stage, 'golden.json'), { cases: CASES });
+await writeJsonCompact(tree, join(stage, 'golden.json'), { cases: CASES });
 writeSetManifest(stage, { set: 'request-tools', recorder, command: `node ${recorder} --tree <tree>`, identityTree: tree });
 commitStage(stage, finalDir);
 console.log(`request tools: ${CASES.length} cases`);

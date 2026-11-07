@@ -20,6 +20,7 @@ process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 process.env.TZ = 'UTC';
 const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
+const { writeJsonCompact } = await import('./lib/tool-definitions.mjs');
 const tree = resolveTree(parseArgs());
 const finalDir = join(FIXTURES_ROOT, 'tool-resolution');
 const stage = stageSet(finalDir);
@@ -208,7 +209,7 @@ add('worker with MCP tools, native', { kind: 'worker', provider: 'anthropic', mo
 add('worker with MCP tools, bridge route', { kind: 'worker', provider: 'xai', model: 'grok-4', mcpConnected: true });
 add('hidden worker with an MCP tool in its allowlist', { kind: 'worker', agent: 'explore-agent', provider: 'anthropic', model: 'claude-opus-4-6', schemaAllowedTools: ['read', 'mcp__alpha__zeta', 'todo'], mcpConnected: true });
 
-writeJson(join(stage, 'golden.json'), {
+await writeJsonCompact(tree, join(stage, 'golden.json'), {
   pool: {
     builtin: names(BUILTIN_TOOLS),
     tools: poolTools,

@@ -76,7 +76,7 @@ fn stub(doc: &Value) -> Arc<dyn Tool> {
 }
 
 fn golden() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/surface-host/golden.json")).expect("golden")
+    mixdog_js::fixture_tools::parse_golden(include_str!("../../../../../fixtures/surface-host/golden.json")).expect("golden")
 }
 
 /// The golden's pool in the order the golden lists it (Node's session preview, not its registration
@@ -712,7 +712,7 @@ async fn a_moved_gate_reaches_a_thread_with_a_conversation() {
 /// Node's `foldMcpSurface` and the request boundary's reconcile (`fixtures/mcp-fold`, the `turn` cases), over the header
 /// a thread stores: the prompt's deferred-tool block comes out of, and goes back into, the header's blocks.
 fn fold_golden() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/mcp-fold/golden.json")).expect("mcp fold golden")
+    mixdog_js::fixture_tools::parse_golden(include_str!("../../../../../fixtures/mcp-fold/golden.json")).expect("mcp fold golden")
 }
 
 /// A recorded session as a thread's header: its leading system messages are the header's prompt blocks.
@@ -994,7 +994,7 @@ async fn a_thread_without_a_prompt_identity_is_not_recomposed() {
 /// ports' answers (here Node's own), so this holds the host's pipeline to Node's.
 #[tokio::test]
 async fn the_reconcile_follows_node() {
-    let g: Value = serde_json::from_str(include_str!("../../../../../fixtures/surface-reconcile/golden.json")).expect("golden");
+    let g: Value = mixdog_js::fixture_tools::parse_golden(include_str!("../../../../../fixtures/surface-reconcile/golden.json")).expect("golden");
     let pool = golden();
     for case in g["cases"].as_array().expect("cases") {
         let label = case["name"].as_str().expect("name");
@@ -1063,7 +1063,7 @@ use crate::run_host::rules::RulesPolicy;
 use crate::run_host::session_tools::SessionToolBuilder;
 
 fn recording() -> Value {
-    serde_json::from_str(include_str!("../../../../../fixtures/tool-resolution/golden.json")).expect("tool-resolution golden")
+    mixdog_js::fixture_tools::parse_golden(include_str!("../../../../../fixtures/tool-resolution/golden.json")).expect("tool-resolution golden")
 }
 
 /// The order the daemon builds its pool in (`compose_flip`): `orch::register::tools`, then `code_graph`, the

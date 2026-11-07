@@ -3,18 +3,18 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 396822,
+      "bytes": 180128,
       "path": "golden.json",
-      "sha256": "6ac041fcf3cb155557e9de23ceb6d81dae0c66d1f4cbfffd38bb283abcb6bcf4"
+      "sha256": "ca400fc14ff35ce5a637557318a9dbc71f585e089869d64f18f1d6c72200b1f2"
     }
   ],
   "product": {
     "appsSha256": "aceede98659c44d00841dcebd6e231994155fbf785a74b44b542e1857c445d21",
-    "commit": "2d55c8aa21f6f41817adc27f7627b6137b3d51a6",
+    "commit": "f566c7373f9f23d4924d7f8e648064a817abb1f7",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9252,
     "refComparison": {
-      "closestCommit": "2d55c8aa21f6f41817adc27f7627b6137b3d51a6",
+      "closestCommit": "f566c7373f9f23d4924d7f8e648064a817abb1f7",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-surface-preview.mjs",
   "set": "surface-host",
-  "totalBytes": 396822
+  "totalBytes": 180128
 }
