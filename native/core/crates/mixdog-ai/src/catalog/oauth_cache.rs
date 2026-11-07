@@ -19,6 +19,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use mixdog_core_api::domain::provider::{ModelRecord, ReasoningOption};
+use mixdog_rt::LaneToken;
 use serde_json::{Map, Value, json};
 
 use tokio_util::sync::CancellationToken;

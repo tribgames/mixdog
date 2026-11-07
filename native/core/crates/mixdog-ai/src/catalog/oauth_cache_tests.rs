@@ -92,7 +92,7 @@ async fn a_fresh_node_cache_answers_without_a_fetch_and_is_left_as_it_is() {
     f.write(record.clone());
     let rows = f.source.list().await.unwrap();
     assert_eq!(ids(&rows), ["claude-opus-4-7"]);
-    assert_eq!((rows[0].context_window, rows[0].max_output_tokens), (Some(500_000), Some(32_000)));
+    assert_eq!((rows[0].context_window, rows[0].output_tokens), (Some(500_000), Some(32_000)));
     assert_eq!(rows[0].display_name.as_deref(), Some("Claude Cached"));
     assert_eq!(f.calls.load(Ordering::SeqCst), 0, "a fresh cache is not fetched over");
     assert_eq!(f.read(), record, "a cache hit does not write");
