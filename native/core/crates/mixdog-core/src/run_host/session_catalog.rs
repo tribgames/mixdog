@@ -113,7 +113,7 @@ impl SessionCatalog {
 }
 
 /// An array of strings, `clean`ed (`[]` for anything else).
-fn strings(session: &Value, key: &str) -> Vec<String> {
+pub(super) fn strings(session: &Value, key: &str) -> Vec<String> {
     session.get(key).and_then(Value::as_array).map_or_else(Vec::new, |items| items.iter().map(|v| clean(Some(v))).collect())
 }
 
@@ -123,7 +123,7 @@ fn eager_names(session: &Value) -> HashSet<String> {
 
 /// `isDeferredToolAvailable`: only the latest scoped MCP snapshot grants availability, and an
 /// absent snapshot preserves pre-initialization behaviour.
-fn deferred_available(session: &Value, name: &str) -> bool {
+pub(super) fn deferred_available(session: &Value, name: &str) -> bool {
     !name.starts_with("mcp__") || session.get("deferredMcpToolNames").and_then(Value::as_array).is_none_or(|names| names.iter().any(|n| n.as_str() == Some(name)))
 }
 
@@ -138,7 +138,7 @@ fn lookup<'a>(tools: &'a [Value], name: &str) -> Option<&'a Value> {
 }
 
 /// `parseMcpToolName(tool)?.server`: a definition's own `mcpServerName` wins over its name.
-fn server_of(tool: &Value) -> String {
+pub(super) fn server_of(tool: &Value) -> String {
     let own = clean(tool.get("mcpServerName"));
     if !own.is_empty() {
         return own;

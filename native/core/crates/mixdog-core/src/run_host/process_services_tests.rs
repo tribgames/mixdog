@@ -78,44 +78,41 @@ fn this_machine_is_read_as_libuv_does() {
 /// decrypts for the user who made it, so the tests make theirs with this call at run time.
 #[cfg(windows)]
 mod node_dpapi {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
+    use std::sync::Arc;
+    use mixdog_services::tidy::process::{Processes, RunOptions};
 
     const PREAMBLE: &str = "Add-Type -AssemblyName System.Security -ErrorAction SilentlyContinue; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;";
     const SCOPE: &str = "$scope = [System.Security.Cryptography.DataProtectionScope]::CurrentUser;";
 
-    fn powershell(script: &str, input: Option<&str>) -> String {
+    async fn powershell(script: &str, input: Option<&str>) -> String {
         let root = std::env::var("SystemRoot").unwrap();
         let exe = std::path::Path::new(&root).join("System32").join("WindowsPowerShell").join("v1.0").join("powershell.exe");
-        let mut child = Command::new(exe)
-            .args(["-NonInteractive", "-NoProfile", "-Command", script])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
-        child.stdin.take().unwrap().write_all(input.unwrap_or("").as_bytes()).unwrap();
-        let out = child.wait_with_output().unwrap();
-        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-        String::from_utf8(out.stdout).unwrap()
+        let tokens = mixdog_rt::testing::tokens();
+        let processes = Processes::new(Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default())), tokens.durability_io);
+        let args = ["-NonInteractive", "-NoProfile", "-Command", script].map(str::to_owned);
+        let cwd = std::env::temp_dir();
+        let mut options = RunOptions::new(&cwd);
+        options.input = Some(input.unwrap_or("").as_bytes().to_vec());
+        let out = processes.run(&exe.to_string_lossy(), &args, options).await;
+        assert_eq!(out.code, 0, "{}", out.stderr);
+        out.stdout
     }
-
     /// `win32Set`'s encryption: the base64 of the DPAPI blob of the UTF-8 value.
-    pub fn protect(value: &str) -> String {
+    pub async fn protect(value: &str) -> String {
         use base64::Engine as _;
         let script = format!(
             "& {{ {PREAMBLE} $bytes = [Convert]::FromBase64String(([Console]::In.ReadToEnd()).Trim()); {SCOPE} $enc = [System.Security.Cryptography.ProtectedData]::Protect($bytes, $null, $scope); [Convert]::ToBase64String($enc) }}"
         );
-        powershell(&script, Some(&base64::engine::general_purpose::STANDARD.encode(value))).trim().to_owned()
+        powershell(&script, Some(&base64::engine::general_purpose::STANDARD.encode(value))).await.trim().to_owned()
     }
 
     /// `win32Get`'s decryption of a file's content.
-    pub fn unprotect(file: &str) -> String {
+    pub async fn unprotect(file: &str) -> String {
         let script = format!(
             "& {{ {PREAMBLE} $b64 = $args[0]; $enc = [Convert]::FromBase64String($b64); {SCOPE} $dec = [System.Security.Cryptography.ProtectedData]::Unprotect($enc, $null, $scope); [System.Text.Encoding]::UTF8.GetString($dec) }} '{}'",
             file.trim()
         );
-        powershell(&script, None).trim().to_owned()
+        powershell(&script, None).await.trim().to_owned()
     }
 }
 
@@ -131,7 +128,7 @@ async fn a_dpapi_file_node_wrote_is_read_by_the_vault() {
     let dir = tempfile::tempdir().unwrap();
     for case in dpapi["cases"].as_array().unwrap() {
         let account = case["account"].as_str().unwrap();
-        let file = node_dpapi::protect(case["value"].as_str().unwrap());
+        let file = node_dpapi::protect(case["value"].as_str().unwrap()).await;
         assert_eq!(&file[..prefix], case["filePrefix"].as_str().unwrap(), "{account}: the blob header");
         fixture_fs::write(dir.path().join("secrets").join(format!("{account}.dpapi")), &file);
     }
@@ -159,7 +156,7 @@ async fn the_vault_stores_the_values_node_stored_in_the_same_file_format() {
         vault.set(account, value).await.unwrap();
         let file = fixture_fs::read_to_string(dir.path().join("secrets").join(format!("{account}.dpapi"))).unwrap();
         assert_eq!(&file[..prefix], case["filePrefix"].as_str().unwrap(), "{account}: the blob header");
-        assert_eq!(node_dpapi::unprotect(&file), case["expected"].as_str().unwrap(), "{account}: Node's decryption of the vault's file");
+        assert_eq!(node_dpapi::unprotect(&file).await, case["expected"].as_str().unwrap(), "{account}: Node's decryption of the vault's file");
         assert_eq!(vault.get(account).await.unwrap().as_deref(), case["expected"].as_str(), "{account}");
     }
     let account = dpapi["cases"][0]["account"].as_str().unwrap();

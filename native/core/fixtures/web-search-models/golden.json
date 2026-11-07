@@ -1,0 +1,5905 @@
+{
+  "domain": "web-search-models",
+  "recorder": "benchmarks/rust-core/recorders/record-web-search-models.mjs",
+  "scenarios": [
+    {
+      "name": "cold: no provider enabled, no main row",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-x"
+        },
+        "config": {
+          "providers": {}
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {},
+          "rows": [],
+          "trace": [],
+          "remembered": [],
+          "cached": []
+        },
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {},
+          "rows": [],
+          "trace": [],
+          "remembered": [],
+          "cached": []
+        }
+      ]
+    },
+    {
+      "name": "cold: the default row follows a capable main model",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "main-model"
+        },
+        "config": {
+          "providers": {}
+        },
+        "capable": {
+          "openai:main-model": true
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {},
+          "rows": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "cacheRow",
+              "openai",
+              {
+                "id": "main-model",
+                "name": "main-model",
+                "display": "main-model",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ]
+          ],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cold: default row not added for an incapable main model",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "main-model"
+        },
+        "config": {
+          "providers": {}
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {},
+          "rows": [],
+          "trace": [],
+          "remembered": [],
+          "cached": []
+        }
+      ]
+    },
+    {
+      "name": "cold: rosters of enabled capable providers",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "main-model"
+        },
+        "config": {
+          "providers": {
+            "openai-oauth": {
+              "enabled": true
+            },
+            "gemini": {
+              "enabled": true
+            },
+            "anthropic-oauth": {
+              "enabled": true
+            }
+          }
+        },
+        "rosters": {
+          "openai-oauth": [
+            {
+              "id": "o-one",
+              "supportsWebSearch": true
+            },
+            {
+              "id": "o-two",
+              "supportsWebSearch": true,
+              "name": "Two"
+            },
+            {
+              "id": "o-plain"
+            }
+          ],
+          "gemini": [
+            {
+              "id": "g-one",
+              "supportsWebSearch": true,
+              "display": "G One"
+            }
+          ],
+          "anthropic-oauth": []
+        },
+        "capable": {
+          "openai:main-model": true
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai-oauth": [
+              {
+                "id": "o-one",
+                "supportsWebSearch": true
+              },
+              {
+                "id": "o-two",
+                "supportsWebSearch": true,
+                "name": "Two"
+              },
+              {
+                "id": "o-plain"
+              }
+            ],
+            "gemini": [
+              {
+                "id": "g-one",
+                "supportsWebSearch": true,
+                "display": "G One"
+              }
+            ],
+            "anthropic-oauth": []
+          },
+          "rows": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat",
+              "hydrated": true
+            },
+            {
+              "id": "g-one",
+              "name": "G One",
+              "display": "G One",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "o-one",
+              "name": "o-one",
+              "display": "o-one",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "o-two",
+              "name": "Two",
+              "display": "Two",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "o-one",
+                "name": "o-one",
+                "display": "o-one",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsWebSearch": true,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ],
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "o-two",
+                "name": "Two",
+                "display": "Two",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsWebSearch": true,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ],
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "o-plain",
+                "name": "o-plain",
+                "display": "o-plain",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ],
+            [
+              "cacheRow",
+              "gemini",
+              {
+                "id": "g-one",
+                "name": "G One",
+                "display": "G One",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsWebSearch": true,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ],
+            [
+              "cacheRow",
+              "openai",
+              {
+                "id": "main-model",
+                "name": "main-model",
+                "display": "main-model",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ]
+          ],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat"
+            },
+            {
+              "id": "g-one",
+              "name": "G One",
+              "display": "G One",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "id": "o-one",
+              "name": "o-one",
+              "display": "o-one",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "id": "o-two",
+              "name": "Two",
+              "display": "Two",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        },
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai-oauth": [
+              {
+                "id": "o-one",
+                "supportsWebSearch": true
+              },
+              {
+                "id": "o-two",
+                "supportsWebSearch": true,
+                "name": "Two"
+              },
+              {
+                "id": "o-plain"
+              }
+            ],
+            "gemini": [
+              {
+                "id": "g-one",
+                "supportsWebSearch": true,
+                "display": "G One"
+              }
+            ],
+            "anthropic-oauth": []
+          },
+          "rows": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat",
+              "hydrated": true
+            },
+            {
+              "id": "g-one",
+              "name": "G One",
+              "display": "G One",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "o-one",
+              "name": "o-one",
+              "display": "o-one",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "o-two",
+              "name": "Two",
+              "display": "Two",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat"
+            },
+            {
+              "id": "g-one",
+              "name": "G One",
+              "display": "G One",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "id": "o-one",
+              "name": "o-one",
+              "display": "o-one",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "id": "o-two",
+              "name": "Two",
+              "display": "Two",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cold: a disabled provider and an incapable provider name are skipped",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai-oauth": {
+              "enabled": false
+            },
+            "grok-oauth": {
+              "enabled": true
+            },
+            "deepseek": {
+              "enabled": true
+            },
+            "not-a-provider": {
+              "enabled": true
+            }
+          }
+        },
+        "rosters": {
+          "openai-oauth": [
+            {
+              "id": "hidden",
+              "supportsWebSearch": true
+            }
+          ],
+          "grok-oauth": [
+            {
+              "id": "grok-s",
+              "supportsWebSearch": true
+            }
+          ],
+          "deepseek": [
+            {
+              "id": "ds",
+              "supportsWebSearch": true
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai-oauth": [
+              {
+                "id": "hidden",
+                "supportsWebSearch": true
+              }
+            ],
+            "grok-oauth": [
+              {
+                "id": "grok-s",
+                "supportsWebSearch": true
+              }
+            ],
+            "deepseek": [],
+            "not-a-provider": []
+          },
+          "rows": [
+            {
+              "id": "grok-s",
+              "name": "grok-s",
+              "display": "grok-s",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "grok-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "cacheRow",
+              "grok-oauth",
+              {
+                "id": "grok-s",
+                "name": "grok-s",
+                "display": "grok-s",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsWebSearch": true,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ]
+          ],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "grok-s",
+              "name": "grok-s",
+              "display": "grok-s",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "grok-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cold: provider ids are normalized and deduplicated",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            " gemini ": {
+              "enabled": true
+            },
+            "gemini-api": {
+              "enabled": true
+            }
+          }
+        },
+        "rosters": {
+          "gemini": [
+            {
+              "id": "shared",
+              "supportsWebSearch": true
+            },
+            {
+              "id": "shared",
+              "supportsWebSearch": true
+            },
+            {
+              "id": "only-one",
+              "supportsWebSearch": true
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "gemini": [
+              {
+                "id": "shared",
+                "supportsWebSearch": true
+              },
+              {
+                "id": "only-one",
+                "supportsWebSearch": true
+              }
+            ]
+          },
+          "rows": [
+            {
+              "id": "only-one",
+              "name": "only-one",
+              "display": "only-one",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "shared",
+              "name": "shared",
+              "display": "shared",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "cacheRow",
+              "gemini",
+              {
+                "id": "shared",
+                "name": "shared",
+                "display": "shared",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsWebSearch": true,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ],
+            [
+              "cacheRow",
+              "gemini",
+              {
+                "id": "only-one",
+                "name": "only-one",
+                "display": "only-one",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsWebSearch": true,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ]
+          ],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "only-one",
+              "name": "only-one",
+              "display": "only-one",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "id": "shared",
+              "name": "shared",
+              "display": "shared",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cold: roster rows carry catalog declarations",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai-oauth": {
+              "enabled": true
+            }
+          }
+        },
+        "rosters": {
+          "openai-oauth": [
+            {
+              "id": "tools",
+              "supportedTools": [
+                "web_search"
+              ],
+              "tools": [
+                "t"
+              ],
+              "capabilities": {
+                "search": true
+              },
+              "supportsWebSearch": true
+            },
+            {
+              "id": "explicit-false",
+              "supportsWebSearch": false
+            },
+            {
+              "id": "string-flag",
+              "supportsWebSearch": "yes"
+            },
+            {
+              "id": "reasoning",
+              "supportsWebSearch": true,
+              "supportsReasoning": true,
+              "reasoningOptions": [
+                "low"
+              ],
+              "reasoningLevels": [
+                "low",
+                "high"
+              ],
+              "reasoningContentField": "rc",
+              "contextWindow": 1000,
+              "outputTokens": 10,
+              "latest": true
+            },
+            {
+              "id": "kind",
+              "supportsWebSearch": true,
+              "mode": "embedding"
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai-oauth": [
+              {
+                "id": "tools",
+                "supportedTools": [
+                  "web_search"
+                ],
+                "tools": [
+                  "t"
+                ],
+                "capabilities": {
+                  "search": true
+                },
+                "supportsWebSearch": true
+              },
+              {
+                "id": "explicit-false",
+                "supportsWebSearch": false
+              },
+              {
+                "id": "string-flag",
+                "supportsWebSearch": "yes"
+              },
+              {
+                "id": "reasoning",
+                "supportsWebSearch": true,
+                "supportsReasoning": true,
+                "reasoningOptions": [
+                  "low"
+                ],
+                "reasoningLevels": [
+                  "low",
+                  "high"
+                ],
+                "reasoningContentField": "rc",
+                "contextWindow": 1000,
+                "outputTokens": 10,
+                "latest": true
+              },
+              {
+                "id": "kind",
+                "supportsWebSearch": true,
+                "mode": "embedding"
+              }
+            ]
+          },
+          "rows": [
+            {
+              "id": "kind",
+              "name": "kind",
+              "display": "kind",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "reasoning",
+              "name": "reasoning",
+              "display": "reasoning",
+              "contextWindow": 1000,
+              "outputTokens": 10,
+              "latest": true,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": true,
+              "reasoningLevels": [
+                "low",
+                "high"
+              ],
+              "reasoningOptions": [
+                "low"
+              ],
+              "reasoningContentField": "rc",
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "tools",
+              "name": "tools",
+              "display": "tools",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportedTools": [
+                "web_search"
+              ],
+              "tools": [
+                "t"
+              ],
+              "capabilities": {
+                "search": true
+              },
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "tools",
+                "name": "tools",
+                "display": "tools",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsWebSearch": true,
+                "supportedTools": [
+                  "web_search"
+                ],
+                "tools": [
+                  "t"
+                ],
+                "capabilities": {
+                  "search": true
+                },
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ],
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "explicit-false",
+                "name": "explicit-false",
+                "display": "explicit-false",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsWebSearch": false,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ],
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "string-flag",
+                "name": "string-flag",
+                "display": "string-flag",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ],
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "reasoning",
+                "name": "reasoning",
+                "display": "reasoning",
+                "contextWindow": 1000,
+                "outputTokens": 10,
+                "latest": true,
+                "supportsWebSearch": true,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": true,
+                "reasoningLevels": [
+                  "low",
+                  "high"
+                ],
+                "reasoningOptions": [
+                  "low"
+                ],
+                "reasoningContentField": "rc",
+                "mode": "chat"
+              }
+            ],
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "kind",
+                "name": "kind",
+                "display": "kind",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsWebSearch": true,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ]
+          ],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "kind",
+              "name": "kind",
+              "display": "kind",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "id": "reasoning",
+              "name": "reasoning",
+              "display": "reasoning",
+              "contextWindow": 1000,
+              "outputTokens": 10,
+              "latest": true,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": true,
+              "reasoningLevels": [
+                "low",
+                "high"
+              ],
+              "reasoningOptions": [
+                "low"
+              ],
+              "reasoningContentField": "rc",
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "id": "tools",
+              "name": "tools",
+              "display": "tools",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportedTools": [
+                "web_search"
+              ],
+              "tools": [
+                "t"
+              ],
+              "capabilities": {
+                "search": true
+              },
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cold: the capability table decides, not the roster flag",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai-oauth": {
+              "enabled": true
+            }
+          }
+        },
+        "rosters": {
+          "openai-oauth": [
+            {
+              "id": "capable-by-table"
+            },
+            {
+              "id": "declared-but-not-capable",
+              "supportsWebSearch": true
+            }
+          ]
+        },
+        "rowCapable": {
+          "openai-oauth:capable-by-table": true,
+          "openai-oauth:declared-but-not-capable": false
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai-oauth": [
+              {
+                "id": "capable-by-table"
+              },
+              {
+                "id": "declared-but-not-capable",
+                "supportsWebSearch": true
+              }
+            ]
+          },
+          "rows": [
+            {
+              "id": "capable-by-table",
+              "name": "capable-by-table",
+              "display": "capable-by-table",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "capable-by-table",
+                "name": "capable-by-table",
+                "display": "capable-by-table",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ],
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "declared-but-not-capable",
+                "name": "declared-but-not-capable",
+                "display": "declared-but-not-capable",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsWebSearch": true,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ]
+          ],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "capable-by-table",
+              "name": "capable-by-table",
+              "display": "capable-by-table",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cold: a configured web-search route is added",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {},
+          "webSearchRoute": {
+            "provider": "gemini",
+            "model": "configured-model"
+          }
+        },
+        "rowCapable": {
+          "gemini:configured-model": true
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {},
+          "rows": [
+            {
+              "id": "configured-model",
+              "name": "configured-model",
+              "display": "configured-model",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "gemini",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "cacheRow",
+              "gemini",
+              {
+                "id": "configured-model",
+                "name": "configured-model",
+                "display": "configured-model",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ]
+          ],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "configured-model",
+              "name": "configured-model",
+              "display": "configured-model",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "gemini",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cold: the route state is the fallback of the configured route",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {}
+        },
+        "webSearchRoute": {
+          "provider": "anthropic",
+          "model": "state-model"
+        },
+        "rowCapable": {
+          "anthropic:state-model": true
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {},
+          "rows": [
+            {
+              "id": "state-model",
+              "name": "state-model",
+              "display": "state-model",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "anthropic",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "cacheRow",
+              "anthropic",
+              {
+                "id": "state-model",
+                "name": "state-model",
+                "display": "state-model",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ]
+          ],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "state-model",
+              "name": "state-model",
+              "display": "state-model",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "anthropic",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cold: an unusable configured route falls back to the state",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {},
+          "webSearchRoute": {
+            "provider": "",
+            "model": ""
+          }
+        },
+        "webSearchRoute": {
+          "provider": "gemini",
+          "model": "state-model"
+        },
+        "rowCapable": {
+          "gemini:state-model": true
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {},
+          "rows": [
+            {
+              "id": "state-model",
+              "name": "state-model",
+              "display": "state-model",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "gemini",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "cacheRow",
+              "gemini",
+              {
+                "id": "state-model",
+                "name": "state-model",
+                "display": "state-model",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ]
+          ],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "state-model",
+              "name": "state-model",
+              "display": "state-model",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "gemini",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cold: the main model is added when it can search",
+      "world": {
+        "route": {
+          "provider": "anthropic",
+          "model": "claude-main"
+        },
+        "config": {
+          "providers": {}
+        },
+        "capable": {
+          "anthropic:claude-main": true
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {},
+          "rows": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: anthropic/claude-main",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "cacheRow",
+              "anthropic",
+              {
+                "id": "claude-main",
+                "name": "claude-main",
+                "display": "claude-main",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ]
+          ],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: anthropic/claude-main",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cold: the main model meta merges the provider catalog row",
+      "world": {
+        "route": {
+          "provider": "anthropic",
+          "model": "claude-main"
+        },
+        "config": {
+          "providers": {}
+        },
+        "providers": {
+          "anthropic": {
+            "cachedInfo": {
+              "claude-main": {
+                "supportsWebSearch": true,
+                "contextWindow": 77,
+                "supportedTools": [
+                  "web_search"
+                ]
+              }
+            }
+          }
+        },
+        "capable": {
+          "anthropic:claude-main": true
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {},
+          "rows": [
+            {
+              "id": "claude-main",
+              "name": "claude-main",
+              "display": "claude-main",
+              "contextWindow": 77,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportedTools": [
+                "web_search"
+              ],
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "anthropic",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: anthropic/claude-main",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "cacheRow",
+              "anthropic",
+              {
+                "id": "claude-main",
+                "name": "claude-main",
+                "display": "claude-main",
+                "contextWindow": 77,
+                "outputTokens": null,
+                "latest": false,
+                "supportsWebSearch": true,
+                "supportedTools": [
+                  "web_search"
+                ],
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ]
+          ],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: anthropic/claude-main",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat"
+            },
+            {
+              "id": "claude-main",
+              "name": "claude-main",
+              "display": "claude-main",
+              "contextWindow": 77,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportedTools": [
+                "web_search"
+              ],
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "anthropic",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cold: roster rows are not duplicated by the main model",
+      "world": {
+        "route": {
+          "provider": "openai-oauth",
+          "model": "o-one"
+        },
+        "config": {
+          "providers": {
+            "openai-oauth": {
+              "enabled": true
+            }
+          }
+        },
+        "rosters": {
+          "openai-oauth": [
+            {
+              "id": "o-one",
+              "supportsWebSearch": true
+            }
+          ]
+        },
+        "capable": {
+          "openai-oauth:o-one": true
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai-oauth": [
+              {
+                "id": "o-one",
+                "supportsWebSearch": true
+              }
+            ]
+          },
+          "rows": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai-oauth/o-one",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat",
+              "hydrated": true
+            },
+            {
+              "id": "o-one",
+              "name": "o-one",
+              "display": "o-one",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "o-one",
+                "name": "o-one",
+                "display": "o-one",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsWebSearch": true,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ]
+          ],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai-oauth/o-one",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat"
+            },
+            {
+              "id": "o-one",
+              "name": "o-one",
+              "display": "o-one",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cold: the default id from a roster is not a row of its own",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai-oauth": {
+              "enabled": true
+            }
+          }
+        },
+        "rosters": {
+          "openai-oauth": [
+            {
+              "id": "default",
+              "supportsWebSearch": true
+            },
+            {
+              "id": "Default",
+              "supportsWebSearch": true
+            },
+            {
+              "id": "real",
+              "supportsWebSearch": true
+            }
+          ]
+        },
+        "capable": {
+          "openai:x": true
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai-oauth": [
+              {
+                "id": "default",
+                "supportsWebSearch": true
+              },
+              {
+                "id": "Default",
+                "supportsWebSearch": true
+              },
+              {
+                "id": "real",
+                "supportsWebSearch": true
+              }
+            ]
+          },
+          "rows": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/x",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat",
+              "hydrated": true
+            },
+            {
+              "id": "Default",
+              "name": "Default",
+              "display": "Default",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "default",
+              "name": "default",
+              "display": "default",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "real",
+              "name": "real",
+              "display": "real",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "default",
+                "name": "default",
+                "display": "default",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsWebSearch": true,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ],
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "Default",
+                "name": "Default",
+                "display": "Default",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsWebSearch": true,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ],
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "real",
+                "name": "real",
+                "display": "real",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsWebSearch": true,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ],
+            [
+              "cacheRow",
+              "openai",
+              {
+                "id": "x",
+                "name": "x",
+                "display": "x",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ]
+          ],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/x",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat"
+            },
+            {
+              "id": "Default",
+              "name": "Default",
+              "display": "Default",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "id": "default",
+              "name": "default",
+              "display": "default",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "id": "real",
+              "name": "real",
+              "display": "real",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "derived: from the provider models cache",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "main-model"
+        },
+        "config": {
+          "providers": {
+            "openai-oauth": {
+              "enabled": true
+            },
+            "gemini": {
+              "enabled": true
+            },
+            "anthropic-oauth": {
+              "enabled": true
+            }
+          }
+        },
+        "capable": {
+          "openai:main-model": true
+        },
+        "modelsCache": [
+          {
+            "provider": "openai",
+            "id": "a-search",
+            "supportsWebSearch": true
+          },
+          {
+            "provider": "openai",
+            "id": "a-plain",
+            "supportsWebSearch": false
+          },
+          {
+            "provider": "gemini",
+            "id": "g-search",
+            "supportsWebSearch": true,
+            "webSearchToolType": "google_search"
+          },
+          {
+            "provider": "openai-oauth",
+            "id": "o-search",
+            "supportsWebSearch": true
+          },
+          {
+            "provider": "openai",
+            "id": "a-search",
+            "supportsWebSearch": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai-oauth": [],
+            "gemini": [],
+            "anthropic-oauth": []
+          },
+          "rows": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat",
+              "hydrated": true
+            },
+            {
+              "provider": "gemini",
+              "id": "g-search",
+              "supportsWebSearch": true,
+              "webSearchToolType": "google_search",
+              "webSearchCapable": true,
+              "hydrated": true
+            },
+            {
+              "provider": "openai",
+              "id": "a-search",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "provider": "openai-oauth",
+              "id": "o-search",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat"
+            },
+            {
+              "provider": "gemini",
+              "id": "g-search",
+              "supportsWebSearch": true,
+              "webSearchToolType": "google_search",
+              "webSearchCapable": true
+            },
+            {
+              "provider": "openai",
+              "id": "a-search",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "provider": "openai-oauth",
+              "id": "o-search",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        },
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai-oauth": [],
+            "gemini": [],
+            "anthropic-oauth": []
+          },
+          "rows": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat",
+              "hydrated": true
+            },
+            {
+              "provider": "gemini",
+              "id": "g-search",
+              "supportsWebSearch": true,
+              "webSearchToolType": "google_search",
+              "webSearchCapable": true,
+              "hydrated": true
+            },
+            {
+              "provider": "openai",
+              "id": "a-search",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "provider": "openai-oauth",
+              "id": "o-search",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat"
+            },
+            {
+              "provider": "gemini",
+              "id": "g-search",
+              "supportsWebSearch": true,
+              "webSearchToolType": "google_search",
+              "webSearchCapable": true
+            },
+            {
+              "provider": "openai",
+              "id": "a-search",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "provider": "openai-oauth",
+              "id": "o-search",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "derived: the cache is adopted, a later models cache is ignored",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {}
+        },
+        "modelsCache": [
+          {
+            "provider": "openai",
+            "id": "first",
+            "supportsWebSearch": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {},
+          "rows": [
+            {
+              "provider": "openai",
+              "id": "first",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [],
+          "remembered": [],
+          "cached": [
+            {
+              "provider": "openai",
+              "id": "first",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        },
+        {
+          "op": "modelsCache",
+          "rows": [
+            {
+              "provider": "openai",
+              "id": "second",
+              "supportsWebSearch": true
+            }
+          ]
+        },
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {},
+          "rows": [
+            {
+              "provider": "openai",
+              "id": "first",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [],
+          "remembered": [],
+          "cached": [
+            {
+              "provider": "openai",
+              "id": "first",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "derived: an empty models cache is a cache",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai-oauth": {
+              "enabled": true
+            }
+          }
+        },
+        "rosters": {
+          "openai-oauth": [
+            {
+              "id": "ignored",
+              "supportsWebSearch": true
+            }
+          ]
+        },
+        "modelsCache": []
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai-oauth": [
+              {
+                "id": "ignored",
+                "supportsWebSearch": true
+              }
+            ]
+          },
+          "rows": [],
+          "trace": [],
+          "remembered": [],
+          "cached": []
+        }
+      ]
+    },
+    {
+      "name": "derived: the default row leads and is not repeated",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {}
+        },
+        "capable": {
+          "openai:x": true
+        },
+        "modelsCache": [
+          {
+            "provider": "default",
+            "id": "default",
+            "supportsWebSearch": true
+          },
+          {
+            "provider": "openai",
+            "id": "a",
+            "supportsWebSearch": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {},
+          "rows": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/x",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat",
+              "hydrated": true
+            },
+            {
+              "provider": "openai",
+              "id": "a",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/x",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat"
+            },
+            {
+              "provider": "openai",
+              "id": "a",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "force: scans every enabled capable provider",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "main-model"
+        },
+        "config": {
+          "providers": {
+            "openai-oauth": {
+              "enabled": true
+            },
+            "gemini": {
+              "enabled": true
+            },
+            "anthropic-oauth": {
+              "enabled": true
+            }
+          }
+        },
+        "capable": {
+          "openai:main-model": true
+        },
+        "providers": {
+          "openai-oauth": {
+            "list": [
+              {
+                "id": "o-one",
+                "supportsWebSearch": true
+              },
+              {
+                "id": "o-plain"
+              },
+              {
+                "id": "o-two",
+                "supportsWebSearch": true
+              }
+            ]
+          },
+          "gemini": {
+            "list": [
+              {
+                "id": "g-one",
+                "supportsWebSearch": true
+              }
+            ]
+          },
+          "anthropic-oauth": {
+            "list": []
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": true,
+          "cachedModels": {
+            "openai-oauth": [],
+            "gemini": [],
+            "anthropic-oauth": []
+          },
+          "rows": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat",
+              "hydrated": true
+            },
+            {
+              "id": "g-one",
+              "supportsWebSearch": true,
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "o-one",
+              "supportsWebSearch": true,
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "o-two",
+              "supportsWebSearch": true,
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "awaitKeychainPrewarm"
+            ],
+            [
+              "ensureFullConfig"
+            ],
+            [
+              "ensureProvidersReady",
+              [
+                "anthropic-oauth",
+                "gemini",
+                "openai-oauth"
+              ]
+            ],
+            [
+              "listModels",
+              "openai-oauth"
+            ],
+            [
+              "listModels",
+              "gemini"
+            ],
+            [
+              "listModels",
+              "anthropic-oauth"
+            ],
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "o-one",
+                "supportsWebSearch": true
+              }
+            ],
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "o-plain"
+              }
+            ],
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "o-two",
+                "supportsWebSearch": true
+              }
+            ],
+            [
+              "cacheRow",
+              "gemini",
+              {
+                "id": "g-one",
+                "supportsWebSearch": true
+              }
+            ]
+          ],
+          "remembered": [
+            [
+              "openai-oauth",
+              "o-one",
+              {
+                "id": "o-one",
+                "supportsWebSearch": true,
+                "provider": "openai-oauth"
+              }
+            ],
+            [
+              "openai-oauth",
+              "o-two",
+              {
+                "id": "o-two",
+                "supportsWebSearch": true,
+                "provider": "openai-oauth"
+              }
+            ],
+            [
+              "gemini",
+              "g-one",
+              {
+                "id": "g-one",
+                "supportsWebSearch": true,
+                "provider": "gemini"
+              }
+            ]
+          ],
+          "cached": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat"
+            },
+            {
+              "id": "o-one",
+              "supportsWebSearch": true,
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "id": "o-two",
+              "supportsWebSearch": true,
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "id": "g-one",
+              "supportsWebSearch": true,
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        },
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai-oauth": [],
+            "gemini": [],
+            "anthropic-oauth": []
+          },
+          "rows": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat",
+              "hydrated": true
+            },
+            {
+              "id": "g-one",
+              "supportsWebSearch": true,
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "o-one",
+              "supportsWebSearch": true,
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "o-two",
+              "supportsWebSearch": true,
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat"
+            },
+            {
+              "id": "o-one",
+              "supportsWebSearch": true,
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "id": "o-two",
+              "supportsWebSearch": true,
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "id": "g-one",
+              "supportsWebSearch": true,
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "force: nothing enabled answers an empty list, with no default row",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "main-model"
+        },
+        "config": {
+          "providers": {}
+        },
+        "capable": {
+          "openai:main-model": true
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": true,
+          "cachedModels": {},
+          "rows": [],
+          "trace": [
+            [
+              "awaitKeychainPrewarm"
+            ],
+            [
+              "ensureFullConfig"
+            ]
+          ],
+          "remembered": [],
+          "cached": []
+        },
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {},
+          "rows": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat",
+              "hydrated": true
+            }
+          ],
+          "trace": [],
+          "remembered": [],
+          "cached": []
+        }
+      ]
+    },
+    {
+      "name": "force: the provider refreshes its cache first",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai": {
+              "enabled": true
+            },
+            "gemini": {
+              "enabled": true
+            }
+          }
+        },
+        "providers": {
+          "openai": {
+            "refresh": [
+              {
+                "id": "fresh",
+                "supportsWebSearch": true
+              }
+            ],
+            "list": [
+              {
+                "id": "stale",
+                "supportsWebSearch": true
+              }
+            ]
+          },
+          "gemini": {
+            "list": [
+              {
+                "id": "g",
+                "supportsWebSearch": true
+              }
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": true,
+          "cachedModels": {
+            "openai": [],
+            "gemini": []
+          },
+          "rows": [
+            {
+              "id": "g",
+              "supportsWebSearch": true,
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "fresh",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "awaitKeychainPrewarm"
+            ],
+            [
+              "ensureFullConfig"
+            ],
+            [
+              "ensureProvidersReady",
+              [
+                "gemini",
+                "openai"
+              ]
+            ],
+            [
+              "refreshModels",
+              "openai"
+            ],
+            [
+              "listModels",
+              "gemini"
+            ],
+            [
+              "cacheRow",
+              "openai",
+              {
+                "id": "fresh",
+                "supportsWebSearch": true
+              }
+            ],
+            [
+              "cacheRow",
+              "gemini",
+              {
+                "id": "g",
+                "supportsWebSearch": true
+              }
+            ]
+          ],
+          "remembered": [
+            [
+              "openai",
+              "fresh",
+              {
+                "id": "fresh",
+                "supportsWebSearch": true,
+                "provider": "openai"
+              }
+            ],
+            [
+              "gemini",
+              "g",
+              {
+                "id": "g",
+                "supportsWebSearch": true,
+                "provider": "gemini"
+              }
+            ]
+          ],
+          "cached": [
+            {
+              "id": "fresh",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "id": "g",
+              "supportsWebSearch": true,
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "force: a refresh that throws falls back to the listing",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          }
+        },
+        "providers": {
+          "openai": {
+            "refresh": "throw",
+            "list": [
+              {
+                "id": "listed",
+                "supportsWebSearch": true
+              }
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": true,
+          "cachedModels": {
+            "openai": []
+          },
+          "rows": [
+            {
+              "id": "listed",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "awaitKeychainPrewarm"
+            ],
+            [
+              "ensureFullConfig"
+            ],
+            [
+              "ensureProvidersReady",
+              [
+                "openai"
+              ]
+            ],
+            [
+              "refreshModels",
+              "openai"
+            ],
+            [
+              "listModels",
+              "openai"
+            ],
+            [
+              "cacheRow",
+              "openai",
+              {
+                "id": "listed",
+                "supportsWebSearch": true
+              }
+            ]
+          ],
+          "remembered": [
+            [
+              "openai",
+              "listed",
+              {
+                "id": "listed",
+                "supportsWebSearch": true,
+                "provider": "openai"
+              }
+            ]
+          ],
+          "cached": [
+            {
+              "id": "listed",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "force: a refresh that is not a list falls back to the listing",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          }
+        },
+        "providers": {
+          "openai": {
+            "refresh": "notArray",
+            "list": [
+              {
+                "id": "listed",
+                "supportsWebSearch": true
+              }
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": true,
+          "cachedModels": {
+            "openai": []
+          },
+          "rows": [
+            {
+              "id": "listed",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "awaitKeychainPrewarm"
+            ],
+            [
+              "ensureFullConfig"
+            ],
+            [
+              "ensureProvidersReady",
+              [
+                "openai"
+              ]
+            ],
+            [
+              "refreshModels",
+              "openai"
+            ],
+            [
+              "listModels",
+              "openai"
+            ],
+            [
+              "cacheRow",
+              "openai",
+              {
+                "id": "listed",
+                "supportsWebSearch": true
+              }
+            ]
+          ],
+          "remembered": [
+            [
+              "openai",
+              "listed",
+              {
+                "id": "listed",
+                "supportsWebSearch": true,
+                "provider": "openai"
+              }
+            ]
+          ],
+          "cached": [
+            {
+              "id": "listed",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "force: a listing that throws is an empty provider",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai": {
+              "enabled": true
+            },
+            "gemini": {
+              "enabled": true
+            }
+          }
+        },
+        "providers": {
+          "openai": {
+            "list": "throw"
+          },
+          "gemini": {
+            "list": [
+              {
+                "id": "g",
+                "supportsWebSearch": true
+              }
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": true,
+          "cachedModels": {
+            "openai": [],
+            "gemini": []
+          },
+          "rows": [
+            {
+              "id": "g",
+              "supportsWebSearch": true,
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "awaitKeychainPrewarm"
+            ],
+            [
+              "ensureFullConfig"
+            ],
+            [
+              "ensureProvidersReady",
+              [
+                "gemini",
+                "openai"
+              ]
+            ],
+            [
+              "listModels",
+              "openai"
+            ],
+            [
+              "listModels",
+              "gemini"
+            ],
+            [
+              "cacheRow",
+              "gemini",
+              {
+                "id": "g",
+                "supportsWebSearch": true
+              }
+            ]
+          ],
+          "remembered": [
+            [
+              "gemini",
+              "g",
+              {
+                "id": "g",
+                "supportsWebSearch": true,
+                "provider": "gemini"
+              }
+            ]
+          ],
+          "cached": [
+            {
+              "id": "g",
+              "supportsWebSearch": true,
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "force: a listing that is not a list is an empty provider",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          }
+        },
+        "providers": {
+          "openai": {
+            "list": "notArray"
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": true,
+          "cachedModels": {
+            "openai": []
+          },
+          "rows": [],
+          "trace": [
+            [
+              "awaitKeychainPrewarm"
+            ],
+            [
+              "ensureFullConfig"
+            ],
+            [
+              "ensureProvidersReady",
+              [
+                "openai"
+              ]
+            ],
+            [
+              "listModels",
+              "openai"
+            ]
+          ],
+          "remembered": [],
+          "cached": []
+        }
+      ]
+    },
+    {
+      "name": "force: a provider with no listing is skipped",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai": {
+              "enabled": true
+            },
+            "gemini": {
+              "enabled": true
+            }
+          }
+        },
+        "providers": {
+          "openai": {
+            "list": "absent"
+          },
+          "gemini": {
+            "list": [
+              {
+                "id": "g",
+                "supportsWebSearch": true
+              }
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": true,
+          "cachedModels": {
+            "openai": [],
+            "gemini": []
+          },
+          "rows": [
+            {
+              "id": "g",
+              "supportsWebSearch": true,
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "awaitKeychainPrewarm"
+            ],
+            [
+              "ensureFullConfig"
+            ],
+            [
+              "ensureProvidersReady",
+              [
+                "gemini",
+                "openai"
+              ]
+            ],
+            [
+              "listModels",
+              "gemini"
+            ],
+            [
+              "cacheRow",
+              "gemini",
+              {
+                "id": "g",
+                "supportsWebSearch": true
+              }
+            ]
+          ],
+          "remembered": [
+            [
+              "gemini",
+              "g",
+              {
+                "id": "g",
+                "supportsWebSearch": true,
+                "provider": "gemini"
+              }
+            ]
+          ],
+          "cached": [
+            {
+              "id": "g",
+              "supportsWebSearch": true,
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "force: an unregistered provider is skipped",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai": {
+              "enabled": true
+            },
+            "gemini": {
+              "enabled": true
+            }
+          }
+        },
+        "providers": {
+          "gemini": {
+            "list": [
+              {
+                "id": "g",
+                "supportsWebSearch": true
+              }
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": true,
+          "cachedModels": {
+            "openai": [],
+            "gemini": []
+          },
+          "rows": [
+            {
+              "id": "g",
+              "supportsWebSearch": true,
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "awaitKeychainPrewarm"
+            ],
+            [
+              "ensureFullConfig"
+            ],
+            [
+              "ensureProvidersReady",
+              [
+                "gemini",
+                "openai"
+              ]
+            ],
+            [
+              "listModels",
+              "gemini"
+            ],
+            [
+              "cacheRow",
+              "gemini",
+              {
+                "id": "g",
+                "supportsWebSearch": true
+              }
+            ]
+          ],
+          "remembered": [
+            [
+              "gemini",
+              "g",
+              {
+                "id": "g",
+                "supportsWebSearch": true,
+                "provider": "gemini"
+              }
+            ]
+          ],
+          "cached": [
+            {
+              "id": "g",
+              "supportsWebSearch": true,
+              "provider": "gemini",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "force: models without an id or not selectable are dropped",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          }
+        },
+        "providers": {
+          "openai": {
+            "list": [
+              {
+                "id": "",
+                "supportsWebSearch": true
+              },
+              {
+                "supportsWebSearch": true
+              },
+              null,
+              {
+                "id": "embed-search",
+                "supportsWebSearch": true,
+                "mode": "embedding"
+              },
+              {
+                "id": "image-gen",
+                "supportsWebSearch": true
+              },
+              {
+                "id": "text-embedding-3",
+                "supportsWebSearch": true
+              },
+              {
+                "id": "ok",
+                "supportsWebSearch": true,
+                "display": "OK"
+              },
+              {
+                "id": "speech-x",
+                "supportsWebSearch": true,
+                "name": "Speech"
+              },
+              {
+                "id": "chat-one",
+                "supportsWebSearch": true,
+                "mode": "chat"
+              }
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": true,
+          "cachedModels": {
+            "openai": []
+          },
+          "rows": [
+            {
+              "id": "chat-one",
+              "supportsWebSearch": true,
+              "mode": "chat",
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "ok",
+              "supportsWebSearch": true,
+              "display": "OK",
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "awaitKeychainPrewarm"
+            ],
+            [
+              "ensureFullConfig"
+            ],
+            [
+              "ensureProvidersReady",
+              [
+                "openai"
+              ]
+            ],
+            [
+              "listModels",
+              "openai"
+            ],
+            [
+              "cacheRow",
+              "openai",
+              {
+                "id": "ok",
+                "supportsWebSearch": true,
+                "display": "OK"
+              }
+            ],
+            [
+              "cacheRow",
+              "openai",
+              {
+                "id": "chat-one",
+                "supportsWebSearch": true,
+                "mode": "chat"
+              }
+            ]
+          ],
+          "remembered": [
+            [
+              "openai",
+              "ok",
+              {
+                "id": "ok",
+                "supportsWebSearch": true,
+                "display": "OK",
+                "provider": "openai"
+              }
+            ],
+            [
+              "openai",
+              "chat-one",
+              {
+                "id": "chat-one",
+                "supportsWebSearch": true,
+                "mode": "chat",
+                "provider": "openai"
+              }
+            ]
+          ],
+          "cached": [
+            {
+              "id": "ok",
+              "supportsWebSearch": true,
+              "display": "OK",
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "id": "chat-one",
+              "supportsWebSearch": true,
+              "mode": "chat",
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "force: rows are remembered under their provider",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          }
+        },
+        "providers": {
+          "openai": {
+            "list": [
+              {
+                "id": "a",
+                "supportsWebSearch": true
+              },
+              {
+                "id": "b",
+                "supportsWebSearch": true
+              }
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": true,
+          "cachedModels": {
+            "openai": []
+          },
+          "rows": [
+            {
+              "id": "a",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "b",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "awaitKeychainPrewarm"
+            ],
+            [
+              "ensureFullConfig"
+            ],
+            [
+              "ensureProvidersReady",
+              [
+                "openai"
+              ]
+            ],
+            [
+              "listModels",
+              "openai"
+            ],
+            [
+              "cacheRow",
+              "openai",
+              {
+                "id": "a",
+                "supportsWebSearch": true
+              }
+            ],
+            [
+              "cacheRow",
+              "openai",
+              {
+                "id": "b",
+                "supportsWebSearch": true
+              }
+            ]
+          ],
+          "remembered": [
+            [
+              "openai",
+              "a",
+              {
+                "id": "a",
+                "supportsWebSearch": true,
+                "provider": "openai"
+              }
+            ],
+            [
+              "openai",
+              "b",
+              {
+                "id": "b",
+                "supportsWebSearch": true,
+                "provider": "openai"
+              }
+            ]
+          ],
+          "cached": [
+            {
+              "id": "a",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "id": "b",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "force: duplicate rows across providers keep the first",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai-oauth": {
+              "enabled": true
+            },
+            "openai": {
+              "enabled": true
+            }
+          }
+        },
+        "providers": {
+          "openai-oauth": {
+            "list": [
+              {
+                "id": "same",
+                "supportsWebSearch": true
+              },
+              {
+                "id": "same",
+                "supportsWebSearch": true
+              }
+            ]
+          },
+          "openai": {
+            "list": [
+              {
+                "id": "same",
+                "supportsWebSearch": true
+              },
+              {
+                "id": "other",
+                "supportsWebSearch": true
+              }
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": true,
+          "cachedModels": {
+            "openai-oauth": [],
+            "openai": []
+          },
+          "rows": [
+            {
+              "id": "other",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "same",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "same",
+              "supportsWebSearch": true,
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "awaitKeychainPrewarm"
+            ],
+            [
+              "ensureFullConfig"
+            ],
+            [
+              "ensureProvidersReady",
+              [
+                "openai",
+                "openai-oauth"
+              ]
+            ],
+            [
+              "listModels",
+              "openai-oauth"
+            ],
+            [
+              "listModels",
+              "openai"
+            ],
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "same",
+                "supportsWebSearch": true
+              }
+            ],
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "same",
+                "supportsWebSearch": true
+              }
+            ],
+            [
+              "cacheRow",
+              "openai",
+              {
+                "id": "same",
+                "supportsWebSearch": true
+              }
+            ],
+            [
+              "cacheRow",
+              "openai",
+              {
+                "id": "other",
+                "supportsWebSearch": true
+              }
+            ]
+          ],
+          "remembered": [
+            [
+              "openai-oauth",
+              "same",
+              {
+                "id": "same",
+                "supportsWebSearch": true,
+                "provider": "openai-oauth"
+              }
+            ],
+            [
+              "openai-oauth",
+              "same",
+              {
+                "id": "same",
+                "supportsWebSearch": true,
+                "provider": "openai-oauth"
+              }
+            ],
+            [
+              "openai",
+              "same",
+              {
+                "id": "same",
+                "supportsWebSearch": true,
+                "provider": "openai"
+              }
+            ],
+            [
+              "openai",
+              "other",
+              {
+                "id": "other",
+                "supportsWebSearch": true,
+                "provider": "openai"
+              }
+            ]
+          ],
+          "cached": [
+            {
+              "id": "same",
+              "supportsWebSearch": true,
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "id": "same",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "id": "other",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "force: the default row leads, a listed default is not repeated",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "main-model"
+        },
+        "config": {
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          }
+        },
+        "capable": {
+          "openai:main-model": true
+        },
+        "providers": {
+          "openai": {
+            "list": [
+              {
+                "id": "default",
+                "supportsWebSearch": true
+              },
+              {
+                "id": "real",
+                "supportsWebSearch": true
+              }
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": true,
+          "cachedModels": {
+            "openai": []
+          },
+          "rows": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat",
+              "hydrated": true
+            },
+            {
+              "id": "default",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "id": "real",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "awaitKeychainPrewarm"
+            ],
+            [
+              "ensureFullConfig"
+            ],
+            [
+              "ensureProvidersReady",
+              [
+                "openai"
+              ]
+            ],
+            [
+              "listModels",
+              "openai"
+            ],
+            [
+              "cacheRow",
+              "openai",
+              {
+                "id": "default",
+                "supportsWebSearch": true
+              }
+            ],
+            [
+              "cacheRow",
+              "openai",
+              {
+                "id": "real",
+                "supportsWebSearch": true
+              }
+            ]
+          ],
+          "remembered": [
+            [
+              "openai",
+              "default",
+              {
+                "id": "default",
+                "supportsWebSearch": true,
+                "provider": "openai"
+              }
+            ],
+            [
+              "openai",
+              "real",
+              {
+                "id": "real",
+                "supportsWebSearch": true,
+                "provider": "openai"
+              }
+            ]
+          ],
+          "cached": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat"
+            },
+            {
+              "id": "default",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            },
+            {
+              "id": "real",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "force: the cache is replaced by a forced read",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          }
+        },
+        "providers": {
+          "openai": {
+            "list": [
+              {
+                "id": "v1",
+                "supportsWebSearch": true
+              }
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": true,
+          "cachedModels": {
+            "openai": []
+          },
+          "rows": [
+            {
+              "id": "v1",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "awaitKeychainPrewarm"
+            ],
+            [
+              "ensureFullConfig"
+            ],
+            [
+              "ensureProvidersReady",
+              [
+                "openai"
+              ]
+            ],
+            [
+              "listModels",
+              "openai"
+            ],
+            [
+              "cacheRow",
+              "openai",
+              {
+                "id": "v1",
+                "supportsWebSearch": true
+              }
+            ]
+          ],
+          "remembered": [
+            [
+              "openai",
+              "v1",
+              {
+                "id": "v1",
+                "supportsWebSearch": true,
+                "provider": "openai"
+              }
+            ]
+          ],
+          "cached": [
+            {
+              "id": "v1",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        },
+        {
+          "op": "list",
+          "provider": "openai",
+          "rows": [
+            {
+              "id": "v2",
+              "supportsWebSearch": true
+            }
+          ]
+        },
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai": []
+          },
+          "rows": [
+            {
+              "id": "v1",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "v1",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        },
+        {
+          "op": "collect",
+          "force": true,
+          "cachedModels": {
+            "openai": []
+          },
+          "rows": [
+            {
+              "id": "v2",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "awaitKeychainPrewarm"
+            ],
+            [
+              "ensureFullConfig"
+            ],
+            [
+              "ensureProvidersReady",
+              [
+                "openai"
+              ]
+            ],
+            [
+              "listModels",
+              "openai"
+            ],
+            [
+              "cacheRow",
+              "openai",
+              {
+                "id": "v2",
+                "supportsWebSearch": true
+              }
+            ]
+          ],
+          "remembered": [
+            [
+              "openai",
+              "v2",
+              {
+                "id": "v2",
+                "supportsWebSearch": true,
+                "provider": "openai"
+              }
+            ]
+          ],
+          "cached": [
+            {
+              "id": "v2",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        },
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai": []
+          },
+          "rows": [
+            {
+              "id": "v2",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "v2",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "revision: a moved catalog drops the adopted cache",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai-oauth": {
+              "enabled": true
+            }
+          }
+        },
+        "rosters": {
+          "openai-oauth": [
+            {
+              "id": "quick-two",
+              "supportsWebSearch": true
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai-oauth": [
+              {
+                "id": "quick-one",
+                "supportsWebSearch": true
+              }
+            ]
+          },
+          "rows": [
+            {
+              "id": "quick-one",
+              "name": "quick-one",
+              "display": "quick-one",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "quick-one",
+                "name": "quick-one",
+                "display": "quick-one",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsWebSearch": true,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ]
+          ],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "quick-one",
+              "name": "quick-one",
+              "display": "quick-one",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        },
+        {
+          "op": "roster",
+          "provider": "openai-oauth",
+          "rows": [
+            {
+              "id": "quick-two",
+              "supportsWebSearch": true
+            }
+          ]
+        },
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai-oauth": [
+              {
+                "id": "quick-two",
+                "supportsWebSearch": true
+              }
+            ]
+          },
+          "rows": [
+            {
+              "id": "quick-one",
+              "name": "quick-one",
+              "display": "quick-one",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "quick-one",
+              "name": "quick-one",
+              "display": "quick-one",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        },
+        {
+          "op": "revision",
+          "value": 2
+        },
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai-oauth": [
+              {
+                "id": "quick-two",
+                "supportsWebSearch": true
+              }
+            ]
+          },
+          "rows": [
+            {
+              "id": "quick-two",
+              "name": "quick-two",
+              "display": "quick-two",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "dropped",
+              2
+            ],
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "quick-two",
+                "name": "quick-two",
+                "display": "quick-two",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsWebSearch": true,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ]
+          ],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "quick-two",
+              "name": "quick-two",
+              "display": "quick-two",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        },
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai-oauth": [
+              {
+                "id": "quick-two",
+                "supportsWebSearch": true
+              }
+            ]
+          },
+          "rows": [
+            {
+              "id": "quick-two",
+              "name": "quick-two",
+              "display": "quick-two",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "quick-two",
+              "name": "quick-two",
+              "display": "quick-two",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "revision: an unchanged revision keeps the cache",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai-oauth": {
+              "enabled": true
+            }
+          }
+        },
+        "rosters": {
+          "openai-oauth": [
+            {
+              "id": "quick-two",
+              "supportsWebSearch": true
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai-oauth": [
+              {
+                "id": "quick-one",
+                "supportsWebSearch": true
+              }
+            ]
+          },
+          "rows": [
+            {
+              "id": "quick-one",
+              "name": "quick-one",
+              "display": "quick-one",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "quick-one",
+                "name": "quick-one",
+                "display": "quick-one",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsWebSearch": true,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ]
+          ],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "quick-one",
+              "name": "quick-one",
+              "display": "quick-one",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        },
+        {
+          "op": "revision",
+          "value": 0
+        },
+        {
+          "op": "roster",
+          "provider": "openai-oauth",
+          "rows": [
+            {
+              "id": "quick-two",
+              "supportsWebSearch": true
+            }
+          ]
+        },
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai-oauth": [
+              {
+                "id": "quick-two",
+                "supportsWebSearch": true
+              }
+            ]
+          },
+          "rows": [
+            {
+              "id": "quick-one",
+              "name": "quick-one",
+              "display": "quick-one",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "quick-one",
+              "name": "quick-one",
+              "display": "quick-one",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "revision: a forced read after a move",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          }
+        },
+        "providers": {
+          "openai": {
+            "list": [
+              {
+                "id": "a",
+                "supportsWebSearch": true
+              }
+            ]
+          }
+        }
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": true,
+          "cachedModels": {
+            "openai": []
+          },
+          "rows": [
+            {
+              "id": "a",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "awaitKeychainPrewarm"
+            ],
+            [
+              "ensureFullConfig"
+            ],
+            [
+              "ensureProvidersReady",
+              [
+                "openai"
+              ]
+            ],
+            [
+              "listModels",
+              "openai"
+            ],
+            [
+              "cacheRow",
+              "openai",
+              {
+                "id": "a",
+                "supportsWebSearch": true
+              }
+            ]
+          ],
+          "remembered": [
+            [
+              "openai",
+              "a",
+              {
+                "id": "a",
+                "supportsWebSearch": true,
+                "provider": "openai"
+              }
+            ]
+          ],
+          "cached": [
+            {
+              "id": "a",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        },
+        {
+          "op": "revision",
+          "value": 5
+        },
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai": []
+          },
+          "rows": [],
+          "trace": [
+            [
+              "dropped",
+              5
+            ]
+          ],
+          "remembered": [],
+          "cached": []
+        },
+        {
+          "op": "collect",
+          "force": true,
+          "cachedModels": {
+            "openai": []
+          },
+          "rows": [
+            {
+              "id": "a",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "awaitKeychainPrewarm"
+            ],
+            [
+              "ensureFullConfig"
+            ],
+            [
+              "ensureProvidersReady",
+              [
+                "openai"
+              ]
+            ],
+            [
+              "listModels",
+              "openai"
+            ],
+            [
+              "cacheRow",
+              "openai",
+              {
+                "id": "a",
+                "supportsWebSearch": true
+              }
+            ]
+          ],
+          "remembered": [
+            [
+              "openai",
+              "a",
+              {
+                "id": "a",
+                "supportsWebSearch": true,
+                "provider": "openai"
+              }
+            ]
+          ],
+          "cached": [
+            {
+              "id": "a",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        },
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai": []
+          },
+          "rows": [
+            {
+              "id": "a",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "a",
+              "supportsWebSearch": true,
+              "provider": "openai",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "revision: a non-numeric revision reads as zero",
+      "world": {
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {
+            "openai-oauth": {
+              "enabled": true
+            }
+          }
+        },
+        "rosters": {
+          "openai-oauth": [
+            {
+              "id": "a",
+              "supportsWebSearch": true
+            }
+          ]
+        }
+      },
+      "steps": [
+        {
+          "op": "revision",
+          "value": "x"
+        },
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai-oauth": [
+              {
+                "id": "a",
+                "supportsWebSearch": true
+              }
+            ]
+          },
+          "rows": [
+            {
+              "id": "a",
+              "name": "a",
+              "display": "a",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "cacheRow",
+              "openai-oauth",
+              {
+                "id": "a",
+                "name": "a",
+                "display": "a",
+                "contextWindow": null,
+                "outputTokens": null,
+                "latest": false,
+                "supportsWebSearch": true,
+                "supportsFunctionCalling": false,
+                "supportsPromptCaching": false,
+                "supportsReasoning": false,
+                "reasoningOptions": [],
+                "reasoningContentField": null,
+                "mode": "chat"
+              }
+            ]
+          ],
+          "remembered": [],
+          "cached": [
+            {
+              "id": "a",
+              "name": "a",
+              "display": "a",
+              "contextWindow": null,
+              "outputTokens": null,
+              "latest": false,
+              "supportsWebSearch": true,
+              "supportsFunctionCalling": false,
+              "supportsPromptCaching": false,
+              "supportsReasoning": false,
+              "reasoningOptions": [],
+              "reasoningContentField": null,
+              "mode": "chat",
+              "provider": "openai-oauth",
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "client: forced and plain reads go through the shared catalog",
+      "world": {
+        "client": true,
+        "route": {
+          "provider": "openai",
+          "model": "main-model"
+        },
+        "config": {
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          }
+        },
+        "capable": {
+          "openai:main-model": true
+        },
+        "collected": [
+          {
+            "provider": "openai",
+            "id": "a",
+            "supportsWebSearch": true
+          },
+          {
+            "provider": "openai",
+            "id": "b",
+            "supportsWebSearch": false
+          },
+          {
+            "provider": "gemini",
+            "id": "g",
+            "supportsWebSearch": true,
+            "webSearchToolType": "google_search"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai": []
+          },
+          "rows": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat",
+              "hydrated": true
+            },
+            {
+              "provider": "gemini",
+              "id": "g",
+              "supportsWebSearch": true,
+              "webSearchToolType": "google_search",
+              "webSearchCapable": true,
+              "hydrated": true
+            },
+            {
+              "provider": "openai",
+              "id": "a",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "collectProviderModels",
+              false
+            ]
+          ],
+          "remembered": [],
+          "cached": null
+        },
+        {
+          "op": "collect",
+          "force": true,
+          "cachedModels": {
+            "openai": []
+          },
+          "rows": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat",
+              "hydrated": true
+            },
+            {
+              "provider": "gemini",
+              "id": "g",
+              "supportsWebSearch": true,
+              "webSearchToolType": "google_search",
+              "webSearchCapable": true,
+              "hydrated": true
+            },
+            {
+              "provider": "openai",
+              "id": "a",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "collectProviderModels",
+              true
+            ]
+          ],
+          "remembered": [],
+          "cached": null
+        },
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {
+            "openai": []
+          },
+          "rows": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat",
+              "hydrated": true
+            },
+            {
+              "provider": "gemini",
+              "id": "g",
+              "supportsWebSearch": true,
+              "webSearchToolType": "google_search",
+              "webSearchCapable": true,
+              "hydrated": true
+            },
+            {
+              "provider": "openai",
+              "id": "a",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "collectProviderModels",
+              false
+            ]
+          ],
+          "remembered": [],
+          "cached": null
+        }
+      ]
+    },
+    {
+      "name": "client: nothing is cached between reads",
+      "world": {
+        "client": true,
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {}
+        },
+        "collected": [
+          {
+            "provider": "openai",
+            "id": "one",
+            "supportsWebSearch": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {},
+          "rows": [
+            {
+              "provider": "openai",
+              "id": "one",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "collectProviderModels",
+              false
+            ]
+          ],
+          "remembered": [],
+          "cached": null
+        },
+        {
+          "op": "collected",
+          "rows": [
+            {
+              "provider": "openai",
+              "id": "two",
+              "supportsWebSearch": true
+            }
+          ]
+        },
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {},
+          "rows": [
+            {
+              "provider": "openai",
+              "id": "two",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "collectProviderModels",
+              false
+            ]
+          ],
+          "remembered": [],
+          "cached": null
+        }
+      ]
+    },
+    {
+      "name": "client: an empty shared catalog",
+      "world": {
+        "client": true,
+        "route": {
+          "provider": "openai",
+          "model": "x"
+        },
+        "config": {
+          "providers": {}
+        },
+        "collected": []
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {},
+          "rows": [],
+          "trace": [
+            [
+              "collectProviderModels",
+              false
+            ]
+          ],
+          "remembered": [],
+          "cached": null
+        }
+      ]
+    },
+    {
+      "name": "client: the default row and provider normalization",
+      "world": {
+        "client": true,
+        "route": {
+          "provider": "openai",
+          "model": "main-model"
+        },
+        "config": {
+          "providers": {}
+        },
+        "capable": {
+          "openai:main-model": true
+        },
+        "collected": [
+          {
+            "provider": "openai-oauth",
+            "id": "o",
+            "supportsWebSearch": true
+          },
+          {
+            "provider": "default",
+            "id": "default",
+            "supportsWebSearch": true
+          },
+          {
+            "provider": "openai",
+            "id": "o",
+            "supportsWebSearch": true
+          },
+          {
+            "provider": "",
+            "id": "no-provider",
+            "supportsWebSearch": true
+          },
+          {
+            "provider": "openai",
+            "model": "by-model-key",
+            "supportsWebSearch": true
+          }
+        ]
+      },
+      "steps": [
+        {
+          "op": "collect",
+          "force": false,
+          "cachedModels": {},
+          "rows": [
+            {
+              "id": "default",
+              "provider": "default",
+              "display": "Default",
+              "name": "Default",
+              "description": "Use current main model: openai/main-model",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "mode": "chat",
+              "hydrated": true
+            },
+            {
+              "provider": "openai",
+              "id": "o",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "provider": "openai",
+              "model": "by-model-key",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            },
+            {
+              "provider": "openai-oauth",
+              "id": "o",
+              "supportsWebSearch": true,
+              "webSearchCapable": true,
+              "webSearchToolType": "web_search",
+              "hydrated": true
+            }
+          ],
+          "trace": [
+            [
+              "collectProviderModels",
+              false
+            ]
+          ],
+          "remembered": [],
+          "cached": null
+        }
+      ]
+    }
+  ],
+  "quick": [
+    {
+      "name": "empty",
+      "models": {},
+      "rows": []
+    },
+    {
+      "name": "null",
+      "models": null,
+      "rows": []
+    },
+    {
+      "name": "six rows, dated and undated",
+      "models": {
+        "a": {
+          "name": "A",
+          "release_date": "2025-01-01"
+        },
+        "b": {
+          "name": "B",
+          "release_date": "2026-03-01"
+        },
+        "c": {
+          "release_date": "2024-12-31"
+        },
+        "d": {
+          "name": "D"
+        },
+        "e": {
+          "name": "E",
+          "release_date": "2026-03-01"
+        },
+        "f": {
+          "name": "F",
+          "release_date": "2026-04"
+        },
+        "g": {
+          "name": "G",
+          "release_date": "garbage"
+        }
+      },
+      "rows": [
+        {
+          "id": "f",
+          "display": "F",
+          "releaseDate": "2026-04"
+        },
+        {
+          "id": "b",
+          "display": "B",
+          "releaseDate": "2026-03-01"
+        },
+        {
+          "id": "e",
+          "display": "E",
+          "releaseDate": "2026-03-01"
+        },
+        {
+          "id": "a",
+          "display": "A",
+          "releaseDate": "2025-01-01"
+        },
+        {
+          "id": "c",
+          "display": "c",
+          "releaseDate": "2024-12-31"
+        }
+      ]
+    },
+    {
+      "name": "ties keep their order",
+      "models": {
+        "x": {
+          "release_date": "2026-01-01"
+        },
+        "y": {
+          "release_date": "2026-01-01"
+        },
+        "z": {
+          "release_date": "2026-01-01"
+        }
+      },
+      "rows": [
+        {
+          "id": "x",
+          "display": "x",
+          "releaseDate": "2026-01-01"
+        },
+        {
+          "id": "y",
+          "display": "y",
+          "releaseDate": "2026-01-01"
+        },
+        {
+          "id": "z",
+          "display": "z",
+          "releaseDate": "2026-01-01"
+        }
+      ]
+    },
+    {
+      "name": "a row that is not an object",
+      "models": {
+        "x": null,
+        "y": "text",
+        "z": {
+          "name": "Z",
+          "release_date": "2026-02-02"
+        }
+      },
+      "rows": [
+        {
+          "id": "z",
+          "display": "Z",
+          "releaseDate": "2026-02-02"
+        },
+        {
+          "id": "x",
+          "display": "x",
+          "releaseDate": null
+        },
+        {
+          "id": "y",
+          "display": "y",
+          "releaseDate": null
+        }
+      ]
+    }
+  ]
+}

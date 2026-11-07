@@ -324,7 +324,9 @@ mod tests {
                 .await
                 .expect("prepared");
             assert_eq!(names(&prepared), list(&case["tools"]), "{}", case["name"]);
-            assert_eq!(prepared.tool_spec, case["spec"], "{}", case["name"]);
+            // A case recorded with no spec resolved as `full`: `_prepareResumeTools` names `preset || session.preset || 'full'` as the spec it used.
+            let spec = if case["spec"].is_null() { json!("full") } else { case["spec"].clone() };
+            assert_eq!(prepared.tool_spec, spec, "{}", case["name"]);
         }
     }
 

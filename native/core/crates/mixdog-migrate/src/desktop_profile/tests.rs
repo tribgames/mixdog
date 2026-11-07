@@ -794,25 +794,22 @@ fn run_child_killed_at(work: &Path, kill_at: usize) -> std::process::ExitStatus 
     child.wait().unwrap()
 }
 
-#[test]
-fn the_crash_matrix_ends_in_the_state_of_an_uninterrupted_run() {
-    let corpus = corpus_root();
+/// Work dirs the fault points are split over. A kill-and-resume of one point shares nothing
+/// with another's, and a run is bound by its journal and publication syncs, not by the
+/// processor, so the points of different dirs overlap their waits.
+const MATRIX_WORKERS: usize = 8;
+
+/// Kills the migration in a child at each of `points[worker]`, `points[worker + MATRIX_WORKERS]`,
+/// ... in a work dir of its own, resumes it and compares with that dir's uninterrupted run (the
+/// manifest names the dir's roots, so the state differs from dir to dir).
+fn kill_and_resume_each_point(corpus: &Path, points: &[String], worker: usize) {
     let work = Work::new();
-
-    let roots = work.prepare(&corpus);
-    let points = Arc::new(Mutex::new(Vec::<String>::new()));
-    let record = Arc::clone(&points);
-    let recorder: FaultHook = Arc::new(move |point| {
-        record.lock().unwrap().push(point.to_owned());
-        Ok(())
-    });
-    migrator(&roots, Some(recorder)).run().unwrap();
+    let roots = work.prepare(corpus);
+    migrator(&roots, None).run().unwrap();
     let expected = final_state(&roots);
-    let points = points.lock().unwrap().clone();
-    assert!(points.len() > 100, "{} fault points", points.len());
 
-    for (kill_at, point) in points.iter().enumerate() {
-        let roots = work.prepare(&corpus);
+    for (kill_at, point) in points.iter().enumerate().skip(worker).step_by(MATRIX_WORKERS) {
+        let roots = work.prepare(corpus);
         let status = run_child_killed_at(work.dir.path(), kill_at);
         assert!(!status.success(), "the child survived the kill at {kill_at} ({point})");
         // The marker is written between `complete:before` and `complete:after`: a kill at
@@ -827,6 +824,30 @@ fn the_crash_matrix_ends_in_the_state_of_an_uninterrupted_run() {
             .unwrap_or_else(|error| panic!("resume after {point}: {error}"));
         assert_eq!(final_state(&roots), expected, "after a kill at {point}");
     }
+}
+
+#[test]
+fn the_crash_matrix_ends_in_the_state_of_an_uninterrupted_run() {
+    let corpus = corpus_root();
+    let work = Work::new();
+
+    let roots = work.prepare(&corpus);
+    let points = Arc::new(Mutex::new(Vec::<String>::new()));
+    let record = Arc::clone(&points);
+    let recorder: FaultHook = Arc::new(move |point| {
+        record.lock().unwrap().push(point.to_owned());
+        Ok(())
+    });
+    migrator(&roots, Some(recorder)).run().unwrap();
+    let points = points.lock().unwrap().clone();
+    assert!(points.len() > 100, "{} fault points", points.len());
+
+    std::thread::scope(|scope| {
+        for worker in 0..MATRIX_WORKERS {
+            let (corpus, points) = (&corpus, &points);
+            scope.spawn(move || kill_and_resume_each_point(corpus, points, worker));
+        }
+    });
 }
 
 #[test]

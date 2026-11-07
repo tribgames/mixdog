@@ -280,6 +280,9 @@ impl ProviderUsageSource {
             None => ANTIGRAVITY_VERSION_FALLBACK.to_owned(),
         };
         let Some(Held::Antigravity(auth)) = self.held(usage_antigravity::PROVIDER_ID, account_id)? else { unreachable!("the provider is held") };
+        // `ensureAccessToken` throws a plain `Error` (no status) when nothing is signed in. The turn path's auth types
+        // that same failure as a 401 re-auth, so the usage read tells it apart by asking for the sign-in first.
+        auth.current().await.map_err(|error| UsageError::new(format!("[antigravity-oauth] {}", error.message)))?;
         let authorization = auth.authorize().await.map_err(|error| UsageError { status: error.status, message: format!("[antigravity-oauth] {}", error.message) })?;
         let bearer = authorization.headers.into_iter().find(|(name, _)| name == "authorization").map(|(_, value)| value).unwrap_or_default();
         let headers = vec![

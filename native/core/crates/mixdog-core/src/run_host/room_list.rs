@@ -86,13 +86,11 @@ impl<S: RoomStore + 'static> ListRooms for RoomListRows<S> {
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
-    use std::path::Path;
 
     use super::*;
 
     fn golden() -> Value {
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/room-catalog/golden.json");
-        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+        serde_json::from_str(include_str!("../../../../fixtures/room-catalog/golden.json")).unwrap()
     }
 
     /// Every page of `fixtures/room-catalog/golden.json` stamped as the real desktop

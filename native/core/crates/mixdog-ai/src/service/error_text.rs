@@ -110,15 +110,35 @@ fn kind_name(kind: ErrorKind) -> &'static str {
     }
 }
 
+/// `error.code` as the provider error states it: its own code, else `TRUNCATED_STREAM` for a cut stream.
+pub fn sent_code(error: &ProviderError) -> String {
+    let code = error.code.clone().unwrap_or_default();
+    if code.is_empty() && matches!(error.transport, Some(TransportFault::TruncatedStream)) {
+        return "TRUNCATED_STREAM".into();
+    }
+    code
+}
+
+impl Descriptor {
+    /// The verdict a classified provider error carries (`providerErrorKind`'s answer): the kind the adapter
+    /// stamped, the code trimmed and lower-cased, the status, and the positive retry advice and reset it named.
+    pub fn of(error: &ProviderError) -> Self {
+        let retry_after_ms = error.retry_after.map_or(0, |d| d.as_millis() as u64);
+        Self {
+            kind: kind_name(error.kind).into(),
+            code: sent_code(error).trim().to_lowercase(),
+            status: error.status.map_or(0, u32::from),
+            retry_after_ms: (retry_after_ms > 0).then_some(retry_after_ms),
+            reset_at: error.reset_at.and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64),
+        }
+    }
+}
+
 impl From<&ProviderError> for ErrorView {
     fn from(error: &ProviderError) -> Self {
         let status = error.status.map_or(0, u32::from);
         let retry_after_ms = error.retry_after.map_or(0, |d| d.as_millis() as u64);
-        let reset_at = error.reset_at.and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64);
-        let mut code = error.code.clone().unwrap_or_default();
-        if code.is_empty() && matches!(error.transport, Some(TransportFault::TruncatedStream)) {
-            code = "TRUNCATED_STREAM".into();
-        }
+        let code = sent_code(error);
         let ws_close_code = match error.transport {
             Some(TransportFault::WsClose { code: Some(c) }) => Some(u32::from(c)),
             _ => None,
@@ -127,13 +147,7 @@ impl From<&ProviderError> for ErrorView {
             is_object: true,
             message: error.message.clone(),
             name: String::new(),
-            descriptor: Some(Descriptor {
-                kind: kind_name(error.kind).into(),
-                code: code.trim().to_lowercase(),
-                status,
-                retry_after_ms: (retry_after_ms > 0).then_some(retry_after_ms),
-                reset_at,
-            }),
+            descriptor: Some(Descriptor::of(error)),
             code,
             status,
             retry_after_ms,

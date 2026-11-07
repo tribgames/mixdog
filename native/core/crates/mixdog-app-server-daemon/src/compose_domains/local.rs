@@ -82,6 +82,9 @@ pub(super) struct Local {
     pub media_status: Arc<MediaStatus>,
     /// The voice toggle the setup tool drives: the root passes `VoiceToggle(local.voice_setup)` as its `SetupVoice`.
     pub voice_setup: Arc<VoiceSetup>,
+    /// The one media job table and store the media domain service holds: the `media` tool's `StudioGraph` takes the same two.
+    pub media_jobs: Arc<MediaJobs>,
+    pub media_store: Arc<MediaStore>,
     pub services: Vec<Arc<dyn DomainService>>,
     pub transfer_sources: Vec<Arc<dyn TransferSource>>,
     pub tool_modules_host: Arc<ServicesToolModulesHost>,
@@ -206,9 +209,9 @@ pub(super) async fn build(inputs: &DomainInputs, config: &Config) -> Result<Loca
     let store = Arc::new(MediaStore::new(data_dir, tokens.durability_io));
     let renditions = StillRenditions::new(Arc::new(ExtImageCodec::new(inputs.ext_host.clone())), tokens.durability_io, store.renditions_dir());
     let jobs = MediaJobs::with_ledger(store.clone(), seams.media_generator.clone(), media_max_active(&inputs.env), Some(renditions.clone()), seams.media_ledger.clone());
-    services.push(Arc::new(MediaService::new(store.clone(), jobs, processes.clone(), renditions)));
+    services.push(Arc::new(MediaService::new(store.clone(), jobs.clone(), processes.clone(), renditions)));
     let media_status = Arc::new(MediaStatus::new(store.clone()));
-    transfer_sources.push(Arc::new(MediaAssetSource::new(store)));
+    transfer_sources.push(Arc::new(MediaAssetSource::new(store.clone())));
 
 
     let manifest = voice_manifest(inputs)?;
@@ -223,5 +226,5 @@ pub(super) async fn build(inputs: &DomainInputs, config: &Config) -> Result<Loca
     let setup = Arc::new(VoiceSetup::new(pipeline.clone(), Arc::new(ConfigVoiceEnabled::new(config.clone())), seams.voice_installer.clone()));
     services.push(Arc::new(VoiceService::new(pipeline, setup.clone(), seams.voice_progress.clone())));
 
-    Ok(Local { media_status, voice_setup: setup, services, transfer_sources, tool_modules_host, service: local_service })
+    Ok(Local { media_status, voice_setup: setup, media_jobs: jobs, media_store: store, services, transfer_sources, tool_modules_host, service: local_service })
 }

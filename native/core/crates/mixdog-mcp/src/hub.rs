@@ -24,6 +24,8 @@ use crate::oauth::AccountMode;
 use crate::oauth::McpLoginFlow;
 use crate::oauth::McpOAuth;
 use crate::oauth::OAuthEnv;
+use crate::sign_in_notice::NoticingAuthorizer;
+use crate::sign_in_notice::SignInNotices;
 use crate::transport::Authorizer;
 use crate::result::OutputPolicy;
 use crate::result::Spiller;
@@ -51,6 +53,8 @@ pub struct McpHub {
     oauth_env: ArcSwapOption<OAuthEnv>,
     /// The sign-in of each server that has one, kept while its server is kept.
     oauth: Mutex<HashMap<String, Arc<McpOAuth>>>,
+    /// Where a server's sign-in problem is shown; none: it is not shown.
+    sign_in_notices: Mutex<Option<Arc<dyn SignInNotices>>>,
     /// The accounts of each connector server (by server name), set by the connector server
     /// that answers for them; dropped with the server.
     accounts: ArcSwap<HashMap<String, Arc<ConnectorAccounts>>>,
@@ -73,6 +77,7 @@ impl McpHub {
             policy,
             oauth_env: ArcSwapOption::empty(),
             oauth: Mutex::new(HashMap::new()),
+            sign_in_notices: Mutex::new(None),
             accounts: ArcSwap::from_pointee(HashMap::new()),
         })
     }
@@ -123,6 +128,11 @@ impl McpHub {
         self.oauth_env.store(Some(Arc::new(env)));
     }
 
+    /// Sets where the sign-in problems of the servers are shown; applies to servers `apply` creates afterwards.
+    pub fn set_sign_in_notices(&self, notices: Arc<dyn SignInNotices>) {
+        *self.sign_in_notices.lock().unwrap_or_else(|e| e.into_inner()) = Some(notices);
+    }
+
     /// The sign-in of server `name`, if it has one.
     pub fn oauth(&self, name: &str) -> Option<Arc<McpOAuth>> {
         self.oauth.lock().unwrap_or_else(|e| e.into_inner()).get(name).cloned()
@@ -170,7 +180,11 @@ impl McpHub {
                         },
                         _ => None,
                     };
-                    let authorizer = oauth.clone().map(|o| o as Arc<dyn Authorizer>);
+                    let notices = self.sign_in_notices.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                    let authorizer = oauth.clone().map(|o| match &notices {
+                        Some(notices) => Arc::new(NoticingAuthorizer::new(o, &config.name, notices.clone())) as Arc<dyn Authorizer>,
+                        None => o as Arc<dyn Authorizer>,
+                    });
                     if let Some(oauth) = oauth {
                         next_oauth.insert(config.name.clone(), oauth);
                     }

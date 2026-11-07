@@ -4,8 +4,11 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_agent::agent_tool::board::{CancelAll, JobBoard};
+use mixdog_agent::agent_tool::board::{CancelAll, CancelNotice, JobBoard};
+use mixdog_agent::agent_tool::dispatch::{CloseParts, close_resolved};
+use mixdog_tools::orch::agent::ClosedView;
 use mixdog_agent::agent_tool::host::CloseOptions;
+use mixdog_agent::agent_tool::host::Registry;
 use mixdog_agent::agent_tool::scope::Scope;
 use mixdog_agent::agent_tool::host::Sessions;
 use mixdog_core_api::ids::ThreadId;
@@ -94,21 +97,88 @@ impl AgentSessions {
         true
     }
 
-    /// Node's only caller of `cancelAgentDescendants` is the runtime teardown of a Lead
-    /// (`__close_all`, `daemon-agent-control.mjs:75-82`, from `teardown.mjs:231`): every Lead
-    /// the process hosts has its agents cancelled with `agent owner closed`. A Lead is a loaded
-    /// thread that is not itself an agent session.
-    pub async fn cancel_all_owners(&self, board: &JobBoard) {
-        for handle in self.directory.loaded_handles() {
-            let header = handle.cell.header.load();
-            let agent_owned = header.get("owner").and_then(Value::as_str) == Some("agent") || header.get("visibility").and_then(Value::as_str) == Some("agent-only");
-            if !agent_owned {
-                self.cancel_descendants(handle.id.as_str(), "agent owner closed", board).await;
+/// `closeAll(reason, { callerSessionId: owner, processExit })` (`close-flow/close-all.mjs:48-70`):
+    /// every worker of `owner` is closed through the same close `agent close` runs, each failure
+    /// kept (a worker that cannot close never stops the rest); then the owner's agent jobs still
+    /// running are cancelled with `reason`; and unless `keep_rows` (a process exit leaves the rows
+    /// for the next process) the owner's worker rows, and those of the sessions just closed, are
+    /// purged, except a Lead's pool row and a row whose owner is still owed its restart failure.
+    /// Node's unscoped form (no owner: every worker, the local tag maps reset) has no caller in
+    /// the daemon and is not ported.
+    pub async fn close_all(&self, owner: &str, reason: &str, keep_rows: bool, board: &JobBoard) -> Result<CloseAllReport, String> {
+        let owner = mixdog_js::js_trim(owner).to_owned();
+        if owner.is_empty() {
+            return Err("agent close all: an owner session is required".into());
+        }
+        let scope = Scope { caller_session_id: Some(owner.clone()), host_pid: None };
+        self.registry.refresh_tags_from_sessions(false, &scope).await;
+        let mut report = CloseAllReport::default();
+        let parts = CloseParts { registry: &*self.registry, sessions: self, tasks: board };
+        for (tag, row) in self.registry.session_entries(false, &scope) {
+            let id = mixdog_js::js_trim(row.get("id").and_then(Value::as_str).unwrap_or_default()).to_owned();
+            match close_resolved(parts, &id, &id, &scope, None, keep_rows).await {
+                Ok(view) => report.closed.push(view),
+                Err(error) => report.failed.push((tag, error)),
             }
         }
+        for job in board.list_jobs(&scope) {
+            if job.status != "running" {
+                continue;
+            }
+            board.cancel(&job.task_id, reason, CancelNotice::Default);
+            report.closed.push(ClosedView { closed: true, tag: job.meta.tag.clone(), session_id: job.meta.session_id.clone(), task_id: Some(job.task_id.clone()), forgotten: false });
+        }
+        if !keep_rows {
+            let closed: std::collections::HashSet<String> = report.closed.iter().filter_map(|view| view.session_id.clone()).collect();
+            self.registry.purge_owner_rows(&owner, &closed);
+        }
+        Ok(report)
+    }
+
+    /// What `__close_all` does for an owner (`daemon-agent-control.mjs:75-82`): `closeAll` with
+    /// the process-exit scope, and only then `cancelAgentDescendants`, so a worker closed by the
+    /// first is not cancelled a second time under it.
+    pub async fn teardown_owner(&self, owner: &str, reason: &str, board: &JobBoard) {
+        teardown_in_order(
+            async {
+                if let Err(error) = self.close_all(owner, reason, true, board).await {
+                    tracing::warn!(owner, %error, "agent close all failed");
+                }
+            },
+            self.cancel_descendants(owner, reason, board),
+        )
+        .await;
     }
 }
 
+/// The two steps of `__close_all` in Node's order: the workers close first, the descendants are
+/// cancelled once that has settled.
+async fn teardown_in_order(close_all: impl std::future::Future<Output = ()>, cancel_descendants: impl std::future::Future<Output = bool>) -> bool {
+    close_all.await;
+    cancel_descendants.await
+}
+
+/// What `closeAll` closed and what it could not.
+#[derive(Default)]
+pub struct CloseAllReport {
+    pub closed: Vec<ClosedView>,
+    /// `(tag, error)` of each worker whose close failed.
+    pub failed: Vec<(String, String)>,
+}
+
+/// The directory's `OwnerTeardown` over the agent sessions and the job board: a session's
+/// teardown on a process exit (`SessionDirectory::set_owner_teardown`).
+pub struct AgentOwnerTeardown {
+    pub sessions: Arc<AgentSessions>,
+    pub board: JobBoard,
+}
+
+#[async_trait]
+impl crate::session::directory::OwnerTeardown for AgentOwnerTeardown {
+    async fn teardown(&self, owner: &ThreadId, reason: &str) {
+        self.sessions.teardown_owner(owner.as_str(), reason, &self.board).await;
+    }
+}
 #[async_trait]
 impl Sessions for AgentSessions {
     /// Stored agent sessions open on demand, so there is nothing to load ahead: the registry's
@@ -190,5 +260,25 @@ mod tests {
         assert_eq!(last_handoff(&none, &messages), r#"[{"type":"text","text":"parts"}]"#);
         assert_eq!(last_handoff(&none, &messages[..1]), "first");
         assert_eq!(last_handoff(&none, &[]), "");
+    }
+
+    /// `__close_all` (`daemon-agent-control.mjs:75-82`): the workers close first, the descendants
+    /// are cancelled after that has settled.
+    #[tokio::test]
+    async fn a_teardown_closes_the_workers_before_it_cancels_the_descendants() {
+        let log = std::sync::Mutex::new(Vec::new());
+        let cancelled = teardown_in_order(
+            async {
+                tokio::task::yield_now().await;
+                log.lock().unwrap().push("close_all");
+            },
+            async {
+                log.lock().unwrap().push("cancel_descendants");
+                true
+            },
+        )
+        .await;
+        assert!(cancelled);
+        assert_eq!(*log.lock().unwrap(), ["close_all", "cancel_descendants"]);
     }
 }

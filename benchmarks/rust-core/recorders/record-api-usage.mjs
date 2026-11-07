@@ -182,7 +182,9 @@ for (const flow of flows) {
   Object.assign(secrets, flow.secrets ?? {});
   script = [];
   wire = [];
-  const lazy = flow.replies;
+  // `lazy` is the working copy the consumed replies are swapped in, so the flow's own replies stay as scripted.
+  const lazy = [...flow.replies];
+  const replies = flow.replies.map((make) => make());
   const ops = [];
   for (const op of flow.ops) {
     if (op.op === 'advance') {
@@ -212,7 +214,7 @@ for (const flow of flows) {
     remote: flow.remote === true,
     secrets: flow.secrets ?? {},
     seed,
-    replies: flow.replies.map((make) => make()),
+    replies,
     ops,
     stored,
   });

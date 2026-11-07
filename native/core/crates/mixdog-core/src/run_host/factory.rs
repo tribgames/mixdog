@@ -45,6 +45,7 @@ use super::retry::{RandomJitter, TimerWait};
 use super::steer::SteerQueue;
 use super::tool_progress::{RunToolProgress, ToolHints};
 use mixdog_core_session::session::turn_snapshot::ReviewGate;
+use mixdog_core_session::session::failure_record::provider_turn_error;
 use mixdog_core_session::session::ItemCommit;
 use mixdog_core_session::session::RunFactory;
 use mixdog_core_session::session::RunOutcome;
@@ -669,6 +670,7 @@ async fn drive(parts: Arc<dyn RunParts>, liveness: Arc<mixdog_services::task_rep
     };
     // Node's `_api_call_with_interrupt` spans `agentLoop`: an abort inside reads "during call".
     progress.model_loop(true);
+    let provider_id = provider.id().as_str().to_owned();
     let result = Run::new(env, cancel.clone(), provider, tools, tool_env, config, messages, carry).run().await;
     progress.model_loop(false);
     // The model work is over: the watchdog, which judges only that, stops here.
@@ -725,6 +727,11 @@ async fn drive(parts: Arc<dyn RunParts>, liveness: Arc<mixdog_services::task_rep
             }
             progress.error();
             let data = if failure.carried_report.is_empty() { Value::Null } else { json!({ "carriedReport": failure.carried_report }) };
+            // A provider's refusal keeps what `turnFailureRecord` reads off it: kind, status, code, retry advice and
+            // reset (`provider_turn_error`); any other failure is its message.
+            if let AgentError::Provider(error) = &failure.error {
+                return RunOutcome::Failed(provider_turn_error(error, &provider_id, data));
+            }
             failed(failure.error.to_string(), data)
         }
     }
@@ -835,7 +842,7 @@ mod tests {
     }
 
     struct Parts {
-        provider: Arc<Scripted>,
+        provider: Arc<dyn ProviderAdapter>,
         workspace: std::path::PathBuf,
         /// Tools beside `echo`.
         more: Vec<Arc<dyn Tool>>,
@@ -1112,6 +1119,95 @@ mod tests {
             .filter(|(_, record)| matches!(record, Record::Item(item) if item.visible && matches!(&item.body, Slot::Inline(body) if body["content"] == "fix it")))
             .count();
         assert_eq!(transcript_prompts, 2, "the transcript keeps the failed prompt beside the retry's");
+    }
+
+    /// A provider that refuses every attempt with `error`.
+    struct Refusing {
+        id: ProviderId,
+        policy: RetryPolicy,
+        keepalive: KeepaliveSchedule,
+        codec: MockCodec,
+        error: ProviderError,
+    }
+
+    #[async_trait]
+    impl ProviderAdapter for Refusing {
+        fn id(&self) -> &ProviderId {
+            &self.id
+        }
+        fn codec(&self) -> &dyn WireCodec {
+            &self.codec
+        }
+        fn retry_policy(&self) -> &RetryPolicy {
+            &self.policy
+        }
+        fn keepalive(&self) -> &KeepaliveSchedule {
+            &self.keepalive
+        }
+        async fn attempt(&self, _: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
+            Err(self.error.clone())
+        }
+    }
+
+    /// A production failed turn: the provider refuses on exhausted quota and names the reset. The run ends with the
+    /// facts Node's `turnFailureRecord` reads off that error (`fixtures/turn-failure`, the first case), the row's
+    /// completion stores them, the turn end is shown, and the quota settlement that reads it queues the auto-resume at
+    /// Node's reset. Nothing here waits on a clock: the store tells when the entry is queued.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_quota_failed_run_stores_nodes_failure_record_and_queues_the_resume_at_its_reset() {
+        let gold: Value = serde_json::from_str(include_str!("../../../../fixtures/turn-failure/golden.json")).unwrap();
+        let case = &gold["cases"][0];
+        assert_eq!(case["name"], "quota with a provider-named reset");
+        let reset = gold["resetAt"].as_u64().expect("the recorded reset");
+        let mut refusal = ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::QuotaExhausted, DeliveryState::Accepted);
+        refusal.status = Some(429);
+        refusal.code = case["fields"]["code"].as_str().map(str::to_owned);
+        refusal.message = case["message"].as_str().unwrap().to_owned();
+        refusal.reset_at = Some(std::time::UNIX_EPOCH + Duration::from_millis(reset));
+        let provider = Arc::new(Refusing { id: ProviderId::from("anthropic-oauth"), policy: RetryPolicy::codex_default(), keepalive: KeepaliveSchedule::SPEC, codec: MockCodec, error: refusal });
+        let workspace = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let woke = Arc::new(tokio::sync::Notify::new());
+        let _subscription = {
+            let woke = woke.clone();
+            rig.quota.subscribe(move |_| woke.notify_one())
+        };
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), Arc::new(Parts { provider, workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
+        let entry = loop {
+            let queued = woke.notified();
+            tokio::pin!(queued);
+            queued.as_mut().enable();
+            if let Some(entry) = rig.quota.entry(id.as_str()) {
+                break entry;
+            }
+            queued.await;
+        };
+        assert_eq!(entry.to_value()["resetAt"].as_f64(), Some(reset as f64), "the resume waits for the reset the provider named");
+
+        let completion = rig
+            .store
+            .records(&id)
+            .into_iter()
+            .find_map(|(_, record)| match record {
+                Record::Amend(amend) => match amend.body {
+                    Slot::Inline(body) => body.pointer("/meta/transcript/completion").cloned(),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .expect("the failed turn's row records its end");
+        assert_eq!(completion["status"], "failed");
+        assert_eq!(completion["errorKind"], case["errorKind"]);
+        assert_eq!(completion["detail"], case["detail"]);
+        assert_eq!(completion["errorDetails"], case["errorDetails"]);
+        assert_eq!(completion["quota"]["resetAt"], case["quota"]["resetAt"]);
     }
 
     /// A tool that reports its output through `ctx.progress`, then waits to be released.

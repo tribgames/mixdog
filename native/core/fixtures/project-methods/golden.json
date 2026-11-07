@@ -2,43 +2,43 @@
   "note": "project/* branch, worktree and connector steps of the real 1.4.5 functions; paths, commit ids and times are masked as <repo>, <data>, <base>, <feat>, <feat2>, <solo>, <sha>, <short>, <time>",
   "steps": [
     {
-      "after": {
-        "branches": [
-          "dev",
-          "main",
-          "topic"
-        ],
-        "folders": {},
-        "head": "main",
-        "mainFiles": [
-          ".gitignore",
-          "f.txt"
-        ],
-        "status": []
-      },
       "name": "menu: project folder",
       "ok": {
+        "workspace": {
+          "projectPath": "<repo>",
+          "repoCommonDir": "<repo>/.git",
+          "cwd": "<repo>",
+          "worktreeId": null,
+          "branch": "main",
+          "baseCommit": null,
+          "mergeTarget": null,
+          "revision": 0,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          }
+        },
         "branches": [
           {
-            "current": false,
-            "lastCommitAt": "<time>",
             "name": "dev",
-            "remote": false,
-            "upstream": ""
-          },
-          {
-            "current": true,
-            "lastCommitAt": "<time>",
-            "name": "main",
-            "remote": false,
-            "upstream": ""
-          },
-          {
             "current": false,
-            "lastCommitAt": "<time>",
-            "name": "topic",
             "remote": false,
-            "upstream": ""
+            "upstream": "",
+            "lastCommitAt": "<time>"
+          },
+          {
+            "name": "main",
+            "current": true,
+            "remote": false,
+            "upstream": "",
+            "lastCommitAt": "<time>"
+          },
+          {
+            "name": "topic",
+            "current": false,
+            "remote": false,
+            "upstream": "",
+            "lastCommitAt": "<time>"
           }
         ],
         "occupancy": [
@@ -56,48 +56,32 @@
             "kind": "free"
           }
         ],
-        "retainedWorktree": null,
-        "workspace": {
-          "baseCommit": null,
-          "branch": "main",
-          "cwd": "<repo>",
-          "mergeTarget": null,
-          "projectPath": "<repo>",
-          "repoCommonDir": "<repo>/.git",
-          "revision": 0,
-          "transition": {
-            "state": "idle",
-            "txId": null
-          },
-          "worktreeId": null
-        }
+        "retainedWorktree": null
+      },
+      "after": {
+        "branches": [
+          "dev",
+          "main",
+          "topic"
+        ],
+        "folders": {},
+        "head": "main",
+        "mainFiles": [
+          ".gitignore",
+          "f.txt"
+        ],
+        "status": []
       }
     },
     {
-      "after": {
-        "branches": [
-          "dev",
-          "main",
-          "topic"
-        ],
-        "folders": {},
-        "head": "main",
-        "mainFiles": [
-          ".gitignore",
-          "f.txt"
-        ],
-        "status": []
-      },
+      "name": "menu: unregistered project",
       "error": {
         "code": "WORKTREE_PROJECT_UNKNOWN",
+        "message": "Project is not available.",
         "details": {
           "projectPath": "<base>/nowhere"
-        },
-        "message": "Project is not available."
+        }
       },
-      "name": "menu: unregistered project"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -111,15 +95,15 @@
           "f.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
+      "name": "menu: blank project path",
       "error": {
         "code": null,
-        "details": null,
-        "message": "projectPath must be a non-empty string."
+        "message": "projectPath must be a non-empty string.",
+        "details": null
       },
-      "name": "menu: blank project path"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -133,19 +117,19 @@
           "f.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "inspect: unmerged topic",
       "ok": {
         "branch": "topic",
         "commit": "<sha>",
-        "kind": "free",
-        "path": null,
         "target": "main",
         "targetCommit": "<sha>",
-        "worktreeId": null
-      }
-    },
-    {
+        "path": null,
+        "worktreeId": null,
+        "kind": "free"
+      },
       "after": {
         "branches": [
           "dev",
@@ -159,41 +143,41 @@
           "f.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "inspect: merged dev",
       "ok": {
         "branch": "dev",
         "commit": "<sha>",
-        "kind": "free",
-        "path": null,
         "target": "main",
         "targetCommit": "<sha>",
-        "worktreeId": null
+        "path": null,
+        "worktreeId": null,
+        "kind": "free"
+      },
+      "after": {
+        "branches": [
+          "dev",
+          "main",
+          "topic"
+        ],
+        "folders": {},
+        "head": "main",
+        "mainFiles": [
+          ".gitignore",
+          "f.txt"
+        ],
+        "status": []
       }
     },
     {
-      "after": {
-        "branches": [
-          "dev",
-          "main",
-          "topic"
-        ],
-        "folders": {},
-        "head": "main",
-        "mainFiles": [
-          ".gitignore",
-          "f.txt"
-        ],
-        "status": []
-      },
+      "name": "inspect: unknown branch",
       "error": {
         "code": "WORKTREE_MISSING",
-        "details": null,
-        "message": "The local branch no longer exists."
+        "message": "The local branch no longer exists.",
+        "details": null
       },
-      "name": "inspect: unknown branch"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -207,15 +191,15 @@
           "f.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
+      "name": "inspect: blank branch",
       "error": {
         "code": null,
-        "details": null,
-        "message": "branch must be a non-empty string."
+        "message": "branch must be a non-empty string.",
+        "details": null
       },
-      "name": "inspect: blank branch"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -229,15 +213,15 @@
           "f.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
+      "name": "select: unknown branch",
       "error": {
         "code": "GIT_FAILED",
-        "details": null,
-        "message": "git switch nope failed (exit 128): fatal: invalid reference: nope"
+        "message": "git switch nope failed (exit 128): fatal: invalid reference: nope",
+        "details": null
       },
-      "name": "select: unknown branch"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -251,14 +235,36 @@
           "f.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "select: already current",
       "ok": {
         "branch": "main",
         "changed": false
+      },
+      "after": {
+        "branches": [
+          "dev",
+          "main",
+          "topic"
+        ],
+        "folders": {},
+        "head": "main",
+        "mainFiles": [
+          ".gitignore",
+          "f.txt"
+        ],
+        "status": []
       }
     },
     {
+      "name": "select: create from start point",
+      "ok": {
+        "branch": "fresh",
+        "changed": true,
+        "commit": "<sha>"
+      },
       "after": {
         "branches": [
           "dev",
@@ -273,38 +279,15 @@
           "f.txt"
         ],
         "status": []
-      },
-      "name": "select: create from start point",
-      "ok": {
-        "branch": "fresh",
-        "changed": true,
-        "commit": "<sha>"
       }
     },
     {
-      "after": {
-        "branches": [
-          "dev",
-          "fresh",
-          "main",
-          "topic"
-        ],
-        "folders": {},
-        "head": "topic",
-        "mainFiles": [
-          ".gitignore",
-          "f.txt"
-        ],
-        "status": []
-      },
       "name": "select: topic",
       "ok": {
         "branch": "topic",
         "changed": true,
         "commit": "<sha>"
-      }
-    },
-    {
+      },
       "after": {
         "branches": [
           "dev",
@@ -319,37 +302,53 @@
           "f.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "menu: on topic",
       "ok": {
+        "workspace": {
+          "projectPath": "<repo>",
+          "repoCommonDir": "<repo>/.git",
+          "cwd": "<repo>",
+          "worktreeId": null,
+          "branch": "topic",
+          "baseCommit": null,
+          "mergeTarget": null,
+          "revision": 0,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          }
+        },
         "branches": [
           {
-            "current": false,
-            "lastCommitAt": "<time>",
             "name": "dev",
+            "current": false,
             "remote": false,
-            "upstream": ""
+            "upstream": "",
+            "lastCommitAt": "<time>"
           },
           {
-            "current": false,
-            "lastCommitAt": "<time>",
             "name": "fresh",
-            "remote": false,
-            "upstream": ""
-          },
-          {
             "current": false,
-            "lastCommitAt": "<time>",
-            "name": "main",
             "remote": false,
-            "upstream": ""
+            "upstream": "",
+            "lastCommitAt": "<time>"
           },
           {
-            "current": true,
-            "lastCommitAt": "<time>",
-            "name": "topic",
+            "name": "main",
+            "current": false,
             "remote": false,
-            "upstream": ""
+            "upstream": "",
+            "lastCommitAt": "<time>"
+          },
+          {
+            "name": "topic",
+            "current": true,
+            "remote": false,
+            "upstream": "",
+            "lastCommitAt": "<time>"
           }
         ],
         "occupancy": [
@@ -371,24 +370,31 @@
             "path": "<repo>"
           }
         ],
-        "retainedWorktree": null,
-        "workspace": {
-          "baseCommit": null,
-          "branch": "topic",
-          "cwd": "<repo>",
-          "mergeTarget": null,
-          "projectPath": "<repo>",
-          "repoCommonDir": "<repo>/.git",
-          "revision": 0,
-          "transition": {
-            "state": "idle",
-            "txId": null
-          },
-          "worktreeId": null
-        }
+        "retainedWorktree": null
+      },
+      "after": {
+        "branches": [
+          "dev",
+          "fresh",
+          "main",
+          "topic"
+        ],
+        "folders": {},
+        "head": "topic",
+        "mainFiles": [
+          ".gitignore",
+          "f.txt"
+        ],
+        "status": []
       }
     },
     {
+      "name": "select: create and remote",
+      "error": {
+        "code": null,
+        "message": "create and remote are exclusive.",
+        "details": null
+      },
       "after": {
         "branches": [
           "dev",
@@ -403,15 +409,15 @@
           "f.txt"
         ],
         "status": []
-      },
-      "error": {
-        "code": null,
-        "details": null,
-        "message": "create and remote are exclusive."
-      },
-      "name": "select: create and remote"
+      }
     },
     {
+      "name": "select: start point needs create",
+      "error": {
+        "code": null,
+        "message": "startPoint needs create.",
+        "details": null
+      },
       "after": {
         "branches": [
           "dev",
@@ -426,15 +432,15 @@
           "f.txt"
         ],
         "status": []
-      },
-      "error": {
-        "code": null,
-        "details": null,
-        "message": "startPoint needs create."
-      },
-      "name": "select: start point needs create"
+      }
     },
     {
+      "name": "select: detach excludes branch",
+      "error": {
+        "code": null,
+        "message": "detach excludes branch, create, remote and startPoint.",
+        "details": null
+      },
       "after": {
         "branches": [
           "dev",
@@ -449,39 +455,16 @@
           "f.txt"
         ],
         "status": []
-      },
-      "error": {
-        "code": null,
-        "details": null,
-        "message": "detach excludes branch, create, remote and startPoint."
-      },
-      "name": "select: detach excludes branch"
+      }
     },
     {
-      "after": {
-        "branches": [
-          "dev",
-          "fresh",
-          "main",
-          "topic"
-        ],
-        "folders": {},
-        "head": "HEAD",
-        "mainFiles": [
-          ".gitignore",
-          "f.txt"
-        ],
-        "status": []
-      },
       "name": "select: detach",
       "ok": {
         "branch": null,
         "changed": true,
         "commit": "<sha>",
         "detached": true
-      }
-    },
-    {
+      },
       "after": {
         "branches": [
           "dev",
@@ -496,37 +479,53 @@
           "f.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "menu: detached",
       "ok": {
+        "workspace": {
+          "projectPath": "<repo>",
+          "repoCommonDir": "<repo>/.git",
+          "cwd": "<repo>",
+          "worktreeId": null,
+          "branch": null,
+          "baseCommit": "<sha>",
+          "mergeTarget": null,
+          "revision": 0,
+          "transition": {
+            "state": "idle",
+            "txId": null
+          }
+        },
         "branches": [
           {
-            "current": false,
-            "lastCommitAt": "<time>",
             "name": "dev",
+            "current": false,
             "remote": false,
-            "upstream": ""
+            "upstream": "",
+            "lastCommitAt": "<time>"
           },
           {
-            "current": false,
-            "lastCommitAt": "<time>",
             "name": "fresh",
+            "current": false,
             "remote": false,
-            "upstream": ""
+            "upstream": "",
+            "lastCommitAt": "<time>"
           },
           {
-            "current": false,
-            "lastCommitAt": "<time>",
             "name": "main",
+            "current": false,
             "remote": false,
-            "upstream": ""
+            "upstream": "",
+            "lastCommitAt": "<time>"
           },
           {
-            "current": false,
-            "lastCommitAt": "<time>",
             "name": "topic",
+            "current": false,
             "remote": false,
-            "upstream": ""
+            "upstream": "",
+            "lastCommitAt": "<time>"
           }
         ],
         "occupancy": [
@@ -547,24 +546,8 @@
             "kind": "free"
           }
         ],
-        "retainedWorktree": null,
-        "workspace": {
-          "baseCommit": "<sha>",
-          "branch": null,
-          "cwd": "<repo>",
-          "mergeTarget": null,
-          "projectPath": "<repo>",
-          "repoCommonDir": "<repo>/.git",
-          "revision": 0,
-          "transition": {
-            "state": "idle",
-            "txId": null
-          },
-          "worktreeId": null
-        }
-      }
-    },
-    {
+        "retainedWorktree": null
+      },
       "after": {
         "branches": [
           "dev",
@@ -573,21 +556,21 @@
           "topic"
         ],
         "folders": {},
-        "head": "main",
+        "head": "HEAD",
         "mainFiles": [
           ".gitignore",
           "f.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "select: back to main",
       "ok": {
         "branch": "main",
         "changed": true,
         "commit": "<sha>"
-      }
-    },
-    {
+      },
       "after": {
         "branches": [
           "dev",
@@ -602,18 +585,18 @@
           "f.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
+      "name": "merge: wrong target",
       "error": {
         "code": "WORKTREE_TARGET_MISMATCH",
+        "message": "The project folder is now on \"main\"; confirm the merge again.",
         "details": {
-          "current": "main",
-          "target": "dev"
-        },
-        "message": "The project folder is now on \"main\"; confirm the merge again."
+          "target": "dev",
+          "current": "main"
+        }
       },
-      "name": "merge: wrong target"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -628,39 +611,38 @@
           "f.txt"
         ],
         "status": []
-      },
-      "error": {
-        "code": null,
-        "details": null,
-        "message": "target must be a non-empty string."
-      },
-      "name": "merge: blank target"
-    },
-    {
-      "after": {
-        "branches": [
-          "dev",
-          "fresh",
-          "main",
-          "topic"
-        ],
-        "folders": {},
-        "head": "main",
-        "mainFiles": [
-          ".gitignore",
-          "f.txt",
-          "t.txt"
-        ],
-        "status": []
-      },
-      "name": "merge: topic into main",
-      "ok": {
-        "commit": "<sha>",
-        "merged": true,
-        "target": "main"
       }
     },
     {
+      "name": "merge: blank target",
+      "error": {
+        "code": null,
+        "message": "target must be a non-empty string.",
+        "details": null
+      },
+      "after": {
+        "branches": [
+          "dev",
+          "fresh",
+          "main",
+          "topic"
+        ],
+        "folders": {},
+        "head": "main",
+        "mainFiles": [
+          ".gitignore",
+          "f.txt"
+        ],
+        "status": []
+      }
+    },
+    {
+      "name": "merge: topic into main",
+      "ok": {
+        "merged": true,
+        "commit": "<sha>",
+        "target": "main"
+      },
       "after": {
         "branches": [
           "dev",
@@ -676,25 +658,24 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "inspect: topic now merged",
       "ok": {
         "branch": "topic",
         "commit": "<sha>",
-        "kind": "free",
-        "path": null,
         "target": "main",
         "targetCommit": "<sha>",
-        "worktreeId": null
-      }
-    },
-    {
+        "path": null,
+        "worktreeId": null,
+        "kind": "free"
+      },
       "after": {
         "branches": [
           "dev",
           "fresh",
           "main",
-          "spare",
           "topic"
         ],
         "folders": {},
@@ -705,15 +686,15 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
+      "name": "manage: unconfirmed",
       "error": {
         "code": "WORKTREE_CONFIRM_REQUIRED",
-        "details": null,
-        "message": "A merge requires explicit confirmation."
+        "message": "A merge requires explicit confirmation.",
+        "details": null
       },
-      "name": "manage: unconfirmed"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -730,63 +711,64 @@
           "t.txt"
         ],
         "status": []
-      },
-      "error": {
-        "code": null,
-        "details": null,
-        "message": "Unknown branch action."
-      },
-      "name": "manage: unknown action"
-    },
-    {
-      "after": {
-        "branches": [
-          "dev",
-          "fresh",
-          "main",
-          "spare",
-          "topic"
-        ],
-        "folders": {},
-        "head": "main",
-        "mainFiles": [
-          ".gitignore",
-          "f.txt",
-          "t.txt"
-        ],
-        "status": []
-      },
-      "error": {
-        "code": "WORKTREE_REVISION_CONFLICT",
-        "details": null,
-        "message": "The branch changed; reopen the menu and confirm again."
-      },
-      "name": "manage: stale commit"
-    },
-    {
-      "after": {
-        "branches": [
-          "dev",
-          "fresh",
-          "main",
-          "topic"
-        ],
-        "folders": {},
-        "head": "main",
-        "mainFiles": [
-          ".gitignore",
-          "f.txt",
-          "t.txt"
-        ],
-        "status": []
-      },
-      "name": "manage: delete branch",
-      "ok": {
-        "branch": "spare",
-        "deleted": true
       }
     },
     {
+      "name": "manage: unknown action",
+      "error": {
+        "code": null,
+        "message": "Unknown branch action.",
+        "details": null
+      },
+      "after": {
+        "branches": [
+          "dev",
+          "fresh",
+          "main",
+          "spare",
+          "topic"
+        ],
+        "folders": {},
+        "head": "main",
+        "mainFiles": [
+          ".gitignore",
+          "f.txt",
+          "t.txt"
+        ],
+        "status": []
+      }
+    },
+    {
+      "name": "manage: stale commit",
+      "error": {
+        "code": "WORKTREE_REVISION_CONFLICT",
+        "message": "The branch changed; reopen the menu and confirm again.",
+        "details": null
+      },
+      "after": {
+        "branches": [
+          "dev",
+          "fresh",
+          "main",
+          "spare",
+          "topic"
+        ],
+        "folders": {},
+        "head": "main",
+        "mainFiles": [
+          ".gitignore",
+          "f.txt",
+          "t.txt"
+        ],
+        "status": []
+      }
+    },
+    {
+      "name": "manage: delete branch",
+      "ok": {
+        "deleted": true,
+        "branch": "spare"
+      },
       "after": {
         "branches": [
           "dev",
@@ -802,15 +784,15 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
+      "name": "manage: delete branch again",
       "error": {
         "code": "WORKTREE_MISSING",
-        "details": null,
-        "message": "The local branch no longer exists."
+        "message": "The local branch no longer exists.",
+        "details": null
       },
-      "name": "manage: delete branch again"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -826,11 +808,11 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "list: none",
-      "ok": []
-    },
-    {
+      "ok": [],
       "after": {
         "branches": [
           "dev",
@@ -846,13 +828,13 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "preview: none",
       "ok": {
         "hasCandidates": false
-      }
-    },
-    {
+      },
       "after": {
         "branches": [
           "dev",
@@ -868,44 +850,29 @@
           "t.txt"
         ],
         "status": []
-      },
-      "name": "prune: nothing",
-      "ok": {
-        "errors": [],
-        "kept": [],
-        "leasesReleased": [],
-        "limits": "favorites-unknown",
-        "missing": [],
-        "pruned": [],
-        "recovered": [],
-        "removed": [],
-        "selected": []
       }
     },
     {
+      "name": "prune: nothing",
+      "ok": {
+        "removed": [],
+        "recovered": [],
+        "kept": [],
+        "leasesReleased": [],
+        "pruned": [],
+        "missing": [],
+        "errors": [],
+        "selected": [],
+        "limits": "favorites-unknown"
+      },
       "after": {
         "branches": [
           "dev",
           "fresh",
           "main",
-          "topic",
-          "wt-clean",
-          "wt-dirty",
-          "wt-live",
-          "wt-merge",
-          "wt-retained",
-          "wt-shared",
-          "wt-unmerged"
+          "topic"
         ],
-        "folders": {
-          "wt-clean": true,
-          "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
-          "wt-retained": true,
-          "wt-shared": true,
-          "wt-unmerged": true
-        },
+        "folders": {},
         "head": "main",
         "mainFiles": [
           ".gitignore",
@@ -913,210 +880,210 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "list: lease holders alive",
       "ok": [
         {
-          "baseCommit": "<sha>",
-          "branch": "wt-clean",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 0,
-          "disposable": false,
           "id": "wt-clean",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
-          "ownerLive": true,
-          "ownerSessionId": "sA",
-          "ownerTitle": null,
+          "repoCommonDir": "<repo>/.git",
+          "projectPath": "<repo>",
           "path": "<wt-clean>",
-          "projectPath": "<repo>",
+          "branch": "wt-clean",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sA",
+          "state": "ready",
           "projectSubdir": "",
-          "removable": false,
-          "repoCommonDir": "<repo>/.git",
-          "retained": false,
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
           "sharedSessionIds": [],
+          "retained": false,
+          "ownerLive": true,
+          "removable": false,
+          "dirty": 0,
+          "ignored": 0,
+          "unmerged": 0,
           "sizeBytes": "<bytes>",
           "sizeComplete": true,
-          "state": "ready",
-          "unmerged": 0,
-          "warnings": []
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
         },
         {
-          "baseCommit": "<sha>",
-          "branch": "wt-unmerged",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 0,
-          "disposable": false,
           "id": "wt-unmerged",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
-          "ownerLive": true,
-          "ownerSessionId": "sB",
-          "ownerTitle": null,
+          "repoCommonDir": "<repo>/.git",
+          "projectPath": "<repo>",
           "path": "<wt-unmerged>",
-          "projectPath": "<repo>",
-          "projectSubdir": "",
-          "removable": false,
-          "repoCommonDir": "<repo>/.git",
-          "retained": false,
-          "sharedSessionIds": [],
-          "sizeBytes": "<bytes>",
-          "sizeComplete": true,
+          "branch": "wt-unmerged",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sB",
           "state": "ready",
+          "projectSubdir": "",
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
+          "sharedSessionIds": [],
+          "retained": false,
+          "ownerLive": true,
+          "removable": false,
+          "dirty": 0,
+          "ignored": 0,
           "unmerged": 1,
-          "warnings": []
+          "sizeBytes": "<bytes>",
+          "sizeComplete": true,
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
         },
         {
-          "baseCommit": "<sha>",
-          "branch": "wt-dirty",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 2,
-          "disposable": false,
           "id": "wt-dirty",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
-          "ownerLive": true,
-          "ownerSessionId": "sC",
-          "ownerTitle": null,
+          "repoCommonDir": "<repo>/.git",
+          "projectPath": "<repo>",
           "path": "<wt-dirty>",
-          "projectPath": "<repo>",
+          "branch": "wt-dirty",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sC",
+          "state": "ready",
           "projectSubdir": "",
-          "removable": false,
-          "repoCommonDir": "<repo>/.git",
-          "retained": false,
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
           "sharedSessionIds": [],
+          "retained": false,
+          "ownerLive": true,
+          "removable": false,
+          "dirty": 2,
+          "ignored": 0,
+          "unmerged": 0,
           "sizeBytes": "<bytes>",
           "sizeComplete": true,
-          "state": "ready",
-          "unmerged": 0,
-          "warnings": []
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
         },
         {
-          "baseCommit": "<sha>",
-          "branch": "wt-retained",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 0,
-          "disposable": false,
           "id": "wt-retained",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
-          "ownerLive": true,
-          "ownerSessionId": "sD",
-          "ownerTitle": null,
+          "repoCommonDir": "<repo>/.git",
+          "projectPath": "<repo>",
           "path": "<wt-retained>",
-          "projectPath": "<repo>",
+          "branch": "wt-retained",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sD",
+          "state": "ready",
           "projectSubdir": "",
-          "removable": false,
-          "repoCommonDir": "<repo>/.git",
-          "retained": false,
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
           "sharedSessionIds": [],
+          "retained": false,
+          "ownerLive": true,
+          "removable": false,
+          "dirty": 0,
+          "ignored": 0,
+          "unmerged": 0,
           "sizeBytes": "<bytes>",
           "sizeComplete": true,
-          "state": "ready",
-          "unmerged": 0,
-          "warnings": []
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
         },
         {
-          "baseCommit": "<sha>",
-          "branch": "wt-live",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 0,
-          "disposable": false,
           "id": "wt-live",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
-          "ownerLive": true,
-          "ownerSessionId": "sE",
-          "ownerTitle": null,
-          "path": "<wt-live>",
-          "projectPath": "<repo>",
-          "projectSubdir": "",
-          "removable": false,
           "repoCommonDir": "<repo>/.git",
-          "retained": false,
+          "projectPath": "<repo>",
+          "path": "<wt-live>",
+          "branch": "wt-live",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sE",
+          "state": "ready",
+          "projectSubdir": "",
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
           "sharedSessionIds": [],
+          "retained": false,
+          "ownerLive": true,
+          "removable": false,
+          "dirty": 0,
+          "ignored": 0,
+          "unmerged": 0,
           "sizeBytes": "<bytes>",
           "sizeComplete": true,
-          "state": "ready",
-          "unmerged": 0,
-          "warnings": []
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
         },
         {
-          "baseCommit": "<sha>",
-          "branch": "wt-shared",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 0,
-          "disposable": false,
           "id": "wt-shared",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
-          "ownerLive": true,
-          "ownerSessionId": "sF",
-          "ownerTitle": null,
-          "path": "<wt-shared>",
-          "projectPath": "<repo>",
-          "projectSubdir": "",
-          "removable": false,
           "repoCommonDir": "<repo>/.git",
-          "retained": false,
+          "projectPath": "<repo>",
+          "path": "<wt-shared>",
+          "branch": "wt-shared",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sF",
+          "state": "ready",
+          "projectSubdir": "",
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
           "sharedSessionIds": [
             "sG"
           ],
+          "retained": false,
+          "ownerLive": true,
+          "removable": false,
+          "dirty": 0,
+          "ignored": 0,
+          "unmerged": 0,
           "sizeBytes": "<bytes>",
           "sizeComplete": true,
-          "state": "ready",
-          "unmerged": 0,
-          "warnings": []
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
         },
         {
-          "baseCommit": "<sha>",
-          "branch": "wt-merge",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 0,
-          "disposable": false,
           "id": "wt-merge",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
-          "ownerLive": true,
-          "ownerSessionId": "sH",
-          "ownerTitle": null,
-          "path": "<wt-merge>",
-          "projectPath": "<repo>",
-          "projectSubdir": "",
-          "removable": false,
           "repoCommonDir": "<repo>/.git",
-          "retained": false,
+          "projectPath": "<repo>",
+          "path": "<wt-merge>",
+          "branch": "wt-merge",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sH",
+          "state": "ready",
+          "projectSubdir": "",
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
           "sharedSessionIds": [],
+          "retained": false,
+          "ownerLive": true,
+          "removable": false,
+          "dirty": 0,
+          "ignored": 0,
+          "unmerged": 1,
           "sizeBytes": "<bytes>",
           "sizeComplete": true,
-          "state": "ready",
-          "unmerged": 1,
-          "warnings": []
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
         }
-      ]
-    },
-    {
+      ],
       "after": {
         "branches": [
           "dev",
@@ -1133,12 +1100,12 @@
         ],
         "folders": {
           "wt-clean": true,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": true
         },
         "head": "main",
         "mainFiles": [
@@ -1147,18 +1114,18 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
+      "name": "delete: lease holder alive",
       "error": {
         "code": "WORKTREE_BUSY_JOBS",
+        "message": "A runtime still holds this folder. Stop its work and release the workspace first.",
         "details": {
           "entryId": "wt-unmerged",
           "reason": "workspace-lease"
-        },
-        "message": "A runtime still holds this folder. Stop its work and release the workspace first."
+        }
       },
-      "name": "delete: lease holder alive"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -1175,12 +1142,12 @@
         ],
         "folders": {
           "wt-clean": true,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": true
         },
         "head": "main",
         "mainFiles": [
@@ -1189,210 +1156,210 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "list: owners gone",
       "ok": [
         {
-          "baseCommit": "<sha>",
-          "branch": "wt-clean",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 0,
-          "disposable": false,
           "id": "wt-clean",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
-          "ownerLive": false,
-          "ownerSessionId": "sA",
-          "ownerTitle": null,
+          "repoCommonDir": "<repo>/.git",
+          "projectPath": "<repo>",
           "path": "<wt-clean>",
-          "projectPath": "<repo>",
+          "branch": "wt-clean",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sA",
+          "state": "ready",
           "projectSubdir": "",
-          "removable": true,
-          "repoCommonDir": "<repo>/.git",
-          "retained": false,
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
           "sharedSessionIds": [],
+          "retained": false,
+          "ownerLive": false,
+          "removable": true,
+          "dirty": 0,
+          "ignored": 0,
+          "unmerged": 0,
           "sizeBytes": "<bytes>",
           "sizeComplete": true,
-          "state": "ready",
-          "unmerged": 0,
-          "warnings": []
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
         },
         {
-          "baseCommit": "<sha>",
-          "branch": "wt-unmerged",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 0,
-          "disposable": false,
           "id": "wt-unmerged",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
-          "ownerLive": false,
-          "ownerSessionId": "sB",
-          "ownerTitle": null,
+          "repoCommonDir": "<repo>/.git",
+          "projectPath": "<repo>",
           "path": "<wt-unmerged>",
-          "projectPath": "<repo>",
-          "projectSubdir": "",
-          "removable": true,
-          "repoCommonDir": "<repo>/.git",
-          "retained": false,
-          "sharedSessionIds": [],
-          "sizeBytes": "<bytes>",
-          "sizeComplete": true,
+          "branch": "wt-unmerged",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sB",
           "state": "ready",
+          "projectSubdir": "",
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
+          "sharedSessionIds": [],
+          "retained": false,
+          "ownerLive": false,
+          "removable": true,
+          "dirty": 0,
+          "ignored": 0,
           "unmerged": 1,
-          "warnings": []
+          "sizeBytes": "<bytes>",
+          "sizeComplete": true,
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
         },
         {
-          "baseCommit": "<sha>",
-          "branch": "wt-dirty",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 2,
-          "disposable": false,
           "id": "wt-dirty",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
-          "ownerLive": false,
-          "ownerSessionId": "sC",
-          "ownerTitle": null,
+          "repoCommonDir": "<repo>/.git",
+          "projectPath": "<repo>",
           "path": "<wt-dirty>",
-          "projectPath": "<repo>",
+          "branch": "wt-dirty",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sC",
+          "state": "ready",
           "projectSubdir": "",
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
+          "sharedSessionIds": [],
+          "retained": false,
+          "ownerLive": false,
           "removable": true,
-          "repoCommonDir": "<repo>/.git",
-          "retained": false,
-          "sharedSessionIds": [],
+          "dirty": 2,
+          "ignored": 0,
+          "unmerged": 0,
           "sizeBytes": "<bytes>",
           "sizeComplete": true,
-          "state": "ready",
-          "unmerged": 0,
-          "warnings": []
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
         },
         {
-          "baseCommit": "<sha>",
-          "branch": "wt-retained",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 0,
-          "disposable": false,
           "id": "wt-retained",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
-          "ownerLive": false,
-          "ownerSessionId": "sD",
-          "ownerTitle": null,
+          "repoCommonDir": "<repo>/.git",
+          "projectPath": "<repo>",
           "path": "<wt-retained>",
-          "projectPath": "<repo>",
+          "branch": "wt-retained",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sD",
+          "state": "ready",
           "projectSubdir": "",
-          "removable": false,
-          "repoCommonDir": "<repo>/.git",
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
+          "sharedSessionIds": [],
           "retained": true,
-          "sharedSessionIds": [],
-          "sizeBytes": "<bytes>",
-          "sizeComplete": true,
-          "state": "ready",
-          "unmerged": 0,
-          "warnings": []
-        },
-        {
-          "baseCommit": "<sha>",
-          "branch": "wt-live",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 0,
-          "disposable": false,
-          "id": "wt-live",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
-          "ownerLive": true,
-          "ownerSessionId": "sE",
-          "ownerTitle": null,
-          "path": "<wt-live>",
-          "projectPath": "<repo>",
-          "projectSubdir": "",
-          "removable": false,
-          "repoCommonDir": "<repo>/.git",
-          "retained": false,
-          "sharedSessionIds": [],
-          "sizeBytes": "<bytes>",
-          "sizeComplete": true,
-          "state": "ready",
-          "unmerged": 0,
-          "warnings": []
-        },
-        {
-          "baseCommit": "<sha>",
-          "branch": "wt-shared",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 0,
-          "disposable": false,
-          "id": "wt-shared",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
           "ownerLive": false,
-          "ownerSessionId": "sF",
-          "ownerTitle": null,
-          "path": "<wt-shared>",
-          "projectPath": "<repo>",
-          "projectSubdir": "",
           "removable": false,
+          "dirty": 0,
+          "ignored": 0,
+          "unmerged": 0,
+          "sizeBytes": "<bytes>",
+          "sizeComplete": true,
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
+        },
+        {
+          "id": "wt-live",
           "repoCommonDir": "<repo>/.git",
+          "projectPath": "<repo>",
+          "path": "<wt-live>",
+          "branch": "wt-live",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sE",
+          "state": "ready",
+          "projectSubdir": "",
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
+          "sharedSessionIds": [],
           "retained": false,
+          "ownerLive": true,
+          "removable": false,
+          "dirty": 0,
+          "ignored": 0,
+          "unmerged": 0,
+          "sizeBytes": "<bytes>",
+          "sizeComplete": true,
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
+        },
+        {
+          "id": "wt-shared",
+          "repoCommonDir": "<repo>/.git",
+          "projectPath": "<repo>",
+          "path": "<wt-shared>",
+          "branch": "wt-shared",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sF",
+          "state": "ready",
+          "projectSubdir": "",
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
           "sharedSessionIds": [
             "sG"
           ],
+          "retained": false,
+          "ownerLive": false,
+          "removable": false,
+          "dirty": 0,
+          "ignored": 0,
+          "unmerged": 0,
           "sizeBytes": "<bytes>",
           "sizeComplete": true,
-          "state": "ready",
-          "unmerged": 0,
-          "warnings": []
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
         },
         {
-          "baseCommit": "<sha>",
-          "branch": "wt-merge",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 0,
-          "disposable": false,
           "id": "wt-merge",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
-          "ownerLive": false,
-          "ownerSessionId": "sH",
-          "ownerTitle": null,
-          "path": "<wt-merge>",
-          "projectPath": "<repo>",
-          "projectSubdir": "",
-          "removable": true,
           "repoCommonDir": "<repo>/.git",
-          "retained": false,
+          "projectPath": "<repo>",
+          "path": "<wt-merge>",
+          "branch": "wt-merge",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sH",
+          "state": "ready",
+          "projectSubdir": "",
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
           "sharedSessionIds": [],
+          "retained": false,
+          "ownerLive": false,
+          "removable": true,
+          "dirty": 0,
+          "ignored": 0,
+          "unmerged": 1,
           "sizeBytes": "<bytes>",
           "sizeComplete": true,
-          "state": "ready",
-          "unmerged": 1,
-          "warnings": []
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
         }
-      ]
-    },
-    {
+      ],
       "after": {
         "branches": [
           "dev",
@@ -1409,12 +1376,12 @@
         ],
         "folders": {
           "wt-clean": true,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": true
         },
         "head": "main",
         "mainFiles": [
@@ -1423,13 +1390,13 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "preview: orphans",
       "ok": {
         "hasCandidates": true
-      }
-    },
-    {
+      },
       "after": {
         "branches": [
           "dev",
@@ -1446,12 +1413,12 @@
         ],
         "folders": {
           "wt-clean": true,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": true
         },
         "head": "main",
         "mainFiles": [
@@ -1460,13 +1427,13 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "preview: other repository",
       "ok": {
         "hasCandidates": false
-      }
-    },
-    {
+      },
       "after": {
         "branches": [
           "dev",
@@ -1483,12 +1450,12 @@
         ],
         "folders": {
           "wt-clean": true,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": true
         },
         "head": "main",
         "mainFiles": [
@@ -1497,15 +1464,15 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "archived: mark",
       "ok": {
         "changed": [
           "wt-dirty"
         ]
-      }
-    },
-    {
+      },
       "after": {
         "branches": [
           "dev",
@@ -1522,12 +1489,12 @@
         ],
         "folders": {
           "wt-clean": true,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": true
         },
         "head": "main",
         "mainFiles": [
@@ -1536,15 +1503,15 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "archived: restore",
       "ok": {
         "changed": [
           "wt-dirty"
         ]
-      }
-    },
-    {
+      },
       "after": {
         "branches": [
           "dev",
@@ -1561,12 +1528,12 @@
         ],
         "folders": {
           "wt-clean": true,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": true
         },
         "head": "main",
         "mainFiles": [
@@ -1575,13 +1542,13 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "archived: none",
       "ok": {
         "changed": []
-      }
-    },
-    {
+      },
       "after": {
         "branches": [
           "dev",
@@ -1598,12 +1565,12 @@
         ],
         "folders": {
           "wt-clean": true,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": true
         },
         "head": "main",
         "mainFiles": [
@@ -1612,19 +1579,61 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "inspect: managed worktree branch",
       "ok": {
         "branch": "wt-dirty",
         "commit": "<sha>",
-        "kind": "managed",
-        "path": "<wt-dirty>",
         "target": "main",
         "targetCommit": "<sha>",
-        "worktreeId": "wt-dirty"
+        "path": "<wt-dirty>",
+        "worktreeId": "wt-dirty",
+        "kind": "managed"
+      },
+      "after": {
+        "branches": [
+          "dev",
+          "fresh",
+          "main",
+          "topic",
+          "wt-clean",
+          "wt-dirty",
+          "wt-live",
+          "wt-merge",
+          "wt-retained",
+          "wt-shared",
+          "wt-unmerged"
+        ],
+        "folders": {
+          "wt-clean": true,
+          "wt-unmerged": true,
+          "wt-dirty": true,
+          "wt-retained": true,
+          "wt-live": true,
+          "wt-shared": true,
+          "wt-merge": true
+        },
+        "head": "main",
+        "mainFiles": [
+          ".gitignore",
+          "f.txt",
+          "t.txt"
+        ],
+        "status": []
       }
     },
     {
+      "name": "manage: merge a dirty worktree",
+      "error": {
+        "code": "WORKTREE_DIRTY",
+        "message": "Commit or finish the source work before merging.",
+        "details": {
+          "operation": "",
+          "count": 2
+        }
+      },
       "after": {
         "branches": [
           "dev",
@@ -1641,12 +1650,12 @@
         ],
         "folders": {
           "wt-clean": true,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": true
         },
         "head": "main",
         "mainFiles": [
@@ -1655,64 +1664,22 @@
           "t.txt"
         ],
         "status": []
-      },
-      "error": {
-        "code": "WORKTREE_DIRTY",
-        "details": {
-          "count": 2,
-          "operation": ""
-        },
-        "message": "Commit or finish the source work before merging."
-      },
-      "name": "manage: merge a dirty worktree"
+      }
     },
     {
-      "after": {
-        "branches": [
-          "dev",
-          "fresh",
-          "main",
-          "topic",
-          "wt-clean",
-          "wt-dirty",
-          "wt-live",
-          "wt-merge",
-          "wt-retained",
-          "wt-shared",
-          "wt-unmerged"
-        ],
-        "folders": {
-          "wt-clean": true,
-          "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
-          "wt-retained": true,
-          "wt-shared": true,
-          "wt-unmerged": true
-        },
-        "head": "main",
-        "mainFiles": [
-          ".gitignore",
-          "f.txt",
-          "t.txt"
-        ],
-        "status": []
-      },
+      "name": "manage: remove a dirty worktree",
       "error": {
         "code": "WORKTREE_DIRTY",
+        "message": "The worktree has uncommitted changes.",
         "details": {
-          "count": 2,
           "entryId": "wt-dirty",
           "files": [
             "f.txt",
             "scratch.txt"
-          ]
-        },
-        "message": "The worktree has uncommitted changes."
+          ],
+          "count": 2
+        }
       },
-      "name": "manage: remove a dirty worktree"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -1729,12 +1696,12 @@
         ],
         "folders": {
           "wt-clean": true,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": true
         },
         "head": "main",
         "mainFiles": [
@@ -1743,20 +1710,20 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
+      "name": "manage: remove an unmerged worktree",
       "error": {
         "code": "WORKTREE_UNMERGED",
+        "message": "The worktree branch has commits that are not merged.",
         "details": {
-          "branch": "wt-unmerged",
-          "commits": 1,
           "entryId": "wt-unmerged",
-          "mergeTarget": "main"
-        },
-        "message": "The worktree branch has commits that are not merged."
+          "branch": "wt-unmerged",
+          "mergeTarget": "main",
+          "commits": 1
+        }
       },
-      "name": "manage: remove an unmerged worktree"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -1773,12 +1740,12 @@
         ],
         "folders": {
           "wt-clean": true,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": true
         },
         "head": "main",
         "mainFiles": [
@@ -1787,20 +1754,20 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
+      "name": "manage: remove a retained worktree",
       "error": {
         "code": "WORKTREE_BUSY_JOBS",
+        "message": "Sessions still retain this folder. Close or remove those sessions before cleaning it up.",
         "details": {
-          "reason": "workspace-retained",
           "sessions": [
             "sD"
-          ]
-        },
-        "message": "Sessions still retain this folder. Close or remove those sessions before cleaning it up."
+          ],
+          "reason": "workspace-retained"
+        }
       },
-      "name": "manage: remove a retained worktree"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -1817,12 +1784,12 @@
         ],
         "folders": {
           "wt-clean": true,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": true
         },
         "head": "main",
         "mainFiles": [
@@ -1831,20 +1798,20 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
+      "name": "manage: remove a live session worktree",
       "error": {
         "code": "WORKTREE_BUSY_JOBS",
+        "message": "Sessions still retain this folder. Close or remove those sessions before cleaning it up.",
         "details": {
-          "reason": "workspace-retained",
           "sessions": [
             "sE"
-          ]
-        },
-        "message": "Sessions still retain this folder. Close or remove those sessions before cleaning it up."
+          ],
+          "reason": "workspace-retained"
+        }
       },
-      "name": "manage: remove a live session worktree"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -1861,12 +1828,12 @@
         ],
         "folders": {
           "wt-clean": true,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": true
         },
         "head": "main",
         "mainFiles": [
@@ -1875,20 +1842,20 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
+      "name": "manage: remove a shared worktree",
       "error": {
         "code": "WORKTREE_BUSY_JOBS",
+        "message": "Other sessions retain this worktree; its folder must be kept.",
         "details": {
           "reason": "workspace-shared",
           "sessions": [
             "sG"
           ]
-        },
-        "message": "Other sessions retain this worktree; its folder must be kept."
+        }
       },
-      "name": "manage: remove a shared worktree"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -1905,12 +1872,12 @@
         ],
         "folders": {
           "wt-clean": true,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": true
         },
         "head": "main",
         "mainFiles": [
@@ -1919,139 +1886,184 @@
           "t.txt"
         ],
         "status": []
-      },
-      "error": {
-        "code": "WORKTREE_BRANCH_OCCUPIED",
-        "details": null,
-        "message": "Remove or leave the checkout before deleting its branch."
-      },
-      "name": "manage: delete a branch a worktree holds"
-    },
-    {
-      "after": {
-        "branches": [
-          "dev",
-          "fresh",
-          "fresh2",
-          "main",
-          "side",
-          "topic",
-          "wt-clean",
-          "wt-dirty",
-          "wt-live",
-          "wt-merge",
-          "wt-retained",
-          "wt-shared",
-          "wt-unmerged"
-        ],
-        "folders": {
-          "wt-clean": true,
-          "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
-          "wt-retained": true,
-          "wt-shared": true,
-          "wt-unmerged": true
-        },
-        "head": "main",
-        "mainFiles": [
-          ".gitignore",
-          "f.txt",
-          "t.txt"
-        ],
-        "status": []
-      },
-      "error": {
-        "code": "WORKTREE_UNMERGED",
-        "details": {
-          "commit": "<sha>"
-        },
-        "message": "The branch is not merged into main."
-      },
-      "name": "manage: delete an unmerged branch"
-    },
-    {
-      "after": {
-        "branches": [
-          "dev",
-          "fresh",
-          "fresh2",
-          "main",
-          "side",
-          "topic",
-          "wt-clean",
-          "wt-dirty",
-          "wt-live",
-          "wt-merge",
-          "wt-retained",
-          "wt-shared",
-          "wt-unmerged"
-        ],
-        "folders": {
-          "wt-clean": true,
-          "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
-          "wt-retained": true,
-          "wt-shared": true,
-          "wt-unmerged": true
-        },
-        "head": "main",
-        "mainFiles": [
-          ".gitignore",
-          "f.txt",
-          "t.txt"
-        ],
-        "status": []
-      },
-      "error": {
-        "code": "WORKTREE_REVISION_CONFLICT",
-        "details": null,
-        "message": "The branch changed; reopen the menu and confirm again."
-      },
-      "name": "manage: stale target commit"
-    },
-    {
-      "after": {
-        "branches": [
-          "dev",
-          "fresh",
-          "fresh2",
-          "main",
-          "topic",
-          "wt-clean",
-          "wt-dirty",
-          "wt-live",
-          "wt-merge",
-          "wt-retained",
-          "wt-shared",
-          "wt-unmerged"
-        ],
-        "folders": {
-          "wt-clean": true,
-          "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
-          "wt-retained": true,
-          "wt-shared": true,
-          "wt-unmerged": true
-        },
-        "head": "main",
-        "mainFiles": [
-          ".gitignore",
-          "f.txt",
-          "t.txt"
-        ],
-        "status": []
-      },
-      "name": "manage: delete an unmerged branch, forced",
-      "ok": {
-        "branch": "side",
-        "deleted": true,
-        "forced": true
       }
     },
     {
+      "name": "manage: delete a branch a worktree holds",
+      "error": {
+        "code": "WORKTREE_BRANCH_OCCUPIED",
+        "message": "Remove or leave the checkout before deleting its branch.",
+        "details": null
+      },
+      "after": {
+        "branches": [
+          "dev",
+          "fresh",
+          "main",
+          "topic",
+          "wt-clean",
+          "wt-dirty",
+          "wt-live",
+          "wt-merge",
+          "wt-retained",
+          "wt-shared",
+          "wt-unmerged"
+        ],
+        "folders": {
+          "wt-clean": true,
+          "wt-unmerged": true,
+          "wt-dirty": true,
+          "wt-retained": true,
+          "wt-live": true,
+          "wt-shared": true,
+          "wt-merge": true
+        },
+        "head": "main",
+        "mainFiles": [
+          ".gitignore",
+          "f.txt",
+          "t.txt"
+        ],
+        "status": []
+      }
+    },
+    {
+      "name": "manage: delete an unmerged branch",
+      "error": {
+        "code": "WORKTREE_UNMERGED",
+        "message": "The branch is not merged into main.",
+        "details": {
+          "commit": "<sha>"
+        }
+      },
+      "after": {
+        "branches": [
+          "dev",
+          "fresh",
+          "fresh2",
+          "main",
+          "side",
+          "topic",
+          "wt-clean",
+          "wt-dirty",
+          "wt-live",
+          "wt-merge",
+          "wt-retained",
+          "wt-shared",
+          "wt-unmerged"
+        ],
+        "folders": {
+          "wt-clean": true,
+          "wt-unmerged": true,
+          "wt-dirty": true,
+          "wt-retained": true,
+          "wt-live": true,
+          "wt-shared": true,
+          "wt-merge": true
+        },
+        "head": "main",
+        "mainFiles": [
+          ".gitignore",
+          "f.txt",
+          "t.txt"
+        ],
+        "status": []
+      }
+    },
+    {
+      "name": "manage: stale target commit",
+      "error": {
+        "code": "WORKTREE_REVISION_CONFLICT",
+        "message": "The branch changed; reopen the menu and confirm again.",
+        "details": null
+      },
+      "after": {
+        "branches": [
+          "dev",
+          "fresh",
+          "fresh2",
+          "main",
+          "side",
+          "topic",
+          "wt-clean",
+          "wt-dirty",
+          "wt-live",
+          "wt-merge",
+          "wt-retained",
+          "wt-shared",
+          "wt-unmerged"
+        ],
+        "folders": {
+          "wt-clean": true,
+          "wt-unmerged": true,
+          "wt-dirty": true,
+          "wt-retained": true,
+          "wt-live": true,
+          "wt-shared": true,
+          "wt-merge": true
+        },
+        "head": "main",
+        "mainFiles": [
+          ".gitignore",
+          "f.txt",
+          "t.txt"
+        ],
+        "status": []
+      }
+    },
+    {
+      "name": "manage: delete an unmerged branch, forced",
+      "ok": {
+        "deleted": true,
+        "branch": "side",
+        "forced": true
+      },
+      "after": {
+        "branches": [
+          "dev",
+          "fresh",
+          "fresh2",
+          "main",
+          "topic",
+          "wt-clean",
+          "wt-dirty",
+          "wt-live",
+          "wt-merge",
+          "wt-retained",
+          "wt-shared",
+          "wt-unmerged"
+        ],
+        "folders": {
+          "wt-clean": true,
+          "wt-unmerged": true,
+          "wt-dirty": true,
+          "wt-retained": true,
+          "wt-live": true,
+          "wt-shared": true,
+          "wt-merge": true
+        },
+        "head": "main",
+        "mainFiles": [
+          ".gitignore",
+          "f.txt",
+          "t.txt"
+        ],
+        "status": []
+      }
+    },
+    {
+      "name": "merge: dirty project folder",
+      "error": {
+        "code": "MERGE_TARGET_DIRTY",
+        "message": "The merge target has uncommitted changes.",
+        "details": {
+          "operation": "",
+          "files": [
+            "f.txt"
+          ],
+          "count": 1
+        }
+      },
       "after": {
         "branches": [
           "dev",
@@ -2070,12 +2082,12 @@
         ],
         "folders": {
           "wt-clean": true,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": true
         },
         "head": "main",
         "mainFiles": [
@@ -2086,63 +2098,15 @@
         "status": [
           "M f.txt"
         ]
-      },
-      "error": {
-        "code": "MERGE_TARGET_DIRTY",
-        "details": {
-          "count": 1,
-          "files": [
-            "f.txt"
-          ],
-          "operation": ""
-        },
-        "message": "The merge target has uncommitted changes."
-      },
-      "name": "merge: dirty project folder"
-    },
-    {
-      "after": {
-        "branches": [
-          "dev",
-          "fresh",
-          "fresh2",
-          "main",
-          "topic",
-          "topic2",
-          "wt-clean",
-          "wt-dirty",
-          "wt-live",
-          "wt-merge",
-          "wt-retained",
-          "wt-shared",
-          "wt-unmerged"
-        ],
-        "folders": {
-          "wt-clean": true,
-          "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": true,
-          "wt-retained": true,
-          "wt-shared": true,
-          "wt-unmerged": true
-        },
-        "head": "main",
-        "mainFiles": [
-          ".gitignore",
-          "f.txt",
-          "m.txt",
-          "t.txt"
-        ],
-        "status": []
-      },
-      "name": "manage: merge a worktree branch",
-      "ok": {
-        "commit": "<sha>",
-        "merged": true,
-        "target": "main"
       }
     },
     {
+      "name": "manage: merge a worktree branch",
+      "ok": {
+        "merged": true,
+        "commit": "<sha>",
+        "target": "main"
+      },
       "after": {
         "branches": [
           "dev",
@@ -2161,12 +2125,12 @@
         ],
         "folders": {
           "wt-clean": true,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": false,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": true
         },
         "head": "main",
         "mainFiles": [
@@ -2176,13 +2140,13 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "manage: remove a merged worktree",
       "ok": {
         "removed": true
-      }
-    },
-    {
+      },
       "after": {
         "branches": [
           "dev",
@@ -2201,12 +2165,12 @@
         ],
         "folders": {
           "wt-clean": true,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": false,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": false
         },
         "head": "main",
         "mainFiles": [
@@ -2216,21 +2180,21 @@
           "t.txt"
         ],
         "status": []
-      },
-      "name": "prune: other repository",
-      "ok": {
-        "errors": [],
-        "kept": [],
-        "leasesReleased": [],
-        "limits": "favorites-unknown",
-        "missing": [],
-        "pruned": [],
-        "recovered": [],
-        "removed": [],
-        "selected": []
       }
     },
     {
+      "name": "prune: other repository",
+      "ok": {
+        "removed": [],
+        "recovered": [],
+        "kept": [],
+        "leasesReleased": [],
+        "pruned": [],
+        "missing": [],
+        "errors": [],
+        "selected": [],
+        "limits": "favorites-unknown"
+      },
       "after": {
         "branches": [
           "dev",
@@ -2248,13 +2212,13 @@
           "wt-unmerged"
         ],
         "folders": {
-          "wt-clean": false,
+          "wt-clean": true,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": false,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": false
         },
         "head": "main",
         "mainFiles": [
@@ -2264,15 +2228,16 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "prune: removes only the clean orphan",
       "ok": {
-        "errors": [],
+        "removed": [
+          "wt-clean"
+        ],
+        "recovered": [],
         "kept": [
-          {
-            "id": "wt-shared",
-            "reason": "shared"
-          },
           {
             "id": "wt-unmerged",
             "reason": "unmerged"
@@ -2280,6 +2245,10 @@
           {
             "id": "wt-dirty",
             "reason": "dirty"
+          },
+          {
+            "id": "wt-shared",
+            "reason": "shared"
           }
         ],
         "leasesReleased": [
@@ -2288,198 +2257,193 @@
           "wt-dirty",
           "wt-retained"
         ],
-        "limits": "favorites-unknown",
-        "missing": [],
         "pruned": [],
-        "recovered": [],
-        "removed": [
-          "wt-clean"
+        "missing": [],
+        "errors": [],
+        "selected": [],
+        "limits": "favorites-unknown"
+      },
+      "after": {
+        "branches": [
+          "dev",
+          "fresh",
+          "fresh2",
+          "main",
+          "topic",
+          "topic2",
+          "wt-clean",
+          "wt-dirty",
+          "wt-live",
+          "wt-merge",
+          "wt-retained",
+          "wt-shared",
+          "wt-unmerged"
         ],
-        "selected": []
+        "folders": {
+          "wt-clean": false,
+          "wt-unmerged": true,
+          "wt-dirty": true,
+          "wt-retained": true,
+          "wt-live": true,
+          "wt-shared": true,
+          "wt-merge": false
+        },
+        "head": "main",
+        "mainFiles": [
+          ".gitignore",
+          "f.txt",
+          "m.txt",
+          "t.txt"
+        ],
+        "status": []
       }
     },
     {
-      "after": {
-        "branches": [
-          "dev",
-          "fresh",
-          "fresh2",
-          "main",
-          "topic",
-          "topic2",
-          "wt-clean",
-          "wt-dirty",
-          "wt-live",
-          "wt-merge",
-          "wt-retained",
-          "wt-shared",
-          "wt-unmerged"
-        ],
-        "folders": {
-          "wt-clean": false,
-          "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": false,
-          "wt-retained": true,
-          "wt-shared": true,
-          "wt-unmerged": true
-        },
-        "head": "main",
-        "mainFiles": [
-          ".gitignore",
-          "f.txt",
-          "m.txt",
-          "t.txt"
-        ],
-        "status": []
-      },
       "name": "list: after prune",
       "ok": [
         {
-          "baseCommit": "<sha>",
-          "branch": "wt-unmerged",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 0,
-          "disposable": false,
           "id": "wt-unmerged",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
-          "ownerLive": false,
-          "ownerSessionId": "sB",
-          "ownerTitle": null,
+          "repoCommonDir": "<repo>/.git",
+          "projectPath": "<repo>",
           "path": "<wt-unmerged>",
-          "projectPath": "<repo>",
-          "projectSubdir": "",
-          "removable": true,
-          "repoCommonDir": "<repo>/.git",
-          "retained": false,
-          "sharedSessionIds": [],
-          "sizeBytes": "<bytes>",
-          "sizeComplete": true,
+          "branch": "wt-unmerged",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sB",
           "state": "ready",
+          "projectSubdir": "",
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
+          "sharedSessionIds": [],
+          "retained": false,
+          "ownerLive": false,
+          "removable": true,
+          "dirty": 0,
+          "ignored": 0,
           "unmerged": 1,
-          "warnings": []
+          "sizeBytes": "<bytes>",
+          "sizeComplete": true,
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
         },
         {
-          "baseCommit": "<sha>",
-          "branch": "wt-dirty",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 2,
-          "disposable": false,
           "id": "wt-dirty",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
-          "ownerLive": false,
-          "ownerSessionId": "sC",
-          "ownerTitle": null,
+          "repoCommonDir": "<repo>/.git",
+          "projectPath": "<repo>",
           "path": "<wt-dirty>",
-          "projectPath": "<repo>",
+          "branch": "wt-dirty",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sC",
+          "state": "ready",
           "projectSubdir": "",
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
+          "sharedSessionIds": [],
+          "retained": false,
+          "ownerLive": false,
           "removable": true,
-          "repoCommonDir": "<repo>/.git",
-          "retained": false,
-          "sharedSessionIds": [],
+          "dirty": 2,
+          "ignored": 0,
+          "unmerged": 0,
           "sizeBytes": "<bytes>",
           "sizeComplete": true,
-          "state": "ready",
-          "unmerged": 0,
-          "warnings": []
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
         },
         {
-          "baseCommit": "<sha>",
-          "branch": "wt-retained",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 0,
-          "disposable": false,
           "id": "wt-retained",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
-          "ownerLive": false,
-          "ownerSessionId": "sD",
-          "ownerTitle": null,
+          "repoCommonDir": "<repo>/.git",
+          "projectPath": "<repo>",
           "path": "<wt-retained>",
-          "projectPath": "<repo>",
+          "branch": "wt-retained",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sD",
+          "state": "ready",
           "projectSubdir": "",
-          "removable": false,
-          "repoCommonDir": "<repo>/.git",
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
+          "sharedSessionIds": [],
           "retained": true,
-          "sharedSessionIds": [],
-          "sizeBytes": "<bytes>",
-          "sizeComplete": true,
-          "state": "ready",
-          "unmerged": 0,
-          "warnings": []
-        },
-        {
-          "baseCommit": "<sha>",
-          "branch": "wt-live",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 0,
-          "disposable": false,
-          "id": "wt-live",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
-          "ownerLive": true,
-          "ownerSessionId": "sE",
-          "ownerTitle": null,
-          "path": "<wt-live>",
-          "projectPath": "<repo>",
-          "projectSubdir": "",
-          "removable": false,
-          "repoCommonDir": "<repo>/.git",
-          "retained": false,
-          "sharedSessionIds": [],
-          "sizeBytes": "<bytes>",
-          "sizeComplete": true,
-          "state": "ready",
-          "unmerged": 0,
-          "warnings": []
-        },
-        {
-          "baseCommit": "<sha>",
-          "branch": "wt-shared",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 0,
-          "disposable": false,
-          "id": "wt-shared",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
           "ownerLive": false,
-          "ownerSessionId": "sF",
-          "ownerTitle": null,
-          "path": "<wt-shared>",
-          "projectPath": "<repo>",
-          "projectSubdir": "",
           "removable": false,
+          "dirty": 0,
+          "ignored": 0,
+          "unmerged": 0,
+          "sizeBytes": "<bytes>",
+          "sizeComplete": true,
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
+        },
+        {
+          "id": "wt-live",
           "repoCommonDir": "<repo>/.git",
+          "projectPath": "<repo>",
+          "path": "<wt-live>",
+          "branch": "wt-live",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sE",
+          "state": "ready",
+          "projectSubdir": "",
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
+          "sharedSessionIds": [],
           "retained": false,
+          "ownerLive": true,
+          "removable": false,
+          "dirty": 0,
+          "ignored": 0,
+          "unmerged": 0,
+          "sizeBytes": "<bytes>",
+          "sizeComplete": true,
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
+        },
+        {
+          "id": "wt-shared",
+          "repoCommonDir": "<repo>/.git",
+          "projectPath": "<repo>",
+          "path": "<wt-shared>",
+          "branch": "wt-shared",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sF",
+          "state": "ready",
+          "projectSubdir": "",
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
           "sharedSessionIds": [
             "sG"
           ],
+          "retained": false,
+          "ownerLive": false,
+          "removable": false,
+          "dirty": 0,
+          "ignored": 0,
+          "unmerged": 0,
           "sizeBytes": "<bytes>",
           "sizeComplete": true,
-          "state": "ready",
-          "unmerged": 0,
-          "warnings": []
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
         }
-      ]
-    },
-    {
+      ],
       "after": {
         "branches": [
           "dev",
@@ -2498,12 +2462,12 @@
         ],
         "folders": {
           "wt-clean": false,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": false,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": false
         },
         "head": "main",
         "mainFiles": [
@@ -2513,17 +2477,17 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
+      "name": "delete: unknown entry",
       "error": {
         "code": "WORKTREE_MISSING",
+        "message": "The managed worktree no longer exists.",
         "details": {
           "entryId": "nope"
-        },
-        "message": "The managed worktree no longer exists."
+        }
       },
-      "name": "delete: unknown entry"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -2542,12 +2506,12 @@
         ],
         "folders": {
           "wt-clean": false,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": false,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": false
         },
         "head": "main",
         "mainFiles": [
@@ -2557,18 +2521,18 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
+      "name": "delete: live owner",
       "error": {
         "code": "WORKTREE_BUSY_JOBS",
+        "message": "A runtime still holds this folder. Stop its work and release the workspace first.",
         "details": {
           "entryId": "wt-live",
           "reason": "workspace-lease"
-        },
-        "message": "A runtime still holds this folder. Stop its work and release the workspace first."
+        }
       },
-      "name": "delete: live owner"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -2587,12 +2551,12 @@
         ],
         "folders": {
           "wt-clean": false,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": false,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": false
         },
         "head": "main",
         "mainFiles": [
@@ -2602,20 +2566,20 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
+      "name": "delete: shared worktree",
       "error": {
         "code": "WORKTREE_BUSY_JOBS",
+        "message": "Other sessions retain this worktree; its folder must be kept.",
         "details": {
           "reason": "workspace-shared",
           "sessions": [
             "sG"
           ]
-        },
-        "message": "Other sessions retain this worktree; its folder must be kept."
+        }
       },
-      "name": "delete: shared worktree"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -2634,12 +2598,12 @@
         ],
         "folders": {
           "wt-clean": false,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": false,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": false
         },
         "head": "main",
         "mainFiles": [
@@ -2649,22 +2613,22 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
+      "name": "delete: dirty without force",
       "error": {
         "code": "WORKTREE_DIRTY",
+        "message": "The worktree has uncommitted changes.",
         "details": {
-          "count": 2,
           "entryId": "wt-dirty",
           "files": [
             "f.txt",
             "scratch.txt"
-          ]
-        },
-        "message": "The worktree has uncommitted changes."
+          ],
+          "count": 2
+        }
       },
-      "name": "delete: dirty without force"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -2683,12 +2647,12 @@
         ],
         "folders": {
           "wt-clean": false,
+          "wt-unmerged": true,
           "wt-dirty": true,
-          "wt-live": true,
-          "wt-merge": false,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": false
         },
         "head": "main",
         "mainFiles": [
@@ -2698,20 +2662,20 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
+      "name": "delete: unmerged without force",
       "error": {
         "code": "WORKTREE_UNMERGED",
+        "message": "The worktree branch has commits that are not merged.",
         "details": {
-          "branch": "wt-unmerged",
-          "commits": 1,
           "entryId": "wt-unmerged",
-          "mergeTarget": "main"
-        },
-        "message": "The worktree branch has commits that are not merged."
+          "branch": "wt-unmerged",
+          "mergeTarget": "main",
+          "commits": 1
+        }
       },
-      "name": "delete: unmerged without force"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -2721,6 +2685,7 @@
           "topic",
           "topic2",
           "wt-clean",
+          "wt-dirty",
           "wt-live",
           "wt-merge",
           "wt-retained",
@@ -2729,12 +2694,12 @@
         ],
         "folders": {
           "wt-clean": false,
-          "wt-dirty": false,
-          "wt-live": true,
-          "wt-merge": false,
+          "wt-unmerged": true,
+          "wt-dirty": true,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": true
+          "wt-merge": false
         },
         "head": "main",
         "mainFiles": [
@@ -2744,18 +2709,18 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "delete: dirty with force",
       "ok": {
-        "entryId": "wt-dirty",
-        "path": "<wt-dirty>",
         "removed": {
-          "branchDeleted": true,
-          "removed": true
-        }
-      }
-    },
-    {
+          "removed": true,
+          "branchDeleted": true
+        },
+        "entryId": "wt-dirty",
+        "path": "<wt-dirty>"
+      },
       "after": {
         "branches": [
           "dev",
@@ -2773,12 +2738,12 @@
         ],
         "folders": {
           "wt-clean": false,
+          "wt-unmerged": true,
           "wt-dirty": false,
-          "wt-live": true,
-          "wt-merge": false,
           "wt-retained": true,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": false
+          "wt-merge": false
         },
         "head": "main",
         "mainFiles": [
@@ -2788,21 +2753,21 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "delete: unmerged with force",
       "ok": {
-        "entryId": "wt-unmerged",
-        "path": "<wt-unmerged>",
         "removed": {
+          "removed": true,
           "preservedBranch": {
-            "head": "<sha>",
-            "name": "wt-unmerged"
-          },
-          "removed": true
-        }
-      }
-    },
-    {
+            "name": "wt-unmerged",
+            "head": "<sha>"
+          }
+        },
+        "entryId": "wt-unmerged",
+        "path": "<wt-unmerged>"
+      },
       "after": {
         "branches": [
           "dev",
@@ -2814,17 +2779,18 @@
           "wt-clean",
           "wt-live",
           "wt-merge",
+          "wt-retained",
           "wt-shared",
           "wt-unmerged"
         ],
         "folders": {
           "wt-clean": false,
+          "wt-unmerged": false,
           "wt-dirty": false,
+          "wt-retained": true,
           "wt-live": true,
-          "wt-merge": false,
-          "wt-retained": false,
           "wt-shared": true,
-          "wt-unmerged": false
+          "wt-merge": false
         },
         "head": "main",
         "mainFiles": [
@@ -2834,18 +2800,18 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "delete: retained session worktree",
       "ok": {
-        "entryId": "wt-retained",
-        "path": "<wt-retained>",
         "removed": {
-          "branchDeleted": true,
-          "removed": true
-        }
-      }
-    },
-    {
+          "removed": true,
+          "branchDeleted": true
+        },
+        "entryId": "wt-retained",
+        "path": "<wt-retained>"
+      },
       "after": {
         "branches": [
           "dev",
@@ -2862,12 +2828,12 @@
         ],
         "folders": {
           "wt-clean": false,
+          "wt-unmerged": false,
           "wt-dirty": false,
-          "wt-live": true,
-          "wt-merge": false,
           "wt-retained": false,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": false
+          "wt-merge": false
         },
         "head": "main",
         "mainFiles": [
@@ -2877,77 +2843,76 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "list: what remains",
       "ok": [
         {
-          "baseCommit": "<sha>",
-          "branch": "wt-live",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 0,
-          "disposable": false,
           "id": "wt-live",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
-          "ownerLive": true,
-          "ownerSessionId": "sE",
-          "ownerTitle": null,
-          "path": "<wt-live>",
-          "projectPath": "<repo>",
-          "projectSubdir": "",
-          "removable": false,
           "repoCommonDir": "<repo>/.git",
-          "retained": false,
+          "projectPath": "<repo>",
+          "path": "<wt-live>",
+          "branch": "wt-live",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sE",
+          "state": "ready",
+          "projectSubdir": "",
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
           "sharedSessionIds": [],
+          "retained": false,
+          "ownerLive": true,
+          "removable": false,
+          "dirty": 0,
+          "ignored": 0,
+          "unmerged": 0,
           "sizeBytes": "<bytes>",
           "sizeComplete": true,
-          "state": "ready",
-          "unmerged": 0,
-          "warnings": []
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
         },
         {
-          "baseCommit": "<sha>",
-          "branch": "wt-shared",
-          "cleanupReason": null,
-          "createdAt": "<ms>",
-          "dirty": 0,
-          "disposable": false,
           "id": "wt-shared",
-          "ignored": 0,
-          "lastActiveAt": "<ms>",
-          "mergeTarget": "main",
-          "ownerArchived": false,
-          "ownerLive": false,
-          "ownerSessionId": "sF",
-          "ownerTitle": null,
-          "path": "<wt-shared>",
-          "projectPath": "<repo>",
-          "projectSubdir": "",
-          "removable": false,
           "repoCommonDir": "<repo>/.git",
-          "retained": false,
+          "projectPath": "<repo>",
+          "path": "<wt-shared>",
+          "branch": "wt-shared",
+          "baseCommit": "<sha>",
+          "createdAt": "<ms>",
+          "ownerSessionId": "sF",
+          "state": "ready",
+          "projectSubdir": "",
+          "mergeTarget": "main",
+          "warnings": [],
+          "disposable": false,
           "sharedSessionIds": [
             "sG"
           ],
+          "retained": false,
+          "ownerLive": false,
+          "removable": false,
+          "dirty": 0,
+          "ignored": 0,
+          "unmerged": 0,
           "sizeBytes": "<bytes>",
           "sizeComplete": true,
-          "state": "ready",
-          "unmerged": 0,
-          "warnings": []
+          "ownerTitle": null,
+          "ownerArchived": false,
+          "lastActiveAt": "<ms>",
+          "cleanupReason": null
         }
-      ]
-    },
-    {
+      ],
       "after": {
         "branches": [
           "dev",
           "fresh",
           "fresh2",
           "main",
-          "solo-wt",
           "topic",
           "topic2",
           "wt-clean",
@@ -2957,14 +2922,13 @@
           "wt-unmerged"
         ],
         "folders": {
-          "solo-wt": true,
           "wt-clean": false,
+          "wt-unmerged": false,
           "wt-dirty": false,
-          "wt-live": true,
-          "wt-merge": false,
           "wt-retained": false,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": false
+          "wt-merge": false
         },
         "head": "main",
         "mainFiles": [
@@ -2974,18 +2938,18 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
+      "name": "remove: stale revision",
       "error": {
         "code": "WORKTREE_REVISION_CONFLICT",
+        "message": "The session workspace changed; reload and try again.",
         "details": {
           "expectedRevision": 99,
           "revision": 1
-        },
-        "message": "The session workspace changed; reload and try again."
+        }
       },
-      "name": "remove: stale revision"
-    },
-    {
       "after": {
         "branches": [
           "dev",
@@ -3002,14 +2966,14 @@
           "wt-unmerged"
         ],
         "folders": {
-          "solo-wt": true,
           "wt-clean": false,
+          "wt-unmerged": false,
           "wt-dirty": false,
-          "wt-live": true,
-          "wt-merge": false,
           "wt-retained": false,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": false
+          "wt-merge": false,
+          "solo-wt": true
         },
         "head": "main",
         "mainFiles": [
@@ -3019,27 +2983,28 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
+      "name": "remove: dirty without force",
       "error": {
         "code": "WORKTREE_DIRTY",
+        "message": "The worktree has uncommitted changes.",
         "details": {
-          "count": 1,
           "entryId": "solo-wt",
           "files": [
             "wip.txt"
-          ]
-        },
-        "message": "The worktree has uncommitted changes."
+          ],
+          "count": 1
+        }
       },
-      "name": "remove: dirty without force"
-    },
-    {
       "after": {
         "branches": [
           "dev",
           "fresh",
           "fresh2",
           "main",
+          "solo-wt",
           "topic",
           "topic2",
           "wt-clean",
@@ -3049,14 +3014,14 @@
           "wt-unmerged"
         ],
         "folders": {
-          "solo-wt": false,
           "wt-clean": false,
+          "wt-unmerged": false,
           "wt-dirty": false,
-          "wt-live": true,
-          "wt-merge": false,
           "wt-retained": false,
+          "wt-live": true,
           "wt-shared": true,
-          "wt-unmerged": false
+          "wt-merge": false,
+          "solo-wt": true
         },
         "head": "main",
         "mainFiles": [
@@ -3066,77 +3031,112 @@
           "t.txt"
         ],
         "status": []
-      },
+      }
+    },
+    {
       "name": "remove: session works there",
       "ok": {
-        "removed": {
-          "branchDeleted": true,
-          "removed": true
-        },
         "revision": 2,
         "workspace": {
-          "baseCommit": null,
-          "branch": "main",
-          "cwd": "<repo>",
-          "mergeTarget": null,
           "projectPath": "<repo>",
           "repoCommonDir": "<repo>/.git",
+          "cwd": "<repo>",
+          "worktreeId": null,
+          "branch": "main",
+          "baseCommit": null,
+          "mergeTarget": null,
           "revision": 2,
           "transition": {
             "state": "idle",
             "txId": null
-          },
-          "worktreeId": null
+          }
+        },
+        "removed": {
+          "removed": true,
+          "branchDeleted": true
         }
+      },
+      "after": {
+        "branches": [
+          "dev",
+          "fresh",
+          "fresh2",
+          "main",
+          "topic",
+          "topic2",
+          "wt-clean",
+          "wt-live",
+          "wt-merge",
+          "wt-shared",
+          "wt-unmerged"
+        ],
+        "folders": {
+          "wt-clean": false,
+          "wt-unmerged": false,
+          "wt-dirty": false,
+          "wt-retained": false,
+          "wt-live": true,
+          "wt-shared": true,
+          "wt-merge": false,
+          "solo-wt": false
+        },
+        "head": "main",
+        "mainFiles": [
+          ".gitignore",
+          "f.txt",
+          "m.txt",
+          "t.txt"
+        ],
+        "status": []
       }
     },
     {
       "name": "connectors: all on",
       "ok": [
         {
-          "enabled": true,
-          "id": "gmail"
+          "id": "gmail",
+          "enabled": true
         },
         {
-          "enabled": true,
-          "id": "github"
+          "id": "github",
+          "enabled": true
         },
         {
-          "enabled": true,
-          "id": "notion"
+          "id": "notion",
+          "enabled": true
         }
       ]
     },
     {
+      "name": "connectors: unregistered project",
       "error": {
         "code": null,
-        "details": null,
-        "message": "project not registered: <base>/nowhere"
-      },
-      "name": "connectors: unregistered project"
+        "message": "project not registered: <base>/nowhere",
+        "details": null
+      }
     },
     {
+      "name": "connectors: blank project",
       "error": {
         "code": null,
-        "details": null,
-        "message": "project path is required"
-      },
-      "name": "connectors: blank project"
+        "message": "project path is required",
+        "details": null
+      }
     },
     {
       "name": "connectors: switch notion off",
       "ok": [
         {
-          "enabled": true,
-          "id": "gmail"
+          "id": "gmail",
+          "enabled": true
         },
         {
-          "enabled": true,
-          "id": "github"
+          "id": "github",
+          "enabled": true
         },
         {
-          "enabled": false,
-          "id": "notion"
+          "id": "notion",
+          "enabled": false
         }
       ]
     },
@@ -3144,16 +3144,16 @@
       "name": "connectors: switch gmail off, remote",
       "ok": [
         {
-          "enabled": false,
-          "id": "gmail"
+          "id": "gmail",
+          "enabled": false
         },
         {
-          "enabled": true,
-          "id": "github"
+          "id": "github",
+          "enabled": true
         },
         {
-          "enabled": false,
-          "id": "notion"
+          "id": "notion",
+          "enabled": false
         }
       ]
     },
@@ -3171,51 +3171,51 @@
       }
     },
     {
+      "name": "connectors: remote cannot widen",
       "error": {
         "code": null,
-        "details": null,
-        "message": "This change would widen what the bot may do without asking; make it on the desktop."
-      },
-      "name": "connectors: remote cannot widen"
+        "message": "This change would widen what the bot may do without asking; make it on the desktop.",
+        "details": null
+      }
     },
     {
+      "name": "connectors: enabled must be boolean",
       "error": {
         "code": null,
-        "details": null,
-        "message": "enabled must be a boolean"
-      },
-      "name": "connectors: enabled must be boolean"
+        "message": "enabled must be a boolean",
+        "details": null
+      }
     },
     {
+      "name": "connectors: blank connector id",
       "error": {
         "code": null,
-        "details": null,
-        "message": "connector id is required"
-      },
-      "name": "connectors: blank connector id"
+        "message": "connector id is required",
+        "details": null
+      }
     },
     {
+      "name": "connectors: unregistered project set",
       "error": {
         "code": null,
-        "details": null,
-        "message": "project not registered: <base>/nowhere"
-      },
-      "name": "connectors: unregistered project set"
+        "message": "project not registered: <base>/nowhere",
+        "details": null
+      }
     },
     {
       "name": "connectors: switch gmail on",
       "ok": [
         {
-          "enabled": true,
-          "id": "gmail"
+          "id": "gmail",
+          "enabled": true
         },
         {
-          "enabled": true,
-          "id": "github"
+          "id": "github",
+          "enabled": true
         },
         {
-          "enabled": false,
-          "id": "notion"
+          "id": "notion",
+          "enabled": false
         }
       ]
     },
@@ -3223,16 +3223,16 @@
       "name": "connectors: switch notion on",
       "ok": [
         {
-          "enabled": true,
-          "id": "gmail"
+          "id": "gmail",
+          "enabled": true
         },
         {
-          "enabled": true,
-          "id": "github"
+          "id": "github",
+          "enabled": true
         },
         {
-          "enabled": true,
-          "id": "notion"
+          "id": "notion",
+          "enabled": true
         }
       ]
     },
@@ -3246,26 +3246,26 @@
       "name": "connectors: unreadable file reads deny-all",
       "ok": [
         {
-          "enabled": false,
-          "id": "gmail"
+          "id": "gmail",
+          "enabled": false
         },
         {
-          "enabled": false,
-          "id": "github"
+          "id": "github",
+          "enabled": false
         },
         {
-          "enabled": false,
-          "id": "notion"
+          "id": "notion",
+          "enabled": false
         }
       ]
     },
     {
+      "name": "connectors: unreadable file is never overwritten",
       "error": {
         "code": null,
-        "details": null,
-        "message": "project-connectors.json cannot be read; fix or remove it first"
-      },
-      "name": "connectors: unreadable file is never overwritten"
+        "message": "project-connectors.json cannot be read; fix or remove it first",
+        "details": null
+      }
     }
   ]
 }

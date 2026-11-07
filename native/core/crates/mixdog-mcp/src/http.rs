@@ -299,36 +299,71 @@ impl Transport for HttpTransport {
         let open = move |resume: Option<String>| {
             let (client, auth, base) = (client.clone(), auth.clone(), base.try_clone());
             async move {
-                let Some(mut request) = base else {
+                let Some(base) = base else {
                     return Listener::Failed;
                 };
-                // A reopen takes the current token, as the SDK's `_commonHeaders` does.
-                if let Some(auth) = auth
-                    && let Ok(Some(token)) = auth.token().await
-                    && let Ok(mut value) = HeaderValue::from_str(&format!("Bearer {token}"))
-                {
-                    value.set_sensitive(true);
-                    request
-                        .headers_mut()
-                        .insert(reqwest::header::AUTHORIZATION, value);
-                }
-                if let Some(id) = resume.and_then(|id| HeaderValue::from_str(&id).ok()) {
-                    request.headers_mut().insert("last-event-id", id);
-                }
-                match STARTUP.bound_head(client.execute(request)).await {
-                    Ok(Ok(response)) if response.status().is_success() => {
-                        Listener::Stream(response)
-                    }
-                    Ok(Ok(response))
-                        if response.status() == reqwest::StatusCode::METHOD_NOT_ALLOWED =>
+                // Each attempt takes the token it is given (a reopen takes the current one, as the
+                // SDK's `_commonHeaders` does).
+                let request = |token: Option<String>| {
+                    let mut request = base.try_clone()?;
+                    if let Some(token) = token
+                        && let Ok(mut value) = HeaderValue::from_str(&format!("Bearer {token}"))
                     {
-                        Listener::Absent
+                        value.set_sensitive(true);
+                        request.headers_mut().insert(reqwest::header::AUTHORIZATION, value);
                     }
-                    _ => Listener::Failed,
+                    if let Some(id) = resume.clone().and_then(|id| HeaderValue::from_str(&id).ok()) {
+                        request.headers_mut().insert("last-event-id", id);
+                    }
+                    Some(request)
+                };
+                let attempted = match &auth {
+                    Some(auth) => match auth.token().await {
+                        Ok(token) => token,
+                        Err(_) => return Listener::Failed,
+                    },
+                    None => None,
+                };
+                let mut sent = attempted.clone();
+                let Some(first) = request(attempted.clone()) else {
+                    return Listener::Failed;
+                };
+                let Ok(Ok(mut response)) = STARTUP.bound_head(client.execute(first)).await else {
+                    return Listener::Failed;
+                };
+                if let Some(auth) = &auth
+                    && crate::transport::refused(response.status().as_u16(), crate::transport::challenge_of(&response).as_deref())
+                {
+                    // As `post_message`: renew once and replay; a second refusal needs the user.
+                    if auth.renew(attempted.clone(), crate::transport::challenge_of(&response)).await.is_err() {
+                        return Listener::Failed;
+                    }
+                    let Ok(fresh) = auth.token().await else { return Listener::Failed };
+                    let Some(second) = request(fresh.clone()) else {
+                        return Listener::Failed;
+                    };
+                    let Ok(Ok(replayed)) = STARTUP.bound_head(client.execute(second)).await else {
+                        return Listener::Failed;
+                    };
+                    response = replayed;
+                    if crate::transport::refused(response.status().as_u16(), crate::transport::challenge_of(&response).as_deref()) {
+                        auth.refused_after_renewal(attempted.as_deref());
+                        return Listener::Failed;
+                    }
+                    sent = fresh;
+                }
+                if response.status().is_success() {
+                    if let Some(auth) = &auth {
+                        auth.answered(sent.as_deref());
+                    }
+                    Listener::Stream(response)
+                } else if response.status() == reqwest::StatusCode::METHOD_NOT_ALLOWED {
+                    Listener::Absent
+                } else {
+                    Listener::Failed
                 }
             }
-        };
-        mixdog_rt::spawn(
+        };        mixdog_rt::spawn(
             "mcp.http.listen",
             mixdog_rt::TaskClass::Work,
             keep_listening(open, tx, shutdown),
@@ -355,23 +390,29 @@ impl HttpTransport {
             Some(auth) => auth.token().await?,
             None => None,
         };
+        let mut sent = attempted.clone();
         let mut response = post(attempted.clone()).send().await.map_err(request_error)?;
         if let Some(auth) = &self.auth
             && crate::transport::refused(response.status().as_u16(), crate::transport::challenge_of(&response).as_deref())
         {
             // The token was refused: renew it once and replay; a second refusal needs the user.
-            auth.renew(attempted, crate::transport::challenge_of(&response)).await?;
+            auth.renew(attempted.clone(), crate::transport::challenge_of(&response)).await?;
             let fresh = auth.token().await?;
-            response = post(fresh).send().await.map_err(request_error)?;
+            response = post(fresh.clone()).send().await.map_err(request_error)?;
             if crate::transport::refused(response.status().as_u16(), crate::transport::challenge_of(&response).as_deref()) {
+                auth.refused_after_renewal(attempted.as_deref());
                 return Err(TransportError::AuthRequired);
             }
+            sent = fresh;
         }
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
             let body: String = body.chars().take(ERROR_BODY_CHARS).collect();
             return Err(TransportError::Http { status: status.as_u16(), body });
+        }
+        if let Some(auth) = &self.auth {
+            auth.answered(sent.as_deref());
         }
         if let Some(session) = response.headers().get(SESSION_HEADER).and_then(|v| v.to_str().ok()) {
             *self.session.lock().unwrap_or_else(|e| e.into_inner()) = Some(session.to_owned());
@@ -445,6 +486,119 @@ mod tests {
         (addr, seen)
     }
 
+    use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
+
+    /// Answers every GET `401` unless it carries `Bearer new`, which gets a stream; each answer is
+    /// signalled (its status) after it was written.
+    async fn refusing_server() -> (std::net::SocketAddr, UnboundedReceiver<u16>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (answered, signals) = unbounded_channel();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let answered = answered.clone();
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 2048];
+                    let read = socket.read(&mut buf).await.unwrap_or(0);
+                    let head = String::from_utf8_lossy(&buf[..read]).to_lowercase();
+                    let (status, reply) = if head.contains("authorization: bearer new") {
+                        let body = "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\"}\n\n";
+                        (200, format!("HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()))
+                    } else {
+                        (401, "HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_owned())
+                    };
+                    let _ = socket.write_all(reply.as_bytes()).await;
+                    let _ = answered.send(status);
+                });
+            }
+        });
+        (addr, signals)
+    }
+
+    /// A sign-in holding `old`; a renewal gives `new` when `renews`, `stays` keeps `old` (the
+    /// replay is refused again), else it needs the user. Every call is signalled.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Renewal {
+        Renews,
+        Stays,
+        NeedsUser,
+    }
+
+    struct Recording {
+        token: Mutex<String>,
+        renewal: Renewal,
+        events: UnboundedSender<String>,
+    }
+
+    #[async_trait::async_trait]
+    impl Authorizer for Recording {
+        async fn token(&self) -> Result<Option<String>, TransportError> {
+            Ok(Some(self.token.lock().unwrap().clone()))
+        }
+        async fn renew(&self, rejected: Option<String>, _: Option<String>) -> Result<(), TransportError> {
+            let _ = self.events.send(format!("renew {}", rejected.unwrap_or_default()));
+            match self.renewal {
+                Renewal::Renews => {
+                    *self.token.lock().unwrap() = "new".to_owned();
+                    Ok(())
+                }
+                Renewal::Stays => Ok(()),
+                Renewal::NeedsUser => Err(TransportError::AuthRequired),
+            }
+        }
+        fn answered(&self, sent: Option<&str>) {
+            let _ = self.events.send(format!("answered {}", sent.unwrap_or_default()));
+        }
+        fn refused_after_renewal(&self, attempted: Option<&str>) {
+            let _ = self.events.send(format!("refused again {}", attempted.unwrap_or_default()));
+        }
+    }
+
+    /// Opens the listener of a transport over `Recording` and awaits its first `n` reports and the
+    /// first `m` answers of the server: signals, not time.
+    async fn listen(renewal: Renewal, n: usize, m: usize) -> (Vec<String>, Vec<u16>) {
+        let (addr, mut answers) = refusing_server().await;
+        let (events, mut reports) = unbounded_channel();
+        let auth = Arc::new(Recording { token: Mutex::new("old".to_owned()), renewal, events });
+        let url = Url::parse(&format!("http://{addr}/mcp")).unwrap();
+        let (transport, _rx) = HttpTransport::new(url, &BTreeMap::new(), Some(auth)).unwrap();
+        transport.initialized();
+        let mut seen = Vec::new();
+        while seen.len() < n {
+            seen.push(reports.recv().await.expect("the listener reports"));
+        }
+        let mut statuses = Vec::new();
+        while statuses.len() < m {
+            statuses.push(answers.recv().await.expect("the server answers"));
+        }
+        transport.close().await;
+        (seen, statuses)
+    }
+
+    /// The listener's GET is covered like any other request (Node's fetch): a refused token is
+    /// renewed and replayed, and the success is reported with the renewed token.
+    #[tokio::test]
+    async fn the_listener_renews_a_refused_token_and_reports_the_success() {
+        let (seen, statuses) = listen(Renewal::Renews, 2, 2).await;
+        assert_eq!(seen, ["renew old", "answered new"]);
+        assert_eq!(statuses, [401, 200]);
+    }
+
+    /// A second refusal after the renewal is reported with the token first sent.
+    #[tokio::test]
+    async fn the_listener_reports_a_refusal_after_renewal() {
+        let (seen, statuses) = listen(Renewal::Stays, 2, 2).await;
+        assert_eq!(seen, ["renew old", "refused again old"]);
+        assert_eq!(statuses, [401, 401]);
+    }
+
+    /// A renewal that needs the user ends the attempt: nothing is replayed or reported after it.
+    #[tokio::test]
+    async fn the_listener_stops_when_the_renewal_needs_the_user() {
+        let (seen, statuses) = listen(Renewal::NeedsUser, 1, 1).await;
+        assert_eq!(seen, ["renew old"]);
+        assert_eq!(statuses, [401]);
+    }
     #[tokio::test(start_paused = true)]
     async fn the_listener_stream_ends_and_is_reopened_with_its_last_event_id_then_given_up_after_two_failures()
      {

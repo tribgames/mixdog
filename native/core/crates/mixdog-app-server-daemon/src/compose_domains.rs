@@ -291,6 +291,9 @@ pub struct PreDomains {
     pub workflow: Arc<dyn DomainService>,
     /// The voice setup the voice service holds: the root passes `VoiceToggle(voice_setup)` as the setup tool's `SetupVoice`.
     pub voice_setup: Arc<mixdog_services::voice::VoiceSetup>,
+    /// The media domain's job table and store, for the `media` tool's `StudioGraph` (one table, one store).
+    pub media_jobs: Arc<mixdog_services::media::MediaJobs>,
+    pub media_store: Arc<mixdog_services::media::MediaStore>,
     /// The setup actions this composition serves (local models, the domain-backed settings, the
     /// scalar settings): register each with SetupService::with_actions in the MCP stage.
     pub setup_actions: Vec<Arc<dyn SetupActions>>,
@@ -378,6 +381,8 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
         plugins,
         workflow,
         voice_setup: local.voice_setup,
+        media_jobs: local.media_jobs,
+        media_store: local.media_store,
         setup_actions,
         status_readers,
         update_cell,

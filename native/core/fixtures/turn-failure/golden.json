@@ -1,0 +1,658 @@
+{
+  "resetAt": 1900000000000,
+  "cases": [
+    {
+      "name": "quota with a provider-named reset",
+      "message": "Usage limit reached",
+      "fields": {
+        "status": 429,
+        "code": "usage_limit_reached",
+        "resetAt": 1900000000000
+      },
+      "route": {
+        "provider": "anthropic-oauth",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "quota_exhausted",
+        "code": "usage_limit_reached",
+        "status": 429,
+        "retryAfterMs": null,
+        "resetAt": 1900000000000
+      },
+      "quota": {
+        "provider": "anthropic-oauth",
+        "model": "m",
+        "resetAt": 1900000000000
+      },
+      "detail": "Provider usage limit reached.",
+      "errorDetails": "Usage limit reached"
+    },
+    {
+      "name": "quota proven by the pool",
+      "message": "All connected accounts have exhausted their quota.",
+      "fields": {
+        "code": "provider_accounts_exhausted",
+        "quotaExhausted": {
+          "provider": "openai-oauth",
+          "model": "gpt-x",
+          "resetAt": 1900000000000
+        }
+      },
+      "route": {
+        "provider": "anthropic-oauth",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "quota_exhausted",
+        "code": "provider_accounts_exhausted",
+        "status": 0,
+        "retryAfterMs": null,
+        "resetAt": 1900000000000
+      },
+      "quota": {
+        "provider": "openai-oauth",
+        "model": "gpt-x",
+        "resetAt": 1900000000000
+      },
+      "detail": "Provider usage limit reached.",
+      "errorDetails": "All connected accounts have exhausted their quota."
+    },
+    {
+      "name": "quota proven by the pool, no reset",
+      "message": "All connected accounts have exhausted their quota.",
+      "fields": {
+        "code": "provider_accounts_exhausted",
+        "quotaExhausted": {}
+      },
+      "route": {
+        "provider": "anthropic-oauth",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "quota_exhausted",
+        "code": "provider_accounts_exhausted",
+        "status": 0,
+        "retryAfterMs": null,
+        "resetAt": null
+      },
+      "quota": {
+        "provider": "anthropic-oauth",
+        "model": "m",
+        "resetAt": null
+      },
+      "detail": "Provider usage limit reached.",
+      "errorDetails": "All connected accounts have exhausted their quota."
+    },
+    {
+      "name": "typed quota code, no reset",
+      "message": "Usage limit reached",
+      "fields": {
+        "status": 429,
+        "code": "usage_limit_reached"
+      },
+      "route": {
+        "provider": "anthropic-oauth",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "quota_exhausted",
+        "code": "usage_limit_reached",
+        "status": 429,
+        "retryAfterMs": null,
+        "resetAt": null
+      },
+      "quota": null,
+      "detail": "Provider usage limit reached.",
+      "errorDetails": "Usage limit reached"
+    },
+    {
+      "name": "rate limited with advice",
+      "message": "Rate limit reached",
+      "fields": {
+        "status": 429,
+        "code": "rate_limit_exceeded",
+        "retryAfterMs": 4000
+      },
+      "route": {
+        "provider": "anthropic-oauth",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "rate_limited",
+        "code": "rate_limit_exceeded",
+        "status": 429,
+        "retryAfterMs": 4000,
+        "resetAt": null
+      },
+      "quota": null,
+      "detail": "Provider is rate-limited (retry in 4s).",
+      "errorDetails": "Rate limit reached"
+    },
+    {
+      "name": "rate limited with a window reset",
+      "message": "slow",
+      "fields": {
+        "status": 429,
+        "code": "rate_limit_error",
+        "resetAt": 1900000000000
+      },
+      "route": {
+        "provider": "anthropic-oauth",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "rate_limited",
+        "code": "rate_limit_error",
+        "status": 429,
+        "retryAfterMs": null,
+        "resetAt": 1900000000000
+      },
+      "quota": null,
+      "detail": "Provider is rate-limited.",
+      "errorDetails": "slow"
+    },
+    {
+      "name": "overloaded",
+      "message": "busy",
+      "fields": {
+        "status": 529,
+        "code": "overloaded_error",
+        "retryAfterMs": 2000
+      },
+      "route": {
+        "provider": "anthropic-oauth",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "overloaded",
+        "code": "overloaded_error",
+        "status": 529,
+        "retryAfterMs": 2000,
+        "resetAt": null
+      },
+      "quota": null,
+      "detail": "Provider is busy at capacity.",
+      "errorDetails": "busy"
+    },
+    {
+      "name": "billing",
+      "message": "Payment required",
+      "fields": {
+        "status": 402
+      },
+      "route": {
+        "provider": "openai-oauth",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "billing",
+        "code": "",
+        "status": 402,
+        "retryAfterMs": null,
+        "resetAt": null
+      },
+      "quota": null,
+      "detail": "Out of credits or at spend limit.",
+      "errorDetails": "Payment required"
+    },
+    {
+      "name": "first byte timeout, named provider",
+      "message": "first byte timed out after 30000ms",
+      "fields": {
+        "name": "ProviderTimeoutError",
+        "timeoutPhase": "first-chunk",
+        "waitedMs": 30000,
+        "attempts": 2
+      },
+      "route": {
+        "provider": "anthropic-oauth",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "unknown",
+        "code": "",
+        "status": 0,
+        "retryAfterMs": null,
+        "resetAt": null
+      },
+      "quota": null,
+      "detail": "Model still thinking: no output in 30s; Anthropic OAuth sent nothing yet; attempts: 2.",
+      "errorDetails": "first byte timed out after 30000ms"
+    },
+    {
+      "name": "first byte timeout, headers phase",
+      "message": "first byte timed out after 45000ms",
+      "fields": {
+        "name": "ProviderTimeoutError",
+        "timeoutPhase": "headers",
+        "waitedMs": 45000
+      },
+      "route": {
+        "provider": "openai",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "unknown",
+        "code": "",
+        "status": 0,
+        "retryAfterMs": null,
+        "resetAt": null
+      },
+      "quota": null,
+      "detail": "Model still thinking: no output in 45s; OpenAI API sent nothing yet.",
+      "errorDetails": "first byte timed out after 45000ms"
+    },
+    {
+      "name": "first byte timeout, unknown provider id",
+      "message": "first byte timed out after 30000ms",
+      "fields": {
+        "name": "ProviderTimeoutError",
+        "timeoutPhase": "first-chunk",
+        "waitedMs": 30000
+      },
+      "route": {
+        "provider": "my-gateway",
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "unknown",
+        "code": "",
+        "status": 0,
+        "retryAfterMs": null,
+        "resetAt": null
+      },
+      "quota": null,
+      "detail": "Model still thinking: no output in 30s; my-gateway sent nothing yet.",
+      "errorDetails": "first byte timed out after 30000ms"
+    },
+    {
+      "name": "first byte timeout, no route provider",
+      "message": "first byte timed out after 30000ms",
+      "fields": {
+        "name": "ProviderTimeoutError",
+        "timeoutPhase": "first-chunk",
+        "waitedMs": 30000
+      },
+      "route": {
+        "model": "m"
+      },
+      "errorKind": {
+        "kind": "unknown",
+        "code": "",
+        "status": 0,
+        "retryAfterMs": null,
+        "resetAt": null
+      },
+      "quota": null,
+      "detail": "Model still thinking: no output in 30s; the provider sent nothing yet.",
+      "errorDetails": "first byte timed out after 30000ms"
+    }
+  ],
+  "live": {
+    "quota": {
+      "kinds": [
+        "user",
+        "turndone"
+      ],
+      "turndone": {
+        "kind": "turndone",
+        "id": "<string>",
+        "checkpointId": "<string>",
+        "elapsedMs": "<number>",
+        "status": "failed",
+        "outputTokens": 0,
+        "thinkingElapsedMs": 0,
+        "toolCount": 0,
+        "verb": "Mapped",
+        "at": "<number>",
+        "detail": "Provider usage limit reached.",
+        "errorDetails": "Usage limit reached",
+        "completionVerb": "Mapped",
+        "attemptId": "<string>",
+        "quota": {
+          "provider": "",
+          "model": "",
+          "resetAt": 1900000000000
+        },
+        "errorKind": {
+          "kind": "quota_exhausted",
+          "code": "usage_limit_reached",
+          "status": 429,
+          "retryAfterMs": null,
+          "resetAt": 1900000000000
+        }
+      },
+      "turndoneKeys": [
+        "kind",
+        "id",
+        "checkpointId",
+        "elapsedMs",
+        "status",
+        "outputTokens",
+        "thinkingElapsedMs",
+        "toolCount",
+        "verb",
+        "at",
+        "detail",
+        "errorDetails",
+        "completionVerb",
+        "attemptId",
+        "quota",
+        "errorKind"
+      ],
+      "toasts": [
+        {
+          "text": "Provider usage limit reached.",
+          "tone": "error",
+          "options": {
+            "owner": "transcript"
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "beginQuotaSettlement",
+          "busy": false,
+          "items": [
+            "user",
+            "turndone"
+          ]
+        },
+        {
+          "event": "onGoalTurnSettled",
+          "busy": false,
+          "items": [
+            "user",
+            "turndone"
+          ]
+        },
+        {
+          "event": "finishQuotaSettlement",
+          "busy": false,
+          "items": [
+            "user",
+            "turndone"
+          ]
+        }
+      ],
+      "busyAfter": false
+    },
+    "plain": {
+      "kinds": [
+        "user",
+        "turndone"
+      ],
+      "turndone": {
+        "kind": "turndone",
+        "id": "<string>",
+        "checkpointId": "<string>",
+        "elapsedMs": "<number>",
+        "status": "failed",
+        "outputTokens": 0,
+        "thinkingElapsedMs": 0,
+        "toolCount": 0,
+        "verb": "Mapped",
+        "at": "<number>",
+        "detail": "boom",
+        "errorDetails": "boom",
+        "completionVerb": "Mapped",
+        "attemptId": "<string>",
+        "errorKind": {
+          "kind": "unknown",
+          "code": "",
+          "status": 0,
+          "retryAfterMs": null,
+          "resetAt": null
+        }
+      },
+      "turndoneKeys": [
+        "kind",
+        "id",
+        "checkpointId",
+        "elapsedMs",
+        "status",
+        "outputTokens",
+        "thinkingElapsedMs",
+        "toolCount",
+        "verb",
+        "at",
+        "detail",
+        "errorDetails",
+        "completionVerb",
+        "attemptId",
+        "errorKind"
+      ],
+      "toasts": [
+        {
+          "text": "boom",
+          "tone": "error",
+          "options": {
+            "owner": "transcript"
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "onGoalTurnSettled",
+          "busy": false,
+          "items": [
+            "user",
+            "turndone"
+          ]
+        }
+      ],
+      "busyAfter": false
+    },
+    "streamed": {
+      "start": 1700000000000,
+      "script": [
+        {
+          "at": 100,
+          "reasoning": "plan the work"
+        },
+        {
+          "at": 400,
+          "text": "Working on it. "
+        },
+        {
+          "at": 500,
+          "usage": 9
+        },
+        {
+          "at": 600,
+          "tool": {
+            "id": "call-1",
+            "name": "read",
+            "arguments": {
+              "path": "a.txt"
+            }
+          }
+        },
+        {
+          "at": 700,
+          "usage": 4
+        },
+        {
+          "at": 1000
+        }
+      ],
+      "kinds": [
+        "user",
+        "assistant",
+        "tool",
+        "turndone"
+      ],
+      "turndone": {
+        "kind": "turndone",
+        "id": "<string>",
+        "checkpointId": "<string>",
+        "elapsedMs": 1000,
+        "status": "failed",
+        "outputTokens": 13,
+        "thinkingElapsedMs": 300,
+        "toolCount": 1,
+        "verb": "Mapped",
+        "at": 1700000001000,
+        "detail": "Provider usage limit reached.",
+        "errorDetails": "Usage limit reached",
+        "completionVerb": "Mapped",
+        "attemptId": "<string>",
+        "quota": {
+          "provider": "",
+          "model": "",
+          "resetAt": 1900000000000
+        },
+        "errorKind": {
+          "kind": "quota_exhausted",
+          "code": "usage_limit_reached",
+          "status": 429,
+          "retryAfterMs": null,
+          "resetAt": 1900000000000
+        }
+      },
+      "turndoneKeys": [
+        "kind",
+        "id",
+        "checkpointId",
+        "elapsedMs",
+        "status",
+        "outputTokens",
+        "thinkingElapsedMs",
+        "toolCount",
+        "verb",
+        "at",
+        "detail",
+        "errorDetails",
+        "completionVerb",
+        "attemptId",
+        "quota",
+        "errorKind"
+      ],
+      "toasts": [
+        {
+          "text": "Provider usage limit reached.",
+          "tone": "error",
+          "options": {
+            "owner": "transcript"
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "beginQuotaSettlement",
+          "busy": false,
+          "items": [
+            "user",
+            "assistant",
+            "tool",
+            "turndone"
+          ]
+        },
+        {
+          "event": "onGoalTurnSettled",
+          "busy": false,
+          "items": [
+            "user",
+            "assistant",
+            "tool",
+            "turndone"
+          ]
+        },
+        {
+          "event": "finishQuotaSettlement",
+          "busy": false,
+          "items": [
+            "user",
+            "assistant",
+            "tool",
+            "turndone"
+          ]
+        }
+      ],
+      "busyAfter": false
+    },
+    "estimated": {
+      "start": 1700000000000,
+      "script": [
+        {
+          "at": 50,
+          "text": "abcdefghij"
+        },
+        {
+          "at": 60,
+          "reasoning": "xy"
+        },
+        {
+          "at": 200
+        }
+      ],
+      "kinds": [
+        "user",
+        "assistant",
+        "turndone"
+      ],
+      "turndone": {
+        "kind": "turndone",
+        "id": "<string>",
+        "checkpointId": "<string>",
+        "elapsedMs": 200,
+        "status": "failed",
+        "outputTokens": 3,
+        "thinkingElapsedMs": 140,
+        "toolCount": 0,
+        "verb": "Mapped",
+        "at": 1700000000200,
+        "detail": "boom",
+        "errorDetails": "boom",
+        "completionVerb": "Mapped",
+        "attemptId": "<string>",
+        "errorKind": {
+          "kind": "unknown",
+          "code": "",
+          "status": 0,
+          "retryAfterMs": null,
+          "resetAt": null
+        }
+      },
+      "turndoneKeys": [
+        "kind",
+        "id",
+        "checkpointId",
+        "elapsedMs",
+        "status",
+        "outputTokens",
+        "thinkingElapsedMs",
+        "toolCount",
+        "verb",
+        "at",
+        "detail",
+        "errorDetails",
+        "completionVerb",
+        "attemptId",
+        "errorKind"
+      ],
+      "toasts": [
+        {
+          "text": "boom",
+          "tone": "error",
+          "options": {
+            "owner": "transcript"
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "onGoalTurnSettled",
+          "busy": false,
+          "items": [
+            "user",
+            "assistant",
+            "turndone"
+          ]
+        }
+      ],
+      "busyAfter": false
+    }
+  }
+}

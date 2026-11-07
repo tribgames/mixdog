@@ -83,6 +83,25 @@ impl AgentRegistry {
         self.upsert_session(&mut st, session, tag, extra);
     }
 
+    /// `purgeWorkerRows(ownerSessionId, closedSessionIds)` (`close-flow/close-all.mjs:22-37`): the
+    /// rows of `owner`'s workers, and of the sessions just closed, go; a Lead's pool row and a
+    /// row whose owner is still owed its restart failure stay.
+    pub fn purge_owner_rows(&self, owner: &str, closed: &std::collections::HashSet<String>) {
+        let mut st = self.lock();
+        let now = self.now();
+        let doomed: Vec<String> = st
+            .maps
+            .iter()
+            .filter_map(|(id, map)| st.row(id, map, now))
+            .filter(|row| !super::is_lead_pool_agent(row.get("agent")) && !super::restart::is_unnotified_restart_failure(row))
+            .filter(|row| clean(row.get("ownerSessionId")) == owner || closed.contains(&clean(row.get("sessionId"))))
+            .map(|row| clean(row.get("sessionId")))
+            .collect();
+        for id in doomed {
+            self.remove_row(&mut st, &id);
+        }
+    }
+
     /// `registry.childrenOf(parent)`: the agent sessions linked directly below `parent` (by their
     /// `parentSessionId || ownerSessionId`).
     pub fn children_of(&self, parent: &str) -> Vec<String> {

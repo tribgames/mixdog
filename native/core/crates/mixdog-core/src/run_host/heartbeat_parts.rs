@@ -232,10 +232,22 @@ mod tests {
         }
     }
 
+    // Test files go through the durability lane and `mixdog_statefile`, as the tree's other tests do.
+    fn write_file(path: &std::path::Path, body: &[u8]) {
+        use futures::FutureExt as _;
+        use mixdog_rt::LaneToken as _;
+        let (path, body) = (path.to_owned(), body.to_vec());
+        let job = move |lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>| mixdog_statefile::write_file(lane, &path, &body, &mixdog_statefile::Opts::default());
+        tokio::task::unconstrained(mixdog_rt::testing::tokens().durability_io.submit(&mixdog_rt::CancellationToken::new(), job).unwrap())
+            .now_or_never()
+            .expect("the test backend runs the job inline")
+            .unwrap()
+            .unwrap();
+    }
     async fn settings(file: &str, mixy: bool) -> (tempfile::TempDir, Arc<ConfigHeartbeatSettings>) {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("mixdog-config.json");
-        std::fs::write(&path, file).unwrap();
+        write_file(&path, file.as_bytes());
         let tokens = mixdog_rt::testing::tokens();
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
         let (config, _) = Config::open(path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();

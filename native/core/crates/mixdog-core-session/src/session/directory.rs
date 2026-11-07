@@ -122,6 +122,8 @@ pub(crate) struct DirInner {
     creating: std::sync::atomic::AtomicUsize,
     /// `onGoalStatusChange`: each change goes to its loaded thread's Goal lane.
     goal_events: Mutex<Option<mixdog_core_goal::goal::Subscription>>,
+    /// What each runtime's teardown does for the agents its session owns (`OwnerTeardown`).
+    owner_teardown: std::sync::OnceLock<Arc<dyn OwnerTeardown>>,
     /// Cancels the staged-originals deadline timer when the directory goes.
     _prune: tokio_util::sync::DropGuard,
     /// Woken whenever a thread leaves the directory (a test waits on `handle(..)` turning `None`).
@@ -159,6 +161,25 @@ impl Drop for CreateInFlight<'_> {
     }
 }
 
+/// `CLOSE_ALL_DEADLINE_MS` (`teardown.mjs`).
+const CLOSE_ALL_DEADLINE: std::time::Duration = std::time::Duration::from_millis(5000);
+
+/// `PROCESS_EXIT_REASON` (`teardown.mjs`): `/exit|quit|shutdown|sighup|sigint|sigterm/` on the
+/// lower-cased reason. Only such a close closes the session's agents (`closeAll`); any other
+/// close reaps only its own jobs.
+pub fn is_process_exit_reason(reason: &str) -> bool {
+    let reason = reason.to_lowercase();
+    ["exit", "quit", "shutdown", "sighup", "sigint", "sigterm"].iter().any(|word| reason.contains(word))
+}
+
+/// What a runtime's teardown does for the agents its session owns: `agentTool.closeAll(reason,
+/// { processExit: true })` through `__close_all` (`agent-tool-routing.mjs:26-47`,
+/// `daemon-agent-control.mjs:75-82`), which closes the workers and then cancels the descendants.
+#[async_trait]
+pub trait OwnerTeardown: Send + Sync {
+    async fn teardown(&self, owner: &ThreadId, reason: &str);
+}
+
 /// A loaded log as the actor starts from it.
 struct Opened {
     state: SessionState,
@@ -180,6 +201,7 @@ impl SessionDirectory {
             loads: Default::default(),
             creating: Default::default(),
             goal_events: Mutex::new(None),
+            owner_teardown: std::sync::OnceLock::new(),
             _prune: prune.drop_guard(),
             #[cfg(any(test, feature = "test-support"))]
             left: Default::default(),
@@ -469,9 +491,31 @@ impl SessionDirectory {
         self.inner.deps.store.session_meta(id).await
     }
 
-    /// Core shutdown (today's `teardown.mjs:192`): every loaded thread stops (a live run is
-    /// cancelled) and its memory ingest is awaited, all of them together bounded at 2500 ms.
+    /// Binds what a runtime's teardown does for the agents its session owns; once.
+    pub fn set_owner_teardown(&self, hook: Arc<dyn OwnerTeardown>) -> Result<(), &'static str> {
+        self.inner.owner_teardown.set(hook).map_err(|_| "the owner teardown is already bound")
+    }
+
+    /// [`Self::shutdown_for`] with the reason of a daemon stop.
     pub async fn shutdown(&self) {
+        self.shutdown_for("daemon shutdown").await;
+    }
+
+    /// Core shutdown (today's `teardown.mjs:192`): first, as each runtime's `close(reason)` does
+    /// when the reason is a process exit (`teardown.mjs:226-237`), every loaded session's agents
+    /// are closed (`OwnerTeardown`, bounded at `CLOSE_ALL_DEADLINE_MS`, 5000 ms, per session);
+    /// then every loaded thread stops (a live run is cancelled) and its memory ingest is awaited,
+    /// all of them together bounded at 2500 ms.
+    pub async fn shutdown_for(&self, reason: &str) {
+        if is_process_exit_reason(reason)
+            && let Some(hook) = self.inner.owner_teardown.get()
+        {
+            for owner in self.loaded_ids() {
+                if tokio::time::timeout(CLOSE_ALL_DEADLINE, hook.teardown(&owner, reason)).await.is_err() {
+                    tracing::warn!(owner = owner.as_str(), "agent teardown overran its deadline");
+                }
+            }
+        }
         let handles: Vec<Arc<SessionHandle>> = self
             .inner
             .shards

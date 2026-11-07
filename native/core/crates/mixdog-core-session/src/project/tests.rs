@@ -200,18 +200,27 @@ impl Replay {
         answer(result)
     }
 
-    /// The recorder's `probe`.
+    /// The recorder's `probe`. Its four git reads do not depend on each other, so they run side by
+    /// side: a probe follows every step and the replay is otherwise one chain of real git processes.
     fn probe(&self) -> Value {
         let lines = |text: String| -> Vec<String> { if text.is_empty() { Vec::new() } else { text.split('\n').map(str::to_owned).collect() } };
-        let mut branches = lines(git(&self.repo, &["for-each-ref", "--format=%(refname:short)", "refs/heads"]));
+        let repo = self.repo.as_path();
+        let (branches, head, main_files, status) = std::thread::scope(|scope| {
+            let branches = scope.spawn(|| git(repo, &["for-each-ref", "--format=%(refname:short)", "refs/heads"]));
+            let head = scope.spawn(|| git(repo, &["rev-parse", "--abbrev-ref", "HEAD"]));
+            let main_files = scope.spawn(|| git(repo, &["ls-tree", "-r", "--name-only", "main"]));
+            let status = git(repo, &["status", "--porcelain", "--untracked-files=no"]);
+            (branches.join().unwrap(), head.join().unwrap(), main_files.join().unwrap(), status)
+        });
+        let mut branches = lines(branches);
         branches.sort();
         let folders: Map<String, Value> = self.folders.iter().map(|(name, path)| (name.clone(), json!(path.exists()))).collect();
         json!({
             "branches": branches,
             "folders": folders,
-            "head": git(&self.repo, &["rev-parse", "--abbrev-ref", "HEAD"]),
-            "mainFiles": lines(git(&self.repo, &["ls-tree", "-r", "--name-only", "main"])),
-            "status": lines(git(&self.repo, &["status", "--porcelain", "--untracked-files=no"])),
+            "head": head,
+            "mainFiles": lines(main_files),
+            "status": lines(status),
         })
     }
 

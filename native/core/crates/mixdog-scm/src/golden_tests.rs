@@ -1531,6 +1531,10 @@ async fn taken_folder_outcome(clashes: usize, branch: Option<&str>) -> Value {
     use crate::worktree::manager::CreateRequest;
     use crate::worktree::manager::Worktrees;
     let (_guard, repo, _head) = fixture_repo();
+    // Node's recorder repository has only `main`; this fixture also carries a `feature` branch, which
+    // makes `feature/login` an impossible ref (a branch is a file where a directory is needed), so git
+    // would refuse before making it and the golden's leftover branch could never appear.
+    git(&repo, &["branch", "-D", "feature"]);
     let data = tempfile::tempdir().unwrap();
     let cancel = CancellationToken::new();
     let processes = std::sync::Arc::new(TakesTheFolder { inner: TestProcesses::shared(), left: clashes.into() });

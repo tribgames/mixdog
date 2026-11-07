@@ -1,3 +1,20 @@
 [profile.default]
 slow-timeout = { period = "30s", terminate-after = 4 }
 fail-fast = false
+
+# Each of the two migration crash matrices spreads its fault points over eight work dirs of its own;
+# they run one after the other, so at most eight sync-bound migrations of the pair are in flight.
+[test-groups]
+migration-crash-matrix = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'package(mixdog-migrate) & (test(=desktop_profile::tests::the_crash_matrix_ends_in_the_state_of_an_uninterrupted_run) | test(=run::tests::every_crash_point_resumes_to_the_same_tree))'
+test-group = 'migration-crash-matrix'
+
+# The two real-git replays of mixdog-core-session each wait on a chain of about 1,400 git processes
+# (7.8 CPU seconds in 72 s for the project replay), so process creation, not CPU, is what the rest of
+# the suite slows down: the project replay needs 87 s alone but had used 109 s in the workspace run when
+# it failed, and the safety scenarios passed 120 s. Each takes every test thread, so it runs alone.
+[[profile.default.overrides]]
+filter = 'package(mixdog-core-session) & (test(=project::tests::every_recorded_step_equals_nodes_over_real_state) | test(=session::worktree::worktree_service_tests::the_safety_scenarios_leave_the_git_and_disk_state_nodes_left))'
+threads-required = 'num-test-threads'

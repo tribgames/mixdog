@@ -426,6 +426,12 @@ pub fn message_items(record: &ItemRecord, message: &Value) -> Vec<Shown> {
     message_shown(record, message).into_iter().map(|(shown, _)| shown).collect()
 }
 
+/// The item of a turn's live end row (`turnDoneItem`), the row Node's transcript holds when the turn closes. Not
+/// the restore of a completion: history shows that through [`message_items`].
+pub fn live_end(row: serde_json::Map<String, Value>, turn: &str) -> ThreadItem {
+    item_of(row, &Ctx { turn: Some(turn), message: None, counts_prompt: false, source: None })
+}
+
 /// The items a stored message record shows, each with the byte length of the display row it
 /// stands for (`Buffer.byteLength(JSON.stringify(row))`, what Node's page budget counts); `None`
 /// for a result update, which is no row. A group-room line is built straight from the message,

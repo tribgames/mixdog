@@ -12,6 +12,7 @@ use mixdog_core_api::CoreError;
 use mixdog_core_api::Reply;
 use mixdog_core_api::domain::approval::ApprovalId;
 use mixdog_core_api::ids::OpId;
+use mixdog_core_api::ids::TurnId;
 use mixdog_core_api::server_request::PendingServerRequest;
 use mixdog_protocol::ApprovalResolution;
 use mixdog_store::schema::record::Record;
@@ -64,6 +65,9 @@ pub(crate) enum Effect {
     /// A history mutation is durable: recompute the prompt-history session part over the
     /// remaining lineage, and republish the merged list when `publish`.
     RecomputePrompts { publish: bool },
+    /// A failed turn's end is released: its quota settlement begins (`beginQuotaSettlement`), then the Goal
+    /// settles with `settle` (`onGoalTurnSettled`'s detail).
+    TurnClosed { turn: TurnId, settle: Value },
 }
 
 pub(crate) struct Entry {
@@ -73,6 +77,8 @@ pub(crate) struct Entry {
     /// Notes known at accept or encode time; release adds the ones derived from acked state.
     pub notes: Vec<Note>,
     pub effects: Vec<Effect>,
+    /// The entry this view-only one stands on: it is dropped with that entry when the record fails to encode.
+    pub needs: Option<u64>,
 }
 
 #[derive(Default)]
@@ -163,7 +169,18 @@ impl Outbox {
             change,
             notes,
             effects,
+            needs: None,
         });
+        id
+    }
+
+    /// A view-only entry that stands on the entry `needs` (a record accepted before it): if that record cannot be
+    /// encoded, this entry goes with it ([`Self::remove_needing`]).
+    pub fn push_after(&mut self, needs: u64, change: Change, notes: Vec<Note>, effects: Vec<Effect>) -> u64 {
+        let id = self.push(None, change, notes, effects);
+        if let Some(entry) = self.get_mut(id) {
+            entry.needs = Some(needs);
+        }
         id
     }
 
@@ -266,6 +283,13 @@ impl Outbox {
             usage.bytes -= bytes;
         }
         Some(entry)
+    }
+
+    /// Removes the view-only entries standing on `id`, which could not be encoded.
+    pub fn remove_needing(&mut self, id: u64) -> Vec<Entry> {
+        let (gone, kept): (Vec<_>, Vec<_>) = self.entries.drain(..).partition(|entry| entry.needs == Some(id));
+        self.entries = kept.into();
+        gone
     }
 
     /// The unreleased changes in accept order.

@@ -617,7 +617,7 @@
       "command": "node benchmarks/rust-core/recorders/record-project-methods.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "project-methods/MANIFEST.json",
-      "manifestSha256": "2d9dbc65edf98835ab66707cf8db66a1ba928fc878adb3fca64abe74d9a500df",
+      "manifestSha256": "188434e627d37c8e771cf3e4a1932d69da2a2e98fe46a0368187aefade4a29c5",
       "recorder": "benchmarks/rust-core/recorders/record-project-methods.mjs",
       "set": "project-methods",
       "totalBytes": 74420
