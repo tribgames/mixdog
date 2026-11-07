@@ -300,6 +300,8 @@ pub struct RecordArgs {
     pub source_type: String,
     pub facts: Facts,
     pub input_tokens_inclusive: bool,
+    /// Media billed outside the text token slots (images, video seconds): priced from the catalog.
+    pub media: Option<crate::catalog::Media>,
     pub service_tier: Option<String>,
     pub request_service_tier: Option<String>,
     pub response_id: String,
@@ -346,6 +348,7 @@ pub fn make_usage_record(
         service_tier: args.service_tier.clone(),
         kind: Some(kind.to_owned()),
         ts: Some(args.ts as f64),
+        media: args.media.clone(),
         ..UsageArgs::default()
     });
     let supplied = facts.cost_usd.filter(|cost| cost.is_finite() && *cost >= 0.0);
@@ -644,6 +647,7 @@ impl SendAccounting {
             owner_session_id: identity.owner_session_id.clone(),
             source_type: identity.source_type.clone(),
             input_tokens_inclusive: identity.input_tokens_inclusive,
+            media: None,
             service_tier: completed
                 .and_then(|c| c.service_tier.clone())
                 .filter(|t| !t.is_empty())

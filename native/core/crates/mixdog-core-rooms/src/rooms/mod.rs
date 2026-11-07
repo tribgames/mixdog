@@ -5,12 +5,15 @@
 //! never wait on each other.
 
 pub mod calls;
+pub mod catalog_rows;
 pub mod config;
 pub mod exchange;
 pub mod home;
+pub mod live;
 pub mod maintainer;
 pub mod memory;
 pub mod pool;
+pub mod preview;
 pub mod records;
 pub mod row_message;
 pub mod rows;

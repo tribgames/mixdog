@@ -424,6 +424,7 @@ impl RunProgress {
             snapshot: self.snapshot(now),
             runtime: self.facts(now),
             tool_silence,
+            task_waiting: self.entry.as_ref().is_some_and(|e| e.task_waits > 0),
             ..WorkerLive::default()
         }
     }

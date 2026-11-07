@@ -632,7 +632,11 @@ impl LoginBackend for Bridge {
         let transactional = beside || mode == AccountMode::Switch;
         let rollback = || async {
             if transactional && let Some(oauth) = glue.hub.oauth(name) {
-                let _ = oauth.rollback_switch().await;
+                // No Node step to compare (the transactional switch is Rust's own); a sign-in that is not
+                // put back stays the new account, so the failure is logged rather than lost.
+                if let Err(error) = oauth.rollback_switch().await {
+                    tracing::warn!(server = name, "the previous sign-in was not restored: {error:?}");
+                }
             }
         };
         // The same account twice would leave `account` ambiguous.

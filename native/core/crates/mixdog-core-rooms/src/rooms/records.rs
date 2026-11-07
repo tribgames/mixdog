@@ -104,8 +104,25 @@ fn remove_from_room(room: &mut RoomRecord, gone: &[String]) {
     }
 }
 
+/// What a running room changes about its own record: the members' cursors and last line, the
+/// running mark and the members still owed a turn. Everything else is the room service's.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TurnFields {
+    pub cursors: HashMap<String, String>,
+    pub seen: HashMap<String, String>,
+    pub last_speaker: Option<String>,
+    pub last_at: Option<i64>,
+    pub last_preview: Option<String>,
+    pub running: Option<Running>,
+    pub owed: Option<Vec<String>>,
+}
+
+/// Told the records after each save.
+pub type RoomsChanged = Arc<dyn Fn(&RoomDoc) + Send + Sync>;
+
 pub struct Rooms<S: RoomStore> {
     store: S,
+    listeners: Mutex<Vec<RoomsChanged>>,
     // The one room writer: a mutation loads, changes and saves on this chain, in arrival order.
     // Reads of the live records pass through it too, briefly.
     writer: Arc<SerialChain>,
@@ -115,7 +132,7 @@ pub struct Rooms<S: RoomStore> {
 
 impl<S: RoomStore> Rooms<S> {
     pub fn new(store: S) -> Self {
-        Self { store, writer: SerialChain::new(), doc: Mutex::new(None) }
+        Self { store, listeners: Mutex::new(Vec::new()), writer: SerialChain::new(), doc: Mutex::new(None) }
     }
 
     fn live(&self) -> Option<Arc<RoomDoc>> {
@@ -145,9 +162,35 @@ impl<S: RoomStore> Rooms<S> {
         let result = change(&mut next)?;
         if next != *live {
             self.store.save(&next).await?;
-            self.set_live(Arc::new(next));
+            let saved = Arc::new(next);
+            self.set_live(saved.clone());
+            let told: Vec<RoomsChanged> = self.listeners.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            for listener in told {
+                listener(&saved);
+            }
         }
         Ok(result)
+    }
+
+    /// `listener` hears the records after every save that changed them.
+    pub fn on_change(&self, listener: RoomsChanged) {
+        self.listeners.lock().unwrap_or_else(|e| e.into_inner()).push(listener);
+    }
+
+    /// A running room saves its own fields (`persist` of the room host).
+    pub async fn save_turn(&self, room_id: &str, fields: &TurnFields) -> Result<(), RoomError> {
+        self.write(|doc| {
+            let room = doc.get_mut(room_id).ok_or_else(no_room)?;
+            room.cursors = fields.cursors.clone();
+            room.seen = fields.seen.clone();
+            room.last_speaker = fields.last_speaker.clone();
+            room.last_at = fields.last_at;
+            room.last_preview = fields.last_preview.clone();
+            room.running = fields.running;
+            room.owed = fields.owed.clone();
+            Ok(())
+        })
+        .await
     }
 
     async fn read<T>(&self, view: impl FnOnce(&RoomDoc) -> T) -> Result<T, RoomError> {
@@ -253,30 +296,6 @@ impl<S: RoomStore> Rooms<S> {
         .await
     }
 
-    /// An exchange starts (`Some`) or ends (`None`). Starting one in a running room is refused.
-    pub async fn set_running(&self, room_id: &str, running: Option<Running>) -> Result<(), RoomError> {
-        self.write(|doc| {
-            let room = doc.get_mut(room_id).ok_or_else(no_room)?;
-            if running.is_some() && room.running.is_some() {
-                return Err(RoomError::Invalid("The room is already talking.".into()));
-            }
-            room.running = running;
-            Ok(())
-        })
-        .await
-    }
-
-    /// An exchange ended: the `running` mark clears; `owed` names the members a message cap cut
-    /// off (`None` when nobody is owed a turn).
-    pub async fn end_exchange(&self, room_id: &str, owed: Option<Vec<String>>) -> Result<(), RoomError> {
-        self.write(|doc| {
-            let room = doc.get_mut(room_id).ok_or_else(no_room)?;
-            room.running = None;
-            room.owed = owed.filter(|ids| !ids.is_empty());
-            Ok(())
-        })
-        .await
-    }
 
     /// A user message was accepted under `submission_id`; false when it was seen before.
     pub async fn accept_submission(&self, room_id: &str, submission_id: &str) -> Result<bool, RoomError> {
@@ -399,14 +418,18 @@ mod tests {
         assert_eq!(rooms.get("room01").await.unwrap().config.members, ["a", "c"]);
     }
 
+    /// A room whose exchange began at `started_at`, as the exchange saves it (`persist`).
+    fn running_at(started_at: i64) -> TurnFields {
+        TurnFields { running: Some(Running { started_at }), ..Default::default() }
+    }
+
     #[tokio::test]
     async fn a_restart_marks_running_rooms_interrupted_and_never_resumes() {
         let store = MemStore::default();
         let mut cut = Rooms::new(store.clone());
         cut.create(&input(&["a", "b"]), "room01", 1).await.unwrap();
         cut.create(&input(&["a", "b"]), "room02", 2).await.unwrap();
-        cut.set_running("room01", Some(Running { started_at: 5 })).await.unwrap();
-        assert!(cut.set_running("room01", Some(Running { started_at: 6 })).await.is_err());
+        cut.save_turn("room01", &running_at(5)).await.unwrap();
         // The process dies; the next one loads what was saved.
         *store.initial.lock().unwrap() = store.saved.lock().unwrap().last().unwrap().clone();
         cut = Rooms::new(store.clone());
@@ -433,9 +456,9 @@ mod tests {
     async fn reset_clears_cursors_but_not_while_running() {
         let rooms = Rooms::new(MemStore::default());
         rooms.create(&input(&["a", "b"]), "room01", 1).await.unwrap();
-        rooms.set_running("room01", Some(Running { started_at: 1 })).await.unwrap();
+        rooms.save_turn("room01", &running_at(1)).await.unwrap();
         assert!(rooms.reset("room01", 9).await.is_err());
-        rooms.set_running("room01", None).await.unwrap();
+        rooms.save_turn("room01", &TurnFields::default()).await.unwrap();
         let room = rooms.reset("room01", 9).await.unwrap();
         assert_eq!((room.last_at, room.config.members.len()), (Some(9), 2));
     }

@@ -246,7 +246,7 @@ mod tests {
 
     /// The marker write waits for the lock another process holds (`<marker>.lock`, the lock
     /// Node's `updateJsonAtomic` takes) and loses nothing once it is released.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
     async fn the_marker_write_waits_for_the_file_lock() {
         let (_dir, config, changes, _store) = world().await;
         let path = changes.path.clone();
@@ -259,6 +259,9 @@ mod tests {
             })
         }));
         held.await.unwrap();
+        // Three workers: the test backend runs lane jobs inline, so the holder blocks one worker and the
+        // waiting writer another; a third keeps the timer driver running, or the sleep below only ends
+        // when the writer's own 2 s lock wait does.
         let writer = {
             let changes = changes.clone();
             tokio::spawn(async move { changes.announce("agent.demo.apiKey", false).await })

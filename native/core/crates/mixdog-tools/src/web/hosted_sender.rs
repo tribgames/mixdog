@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use mixdog_ai::admission::AdmissionRequest;
 use mixdog_ai::admission::Lane;
 use mixdog_ai::admission::LaneKey;
-use mixdog_ai::admission::LaneSettings;
+use mixdog_ai::admission::process_lane_settings;
 use mixdog_ai::broker::ModelBroker;
 use mixdog_ai::broker::SendError;
 use mixdog_ai::broker::SendRequest;
@@ -75,7 +75,10 @@ impl SenderDeps {
     /// The lane of the model proxy's runner: the provider's default account.
     pub fn default_lane(broker: &Arc<ModelBroker>) -> Arc<dyn Fn(&str) -> Arc<Lane> + Send + Sync> {
         let broker = Arc::clone(broker);
-        Arc::new(move |provider| broker.admission().lane(&LaneKey::new(provider.into(), "default"), LaneSettings::default()))
+        Arc::new(move |provider| {
+            let key = LaneKey::new(provider.into(), "default");
+            broker.admission().lane(&key, process_lane_settings()(&key))
+        })
     }
 
     /// An account provider is bound to its default account until the pool says otherwise.

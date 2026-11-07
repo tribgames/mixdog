@@ -33,7 +33,7 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
-use super::connectors::InstalledConnectors;
+use mixdog_core_agents::agents::ConnectorCatalog;
 use super::connectors::ProjectConnectors;
 use super::service::ProjectService;
 use super::service::Registry;
@@ -58,9 +58,16 @@ impl Registry for One {
 
 struct Installed;
 
-impl InstalledConnectors for Installed {
-    fn ids(&self) -> Vec<String> {
-        vec!["gmail".into(), "github".into(), "notion".into()]
+#[async_trait]
+impl ConnectorCatalog for Installed {
+    async fn installed(&self) -> Result<Vec<String>, String> {
+        Ok(vec!["gmail".into(), "github".into(), "notion".into()])
+    }
+    async fn tool_names(&self, _: &str) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
+    }
+    fn connector_of(&self, _: &str) -> Option<String> {
+        None
     }
 }
 

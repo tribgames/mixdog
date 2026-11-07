@@ -12,6 +12,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
+use std::sync::OnceLock;
 use std::sync::PoisonError;
 
 use futures::FutureExt;
@@ -48,10 +49,24 @@ pub struct Ready {
     pub catalogs_due: bool,
 }
 
+/// What else invalidateProviderCaches drops: the caches built over what the providers list (the cached
+/// provider setup, the usage dashboard), which live above this crate.
+pub trait CacheDrop: Send + Sync {
+    fn drop_caches(&self);
+}
+
+impl<F: Fn() + Send + Sync> CacheDrop for F {
+    fn drop_caches(&self) {
+        self()
+    }
+}
+
 pub struct ProviderReadiness {
     registry: Arc<ProviderRegistry>,
     catalog: Arc<CatalogService>,
     gate: Mutex<Gate>,
+    /// A late cell: bound once at compose, verified bound at startup (invalidation_bound).
+    invalidation: OnceLock<Arc<dyn CacheDrop>>,
 }
 
 fn closing() -> RegistryError {
@@ -66,7 +81,7 @@ fn forced_providers(requested: &Map<String, Value>, base: &Map<String, Value>) -
 
 impl ProviderReadiness {
     pub fn new(registry: Arc<ProviderRegistry>, catalog: Arc<CatalogService>) -> Arc<Self> {
-        Arc::new(Self { registry, catalog, gate: Mutex::new(Gate::default()) })
+        Arc::new(Self { registry, catalog, gate: Mutex::new(Gate::default()), invalidation: OnceLock::new() })
     }
 
     fn gate(&self) -> MutexGuard<'_, Gate> {
@@ -165,6 +180,20 @@ impl ProviderReadiness {
             gate.flights.clear();
             gate.generation += 1;
         }
+        // Every caller drops the caches above the catalog too, so none can miss them.
+        if let Some(hook) = self.invalidation.get() {
+            hook.drop_caches();
+        }
+    }
+
+    /// Binds what else an invalidation drops; a second bind is refused.
+    pub fn bind_invalidation(&self, hook: Arc<dyn CacheDrop>) -> Result<(), Arc<dyn CacheDrop>> {
+        self.invalidation.set(hook)
+    }
+
+    /// Whether the invalidation hook has been bound (the late cell startup verifies).
+    pub fn invalidation_bound(&self) -> bool {
+        self.invalidation.get().is_some()
     }
 
     /// `reinitProviders`: provider config or secrets changed; the registry is
@@ -346,6 +375,24 @@ mod tests {
         assert_eq!(builder.builds.load(Ordering::SeqCst), 1);
         ready.close();
         assert_eq!(ready.ensure_providers_ready(Some(cfg)).await.unwrap_err().message, "runtime is closing");
+    }
+
+    #[tokio::test]
+    async fn every_invalidation_drops_the_caches_above_the_catalog() {
+        use std::sync::atomic::AtomicUsize;
+        let (ready, _) = readiness().await;
+        assert!(!ready.invalidation_bound());
+        ready.invalidate_provider_caches(true); // unbound: nothing else to drop
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let counter = Arc::clone(&dropped);
+        assert!(ready.bind_invalidation(Arc::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        })).is_ok());
+        assert!(ready.invalidation_bound());
+        ready.invalidate_provider_caches(true);
+        ready.invalidate_provider_caches(false);
+        assert_eq!(dropped.load(Ordering::SeqCst), 2, "both kinds of invalidation drop them");
+        assert!(ready.bind_invalidation(Arc::new(|| {})).is_err(), "a second bind is refused");
     }
 
     #[test]

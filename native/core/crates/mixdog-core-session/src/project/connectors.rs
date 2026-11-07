@@ -7,6 +7,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use mixdog_core_agents::agents::ConnectorCatalog;
 use mixdog_core_base::support::on_lane;
 use mixdog_mcp::permissions::PROJECT_CONNECTORS_FILE;
 use mixdog_mcp::permissions::PolicyIo;
@@ -22,11 +23,6 @@ use super::service::Registry;
 
 /// Node's `NO_WIDEN_MESSAGE`.
 const NO_WIDEN_MESSAGE: &str = "This change would widen what the bot may do without asking; make it on the desktop.";
-
-/// The ids of the installed connectors, in the order `mcpStatus().servers` lists them.
-pub trait InstalledConnectors: Send + Sync {
-    fn ids(&self) -> Vec<String>;
-}
 
 /// `samePath(left, right)`: each lies within the other.
 fn same_path(left: &str, right: &str) -> bool {
@@ -47,13 +43,15 @@ fn utf16_sorted(mut ids: Vec<String>) -> Vec<String> {
 
 pub struct ProjectConnectors {
     projects: Arc<dyn Registry>,
-    installed: Arc<dyn InstalledConnectors>,
+    /// The installed connectors (`installedIds()`: `mcpStatus().servers` in listing order), the
+    /// catalog the agent connector switches read.
+    installed: Arc<dyn ConnectorCatalog>,
     file: PathBuf,
     io: PolicyIo,
 }
 
 impl ProjectConnectors {
-    pub fn new(projects: Arc<dyn Registry>, installed: Arc<dyn InstalledConnectors>, data_dir: &Path, io: PolicyIo) -> Self {
+    pub fn new(projects: Arc<dyn Registry>, installed: Arc<dyn ConnectorCatalog>, data_dir: &Path, io: PolicyIo) -> Self {
         Self { projects, installed, file: data_dir.join(PROJECT_CONNECTORS_FILE), io }
     }
 
@@ -64,21 +62,22 @@ impl ProjectConnectors {
     }
 
     /// `[{ id, enabled }]` for each installed connector under the projects' file.
-    fn switches(&self, policies: &Projects, root: &str) -> Value {
+    async fn switches(&self, policies: &Projects, root: &str) -> Result<Value, String> {
         let off: Vec<&String> = match policies {
             Projects::Roots(list) => list.iter().filter(|entry| same_path(&entry.root, root)).flat_map(|entry| entry.off.iter()).collect(),
             Projects::Absent | Projects::DenyAll => Vec::new(),
         };
-        Value::Array(
+        Ok(Value::Array(
             self.installed
-                .ids()
+                .installed()
+                .await?
                 .into_iter()
                 .map(|id| {
                     let enabled = !matches!(policies, Projects::DenyAll) && !off.contains(&&id);
                     json!({ "id": id, "enabled": enabled })
                 })
                 .collect(),
-        )
+        ))
     }
 
     async fn read(&self, cancel: &CancellationToken) -> Result<Projects, String> {
@@ -90,7 +89,7 @@ impl ProjectConnectors {
     /// allows it.
     pub async fn get(&self, project_path: &str, cancel: &CancellationToken) -> Result<Value, String> {
         let root = self.registered(project_path).await?;
-        Ok(self.switches(&self.read(cancel).await?, &root))
+        self.switches(&self.read(cancel).await?, &root).await
     }
 
     /// `setProjectConnectorEnabled(projectPath, connectorId, enabled, options)`: switch one
@@ -146,6 +145,6 @@ impl ProjectConnectors {
         .await
         .map_err(|error| error.to_string())?;
         written?;
-        Ok(self.switches(&self.read(cancel).await?, &root))
+        self.switches(&self.read(cancel).await?, &root).await
     }
 }

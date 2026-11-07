@@ -15,7 +15,7 @@ use unicode_normalization::UnicodeNormalization;
 pub(crate) type Doc = Map<String, Value>;
 
 pub(crate) const DEFAULT_WORKFLOW_ID: &str = "default";
-pub(crate) const ORCHESTRATION_MODES: [&str; 4] = ["none", "focused", "balanced", "swarm"];
+pub const ORCHESTRATION_MODES: [&str; 4] = ["none", "focused", "balanced", "swarm"];
 const DEFAULT_ORCHESTRATION_MODE: &str = "balanced";
 
 /// `String(value)` of a value that is present (null is the text `null`).

@@ -8,6 +8,7 @@
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use rusqlite::OptionalExtension;
 use rusqlite::params;
 use serde_json::Map;
 use serde_json::Value;
@@ -139,6 +140,24 @@ const SCAN_SQL: &str = "SELECT summary, activity, id, archived FROM sessions
      ORDER BY activity DESC, id ASC LIMIT ?3";
 
 impl SqliteStore {
+    /// The listed row of `session` as [`SqliteStore::lead_page`] would list it; `None` when the
+    /// session is deleted, unknown or not lead-visible.
+    pub async fn lead_row(&self, session: &str) -> Result<Option<LeadRow>, DbError> {
+        let session = session.to_owned();
+        self.read(move |c| {
+            let found: Option<(String, bool)> = c
+                .prepare_cached("SELECT summary, archived FROM sessions WHERE id = ?1 AND deleted = 0")?
+                .query_row(params![session], |r| Ok((r.get(0)?, r.get(1)?)))
+                .optional()?;
+            let Some((summary, archived)) = found else { return Ok(None) };
+            let Ok(Value::Object(row)) = serde_json::from_str::<Value>(&summary) else {
+                return Err(DbError::Sqlite(rusqlite::Error::InvalidColumnType(0, "summary".into(), rusqlite::types::Type::Text)));
+            };
+            Ok(is_lead_visible_row(&row).then_some(LeadRow { row, archived }))
+        })
+        .await
+    }
+
     /// `limit` lead-visible rows that pass `filter`, after `after` (`listAfter`; from the top when
     /// `None`), and whether more follow.
     pub async fn lead_page(&self, after: Option<CatalogCursor>, filter: LeadFilter, limit: usize) -> Result<LeadPage, DbError> {

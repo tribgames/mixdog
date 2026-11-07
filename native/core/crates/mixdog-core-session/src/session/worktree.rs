@@ -23,8 +23,8 @@ use mixdog_scm::worktree::branches::Admitted;
 use mixdog_scm::worktree::branches::FolderAdmission;
 use mixdog_scm::worktree::errors;
 use mixdog_scm::worktree::errors::RefusalReason;
+use mixdog_scm::worktree::maintenance::SessionSource;
 use mixdog_scm::worktree::manager::RepoFacts;
-use mixdog_scm::worktree::manager::Retention;
 use mixdog_scm::worktree::manager::Worktrees;
 use mixdog_scm::worktree::names;
 use mixdog_scm::worktree::registry::WorktreeRecord;
@@ -358,7 +358,10 @@ fn text(path: &std::path::Path) -> String {
 
 struct Inner {
     ops: Ops,
-    retention: Arc<dyn Retention>,
+    /// Who keeps a worktree, read again for every list (`maintenanceScope`): the stored
+    /// sessions, and the sessions of this process as live owners.
+    sessions: Arc<dyn SessionSource>,
+    live: LiveSessions,
     host: Arc<dyn WorkspaceHost>,
     gate: Arc<AdmissionGate>,
     intents: Mutex<HashMap<String, Intent>>,
@@ -378,7 +381,8 @@ pub struct SessionWorkspaces {
 impl SessionWorkspaces {
     pub fn new(
         worktrees: Arc<Worktrees>,
-        retention: Arc<dyn Retention>,
+        sessions: Arc<dyn SessionSource>,
+        live: LiveSessions,
         settings: Arc<dyn SettingsSource>,
         host: Arc<dyn WorkspaceHost>,
         gate: Arc<AdmissionGate>,
@@ -386,7 +390,8 @@ impl SessionWorkspaces {
         Self {
             inner: Arc::new(Inner {
                 ops: Ops { wt: worktrees, settings, runtime_token: new_tx_id() },
-                retention,
+                sessions,
+                live,
                 host,
                 gate,
                 intents: Mutex::new(HashMap::new()),

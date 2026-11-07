@@ -16,6 +16,7 @@ use async_trait::async_trait;
 use mixdog_app_protocol::v2::thread::SortDirection;
 use mixdog_app_protocol::v2::thread::ThreadListParams;
 use mixdog_app_protocol::v2::thread::ThreadListResponse;
+use mixdog_app_protocol::v2::thread::ThreadSummaryUpdatedParams;
 use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::call::Reply;
 use mixdog_core_api::error::CoreError;
@@ -32,12 +33,14 @@ use mixdog_core_base::support::wrong_method;
 use mixdog_protocol::ThreadSummary;
 use mixdog_store::sqlite::SqliteStore;
 use mixdog_store::sqlite::lead::LeadFilter;
+use mixdog_store::sqlite::lead::LeadRow;
 use mixdog_store::sqlite::lead::decode_catalog_cursor;
 use mixdog_store::sqlite::lead::encode_catalog_cursor;
 
 use super::transcript::summary_of_list_row;
 
 pub const LIST: &str = "thread/list";
+const SUMMARY_UPDATED: &str = "thread/summary/updated";
 const DOMAIN: &str = "thread list";
 
 /// `DEFAULT_PAGE_LIMIT` and `MAX_PAGE_LIMIT` (`store-summary-reader.mjs`).
@@ -71,15 +74,113 @@ pub trait ListOverlay: Send + Sync {
     fn of(&self, thread: &ThreadId) -> RowOverlay;
 }
 
+/// [`ListOverlay`] over the threads this process hosts and the bots' owned work:
+/// - `working`: the thread's own turn is in flight (`inFlightSessionActivity().working`);
+/// - `agentWorking`: an agent session whose root owner is the thread has a turn in flight (its
+///   `ownerSessionId || parentSessionId`, with `owner: 'agent'` or an agent other than `lead`);
+/// - `awaitingApproval` / `awaitingQuestion`: the approval the thread shows now, a question when
+///   it is `ask_user`'s (`awaitingApprovalSessionKinds`, `kind === 'question'`);
+/// - `handedBy`: the bots whose sent work runs in the thread (`botWorkBySession`).
+pub struct LiveListOverlay {
+    directory: Arc<super::SessionDirectory>,
+    bot_work: Arc<mixdog_services::task_reports::host::BotWork>,
+}
+
+impl LiveListOverlay {
+    pub fn new(directory: Arc<super::SessionDirectory>, bot_work: Arc<mixdog_services::task_reports::host::BotWork>) -> Self {
+        Self { directory, bot_work }
+    }
+}
+
+/// JavaScript truthiness of a stored value.
+fn truthy(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Null => false,
+        serde_json::Value::Bool(flag) => *flag,
+        serde_json::Value::Number(number) => number.as_f64().is_some_and(|n| n != 0.0 && !n.is_nan()),
+        serde_json::Value::String(text) => !text.is_empty(),
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => true,
+    }
+}
+
+/// `String(value || '').trim()` (with `.toLowerCase()` when `lower`).
+fn clean_text(value: Option<&serde_json::Value>, lower: bool) -> String {
+    let text = value.filter(|v| truthy(v)).map(mixdog_js::value_to_string).unwrap_or_default();
+    let text = mixdog_js::js_trim(&text).to_owned();
+    if lower { text.to_lowercase() } else { text }
+}
+
+impl ListOverlay for LiveListOverlay {
+    fn of(&self, thread: &ThreadId) -> RowOverlay {
+        let mut overlay = RowOverlay::default();
+        if let Some(handle) = self.directory.handle(thread) {
+            if handle.cell.run.load().is_some() {
+                overlay.working = Some(true);
+            }
+            if let Some(shown) = handle.cell.shown_approval.load().as_ref() {
+                overlay.awaiting_approval = Some(true);
+                if shown.ask.tool.as_deref() == Some("ask_user") {
+                    overlay.awaiting_question = Some(true);
+                }
+            }
+        }
+        let agent_working = self.directory.loaded_ids().into_iter().filter(|id| id != thread).any(|id| {
+            let Some(handle) = self.directory.handle(&id) else { return false };
+            if handle.cell.run.load().is_none() {
+                return false;
+            }
+            let header = handle.cell.header.load();
+            let owner = clean_text(header.get("ownerSessionId").filter(|v| truthy(v)).or_else(|| header.get("parentSessionId")), false);
+            let agent = clean_text(header.get("agent"), true);
+            owner == thread.as_str() && (clean_text(header.get("owner"), true) == "agent" || (!agent.is_empty() && agent != "lead"))
+        });
+        if agent_working {
+            overlay.agent_working = Some(true);
+        }
+        overlay.handed_by = self.bot_work.by_session().into_iter().find(|(session, _)| session == thread.as_str()).map(|(_, bots)| bots);
+        overlay
+    }
+}
+
+/// The rooms' side of the listing (`agentRooms.withRooms`, `agent-room-views.ts`
+/// `catalogWithRooms`).
+#[async_trait]
+pub trait ListRooms: Send + Sync {
+    /// `rows` with each room's log row stamped (the room's name, its last message time, the room
+    /// summary as `agentRoom`), and both member sessions and the log rows of rooms that no longer
+    /// exist left out.
+    async fn with_rooms(&self, rows: Vec<ThreadSummary>) -> Result<Vec<ThreadSummary>, String>;
+    /// The log thread of every room.
+    async fn room_threads(&self) -> Result<Vec<ThreadId>, String>;
+}
+
 /// `thread/list` over the catalog index.
 pub struct ThreadListService {
     store: Arc<SqliteStore>,
     overlay: Arc<dyn ListOverlay>,
+    rooms: Arc<dyn ListRooms>,
 }
 
 impl ThreadListService {
-    pub fn new(store: Arc<SqliteStore>, overlay: Arc<dyn ListOverlay>) -> Self {
-        Self { store, overlay }
+    pub fn new(store: Arc<SqliteStore>, overlay: Arc<dyn ListOverlay>, rooms: Arc<dyn ListRooms>) -> Self {
+        Self { store, overlay, rooms }
+    }
+
+    fn row_of(&self, id: &ThreadId, listed: &LeadRow) -> ThreadSummary {
+        let mut row = summary_of_list_row(id, &serde_json::Value::Object(listed.row.clone()), listed.archived);
+        self.overlay.of(id).lay_over(&mut row);
+        row
+    }
+
+    async fn with_rooms(&self, rows: Vec<ThreadSummary>) -> Result<Vec<ThreadSummary>, CoreError> {
+        self.rooms.with_rooms(rows).await.map_err(|error| failed(DOMAIN, error))
+    }
+
+    /// The row `thread/list` shows for `id`; `None` when the listing has none.
+    pub async fn summary(&self, id: &ThreadId) -> Result<Option<ThreadSummary>, CoreError> {
+        let listed = self.store.lead_row(id.as_str()).await.map_err(|error| failed(DOMAIN, error.to_string()))?;
+        let Some(listed) = listed else { return Ok(None) };
+        Ok(self.with_rooms(vec![self.row_of(id, &listed)]).await?.pop())
     }
 
     async fn list(&self, params: ThreadListParams) -> Result<ThreadListResponse, CoreError> {
@@ -101,17 +202,58 @@ impl ThreadListService {
         let filter = LeadFilter { archived: params.archived, cwd: params.cwd };
         let page = self.store.lead_page(after, filter, limit).await.map_err(|error| failed(DOMAIN, error.to_string()))?;
         let next_cursor = if page.more { page.rows.last().map(|row| encode_catalog_cursor(&row.row)) } else { None };
-        let data = page
+        let rows = page
             .rows
             .iter()
             .map(|listed| {
                 let id = ThreadId::from(listed.row.get("id").and_then(serde_json::Value::as_str).unwrap_or_default().to_owned());
-                let mut row = summary_of_list_row(&id, &serde_json::Value::Object(listed.row.clone()), listed.archived);
-                self.overlay.of(&id).lay_over(&mut row);
-                row
+                self.row_of(&id, listed)
             })
             .collect();
+        let data = self.with_rooms(rows).await?;
         Ok(ThreadListResponse { data, next_cursor, backwards_cursor: None })
+    }
+}
+
+/// `republishCatalog` for the rooms: each room's log row goes out again on the app feed
+/// (`thread/summary/updated`) as `thread/list` shows it now. One pass at a time, and each pass reads
+/// the rooms when it starts, so the last pass carries the last change.
+pub struct RoomSummaries {
+    list: Arc<ThreadListService>,
+    app: Arc<mixdog_core_base::state::SectionFeedState>,
+    pass: tokio::sync::Mutex<()>,
+}
+
+impl RoomSummaries {
+    pub fn new(list: Arc<ThreadListService>, app: Arc<mixdog_core_base::state::SectionFeedState>) -> Arc<Self> {
+        Arc::new(Self { list, app, pass: tokio::sync::Mutex::new(()) })
+    }
+
+    /// The room service's republish input (`SessionRoomHost::new(.., republish)`): starts a pass,
+    /// without waiting for it.
+    pub fn republish(self: &Arc<Self>) {
+        let this = self.clone();
+        tokio::spawn(async move { this.publish().await });
+    }
+
+    /// One pass: every room's log row, published.
+    pub async fn publish(&self) {
+        let _pass = self.pass.lock().await;
+        let threads = match self.list.rooms.room_threads().await {
+            Ok(threads) => threads,
+            Err(error) => {
+                tracing::warn!(%error, "room summaries: the rooms could not be read");
+                return;
+            }
+        };
+        for id in threads {
+            match self.list.summary(&id).await {
+                Ok(Some(thread)) => self.app.notify(SUMMARY_UPDATED, &ThreadSummaryUpdatedParams { thread }),
+                // A log thread with no listed row (not stored yet, or deleted) has nothing to show.
+                Ok(None) => {}
+                Err(error) => tracing::warn!(?error, thread = id.as_str(), "room summaries: the row could not be read"),
+            }
+        }
     }
 }
 
@@ -180,7 +322,19 @@ mod tests {
             let id = header["id"].as_str().expect("id").to_owned();
             store.upsert(CatalogHead { session: id, log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.expect("upsert");
         }
-        ThreadListService::new(store, Arc::new(Busy))
+        ThreadListService::new(store, Arc::new(Busy), Arc::new(NoRooms))
+    }
+
+    /// No rooms: every row passes as listed.
+    struct NoRooms;
+    #[async_trait]
+    impl ListRooms for NoRooms {
+        async fn with_rooms(&self, rows: Vec<ThreadSummary>) -> Result<Vec<ThreadSummary>, String> {
+            Ok(rows)
+        }
+        async fn room_threads(&self) -> Result<Vec<ThreadId>, String> {
+            Ok(Vec::new())
+        }
     }
 
     /// Every page `listStoredSessionSummaryPage` answered over Node's crafted records (the limit
@@ -224,6 +378,59 @@ mod tests {
             }
         }
         assert!(walked > 8);
+    }
+
+    /// Rooms `room01` (listed) and `gone01` (no listed row): a room's log row gets its `agentRoom`.
+    struct Stamp;
+    #[async_trait]
+    impl ListRooms for Stamp {
+        async fn with_rooms(&self, rows: Vec<ThreadSummary>) -> Result<Vec<ThreadSummary>, String> {
+            Ok(rows
+                .into_iter()
+                .map(|mut row| {
+                    if row.id.as_str().starts_with("sess_room_") {
+                        row.title = "Room one".into();
+                        row.agent_room = Some(json!({ "id": "room01" }));
+                    }
+                    row
+                })
+                .collect())
+        }
+        async fn room_threads(&self) -> Result<Vec<ThreadId>, String> {
+            Ok(vec![ThreadId::from("sess_room_room01".to_owned()), ThreadId::from("sess_room_gone01".to_owned())])
+        }
+    }
+
+    /// A republish pass sends each room's log row, stamped as `thread/list` shows it, on the app
+    /// feed as `thread/summary/updated`; a room whose log has no listed row sends nothing.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_republish_sends_each_rooms_log_row_on_the_app_feed() {
+        use mixdog_core_api::FeedSource;
+        use mixdog_core_api::mock::MockConnection;
+        use mixdog_core_api::mock::MockFeed;
+        use mixdog_core_api::mock::MockLimits;
+
+        let golden = golden();
+        let data = tempfile::tempdir().expect("data dir");
+        let store = service(data.path(), &golden).await.store;
+        let header = json!({ "id": "sess_room_room01", "title": "log", "cwd": "C:\\Tasks", "createdAt": 1000, "updatedAt": 1000 });
+        let head = CatalogHead { session: "sess_room_room01".into(), log_id: "L".into(), base_session: None, header: header.as_object().unwrap().clone() };
+        store.upsert(head, DirtyMark::Clear).await.expect("upsert");
+        let list = Arc::new(ThreadListService::new(store, Arc::new(Busy), Arc::new(Stamp)));
+
+        let limits = MockLimits::default();
+        let feed = Arc::new(MockFeed::new("app".into(), mixdog_core_api::mock::epoch(1), Arc::new(mixdog_core_api::mock::EchoView), limits));
+        let app = MockConnection::new(ConnectionId(1), limits);
+        let source: Arc<dyn FeedSource> = feed.clone();
+        let attached = mixdog_core_api::feed::subscribe(&source, "app".into(), mixdog_core_api::feed::Window::Fixed, None, &app).unwrap();
+        mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
+        let summaries = RoomSummaries::new(list, Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)));
+
+        summaries.publish().await;
+        let sent: Vec<String> = app.drain_text().into_iter().filter(|text| text.contains(SUMMARY_UPDATED)).collect();
+        assert_eq!(sent.len(), 1, "{sent:?}");
+        assert!(sent[0].contains(r#""id":"sess_room_room01""#) && sent[0].contains(r#""agentRoom":{"id":"room01"}"#), "{}", sent[0]);
+        assert!(sent[0].contains(r#""title":"Room one""#), "{}", sent[0]);
     }
 
     /// A cursor that does not decode is Node's `EINVALIDCURSOR` failure; a text search or another

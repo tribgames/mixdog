@@ -42,6 +42,7 @@ pub use json::Validate;
 pub use json::fix_recovery_clock;
 pub use json::is_json_content;
 pub use json::json_bytes;
+pub use json::json_text_problem;
 pub use json::parse_json_text;
 pub use json::peek;
 pub use json::read_json;

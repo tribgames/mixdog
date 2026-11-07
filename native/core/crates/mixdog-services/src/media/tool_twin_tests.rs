@@ -18,7 +18,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::accounts::AccountScope;
 use super::jobs::MediaFailure;
-use super::tool::{MediaGraph, MediaToolService};
+use super::tool::{MediaGraph, MediaToolService, namespaced};
 
 const GOLDEN: &str = include_str!("../../../../fixtures/services/media-tool-twin.json");
 
@@ -82,7 +82,7 @@ impl MediaGraph for Fake {
         state.starts.push(input.clone());
         let script = self.scenario.get("job").cloned().unwrap_or_else(|| json!({}));
         if script["outcome"] == "start-error" {
-            return Err(MediaFailure { message: script["message"].as_str().unwrap().to_owned(), code: script["code"].as_str().map(str::to_owned) });
+            return Err(MediaFailure { message: script["message"].as_str().unwrap().to_owned(), code: script["code"].as_str().map(str::to_owned), usage: None });
         }
         let id = format!("job-{}", state.starts.len());
         let job = json!({
@@ -234,6 +234,7 @@ async fn the_tool_answers_what_nodes_does() {
         assert_eq!(json!(state.starts), fill(&recorded["starts"], &root), "{name}: starts");
         assert_eq!(json!(state.cancels), recorded["cancels"], "{name}: cancels");
         assert_eq!(json!(state.scopes), recorded["scopes"], "{name}: account scopes");
-        assert_eq!(listing(&base), recorded["tree"], "{name}: files");
+        // Node's recorder lists through `fs`, which namespaces: a file named `dotted.` is found by its name.
+        assert_eq!(listing(&namespaced(&base)), recorded["tree"], "{name}: files");
     }
 }

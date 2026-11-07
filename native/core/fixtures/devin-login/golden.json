@@ -1,0 +1,308 @@
+{
+  "authorize": {
+    "state": "b1e4bf7e-c919-4a5c-9e0b-3b30e6a31b1e",
+    "challenge": "YC03zoOjGZjxDIdm8FGH54CsUHHO79TlMFLYp4ziNTo",
+    "url": "https://app.devin.ai/auth/cli/continue?response_type=code&redirect_uri=http%3A%2F%2F127.0.0.1%3A59653%2Fcallback&code_challenge=YC03zoOjGZjxDIdm8FGH54CsUHHO79TlMFLYp4ziNTo&code_challenge_method=S256&state=b1e4bf7e-c919-4a5c-9e0b-3b30e6a31b1e&prompt=select_account",
+    "keys": [
+      "response_type",
+      "redirect_uri",
+      "code_challenge",
+      "code_challenge_method",
+      "state",
+      "prompt"
+    ]
+  },
+  "exchanges": [
+    {
+      "name": "token with exp, sub and email",
+      "now": 1800000000000,
+      "requests": [
+        {
+          "url": "https://api.devin.ai/auth/cli/token",
+          "method": "POST",
+          "headers": {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"the-code\",\"code_verifier\":\"the-verifier\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "tokens": {
+          "access_token": "h.eyJleHAiOjE4MDAwMDM2MDAsInN1YiI6InVzZXItMSIsImVtYWlsIjoiYW5uQHgudGVzdCJ9.s",
+          "refresh_token": null,
+          "expires_at": 1800003600000,
+          "identity": {
+            "id": "user-1",
+            "email": "ann@x.test"
+          }
+        }
+      }
+    },
+    {
+      "name": "token with sub only",
+      "now": 1800000000000,
+      "requests": [
+        {
+          "url": "https://api.devin.ai/auth/cli/token",
+          "method": "POST",
+          "headers": {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"the-code\",\"code_verifier\":\"the-verifier\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "tokens": {
+          "access_token": "h.eyJleHAiOjE4MDAwMDM2MDAsInN1YiI6InVzZXItMiJ9.s",
+          "refresh_token": null,
+          "expires_at": 1800003600000,
+          "identity": {
+            "id": "user-2"
+          }
+        }
+      }
+    },
+    {
+      "name": "token with padded fields",
+      "now": 1800000000000,
+      "requests": [
+        {
+          "url": "https://api.devin.ai/auth/cli/token",
+          "method": "POST",
+          "headers": {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"the-code\",\"code_verifier\":\"the-verifier\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "tokens": {
+          "access_token": "h.eyJleHAiOjE4MDAwMDM2MDAsInN1YiI6IiB1c2VyLTMgIiwiZW1haWwiOiIgICJ9.s",
+          "refresh_token": null,
+          "expires_at": 1800003600000,
+          "identity": {
+            "id": "user-3"
+          }
+        }
+      }
+    },
+    {
+      "name": "token without exp: a year",
+      "now": 1800000000000,
+      "requests": [
+        {
+          "url": "https://api.devin.ai/auth/cli/token",
+          "method": "POST",
+          "headers": {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"the-code\",\"code_verifier\":\"the-verifier\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "tokens": {
+          "access_token": "h.eyJzdWIiOiJ1c2VyLTQifQ.s",
+          "refresh_token": null,
+          "expires_at": 1831536000000,
+          "identity": {
+            "id": "user-4"
+          }
+        }
+      }
+    },
+    {
+      "name": "token that is not a JWT",
+      "now": 1800000000000,
+      "requests": [
+        {
+          "url": "https://api.devin.ai/auth/cli/token",
+          "method": "POST",
+          "headers": {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"the-code\",\"code_verifier\":\"the-verifier\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "tokens": {
+          "access_token": "opaque-token",
+          "refresh_token": null,
+          "expires_at": 1831536000000
+        }
+      }
+    },
+    {
+      "name": "token whose claims are not an object",
+      "now": 1800000000000,
+      "requests": [
+        {
+          "url": "https://api.devin.ai/auth/cli/token",
+          "method": "POST",
+          "headers": {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"the-code\",\"code_verifier\":\"the-verifier\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "tokens": {
+          "access_token": "h.WzFd.s",
+          "refresh_token": null,
+          "expires_at": 1831536000000
+        }
+      }
+    },
+    {
+      "name": "no token in the answer",
+      "now": 1800000000000,
+      "requests": [
+        {
+          "url": "https://api.devin.ai/auth/cli/token",
+          "method": "POST",
+          "headers": {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"the-code\",\"code_verifier\":\"the-verifier\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "message": "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED: Devin token exchange returned no token",
+        "failureCode": "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED"
+      }
+    },
+    {
+      "name": "empty token",
+      "now": 1800000000000,
+      "requests": [
+        {
+          "url": "https://api.devin.ai/auth/cli/token",
+          "method": "POST",
+          "headers": {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"the-code\",\"code_verifier\":\"the-verifier\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "message": "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED: Devin token exchange returned no token",
+        "failureCode": "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED"
+      }
+    },
+    {
+      "name": "token that is not a string",
+      "now": 1800000000000,
+      "requests": [
+        {
+          "url": "https://api.devin.ai/auth/cli/token",
+          "method": "POST",
+          "headers": {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"the-code\",\"code_verifier\":\"the-verifier\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "message": "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED: Devin token exchange returned no token",
+        "failureCode": "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED"
+      }
+    },
+    {
+      "name": "answer that is not JSON",
+      "now": 1800000000000,
+      "requests": [
+        {
+          "url": "https://api.devin.ai/auth/cli/token",
+          "method": "POST",
+          "headers": {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"the-code\",\"code_verifier\":\"the-verifier\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "message": "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED: Devin token exchange returned no token",
+        "failureCode": "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED"
+      }
+    },
+    {
+      "name": "401",
+      "now": 1800000000000,
+      "requests": [
+        {
+          "url": "https://api.devin.ai/auth/cli/token",
+          "method": "POST",
+          "headers": {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"the-code\",\"code_verifier\":\"the-verifier\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "message": "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED: Devin token exchange failed (401)",
+        "failureCode": "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED"
+      }
+    },
+    {
+      "name": "500",
+      "now": 1800000000000,
+      "requests": [
+        {
+          "url": "https://api.devin.ai/auth/cli/token",
+          "method": "POST",
+          "headers": {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"the-code\",\"code_verifier\":\"the-verifier\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "message": "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED: Devin token exchange failed (500)",
+        "failureCode": "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED"
+      }
+    },
+    {
+      "name": "no answer",
+      "now": 1800000000000,
+      "requests": [
+        {
+          "url": "https://api.devin.ai/auth/cli/token",
+          "method": "POST",
+          "headers": {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+          },
+          "body": "{\"code\":\"the-code\",\"code_verifier\":\"the-verifier\"}",
+          "redirect": "error"
+        }
+      ],
+      "outcome": {
+        "message": "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED: Devin token exchange request failed (network error). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY.",
+        "failureCode": "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED"
+      }
+    }
+  ]
+}

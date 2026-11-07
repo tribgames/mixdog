@@ -90,7 +90,9 @@ async fn snapshot_state(handle: &Arc<SessionHandle>, client: u64) -> Value {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     loop {
         for text in connection.drain_text() {
-            let frame: Value = serde_json::from_str(&text).expect("a JSON frame");
+            // `drain_text` renders `control:<frame>` or `<sub>:<frame>`.
+            let (_, body) = text.split_once(':').expect("a rendered frame");
+            let frame: Value = serde_json::from_str(body).expect("a JSON frame");
             if frame["method"] == "thread/snapshot" {
                 return frame["params"]["state"].clone();
             }

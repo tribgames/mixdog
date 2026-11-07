@@ -147,6 +147,17 @@ fn plain_external() -> External {
     }
 }
 
+/// The recorder's stand-in store keeps the document as given; Node's real store settles on
+/// `canonicalizeUnifiedConfig` at every read and save, which drops the retired `modules.memory`
+/// (the modules object stays, emptied or not).
+fn without_retired_memory_module(doc: &Value) -> Value {
+    let mut doc = doc.clone();
+    if let Some(modules) = doc.get_mut("modules").and_then(Value::as_object_mut) {
+        modules.shift_remove("memory");
+    }
+    doc
+}
+
 /// The value, the saved config, the host calls and the errors of Node's setters over 100
 /// recorded configs (`record-tool-modules.mjs`).
 #[tokio::test]
@@ -204,7 +215,7 @@ async fn the_value_and_every_setter_match_the_recorded_node_module() {
                 .get("saved")
                 .filter(|saved| !saved.is_null())
                 .unwrap_or(&entry["config"]);
-            assert_eq!(&Value::Object(config.agent()), expected_doc, "{label}: config");
+            assert_eq!(&Value::Object(config.agent()), &without_retired_memory_module(expected_doc), "{label}: config");
             assert_eq!(Value::Array(host.calls()), setter["calls"], "{label}: host calls");
             cancel.cancel();
             compared += 1;

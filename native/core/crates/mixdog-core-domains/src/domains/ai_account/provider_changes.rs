@@ -181,6 +181,9 @@ mod tests {
         let store: Arc<dyn SecretStore> = mixdog_core_config::config::AnnouncingStore::new(Arc::new(MemoryStore::default()), secrets.clone());
         let effects = Arc::new(Recording { calls: Mutex::default(), fail_first });
         let task = spawn_provider_changes(config.clone(), secrets.clone(), effects.clone(), vec![retry]);
+        // The subscriber takes its baseline and subscribes when it first runs; a test edit made
+        // before that would be part of the baseline, not a change.
+        tokio::task::yield_now().await;
         World { _dir: dir, config, store, secrets, effects, task }
     }
 

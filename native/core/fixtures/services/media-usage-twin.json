@@ -1,0 +1,3738 @@
+{
+  "domain": "media-usage-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-media-usage.mjs",
+  "gemini": [
+    {
+      "input": null,
+      "output": null
+    },
+    {
+      "input": "__undefined__",
+      "output": null
+    },
+    {
+      "input": 0,
+      "output": null
+    },
+    {
+      "input": 5,
+      "output": null
+    },
+    {
+      "input": "x",
+      "output": null
+    },
+    {
+      "input": true,
+      "output": null
+    },
+    {
+      "input": [],
+      "output": null
+    },
+    {
+      "input": [
+        1,
+        2
+      ],
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {
+        "promptTokenCount": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "prompt_token_count": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cachedContentTokenCount": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cached_content_token_count": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidatesTokenCount": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidates_token_count": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "thoughtsTokenCount": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "thoughts_token_count": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "promptTokenCount": 0
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "prompt_token_count": 0
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cachedContentTokenCount": 0
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cached_content_token_count": 0
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidatesTokenCount": 0
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidates_token_count": 0
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "thoughtsTokenCount": 0
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "thoughts_token_count": 0
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "promptTokenCount": 1
+      },
+      "output": {
+        "inputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "prompt_token_count": 1
+      },
+      "output": {
+        "inputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "cachedContentTokenCount": 1
+      },
+      "output": {
+        "cachedTokens": 1
+      }
+    },
+    {
+      "input": {
+        "cached_content_token_count": 1
+      },
+      "output": {
+        "cachedTokens": 1
+      }
+    },
+    {
+      "input": {
+        "candidatesTokenCount": 1
+      },
+      "output": {
+        "outputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "candidates_token_count": 1
+      },
+      "output": {
+        "outputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "thoughtsTokenCount": 1
+      },
+      "output": {
+        "outputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "thoughts_token_count": 1
+      },
+      "output": {
+        "outputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "promptTokenCount": 7
+      },
+      "output": {
+        "inputTokens": 7
+      }
+    },
+    {
+      "input": {
+        "prompt_token_count": 7
+      },
+      "output": {
+        "inputTokens": 7
+      }
+    },
+    {
+      "input": {
+        "cachedContentTokenCount": 7
+      },
+      "output": {
+        "cachedTokens": 7
+      }
+    },
+    {
+      "input": {
+        "cached_content_token_count": 7
+      },
+      "output": {
+        "cachedTokens": 7
+      }
+    },
+    {
+      "input": {
+        "candidatesTokenCount": 7
+      },
+      "output": {
+        "outputTokens": 7
+      }
+    },
+    {
+      "input": {
+        "candidates_token_count": 7
+      },
+      "output": {
+        "outputTokens": 7
+      }
+    },
+    {
+      "input": {
+        "thoughtsTokenCount": 7
+      },
+      "output": {
+        "outputTokens": 7
+      }
+    },
+    {
+      "input": {
+        "thoughts_token_count": 7
+      },
+      "output": {
+        "outputTokens": 7
+      }
+    },
+    {
+      "input": {
+        "promptTokenCount": 12.9
+      },
+      "output": {
+        "inputTokens": 12
+      }
+    },
+    {
+      "input": {
+        "prompt_token_count": 12.9
+      },
+      "output": {
+        "inputTokens": 12
+      }
+    },
+    {
+      "input": {
+        "cachedContentTokenCount": 12.9
+      },
+      "output": {
+        "cachedTokens": 12
+      }
+    },
+    {
+      "input": {
+        "cached_content_token_count": 12.9
+      },
+      "output": {
+        "cachedTokens": 12
+      }
+    },
+    {
+      "input": {
+        "candidatesTokenCount": 12.9
+      },
+      "output": {
+        "outputTokens": 12
+      }
+    },
+    {
+      "input": {
+        "candidates_token_count": 12.9
+      },
+      "output": {
+        "outputTokens": 12
+      }
+    },
+    {
+      "input": {
+        "thoughtsTokenCount": 12.9
+      },
+      "output": {
+        "outputTokens": 12
+      }
+    },
+    {
+      "input": {
+        "thoughts_token_count": 12.9
+      },
+      "output": {
+        "outputTokens": 12
+      }
+    },
+    {
+      "input": {
+        "promptTokenCount": -3
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "prompt_token_count": -3
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cachedContentTokenCount": -3
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cached_content_token_count": -3
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidatesTokenCount": -3
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidates_token_count": -3
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "thoughtsTokenCount": -3
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "thoughts_token_count": -3
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "promptTokenCount": "5"
+      },
+      "output": {
+        "inputTokens": 5
+      }
+    },
+    {
+      "input": {
+        "prompt_token_count": "5"
+      },
+      "output": {
+        "inputTokens": 5
+      }
+    },
+    {
+      "input": {
+        "cachedContentTokenCount": "5"
+      },
+      "output": {
+        "cachedTokens": 5
+      }
+    },
+    {
+      "input": {
+        "cached_content_token_count": "5"
+      },
+      "output": {
+        "cachedTokens": 5
+      }
+    },
+    {
+      "input": {
+        "candidatesTokenCount": "5"
+      },
+      "output": {
+        "outputTokens": 5
+      }
+    },
+    {
+      "input": {
+        "candidates_token_count": "5"
+      },
+      "output": {
+        "outputTokens": 5
+      }
+    },
+    {
+      "input": {
+        "thoughtsTokenCount": "5"
+      },
+      "output": {
+        "outputTokens": 5
+      }
+    },
+    {
+      "input": {
+        "thoughts_token_count": "5"
+      },
+      "output": {
+        "outputTokens": 5
+      }
+    },
+    {
+      "input": {
+        "promptTokenCount": " 8 "
+      },
+      "output": {
+        "inputTokens": 8
+      }
+    },
+    {
+      "input": {
+        "prompt_token_count": " 8 "
+      },
+      "output": {
+        "inputTokens": 8
+      }
+    },
+    {
+      "input": {
+        "cachedContentTokenCount": " 8 "
+      },
+      "output": {
+        "cachedTokens": 8
+      }
+    },
+    {
+      "input": {
+        "cached_content_token_count": " 8 "
+      },
+      "output": {
+        "cachedTokens": 8
+      }
+    },
+    {
+      "input": {
+        "candidatesTokenCount": " 8 "
+      },
+      "output": {
+        "outputTokens": 8
+      }
+    },
+    {
+      "input": {
+        "candidates_token_count": " 8 "
+      },
+      "output": {
+        "outputTokens": 8
+      }
+    },
+    {
+      "input": {
+        "thoughtsTokenCount": " 8 "
+      },
+      "output": {
+        "outputTokens": 8
+      }
+    },
+    {
+      "input": {
+        "thoughts_token_count": " 8 "
+      },
+      "output": {
+        "outputTokens": 8
+      }
+    },
+    {
+      "input": {
+        "promptTokenCount": "abc"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "prompt_token_count": "abc"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cachedContentTokenCount": "abc"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cached_content_token_count": "abc"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidatesTokenCount": "abc"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidates_token_count": "abc"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "thoughtsTokenCount": "abc"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "thoughts_token_count": "abc"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "promptTokenCount": ""
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "prompt_token_count": ""
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cachedContentTokenCount": ""
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cached_content_token_count": ""
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidatesTokenCount": ""
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidates_token_count": ""
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "thoughtsTokenCount": ""
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "thoughts_token_count": ""
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "promptTokenCount": true
+      },
+      "output": {
+        "inputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "prompt_token_count": true
+      },
+      "output": {
+        "inputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "cachedContentTokenCount": true
+      },
+      "output": {
+        "cachedTokens": 1
+      }
+    },
+    {
+      "input": {
+        "cached_content_token_count": true
+      },
+      "output": {
+        "cachedTokens": 1
+      }
+    },
+    {
+      "input": {
+        "candidatesTokenCount": true
+      },
+      "output": {
+        "outputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "candidates_token_count": true
+      },
+      "output": {
+        "outputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "thoughtsTokenCount": true
+      },
+      "output": {
+        "outputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "thoughts_token_count": true
+      },
+      "output": {
+        "outputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "promptTokenCount": false
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "prompt_token_count": false
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cachedContentTokenCount": false
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cached_content_token_count": false
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidatesTokenCount": false
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidates_token_count": false
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "thoughtsTokenCount": false
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "thoughts_token_count": false
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "promptTokenCount": []
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "prompt_token_count": []
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cachedContentTokenCount": []
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cached_content_token_count": []
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidatesTokenCount": []
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidates_token_count": []
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "thoughtsTokenCount": []
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "thoughts_token_count": []
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "promptTokenCount": [
+          4
+        ]
+      },
+      "output": {
+        "inputTokens": 4
+      }
+    },
+    {
+      "input": {
+        "prompt_token_count": [
+          4
+        ]
+      },
+      "output": {
+        "inputTokens": 4
+      }
+    },
+    {
+      "input": {
+        "cachedContentTokenCount": [
+          4
+        ]
+      },
+      "output": {
+        "cachedTokens": 4
+      }
+    },
+    {
+      "input": {
+        "cached_content_token_count": [
+          4
+        ]
+      },
+      "output": {
+        "cachedTokens": 4
+      }
+    },
+    {
+      "input": {
+        "candidatesTokenCount": [
+          4
+        ]
+      },
+      "output": {
+        "outputTokens": 4
+      }
+    },
+    {
+      "input": {
+        "candidates_token_count": [
+          4
+        ]
+      },
+      "output": {
+        "outputTokens": 4
+      }
+    },
+    {
+      "input": {
+        "thoughtsTokenCount": [
+          4
+        ]
+      },
+      "output": {
+        "outputTokens": 4
+      }
+    },
+    {
+      "input": {
+        "thoughts_token_count": [
+          4
+        ]
+      },
+      "output": {
+        "outputTokens": 4
+      }
+    },
+    {
+      "input": {
+        "promptTokenCount": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "prompt_token_count": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cachedContentTokenCount": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cached_content_token_count": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidatesTokenCount": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidates_token_count": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "thoughtsTokenCount": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "thoughts_token_count": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "promptTokenCount": 1e+21
+      },
+      "output": {
+        "inputTokens": 1e+21
+      }
+    },
+    {
+      "input": {
+        "prompt_token_count": 1e+21
+      },
+      "output": {
+        "inputTokens": 1e+21
+      }
+    },
+    {
+      "input": {
+        "cachedContentTokenCount": 1e+21
+      },
+      "output": {
+        "cachedTokens": 1e+21
+      }
+    },
+    {
+      "input": {
+        "cached_content_token_count": 1e+21
+      },
+      "output": {
+        "cachedTokens": 1e+21
+      }
+    },
+    {
+      "input": {
+        "candidatesTokenCount": 1e+21
+      },
+      "output": {
+        "outputTokens": 1e+21
+      }
+    },
+    {
+      "input": {
+        "candidates_token_count": 1e+21
+      },
+      "output": {
+        "outputTokens": 1e+21
+      }
+    },
+    {
+      "input": {
+        "thoughtsTokenCount": 1e+21
+      },
+      "output": {
+        "outputTokens": 1e+21
+      }
+    },
+    {
+      "input": {
+        "thoughts_token_count": 1e+21
+      },
+      "output": {
+        "outputTokens": 1e+21
+      }
+    },
+    {
+      "input": {
+        "promptTokenCount": 0.4
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "prompt_token_count": 0.4
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cachedContentTokenCount": 0.4
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cached_content_token_count": 0.4
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidatesTokenCount": 0.4
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidates_token_count": 0.4
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "thoughtsTokenCount": 0.4
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "thoughts_token_count": 0.4
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "promptTokenCount": 3,
+        "prompt_token_count": 9
+      },
+      "output": {
+        "inputTokens": 3
+      }
+    },
+    {
+      "input": {
+        "promptTokenCount": null,
+        "prompt_token_count": 9
+      },
+      "output": {
+        "inputTokens": 9
+      }
+    },
+    {
+      "input": {
+        "promptTokenCount": 0,
+        "prompt_token_count": 9
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "promptTokenCount": 10,
+        "cachedContentTokenCount": 4,
+        "candidatesTokenCount": 20,
+        "thoughtsTokenCount": 6
+      },
+      "output": {
+        "inputTokens": 10,
+        "cachedTokens": 4,
+        "outputTokens": 26
+      }
+    },
+    {
+      "input": {
+        "candidatesTokensDetails": [
+          {
+            "modality": "IMAGE",
+            "tokenCount": 1290
+          }
+        ]
+      },
+      "output": {
+        "outputImageTokens": 1290
+      }
+    },
+    {
+      "input": {
+        "candidates_tokens_details": [
+          {
+            "modality": "IMAGE",
+            "tokenCount": 1290
+          }
+        ],
+        "candidatesTokenCount": 2
+      },
+      "output": {
+        "outputTokens": 2,
+        "outputImageTokens": 1290
+      }
+    },
+    {
+      "input": {
+        "candidatesTokensDetails": [
+          {
+            "modality": "image",
+            "token_count": 5
+          },
+          {
+            "modality": "Image",
+            "tokenCount": 6
+          },
+          {
+            "modality": "TEXT",
+            "tokenCount": 99
+          }
+        ]
+      },
+      "output": {
+        "outputImageTokens": 11
+      }
+    },
+    {
+      "input": {
+        "candidates_tokens_details": [
+          {
+            "modality": "image",
+            "token_count": 5
+          },
+          {
+            "modality": "Image",
+            "tokenCount": 6
+          },
+          {
+            "modality": "TEXT",
+            "tokenCount": 99
+          }
+        ],
+        "candidatesTokenCount": 2
+      },
+      "output": {
+        "outputTokens": 2,
+        "outputImageTokens": 11
+      }
+    },
+    {
+      "input": {
+        "candidatesTokensDetails": [
+          {
+            "modality": "IMAGE"
+          },
+          null,
+          7,
+          "x",
+          {
+            "modality": 7,
+            "tokenCount": 3
+          },
+          {
+            "modality": [
+              "IMAGE"
+            ],
+            "tokenCount": 3
+          }
+        ]
+      },
+      "output": {
+        "outputImageTokens": 3
+      }
+    },
+    {
+      "input": {
+        "candidates_tokens_details": [
+          {
+            "modality": "IMAGE"
+          },
+          null,
+          7,
+          "x",
+          {
+            "modality": 7,
+            "tokenCount": 3
+          },
+          {
+            "modality": [
+              "IMAGE"
+            ],
+            "tokenCount": 3
+          }
+        ],
+        "candidatesTokenCount": 2
+      },
+      "output": {
+        "outputTokens": 2,
+        "outputImageTokens": 3
+      }
+    },
+    {
+      "input": {
+        "candidatesTokensDetails": [
+          {
+            "modality": "IMAGE",
+            "tokenCount": "12"
+          }
+        ]
+      },
+      "output": {
+        "outputImageTokens": 12
+      }
+    },
+    {
+      "input": {
+        "candidates_tokens_details": [
+          {
+            "modality": "IMAGE",
+            "tokenCount": "12"
+          }
+        ],
+        "candidatesTokenCount": 2
+      },
+      "output": {
+        "outputTokens": 2,
+        "outputImageTokens": 12
+      }
+    },
+    {
+      "input": {
+        "candidatesTokensDetails": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidates_tokens_details": {},
+        "candidatesTokenCount": 2
+      },
+      "output": {
+        "outputTokens": 2
+      }
+    },
+    {
+      "input": {
+        "candidatesTokensDetails": "IMAGE"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidates_tokens_details": "IMAGE",
+        "candidatesTokenCount": 2
+      },
+      "output": {
+        "outputTokens": 2
+      }
+    },
+    {
+      "input": {
+        "candidatesTokensDetails": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "candidates_tokens_details": null,
+        "candidatesTokenCount": 2
+      },
+      "output": {
+        "outputTokens": 2
+      }
+    },
+    {
+      "input": {
+        "candidatesTokensDetails": null,
+        "candidates_tokens_details": [
+          {
+            "modality": "IMAGE",
+            "tokenCount": 4
+          }
+        ]
+      },
+      "output": {
+        "outputImageTokens": 4
+      }
+    },
+    {
+      "input": {
+        "unrelated": 1
+      },
+      "output": null
+    }
+  ],
+  "interactions": [
+    {
+      "input": null,
+      "output": null
+    },
+    {
+      "input": "__undefined__",
+      "output": null
+    },
+    {
+      "input": 0,
+      "output": null
+    },
+    {
+      "input": 5,
+      "output": null
+    },
+    {
+      "input": "x",
+      "output": null
+    },
+    {
+      "input": true,
+      "output": null
+    },
+    {
+      "input": [],
+      "output": null
+    },
+    {
+      "input": [
+        1,
+        2
+      ],
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {
+        "total_input_tokens": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_cached_tokens": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_output_tokens": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_thought_tokens": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_input_tokens": 0
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_cached_tokens": 0
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_output_tokens": 0
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_thought_tokens": 0
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_input_tokens": 1
+      },
+      "output": {
+        "inputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "total_cached_tokens": 1
+      },
+      "output": {
+        "cachedTokens": 1
+      }
+    },
+    {
+      "input": {
+        "total_output_tokens": 1
+      },
+      "output": {
+        "outputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "total_thought_tokens": 1
+      },
+      "output": {
+        "outputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "total_input_tokens": 7
+      },
+      "output": {
+        "inputTokens": 7
+      }
+    },
+    {
+      "input": {
+        "total_cached_tokens": 7
+      },
+      "output": {
+        "cachedTokens": 7
+      }
+    },
+    {
+      "input": {
+        "total_output_tokens": 7
+      },
+      "output": {
+        "outputTokens": 7
+      }
+    },
+    {
+      "input": {
+        "total_thought_tokens": 7
+      },
+      "output": {
+        "outputTokens": 7
+      }
+    },
+    {
+      "input": {
+        "total_input_tokens": 12.9
+      },
+      "output": {
+        "inputTokens": 12
+      }
+    },
+    {
+      "input": {
+        "total_cached_tokens": 12.9
+      },
+      "output": {
+        "cachedTokens": 12
+      }
+    },
+    {
+      "input": {
+        "total_output_tokens": 12.9
+      },
+      "output": {
+        "outputTokens": 12
+      }
+    },
+    {
+      "input": {
+        "total_thought_tokens": 12.9
+      },
+      "output": {
+        "outputTokens": 12
+      }
+    },
+    {
+      "input": {
+        "total_input_tokens": -3
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_cached_tokens": -3
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_output_tokens": -3
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_thought_tokens": -3
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_input_tokens": "5"
+      },
+      "output": {
+        "inputTokens": 5
+      }
+    },
+    {
+      "input": {
+        "total_cached_tokens": "5"
+      },
+      "output": {
+        "cachedTokens": 5
+      }
+    },
+    {
+      "input": {
+        "total_output_tokens": "5"
+      },
+      "output": {
+        "outputTokens": 5
+      }
+    },
+    {
+      "input": {
+        "total_thought_tokens": "5"
+      },
+      "output": {
+        "outputTokens": 5
+      }
+    },
+    {
+      "input": {
+        "total_input_tokens": " 8 "
+      },
+      "output": {
+        "inputTokens": 8
+      }
+    },
+    {
+      "input": {
+        "total_cached_tokens": " 8 "
+      },
+      "output": {
+        "cachedTokens": 8
+      }
+    },
+    {
+      "input": {
+        "total_output_tokens": " 8 "
+      },
+      "output": {
+        "outputTokens": 8
+      }
+    },
+    {
+      "input": {
+        "total_thought_tokens": " 8 "
+      },
+      "output": {
+        "outputTokens": 8
+      }
+    },
+    {
+      "input": {
+        "total_input_tokens": "abc"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_cached_tokens": "abc"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_output_tokens": "abc"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_thought_tokens": "abc"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_input_tokens": ""
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_cached_tokens": ""
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_output_tokens": ""
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_thought_tokens": ""
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_input_tokens": true
+      },
+      "output": {
+        "inputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "total_cached_tokens": true
+      },
+      "output": {
+        "cachedTokens": 1
+      }
+    },
+    {
+      "input": {
+        "total_output_tokens": true
+      },
+      "output": {
+        "outputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "total_thought_tokens": true
+      },
+      "output": {
+        "outputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "total_input_tokens": false
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_cached_tokens": false
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_output_tokens": false
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_thought_tokens": false
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_input_tokens": []
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_cached_tokens": []
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_output_tokens": []
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_thought_tokens": []
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_input_tokens": [
+          4
+        ]
+      },
+      "output": {
+        "inputTokens": 4
+      }
+    },
+    {
+      "input": {
+        "total_cached_tokens": [
+          4
+        ]
+      },
+      "output": {
+        "cachedTokens": 4
+      }
+    },
+    {
+      "input": {
+        "total_output_tokens": [
+          4
+        ]
+      },
+      "output": {
+        "outputTokens": 4
+      }
+    },
+    {
+      "input": {
+        "total_thought_tokens": [
+          4
+        ]
+      },
+      "output": {
+        "outputTokens": 4
+      }
+    },
+    {
+      "input": {
+        "total_input_tokens": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_cached_tokens": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_output_tokens": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_thought_tokens": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_input_tokens": 1e+21
+      },
+      "output": {
+        "inputTokens": 1e+21
+      }
+    },
+    {
+      "input": {
+        "total_cached_tokens": 1e+21
+      },
+      "output": {
+        "cachedTokens": 1e+21
+      }
+    },
+    {
+      "input": {
+        "total_output_tokens": 1e+21
+      },
+      "output": {
+        "outputTokens": 1e+21
+      }
+    },
+    {
+      "input": {
+        "total_thought_tokens": 1e+21
+      },
+      "output": {
+        "outputTokens": 1e+21
+      }
+    },
+    {
+      "input": {
+        "total_input_tokens": 0.4
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_cached_tokens": 0.4
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_output_tokens": 0.4
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "total_thought_tokens": 0.4
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "output_tokens_by_modality": [
+          {
+            "modality": "video",
+            "tokens": 100
+          }
+        ],
+        "total_output_tokens": 3
+      },
+      "output": {
+        "outputTokens": 3,
+        "outputVideoTokens": 100
+      }
+    },
+    {
+      "input": {
+        "output_tokens_by_modality": [
+          {
+            "modality": "VIDEO",
+            "tokens": 100
+          },
+          {
+            "modality": "Video",
+            "tokens": 5
+          },
+          {
+            "modality": "audio",
+            "tokens": 9
+          }
+        ],
+        "total_output_tokens": 3
+      },
+      "output": {
+        "outputTokens": 3,
+        "outputVideoTokens": 105
+      }
+    },
+    {
+      "input": {
+        "output_tokens_by_modality": [
+          {
+            "modality": "video"
+          },
+          null,
+          3,
+          {
+            "modality": "video",
+            "tokens": "7"
+          },
+          {
+            "modality": 7
+          }
+        ],
+        "total_output_tokens": 3
+      },
+      "output": {
+        "outputTokens": 3,
+        "outputVideoTokens": 7
+      }
+    },
+    {
+      "input": {
+        "output_tokens_by_modality": {},
+        "total_output_tokens": 3
+      },
+      "output": {
+        "outputTokens": 3
+      }
+    },
+    {
+      "input": {
+        "output_tokens_by_modality": "video",
+        "total_output_tokens": 3
+      },
+      "output": {
+        "outputTokens": 3
+      }
+    },
+    {
+      "input": {
+        "output_tokens_by_modality": null,
+        "total_output_tokens": 3
+      },
+      "output": {
+        "outputTokens": 3
+      }
+    },
+    {
+      "input": {
+        "total_input_tokens": 5,
+        "total_cached_tokens": 2,
+        "total_output_tokens": 30,
+        "total_thought_tokens": 4,
+        "output_tokens_by_modality": [
+          {
+            "modality": "video",
+            "tokens": 25
+          }
+        ]
+      },
+      "output": {
+        "inputTokens": 5,
+        "cachedTokens": 2,
+        "outputTokens": 34,
+        "outputVideoTokens": 25
+      }
+    }
+  ],
+  "responses": [
+    {
+      "input": null,
+      "output": null
+    },
+    {
+      "input": "__undefined__",
+      "output": null
+    },
+    {
+      "input": 0,
+      "output": null
+    },
+    {
+      "input": 5,
+      "output": null
+    },
+    {
+      "input": "x",
+      "output": null
+    },
+    {
+      "input": true,
+      "output": null
+    },
+    {
+      "input": [],
+      "output": null
+    },
+    {
+      "input": [
+        1,
+        2
+      ],
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens_details": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "output_tokens": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens_details": {
+          "cached_tokens": null
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens": 0
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "output_tokens": 0
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens_details": {
+          "cached_tokens": 0
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens": 1
+      },
+      "output": {
+        "inputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "output_tokens": 1
+      },
+      "output": {
+        "outputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "input_tokens_details": {
+          "cached_tokens": 1
+        }
+      },
+      "output": {
+        "cachedTokens": 1
+      }
+    },
+    {
+      "input": {
+        "input_tokens": 7
+      },
+      "output": {
+        "inputTokens": 7
+      }
+    },
+    {
+      "input": {
+        "output_tokens": 7
+      },
+      "output": {
+        "outputTokens": 7
+      }
+    },
+    {
+      "input": {
+        "input_tokens_details": {
+          "cached_tokens": 7
+        }
+      },
+      "output": {
+        "cachedTokens": 7
+      }
+    },
+    {
+      "input": {
+        "input_tokens": 12.9
+      },
+      "output": {
+        "inputTokens": 12
+      }
+    },
+    {
+      "input": {
+        "output_tokens": 12.9
+      },
+      "output": {
+        "outputTokens": 12
+      }
+    },
+    {
+      "input": {
+        "input_tokens_details": {
+          "cached_tokens": 12.9
+        }
+      },
+      "output": {
+        "cachedTokens": 12
+      }
+    },
+    {
+      "input": {
+        "input_tokens": -3
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "output_tokens": -3
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens_details": {
+          "cached_tokens": -3
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens": "5"
+      },
+      "output": {
+        "inputTokens": 5
+      }
+    },
+    {
+      "input": {
+        "output_tokens": "5"
+      },
+      "output": {
+        "outputTokens": 5
+      }
+    },
+    {
+      "input": {
+        "input_tokens_details": {
+          "cached_tokens": "5"
+        }
+      },
+      "output": {
+        "cachedTokens": 5
+      }
+    },
+    {
+      "input": {
+        "input_tokens": " 8 "
+      },
+      "output": {
+        "inputTokens": 8
+      }
+    },
+    {
+      "input": {
+        "output_tokens": " 8 "
+      },
+      "output": {
+        "outputTokens": 8
+      }
+    },
+    {
+      "input": {
+        "input_tokens_details": {
+          "cached_tokens": " 8 "
+        }
+      },
+      "output": {
+        "cachedTokens": 8
+      }
+    },
+    {
+      "input": {
+        "input_tokens": "abc"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "output_tokens": "abc"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens_details": {
+          "cached_tokens": "abc"
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens": ""
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "output_tokens": ""
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens_details": {
+          "cached_tokens": ""
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens": true
+      },
+      "output": {
+        "inputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "output_tokens": true
+      },
+      "output": {
+        "outputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "input_tokens_details": {
+          "cached_tokens": true
+        }
+      },
+      "output": {
+        "cachedTokens": 1
+      }
+    },
+    {
+      "input": {
+        "input_tokens": false
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "output_tokens": false
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens_details": {
+          "cached_tokens": false
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens": []
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "output_tokens": []
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens_details": {
+          "cached_tokens": []
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens": [
+          4
+        ]
+      },
+      "output": {
+        "inputTokens": 4
+      }
+    },
+    {
+      "input": {
+        "output_tokens": [
+          4
+        ]
+      },
+      "output": {
+        "outputTokens": 4
+      }
+    },
+    {
+      "input": {
+        "input_tokens_details": {
+          "cached_tokens": [
+            4
+          ]
+        }
+      },
+      "output": {
+        "cachedTokens": 4
+      }
+    },
+    {
+      "input": {
+        "input_tokens": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "output_tokens": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens_details": {
+          "cached_tokens": {}
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens": 1e+21
+      },
+      "output": {
+        "inputTokens": 1e+21
+      }
+    },
+    {
+      "input": {
+        "output_tokens": 1e+21
+      },
+      "output": {
+        "outputTokens": 1e+21
+      }
+    },
+    {
+      "input": {
+        "input_tokens_details": {
+          "cached_tokens": 1e+21
+        }
+      },
+      "output": {
+        "cachedTokens": 1e+21
+      }
+    },
+    {
+      "input": {
+        "input_tokens": 0.4
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "output_tokens": 0.4
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens_details": {
+          "cached_tokens": 0.4
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens_details": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens_details": 7
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "input_tokens": 100,
+        "input_tokens_details": {
+          "cached_tokens": 40
+        },
+        "output_tokens": 250
+      },
+      "output": {
+        "inputTokens": 100,
+        "cachedTokens": 40,
+        "outputTokens": 250
+      }
+    }
+  ],
+  "xai": [
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {
+        "cost_in_usd_ticks": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost_in_usd_ticks": 0
+      },
+      "output": {
+        "costUsd": 0
+      }
+    },
+    {
+      "input": {
+        "cost_in_usd_ticks": 1
+      },
+      "output": {
+        "costUsd": 1e-10
+      }
+    },
+    {
+      "input": {
+        "cost_in_usd_ticks": 5000000000
+      },
+      "output": {
+        "costUsd": 0.5
+      }
+    },
+    {
+      "input": {
+        "cost_in_usd_ticks": 10000000000
+      },
+      "output": {
+        "costUsd": 1
+      }
+    },
+    {
+      "input": {
+        "cost_in_usd_ticks": 123456789
+      },
+      "output": {
+        "costUsd": 0.0123456789
+      }
+    },
+    {
+      "input": {
+        "cost_in_usd_ticks": 25000000000
+      },
+      "output": {
+        "costUsd": 2.5
+      }
+    },
+    {
+      "input": {
+        "cost_in_usd_ticks": 0.5
+      },
+      "output": {
+        "costUsd": 5e-11
+      }
+    },
+    {
+      "input": {
+        "cost_in_usd_ticks": -1
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost_in_usd_ticks": "100"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost_in_usd_ticks": 1e+21
+      },
+      "output": {
+        "costUsd": 100000000000
+      }
+    },
+    {
+      "input": {
+        "cost_in_usd_ticks": true
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost_in_usd_ticks": []
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost_in_usd_ticks": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost_in_usd_ticks": 3
+      },
+      "output": {
+        "costUsd": 3e-10
+      }
+    },
+    {
+      "input": null,
+      "output": null
+    },
+    {
+      "input": "__undefined__",
+      "output": null
+    },
+    {
+      "input": 0,
+      "output": null
+    },
+    {
+      "input": 5,
+      "output": null
+    },
+    {
+      "input": "x",
+      "output": null
+    },
+    {
+      "input": true,
+      "output": null
+    },
+    {
+      "input": [],
+      "output": null
+    },
+    {
+      "input": [
+        1,
+        2
+      ],
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {
+        "cost_in_usd_ticks": 4000000000,
+        "other": 1
+      },
+      "output": {
+        "costUsd": 0.4
+      }
+    }
+  ],
+  "imageApi": [
+    {
+      "input": null,
+      "output": null
+    },
+    {
+      "input": "__undefined__",
+      "output": null
+    },
+    {
+      "input": 0,
+      "output": null
+    },
+    {
+      "input": 5,
+      "output": null
+    },
+    {
+      "input": "x",
+      "output": null
+    },
+    {
+      "input": true,
+      "output": null
+    },
+    {
+      "input": [],
+      "output": null
+    },
+    {
+      "input": [
+        1,
+        2
+      ],
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {
+        "usage": null
+      },
+      "output": null
+    },
+    {
+      "input": {},
+      "output": null
+    },
+    {
+      "input": {
+        "usage": 0
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": 5
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": "x"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": true
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": []
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": [
+          1,
+          2
+        ]
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {}
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens_details": {}
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "prompt_tokens": null
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens": null
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens_details": {
+            "image_tokens": null
+          }
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "prompt_tokens": 0
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens": 0
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens_details": {
+            "image_tokens": 0
+          }
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "prompt_tokens": 1
+        }
+      },
+      "output": {
+        "inputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens": 1
+        }
+      },
+      "output": {
+        "outputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens_details": {
+            "image_tokens": 1
+          }
+        }
+      },
+      "output": {
+        "outputImageTokens": 1
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "prompt_tokens": 7
+        }
+      },
+      "output": {
+        "inputTokens": 7
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens": 7
+        }
+      },
+      "output": {
+        "outputTokens": 7
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens_details": {
+            "image_tokens": 7
+          }
+        }
+      },
+      "output": {
+        "outputImageTokens": 7
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "prompt_tokens": 12.9
+        }
+      },
+      "output": {
+        "inputTokens": 12
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens": 12.9
+        }
+      },
+      "output": {
+        "outputTokens": 12
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens_details": {
+            "image_tokens": 12.9
+          }
+        }
+      },
+      "output": {
+        "outputImageTokens": 12
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "prompt_tokens": -3
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens": -3
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens_details": {
+            "image_tokens": -3
+          }
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "prompt_tokens": "5"
+        }
+      },
+      "output": {
+        "inputTokens": 5
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens": "5"
+        }
+      },
+      "output": {
+        "outputTokens": 5
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens_details": {
+            "image_tokens": "5"
+          }
+        }
+      },
+      "output": {
+        "outputImageTokens": 5
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "prompt_tokens": " 8 "
+        }
+      },
+      "output": {
+        "inputTokens": 8
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens": " 8 "
+        }
+      },
+      "output": {
+        "outputTokens": 8
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens_details": {
+            "image_tokens": " 8 "
+          }
+        }
+      },
+      "output": {
+        "outputImageTokens": 8
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "prompt_tokens": "abc"
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens": "abc"
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens_details": {
+            "image_tokens": "abc"
+          }
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "prompt_tokens": ""
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens": ""
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens_details": {
+            "image_tokens": ""
+          }
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "prompt_tokens": true
+        }
+      },
+      "output": {
+        "inputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens": true
+        }
+      },
+      "output": {
+        "outputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens_details": {
+            "image_tokens": true
+          }
+        }
+      },
+      "output": {
+        "outputImageTokens": 1
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "prompt_tokens": false
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens": false
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens_details": {
+            "image_tokens": false
+          }
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "prompt_tokens": []
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens": []
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens_details": {
+            "image_tokens": []
+          }
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "prompt_tokens": [
+            4
+          ]
+        }
+      },
+      "output": {
+        "inputTokens": 4
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens": [
+            4
+          ]
+        }
+      },
+      "output": {
+        "outputTokens": 4
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens_details": {
+            "image_tokens": [
+              4
+            ]
+          }
+        }
+      },
+      "output": {
+        "outputImageTokens": 4
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "prompt_tokens": {}
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens": {}
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens_details": {
+            "image_tokens": {}
+          }
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "prompt_tokens": 1e+21
+        }
+      },
+      "output": {
+        "inputTokens": 1e+21
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens": 1e+21
+        }
+      },
+      "output": {
+        "outputTokens": 1e+21
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens_details": {
+            "image_tokens": 1e+21
+          }
+        }
+      },
+      "output": {
+        "outputImageTokens": 1e+21
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "prompt_tokens": 0.4
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens": 0.4
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "completion_tokens_details": {
+            "image_tokens": 0.4
+          }
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "cost": 0
+        }
+      },
+      "output": {
+        "costUsd": 0
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "cost": 0.04
+        }
+      },
+      "output": {
+        "costUsd": 0.04
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "cost": 1
+        }
+      },
+      "output": {
+        "costUsd": 1
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "cost": -1
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "cost": "0.5"
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "cost": null
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "cost": true
+        }
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "cost": 12.5
+        }
+      },
+      "output": {
+        "costUsd": 12.5
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "cost": 1e+21
+        }
+      },
+      "output": {
+        "costUsd": 1e+21
+      }
+    },
+    {
+      "input": {
+        "cost": 0.02,
+        "paymentSource": "USD"
+      },
+      "output": {
+        "costUsd": 0.02
+      }
+    },
+    {
+      "input": {
+        "cost": 3,
+        "paymentSource": "USD"
+      },
+      "output": {
+        "costUsd": 3
+      }
+    },
+    {
+      "input": {
+        "cost": -2,
+        "paymentSource": "USD"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": "1",
+        "paymentSource": "USD"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": null,
+        "paymentSource": "USD"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": 0.02,
+        "paymentSource": "usd"
+      },
+      "output": {
+        "costUsd": 0.02
+      }
+    },
+    {
+      "input": {
+        "cost": 3,
+        "paymentSource": "usd"
+      },
+      "output": {
+        "costUsd": 3
+      }
+    },
+    {
+      "input": {
+        "cost": -2,
+        "paymentSource": "usd"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": "1",
+        "paymentSource": "usd"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": null,
+        "paymentSource": "usd"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": 0.02,
+        "paymentSource": " USD"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": 3,
+        "paymentSource": " USD"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": -2,
+        "paymentSource": " USD"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": "1",
+        "paymentSource": " USD"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": null,
+        "paymentSource": " USD"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": 0.02,
+        "paymentSource": "XNO"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": 3,
+        "paymentSource": "XNO"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": -2,
+        "paymentSource": "XNO"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": "1",
+        "paymentSource": "XNO"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": null,
+        "paymentSource": "XNO"
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": 0.02,
+        "paymentSource": ""
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": 3,
+        "paymentSource": ""
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": -2,
+        "paymentSource": ""
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": "1",
+        "paymentSource": ""
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": null,
+        "paymentSource": ""
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": 0.02,
+        "paymentSource": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": 3,
+        "paymentSource": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": -2,
+        "paymentSource": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": "1",
+        "paymentSource": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": null,
+        "paymentSource": null
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": 0.02,
+        "paymentSource": 7
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": 3,
+        "paymentSource": 7
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": -2,
+        "paymentSource": 7
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": "1",
+        "paymentSource": 7
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "cost": null,
+        "paymentSource": 7
+      },
+      "output": null
+    },
+    {
+      "input": {
+        "usage": {
+          "cost": 0.1
+        },
+        "cost": 0.2,
+        "paymentSource": "USD"
+      },
+      "output": {
+        "costUsd": 0.1
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "cost": -1
+        },
+        "cost": 0.2,
+        "paymentSource": "USD"
+      },
+      "output": {
+        "costUsd": 0.2
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "cost": "x"
+        },
+        "cost": 0.2,
+        "paymentSource": "usd"
+      },
+      "output": {
+        "costUsd": 0.2
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "prompt_tokens": 12,
+          "completion_tokens": 1290,
+          "completion_tokens_details": {
+            "image_tokens": 1290
+          },
+          "cost": 0.039
+        }
+      },
+      "output": {
+        "inputTokens": 12,
+        "outputTokens": 1290,
+        "outputImageTokens": 1290,
+        "costUsd": 0.039
+      }
+    },
+    {
+      "input": {
+        "usage": {
+          "prompt_tokens": 12
+        },
+        "cost": 0.5,
+        "paymentSource": "USD"
+      },
+      "output": {
+        "inputTokens": 12,
+        "costUsd": 0.5
+      }
+    }
+  ],
+  "withReported": [
+    {
+      "input": null,
+      "attached": "__absent__"
+    },
+    {
+      "input": "__undefined__",
+      "attached": "__absent__"
+    },
+    {
+      "input": {},
+      "attached": "__absent__"
+    },
+    {
+      "input": 0,
+      "attached": "__absent__"
+    },
+    {
+      "input": "x",
+      "attached": "__absent__"
+    },
+    {
+      "input": {
+        "costUsd": 0
+      },
+      "attached": {
+        "costUsd": 0
+      }
+    },
+    {
+      "input": {
+        "costUsd": 1.5
+      },
+      "attached": {
+        "costUsd": 1.5
+      }
+    },
+    {
+      "input": {
+        "costUsd": "1"
+      },
+      "attached": "__absent__"
+    },
+    {
+      "input": {
+        "costUsd": null
+      },
+      "attached": "__absent__"
+    },
+    {
+      "input": {
+        "inputTokens": 1
+      },
+      "attached": {
+        "inputTokens": 1
+      }
+    },
+    {
+      "input": {
+        "inputTokens": 0
+      },
+      "attached": "__absent__"
+    },
+    {
+      "input": {
+        "outputTokens": 3
+      },
+      "attached": {
+        "outputTokens": 3
+      }
+    },
+    {
+      "input": {
+        "cachedTokens": 2
+      },
+      "attached": {
+        "cachedTokens": 2
+      }
+    },
+    {
+      "input": {
+        "seconds": 8
+      },
+      "attached": {
+        "seconds": 8
+      }
+    },
+    {
+      "input": {
+        "seconds": 0
+      },
+      "attached": "__absent__"
+    },
+    {
+      "input": {
+        "seconds": "8"
+      },
+      "attached": {
+        "seconds": "8"
+      }
+    },
+    {
+      "input": {
+        "outputImageTokens": 5
+      },
+      "attached": "__absent__"
+    },
+    {
+      "input": {
+        "outputVideoTokens": 5
+      },
+      "attached": "__absent__"
+    },
+    {
+      "input": {
+        "images": 1
+      },
+      "attached": "__absent__"
+    },
+    {
+      "input": {
+        "resolution": "1K"
+      },
+      "attached": "__absent__"
+    },
+    {
+      "input": {
+        "inputTokens": "3"
+      },
+      "attached": {
+        "inputTokens": "3"
+      }
+    },
+    {
+      "input": {
+        "inputTokens": -1
+      },
+      "attached": "__absent__"
+    },
+    {
+      "input": {
+        "inputTokens": "x",
+        "costUsd": 0
+      },
+      "attached": {
+        "inputTokens": "x",
+        "costUsd": 0
+      }
+    }
+  ]
+}

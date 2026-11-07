@@ -1,0 +1,3614 @@
+{
+  "domain": "media-gemini-video-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-media-gemini-video.mjs",
+  "clock": 1700000000000,
+  "scenarios": [
+    {
+      "name": "omni-ok",
+      "model": "gemini-omni-flash",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "steps": [
+              {
+                "content": [
+                  {
+                    "type": "video",
+                    "data": "AAAAIGZ0eXBpc29t"
+                  }
+                ]
+              }
+            ],
+            "usage": {
+              "total_input_tokens": 5,
+              "total_output_tokens": 300,
+              "output_tokens_by_modality": [
+                {
+                  "modality": "video",
+                  "tokens": 280
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"model\":\"gemini-omni-flash\",\"input\":\"a cat\",\"response_format\":{\"type\":\"video\",\"aspect_ratio\":\"16:9\"},\"generation_config\":{\"video_config\":{\"task\":\"text_to_video\"}}}",
+          "timeoutMs": 600000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "value": {
+        "bytes": "000000206674797069736f6d",
+        "mime": "video/mp4",
+        "usage": {
+          "inputTokens": 5,
+          "outputTokens": 300,
+          "outputVideoTokens": 280
+        }
+      }
+    },
+    {
+      "name": "omni-mime",
+      "model": "gemini-omni-flash",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "steps": [
+              {
+                "content": [
+                  {
+                    "type": "video",
+                    "data": "AAAAIGZ0eXBpc29t",
+                    "mime_type": "video/webm"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"model\":\"gemini-omni-flash\",\"input\":\"a cat\",\"response_format\":{\"type\":\"video\",\"aspect_ratio\":\"16:9\"},\"generation_config\":{\"video_config\":{\"task\":\"text_to_video\"}}}",
+          "timeoutMs": 600000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "value": {
+        "bytes": "000000206674797069736f6d",
+        "mime": "video/webm",
+        "usage": null
+      }
+    },
+    {
+      "name": "omni-single-content",
+      "model": "gemini-omni-flash",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "steps": [
+              {
+                "content": {
+                  "type": "video",
+                  "data": "AAAAIGZ0eXBpc29t"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"model\":\"gemini-omni-flash\",\"input\":\"a cat\",\"response_format\":{\"type\":\"video\",\"aspect_ratio\":\"16:9\"},\"generation_config\":{\"video_config\":{\"task\":\"text_to_video\"}}}",
+          "timeoutMs": 600000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "value": {
+        "bytes": "000000206674797069736f6d",
+        "mime": "video/mp4",
+        "usage": null
+      }
+    },
+    {
+      "name": "omni-second-step",
+      "model": "gemini-omni-flash",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "steps": [
+              {
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "hi"
+                  }
+                ]
+              },
+              null,
+              {
+                "content": [
+                  {
+                    "type": "video",
+                    "data": "AAAAIGZ0eXBpc29t"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"model\":\"gemini-omni-flash\",\"input\":\"a cat\",\"response_format\":{\"type\":\"video\",\"aspect_ratio\":\"16:9\"},\"generation_config\":{\"video_config\":{\"task\":\"text_to_video\"}}}",
+          "timeoutMs": 600000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "value": {
+        "bytes": "000000206674797069736f6d",
+        "mime": "video/mp4",
+        "usage": null
+      }
+    },
+    {
+      "name": "omni-aspect",
+      "model": "gemini-omni-flash",
+      "prompt": "a cat",
+      "options": {
+        "aspectRatio": "9:16"
+      },
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "steps": [
+              {
+                "content": [
+                  {
+                    "type": "video",
+                    "data": "AAAAIGZ0eXBpc29t"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"model\":\"gemini-omni-flash\",\"input\":\"a cat\",\"response_format\":{\"type\":\"video\",\"aspect_ratio\":\"9:16\"},\"generation_config\":{\"video_config\":{\"task\":\"text_to_video\"}}}",
+          "timeoutMs": 600000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "value": {
+        "bytes": "000000206674797069736f6d",
+        "mime": "video/mp4",
+        "usage": null
+      }
+    },
+    {
+      "name": "omni-aspect-auto",
+      "model": "gemini-omni-flash",
+      "prompt": "a cat",
+      "options": {
+        "aspectRatio": "auto"
+      },
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "steps": [
+              {
+                "content": [
+                  {
+                    "type": "video",
+                    "data": "AAAAIGZ0eXBpc29t"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"model\":\"gemini-omni-flash\",\"input\":\"a cat\",\"response_format\":{\"type\":\"video\",\"aspect_ratio\":\"16:9\"},\"generation_config\":{\"video_config\":{\"task\":\"text_to_video\"}}}",
+          "timeoutMs": 600000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "value": {
+        "bytes": "000000206674797069736f6d",
+        "mime": "video/mp4",
+        "usage": null
+      }
+    },
+    {
+      "name": "omni-refs",
+      "model": "gemini-omni-flash",
+      "prompt": "a cat",
+      "options": {},
+      "references": [
+        {
+          "base64": "cmVm",
+          "mime": "image/jpeg"
+        },
+        {
+          "base64": "cmVm2"
+        }
+      ],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "steps": [
+              {
+                "content": [
+                  {
+                    "type": "video",
+                    "data": "AAAAIGZ0eXBpc29t"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"model\":\"gemini-omni-flash\",\"input\":[{\"type\":\"image\",\"data\":\"cmVm\",\"mime_type\":\"image/jpeg\"},{\"type\":\"image\",\"data\":\"cmVm2\",\"mime_type\":\"image/png\"},{\"type\":\"text\",\"text\":\"a cat\"}],\"response_format\":{\"type\":\"video\",\"aspect_ratio\":\"16:9\"},\"generation_config\":{\"video_config\":{\"task\":\"image_to_video\"}}}",
+          "timeoutMs": 600000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "value": {
+        "bytes": "000000206674797069736f6d",
+        "mime": "video/mp4",
+        "usage": null
+      }
+    },
+    {
+      "name": "omni-model-upper",
+      "model": "GEMINI-OMNI-X",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "steps": [
+              {
+                "content": [
+                  {
+                    "type": "video",
+                    "data": "AAAAIGZ0eXBpc29t"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"model\":\"GEMINI-OMNI-X\",\"input\":\"a cat\",\"response_format\":{\"type\":\"video\",\"aspect_ratio\":\"16:9\"},\"generation_config\":{\"video_config\":{\"task\":\"text_to_video\"}}}",
+          "timeoutMs": 600000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "value": {
+        "bytes": "000000206674797069736f6d",
+        "mime": "video/mp4",
+        "usage": null
+      }
+    },
+    {
+      "name": "omni-no-video",
+      "model": "gemini-omni-flash",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "steps": [
+              {
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "no"
+                  }
+                ]
+              }
+            ],
+            "usage": {
+              "total_input_tokens": 4
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"model\":\"gemini-omni-flash\",\"input\":\"a cat\",\"response_format\":{\"type\":\"video\",\"aspect_ratio\":\"16:9\"},\"generation_config\":{\"video_config\":{\"task\":\"text_to_video\"}}}",
+          "timeoutMs": 600000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "Gemini Omni returned no video data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": {
+          "inputTokens": 4
+        }
+      }
+    },
+    {
+      "name": "omni-no-steps",
+      "model": "gemini-omni-flash",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {}
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"model\":\"gemini-omni-flash\",\"input\":\"a cat\",\"response_format\":{\"type\":\"video\",\"aspect_ratio\":\"16:9\"},\"generation_config\":{\"video_config\":{\"task\":\"text_to_video\"}}}",
+          "timeoutMs": 600000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "Gemini Omni returned no video data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "omni-data-not-string",
+      "model": "gemini-omni-flash",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "steps": [
+              {
+                "content": [
+                  {
+                    "type": "video",
+                    "data": 5
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"model\":\"gemini-omni-flash\",\"input\":\"a cat\",\"response_format\":{\"type\":\"video\",\"aspect_ratio\":\"16:9\"},\"generation_config\":{\"video_config\":{\"task\":\"text_to_video\"}}}",
+          "timeoutMs": 600000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "Gemini Omni returned no video data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "omni-bad-b64",
+      "model": "gemini-omni-flash",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "steps": [
+              {
+                "content": [
+                  {
+                    "type": "video",
+                    "data": "!!"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"model\":\"gemini-omni-flash\",\"input\":\"a cat\",\"response_format\":{\"type\":\"video\",\"aspect_ratio\":\"16:9\"},\"generation_config\":{\"video_config\":{\"task\":\"text_to_video\"}}}",
+          "timeoutMs": 600000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "Gemini Omni video exceeds the media size limit",
+        "code": "MEDIA_RESULT_TOO_LARGE",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "omni-http-402",
+      "model": "gemini-omni-flash",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 402,
+          "text": "{\"error\":{\"message\":\"billing\"}}"
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"model\":\"gemini-omni-flash\",\"input\":\"a cat\",\"response_format\":{\"type\":\"video\",\"aspect_ratio\":\"16:9\"},\"generation_config\":{\"video_config\":{\"task\":\"text_to_video\"}}}",
+          "timeoutMs": 600000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "Gemini Omni video: account has no usable balance — billing",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402,
+        "usage": null
+      }
+    },
+    {
+      "name": "omni-http-500",
+      "model": "gemini-omni-flash",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 500,
+          "text": ""
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"model\":\"gemini-omni-flash\",\"input\":\"a cat\",\"response_format\":{\"type\":\"video\",\"aspect_ratio\":\"16:9\"},\"generation_config\":{\"video_config\":{\"task\":\"text_to_video\"}}}",
+          "timeoutMs": 600000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "Gemini Omni video failed (500)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500,
+        "usage": null
+      }
+    },
+    {
+      "name": "omni-not-json",
+      "model": "gemini-omni-flash",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "text": "oops"
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"model\":\"gemini-omni-flash\",\"input\":\"a cat\",\"response_format\":{\"type\":\"video\",\"aspect_ratio\":\"16:9\"},\"generation_config\":{\"video_config\":{\"task\":\"text_to_video\"}}}",
+          "timeoutMs": 600000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "Unexpected token 'o', \"oops\" is not valid JSON",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "omni-fetch-fails",
+      "model": "gemini-omni-flash",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "fail": "fetch failed"
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/interactions",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"model\":\"gemini-omni-flash\",\"input\":\"a cat\",\"response_format\":{\"type\":\"video\",\"aspect_ratio\":\"16:9\"},\"generation_config\":{\"video_config\":{\"task\":\"text_to_video\"}}}",
+          "timeoutMs": 600000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "fetch failed",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "veo-untrusted-uri",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": true,
+            "response": {
+              "generateVideoResponse": {
+                "generatedSamples": [
+                  {
+                    "video": {
+                      "uri": "https://evil.example.test/v.mp4"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 8000,
+      "error": {
+        "message": "Veo returned an untrusted video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": {
+          "seconds": 8,
+          "resolution": "720p"
+        }
+      }
+    },
+    {
+      "name": "veo-invalid-uri",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": true,
+            "response": {
+              "generateVideoResponse": {
+                "generatedSamples": [
+                  {
+                    "video": {
+                      "uri": "nope"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 8000,
+      "error": {
+        "message": "Veo returned an invalid video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": {
+          "seconds": 8,
+          "resolution": "720p"
+        }
+      }
+    },
+    {
+      "name": "veo-usage-from-options",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {
+        "duration": 6,
+        "resolution": "1080p",
+        "aspectRatio": "9:16"
+      },
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": true,
+            "response": {
+              "generateVideoResponse": {
+                "generatedSamples": [
+                  {
+                    "video": {
+                      "uri": "https://evil.example.test/v.mp4"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"9:16\",\"resolution\":\"1080p\",\"durationSeconds\":6}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 8000,
+      "error": {
+        "message": "Veo returned an untrusted video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": {
+          "seconds": 6,
+          "resolution": "1080p"
+        }
+      }
+    },
+    {
+      "name": "veo-usage-720",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {
+        "duration": "4",
+        "resolution": "720p"
+      },
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": true,
+            "response": {
+              "generateVideoResponse": {
+                "generatedSamples": [
+                  {
+                    "video": {
+                      "uri": "https://evil.example.test/v.mp4"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\",\"resolution\":\"720p\",\"durationSeconds\":4}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 8000,
+      "error": {
+        "message": "Veo returned an untrusted video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": {
+          "seconds": 4,
+          "resolution": "720p"
+        }
+      }
+    },
+    {
+      "name": "veo-duration-dropped",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {
+        "duration": 5,
+        "resolution": "480p"
+      },
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": true,
+            "response": {
+              "generateVideoResponse": {
+                "generatedSamples": [
+                  {
+                    "video": {
+                      "uri": "https://evil.example.test/v.mp4"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 8000,
+      "error": {
+        "message": "Veo returned an untrusted video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": {
+          "seconds": 8,
+          "resolution": "720p"
+        }
+      }
+    },
+    {
+      "name": "veo-aspect-auto",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {
+        "aspectRatio": "auto"
+      },
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": true,
+            "response": {
+              "generateVideoResponse": {
+                "generatedSamples": [
+                  {
+                    "video": {
+                      "uri": "https://evil.example.test/v.mp4"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 8000,
+      "error": {
+        "message": "Veo returned an untrusted video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": {
+          "seconds": 8,
+          "resolution": "720p"
+        }
+      }
+    },
+    {
+      "name": "veo-ref",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [
+        {
+          "base64": "cmVm",
+          "mime": "image/jpeg"
+        },
+        {
+          "base64": "ignored"
+        }
+      ],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": true,
+            "response": {
+              "generateVideoResponse": {
+                "generatedSamples": [
+                  {
+                    "video": {
+                      "uri": "https://evil.example.test/v.mp4"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\",\"image\":{\"bytesBase64Encoded\":\"cmVm\",\"mimeType\":\"image/jpeg\"}}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 8000,
+      "error": {
+        "message": "Veo returned an untrusted video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": {
+          "seconds": 8,
+          "resolution": "720p"
+        }
+      }
+    },
+    {
+      "name": "veo-ref-no-mime",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [
+        {
+          "base64": "cmVm"
+        }
+      ],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": true,
+            "response": {
+              "generateVideoResponse": {
+                "generatedSamples": [
+                  {
+                    "video": {
+                      "uri": "https://evil.example.test/v.mp4"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\",\"image\":{\"bytesBase64Encoded\":\"cmVm\",\"mimeType\":\"image/png\"}}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 8000,
+      "error": {
+        "message": "Veo returned an untrusted video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": {
+          "seconds": 8,
+          "resolution": "720p"
+        }
+      }
+    },
+    {
+      "name": "veo-model-encoded",
+      "model": "veo 3/x",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": true,
+            "response": {
+              "generateVideoResponse": {
+                "generatedSamples": [
+                  {
+                    "video": {
+                      "uri": "https://evil.example.test/v.mp4"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo%203%2Fx:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 8000,
+      "error": {
+        "message": "Veo returned an untrusted video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": {
+          "seconds": 8,
+          "resolution": "720p"
+        }
+      }
+    },
+    {
+      "name": "veo-file-uri",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": true,
+            "response": {
+              "generateVideoResponse": {
+                "generatedSamples": [
+                  {
+                    "video": {
+                      "fileUri": "https://evil.example.test/v.mp4"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 8000,
+      "error": {
+        "message": "Veo returned an untrusted video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": {
+          "seconds": 8,
+          "resolution": "720p"
+        }
+      }
+    },
+    {
+      "name": "veo-generated-videos",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": true,
+            "response": {
+              "generatedVideos": [
+                {
+                  "video": {
+                    "uri": "https://evil.example.test/v.mp4"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 8000,
+      "error": {
+        "message": "Veo returned an untrusted video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": {
+          "seconds": 8,
+          "resolution": "720p"
+        }
+      }
+    },
+    {
+      "name": "veo-no-uri",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": true,
+            "response": {
+              "generateVideoResponse": {
+                "generatedSamples": [
+                  {}
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 8000,
+      "error": {
+        "message": "Veo finished without a video URI",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "veo-no-response",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": true
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 8000,
+      "error": {
+        "message": "Veo finished without a video URI",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "veo-error",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": true,
+            "error": {
+              "message": "content blocked"
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 8000,
+      "error": {
+        "message": "Veo generation failed: content blocked",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "veo-error-no-message",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": true,
+            "error": {}
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 8000,
+      "error": {
+        "message": "Veo generation failed: unknown error",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "veo-polls-then-done",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": false
+          },
+          "repeat": 3
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": true,
+            "response": {
+              "generateVideoResponse": {
+                "generatedSamples": [
+                  {
+                    "video": {
+                      "uri": "https://evil.example.test/v.mp4"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [
+        50,
+        50,
+        50
+      ],
+      "elapsedMs": 32000,
+      "error": {
+        "message": "Veo returned an untrusted video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": {
+          "seconds": 8,
+          "resolution": "720p"
+        }
+      }
+    },
+    {
+      "name": "veo-no-operation",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {}
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "Veo returned no operation name",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "veo-start-400",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 400,
+          "text": "{\"error\":{\"message\":\"bad\"}}"
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "Veo video failed (400): bad",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 400,
+        "usage": null
+      }
+    },
+    {
+      "name": "veo-start-not-json",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "text": "<html>"
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "Unexpected token '<', \"<html>\" is not valid JSON",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "veo-poll-500",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 500,
+          "text": "down"
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 8000,
+      "error": {
+        "message": "Veo poll failed (500): down",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500,
+        "usage": null
+      }
+    },
+    {
+      "name": "veo-poll-not-json",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "text": "garbage"
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 8000,
+      "error": {
+        "message": "Unexpected token 'g', \"garbage\" is not valid JSON",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "veo-poll-timeout",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "fail": "The operation was aborted due to timeout",
+          "name": "TimeoutError"
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 8000,
+      "error": {
+        "message": "The operation was aborted due to timeout",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "veo-budget",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": false
+          },
+          "repeat": 200
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 52000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 44000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 36000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 28000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 20000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 12000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 4000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 1,
+          "signal": true
+        }
+      ],
+      "progress": [
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50,
+        50
+      ],
+      "elapsedMs": 904000,
+      "error": {
+        "message": "Veo poll budget exceeded",
+        "code": "MEDIA_TIMEOUT",
+        "status": 504,
+        "usage": null
+      }
+    },
+    {
+      "name": "veo-canceled-first",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": 1,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": false
+          },
+          "repeat": 5
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "canceled",
+        "code": "MEDIA_CANCELED",
+        "status": 499,
+        "usage": null
+      }
+    },
+    {
+      "name": "veo-canceled-later",
+      "model": "veo-3.1-generate-preview",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": 4,
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "name": "operations/op-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "done": false
+          },
+          "repeat": 9
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/veo-3.1-generate-preview:predictLongRunning",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": "{\"instances\":[{\"prompt\":\"a cat\"}],\"parameters\":{\"aspectRatio\":\"16:9\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/operations/op-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "gem-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [
+        50,
+        50,
+        50
+      ],
+      "elapsedMs": 24000,
+      "error": {
+        "message": "canceled",
+        "code": "MEDIA_CANCELED",
+        "status": 499,
+        "usage": null
+      }
+    }
+  ]
+}

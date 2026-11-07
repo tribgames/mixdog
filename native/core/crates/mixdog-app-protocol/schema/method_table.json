@@ -10512,6 +10512,11 @@
     },
     {
       "delivery": "thread",
+      "method": "thread/setupUiRequest/updated",
+      "params": "ThreadSectionParams<Option<SetupUiRequest>>"
+    },
+    {
+      "delivery": "thread",
       "method": "review/diff/updated",
       "params": "SectionUpdate"
     },

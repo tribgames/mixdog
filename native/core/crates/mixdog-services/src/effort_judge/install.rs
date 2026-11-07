@@ -110,9 +110,20 @@ pub async fn invalidate_damaged(dir: &Path, manifest: &Manifest, lane: CpuBulk) 
         }
     }
     if !bad.is_empty() {
-        let _ = fsio::remove_file(lane, &dir.join(STAMP)).await;
+        // `rmSync(.., { force: true })` (`model-install.mjs:68`): only an absent stamp is fine.
+        remove_forced(lane, &dir.join(STAMP)).await?;
     }
     Ok(bad)
+}
+
+/// `rmSync(path, { force: true })` on `lane`: the shared forced removal (an absent file is fine,
+/// any other failure, a directory included, is the error).
+async fn remove_forced(lane: CpuBulk, path: &Path) -> Result<(), InstallError> {
+    let path = path.to_owned();
+    on_lane(lane, move || mixdog_core_base::support::remove_file_forced(&path))
+        .await
+        .map_err(InstallError::io)?
+        .map_err(|failure| InstallError::io(failure.error))
 }
 
 fn partial_path(target: &Path) -> PathBuf {
@@ -154,18 +165,19 @@ pub async fn install_model(
             // mix of releases: without a stamp it reads as not installed, so an
             // interrupted install is never loaded.
             if !replaced {
-                let _ = fsio::remove_file(lane, &dir.join(STAMP)).await;
+                remove_forced(lane, &dir.join(STAMP)).await?;
             }
             fsio::rename(lane, &partial, &target).await.map_err(InstallError::io)
         }
         .await;
-        let _ = fsio::remove_file(lane, &partial).await;
+        // The `finally` of `model-install.mjs:114-116`: its failure replaces the install's own.
+        remove_forced(lane, &partial).await?;
         outcome?;
         replaced = true;
     }
     if replaced {
         for name in DERIVED {
-            let _ = fsio::remove_file(lane, &dir.join(name)).await;
+            remove_forced(lane, &dir.join(name)).await?;
         }
     }
     let stamp = serde_json::json!({ "release": manifest.release }).to_string();

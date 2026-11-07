@@ -105,13 +105,13 @@ pub struct GraphBinary {
     bulk: CpuBulk,
     downloader: Arc<dyn AssetDownloader>,
     now: NowMs,
-    flight: tokio::sync::Mutex<()>,
+    flight: tokio::sync::Semaphore,
 }
 
 impl GraphBinary {
     /// `manifest` is [`bundled_manifest`] in the product.
     pub fn new(data_dir: PathBuf, manifest: Value, durability: DurabilityIo, bulk: CpuBulk, downloader: Arc<dyn AssetDownloader>, now: NowMs) -> Self {
-        Self { data_dir, manifest, durability, bulk, downloader, now, flight: tokio::sync::Mutex::new(()) }
+        Self { data_dir, manifest, durability, bulk, downloader, now, flight: tokio::sync::Semaphore::new(1) }
     }
 
     fn dir(&self) -> PathBuf {
@@ -145,7 +145,7 @@ impl GraphBinary {
 
     /// `ensureGraphBinary`: the verified binary's path, downloaded first when it is not installed.
     pub async fn ensure(&self) -> Result<PathBuf, String> {
-        let _turn = self.flight.lock().await;
+        let _turn = self.flight.acquire().await.map_err(|_| format!("{LABEL} the install gate is closed"))?;
         let key = self.platform_key();
         let Some((url, sha256)) = valid_asset(&self.manifest, &key) else {
             let assets = self.manifest.get("assets").and_then(Value::as_object);

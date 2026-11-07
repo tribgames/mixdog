@@ -10,6 +10,8 @@
     reason = "the test builds real repositories with blocking filesystem and process calls"
 )]
 
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
@@ -29,9 +31,10 @@ use mixdog_protocol::ToolCallId;
 use mixdog_protocol::TurnId;
 use mixdog_scm::engine::Scm;
 use mixdog_scm::error::ScmFailure;
-use mixdog_scm::worktree::manager::Retention;
+use mixdog_scm::worktree::maintenance::SessionActivity;
+use mixdog_scm::worktree::maintenance::SessionSource;
+use mixdog_scm::worktree::maintenance::ShellJob;
 use mixdog_scm::worktree::manager::Worktrees;
-use mixdog_scm::worktree::registry::WorktreeRecord;
 use regex::Regex;
 use serde_json::Value;
 use serde_json::json;
@@ -219,25 +222,37 @@ impl SessionWorktrees for ScriptSessions {
     }
 }
 
-/// Nobody is live and every session keeps its worktrees.
-struct KeepAll;
+/// The store keeps the case's session, so its worktrees are retained; nothing else is stored, a
+/// favorite, archived or running a job.
+struct Stores(String);
 
-impl Retention for KeepAll {
-    fn owner_live(&self, _record: &WorktreeRecord) -> bool {
-        false
+#[async_trait]
+impl SessionSource for Stores {
+    async fn stored_session_ids(&self) -> Result<HashSet<String>, ScmFailure> {
+        Ok([self.0.clone()].into())
     }
-
-    fn retained(&self, _record: &WorktreeRecord) -> bool {
-        true
+    async fn favorites(&self) -> Option<HashSet<String>> {
+        None
+    }
+    async fn archived(&self) -> Option<HashSet<String>> {
+        None
+    }
+    async fn activity(&self, _: &[String]) -> HashMap<String, SessionActivity> {
+        HashMap::new()
+    }
+    async fn running_jobs(&self) -> Result<Vec<ShellJob>, ScmFailure> {
+        Ok(Vec::new())
     }
 }
 
-fn services(sessions: Arc<dyn SessionWorktrees>, data_dir: PathBuf) -> Arc<WorktreeServices> {
+/// `session` is the one the store keeps; no session is open in this process.
+fn services(sessions: Arc<dyn SessionWorktrees>, session: &str, data_dir: PathBuf) -> Arc<WorktreeServices> {
     let tokens = mixdog_rt::testing::tokens();
     let scm = Scm::new(processes::TestProcesses::shared(), tokens.maintenance_io, data_dir.join("scratch"));
     Arc::new(WorktreeServices {
         worktrees: Arc::new(Worktrees::new(scm, data_dir)),
-        retention: Arc::new(KeepAll),
+        stored: Arc::new(Stores(session.to_owned())),
+        live: Arc::new(HashSet::new),
         sessions,
     })
 }
@@ -329,7 +344,7 @@ async fn every_recorded_case_replays_to_nodes_text() {
             })
         });
         let tool = match &script {
-            Some(sessions) => GitTool::new().with_worktrees(services(sessions.clone(), work.join("data"))),
+            Some(sessions) => GitTool::new().with_worktrees(services(sessions.clone(), &sessions.session, work.join("data"))),
             None => GitTool::new(),
         };
         let session = case.get("host").map_or("worker", |h| h["sessionId"].as_str().unwrap());
@@ -396,7 +411,7 @@ fn rig() -> Rig {
         ],
     );
     let sessions = Arc::new(ScriptSessions { session: "lead".into(), script: json!({}), requests: Mutex::new(Vec::new()) });
-    let services = services(sessions, work.join("data"));
+    let services = services(sessions, "lead", work.join("data"));
     Rig { tool: GitTool::new().with_worktrees(services.clone()), services, ws, _tmp: tmp }
 }
 

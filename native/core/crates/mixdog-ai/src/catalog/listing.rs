@@ -84,6 +84,14 @@ impl ListingLookup {
         self.with(|_, models_dev| models_dev?.get(provider)?.get("models")?.as_object().cloned())
     }
 
+    /// `getModelMetadataSync(model, provider)?.supportsPromptCaching`: the flag of the resident
+    /// tables for a model no provider row states. Only a stated `true` marks caching.
+    pub fn supports_prompt_caching(&self, provider: &str, model: &str) -> bool {
+        self.with(|lookup, _| {
+            lookup.lookup(model, provider, None).is_some_and(|meta| meta.get("supportsPromptCaching") == Some(&Value::Bool(true)))
+        })
+    }
+
     /// `sanitizeModelList(rows, { provider })`, read against the resident
     /// models.dev table, the clock and `MIXDOG_MODEL_STALE_MONTHS`.
     pub fn sanitize_listed(&self, provider: &str, rows: Vec<ModelRecord>) -> Vec<ModelRecord> {
@@ -270,6 +278,17 @@ mod tests {
             record.picker.reasoning_options = serde_json::from_value(options.clone()).unwrap();
         }
         record
+    }
+
+    #[test]
+    fn only_a_stated_cache_read_price_marks_prompt_caching() {
+        let lookup = ListingLookup::with_models_dev(&json!({"openai": {"models": {
+            "cached-model": {"id": "cached-model", "cost": {"input": 1.0, "output": 2.0, "cache_read": 0.1}},
+            "plain-model": {"id": "plain-model", "cost": {"input": 1.0, "output": 2.0}},
+        }}}));
+        assert!(lookup.supports_prompt_caching("openai", "cached-model"));
+        assert!(!lookup.supports_prompt_caching("openai", "plain-model"));
+        assert!(!lookup.supports_prompt_caching("openai", "unknown-model"));
     }
 
     #[test]

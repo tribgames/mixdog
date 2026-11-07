@@ -17,6 +17,7 @@ flate2 = { workspace = true }
 futures = { workspace = true, features = ["alloc", "async-await"] }
 indexmap = { workspace = true }
 mixdog-agent = { workspace = true }
+mixdog-app-protocol = { workspace = true }
 mixdog-core-api = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-protocol = { workspace = true }

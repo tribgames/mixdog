@@ -8,6 +8,7 @@ use std::sync::Mutex;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::tool::SurfaceKind;
+use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::mock::MockStatePublisher;
 use mixdog_rt::CancellationToken;
 use serde_json::Value;
@@ -338,7 +339,11 @@ impl SetupActions for LocalOwner {
             "maintain_local_model", "delete_local_model",
         ]
     }
-    async fn run(&self, _: &SetupCall<'_>) -> Result<Value, PortError> {
+    async fn run(&self, call: &SetupCall<'_>) -> Result<Value, PortError> {
+        // `start_local_installation` answers `{ background: true, ...localProvider }` itself.
+        if call.action == "start_local_installation" {
+            return Ok(json!({ "background": true, "idleTtlSeconds": 3600 }));
+        }
         Ok(json!({ "idleTtlSeconds": 3600 }))
     }
 }
@@ -614,7 +619,8 @@ async fn status_answers_capabilities_and_forwards_the_desktop_domains_as_the_rec
         }
         compared += 1;
     }
-    assert_eq!(compared, 5);
+    // 13 recorded cases, 4 of them with no session.
+    assert_eq!(compared, 9);
     // A domain whose reader is another owner's is reported as not wired, never answered by a guess.
     let error = settings_call(&service, &json!({ "action": "status", "domain": "providers" })).await.unwrap_err();
     assert!(error.contains("providers status reader is not wired"), "{error}");
@@ -736,8 +742,14 @@ async fn list_models_shapes_the_catalog_as_the_recorded_node_executor_did() {
         let dir = tempfile::tempdir().unwrap();
         let (service, ..) = settings_service(dir.path(), json!({ "agent": {}, "desktop": { "zoom": 1 } }), &world, false).await;
         let catalog = Arc::new(Catalog(json!({ "rows": case["rows"], "webRows": case["webRows"] }), Mutex::default()));
-        let service = service.with_actions(Arc::new(DomainSettings::new(catalog.clone())));
-        let got = settings_call(&service, &case["args"]).await;
+        let service = Arc::new(service.with_actions(Arc::new(DomainSettings::new(catalog.clone()))));
+        // Node's executor sits behind `validateSetupInput`; here the same validator guards the
+        // service, as the `setup` tool does, so `catalog.refresh: "yes"` is refused before a handler.
+        let tool = mixdog_tools::orch::service::ServiceTool::setup(service.clone());
+        let got = match mixdog_tools::orch::setup_input::validate(&case["args"], &tool.spec().input_schema) {
+            Err(error) => Err(error.message_for_model),
+            Ok(()) => settings_call(&service, &case["args"]).await,
+        };
         let asked = catalog.1.lock().unwrap().clone();
         let node: Vec<(String, bool)> = case["calls"]
             .as_array()

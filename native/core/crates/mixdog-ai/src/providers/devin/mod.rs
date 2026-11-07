@@ -12,12 +12,15 @@ pub mod decoder;
 pub mod error;
 pub mod families;
 pub mod listing;
+pub mod login;
 pub mod models;
 pub mod request;
 pub mod schema;
 pub mod session;
 #[cfg(test)]
 mod listing_tests;
+#[cfg(test)]
+mod login_tests;
 
 use crate::transport::deadlines::DEVIN_STREAM;
 use std::collections::HashMap;

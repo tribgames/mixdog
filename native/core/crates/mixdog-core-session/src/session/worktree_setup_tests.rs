@@ -17,6 +17,7 @@ use mixdog_scm::worktree::dependencies::SetupCommand;
 use mixdog_scm::worktree::maintenance::SessionActivity;
 use mixdog_scm::worktree::maintenance::SessionSource;
 use mixdog_scm::worktree::maintenance::ShellJob;
+use mixdog_scm::worktree::manager::Retention;
 use mixdog_spawn::LocalProcessManager;
 use mixdog_spawn::ProcessConfig;
 use serde_json::Value;

@@ -375,6 +375,17 @@ impl<R: CallRunner + 'static> RoomCalls<R> {
         true
     }
 
+    /// A save the room's talk needed failed (`failRelays`, `dropRelays(roomId, { status: 'failed',
+    /// error })`): the relays held back for `room_id` end failed with `error`; the delivery retries
+    /// them later.
+    pub fn fail_relays(&self, room_id: &str, error: &str) {
+        let queued = self.state().relays.remove(room_id).unwrap_or_default();
+        let failed = Settled { status: "failed".into(), error: Some(error.to_owned()), content: None };
+        for call in &queued {
+            call.settle_with(&failed);
+        }
+    }
+
     /// `gone` left room `room_id`: what is owed to them ends. Their calls waiting in the relay
     /// queue and in the request that runs next end cancelled, and they are no queued target.
     pub fn cancel_owed_to(&self, room_id: &str, gone: &HashSet<String>) {

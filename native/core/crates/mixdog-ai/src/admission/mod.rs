@@ -18,6 +18,9 @@
 //! abortable. An attended run's permit is never reclaimed (SPEC §4.9).
 
 mod lane;
+mod settings;
+#[cfg(test)]
+mod settings_tests;
 
 pub use lane::Admission;
 pub use lane::AdmissionError;
@@ -32,4 +35,7 @@ pub use lane::LaneSnapshot;
 pub use lane::Outcome;
 pub use lane::Permit;
 pub use lane::Priority;
-pub use lane::RunLiveness;
+pub use lane::RunLiveness;pub use settings::adaptive_lane;
+pub use settings::process_lane_settings;
+pub use settings::provider_lane_settings;
+pub use settings::queue_bound;

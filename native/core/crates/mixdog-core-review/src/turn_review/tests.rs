@@ -517,6 +517,51 @@ fn tree_listing(dir: &Path) -> Vec<(String, u64, u64)> {
     out
 }
 
+/// Where a review starts is recorded where the turn's snapshot is taken: the turn's own tree under its
+/// checkpoint, the thread's first tree for the session, the durable record again after a restart, and
+/// nothing once the thread is forgotten.
+#[tokio::test(flavor = "multi_thread")]
+async fn review_starts_are_recorded_at_the_snapshot_and_forgotten_with_the_thread() {
+    use mixdog_app_protocol::v2::domain::ReviewScope;
+    use mixdog_scm::service::ReviewBases;
+
+    let dir = tempfile::tempdir().unwrap();
+    let base = PathBuf::from(plain(&dir.path().canonicalize().unwrap()));
+    let (ws, data) = (base.join("ws"), base.join("data"));
+    std::fs::create_dir_all(&ws).unwrap();
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git").args(["-c", "user.name=t", "-c", "user.email=t@t"]).args(args).current_dir(&ws).output().unwrap();
+        assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    };
+    git(&["init", "-q"]);
+    std::fs::write(ws.join("a.txt"), "one\ntwo\n").unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "first"]);
+    let ws_text = plain(&ws);
+    let thread = mixdog_protocol::ThreadId::from("s1");
+    let (review, bases) = super::testing::review_with_bases(&data);
+    let token = review.begin_turn(&ws_text, "s1", TurnOpen { checkpoint_id: "cp1".into(), continue_turn: false }).await;
+    let first = bases.base(&thread, ReviewScope::Turn, Some("cp1")).await.expect("the turn's start");
+    assert_eq!(nodepath::resolve_host(&[&plain(&first.0)]), nodepath::resolve_host(&[&ws_text]));
+    assert!(!first.1.0.is_empty());
+    assert_eq!(bases.base(&thread, ReviewScope::Session, None).await.map(|b| b.1.0), Some(first.1.0.clone()), "the session starts at its first turn");
+    std::fs::write(ws.join("a.txt"), "one\n2\n").unwrap();
+    let change = CallChange { path: plain(&ws.join("a.txt")), new_path: None, before: ReviewContent::bytes(b"one\ntwo\n".to_vec()), after: ReviewContent::bytes(b"one\n2\n".to_vec()) };
+    review.record_tool_changes("s1", &ws_text, vec![change]).await;
+    assert!(review.complete_turn("s1", token.as_ref()).await);
+    review.begin_turn(&ws_text, "s1", TurnOpen { checkpoint_id: "cp2".into(), continue_turn: false }).await;
+    let second = bases.base(&thread, ReviewScope::Turn, Some("cp2")).await.expect("the second turn's start");
+    assert_ne!(second.1.0, first.1.0, "the second turn starts from the edited tree");
+    assert_eq!(bases.base(&thread, ReviewScope::Session, None).await.map(|b| b.1.0), Some(first.1.0.clone()), "the session start does not move");
+    // A restarted process holds none; the sealed turn's durable record gives its start back.
+    let (restarted, fresh) = super::testing::review_with_bases(&data);
+    assert!(fresh.base(&thread, ReviewScope::Turn, Some("cp1")).await.is_none());
+    assert!(restarted.restore_bases(&thread).await);
+    assert_eq!(fresh.base(&thread, ReviewScope::Turn, Some("cp1")).await.map(|b| b.1.0), Some(first.1.0.clone()));
+    TurnReviewApi::forget_session(&review, "s1");
+    assert!(bases.base(&thread, ReviewScope::Turn, Some("cp1")).await.is_none() && bases.base(&thread, ReviewScope::Session, None).await.is_none());
+}
+
 /// The baseline tree and tool baselines live in the shadow repository (borrowing the user's
 /// objects through `objects/info/alternates`): the user's `.git` gains no object, no ref and no
 /// index change from a whole turn, its session review and its undo.

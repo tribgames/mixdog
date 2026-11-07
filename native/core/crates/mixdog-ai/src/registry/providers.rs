@@ -220,6 +220,14 @@ impl ProviderRegistry {
     /// registered one is left as it is. Errors with `NO_ENABLED_PROVIDERS`
     /// when the registry is still empty afterwards.
     pub async fn init_providers(&self, config: &Map<String, Value>) -> Result<(), RegistryError> {
+        // _initProvidersUnsynchronized: an empty config never clears (or settles) the registry, whatever it
+        // holds. Checked first: with providers registered the nothing-pending shortcut below would accept it.
+        if config.is_empty() {
+            return Err(RegistryError {
+                message: "[provider] initProviders called with empty config — refusing to clear registry".into(),
+                code: Some(NO_ENABLED_PROVIDERS),
+            });
+        }
         let plan = Plan { config: self.with_custom_key_ids(config).await?, rebuild: false, add: true, is_off: None };
         if !self.state().providers.is_empty() && self.pending(&plan).is_empty() {
             self.ready.send_replace(true);

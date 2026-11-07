@@ -19,6 +19,7 @@
 use std::path::Component;
 use std::path::Path;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use mixdog_app_protocol::v2::thread::PromptHistoryChange;
 use mixdog_rt::DurabilityIo;
@@ -33,6 +34,79 @@ use sha2::Digest;
 use sha2::Sha256;
 
 pub const PROMPT_HISTORY_LIMIT: usize = 50;
+
+/// `WRITE_BEHIND_MS` (`prompt-history-store.mjs:92`): the window Node coalesces appends in, and the
+/// base of its retry delay. This port writes through at once, so only the delay uses it.
+pub const WRITE_BEHIND_MS: u64 = 250;
+/// `WRITE_RETRY_MAX_MS` (`prompt-history-store.mjs:97`).
+pub const WRITE_RETRY_MAX_MS: u64 = 30_000;
+
+/// `writeRetryDelayMs(failures)` (`prompt-history-store.mjs:157-159`): the delay before retry number
+/// `failures` (1-based) of a failing flush: doubles from the window up to the cap.
+pub fn write_retry_delay(failures: u32) -> Duration {
+    let doubled = 1u64.checked_shl(failures).unwrap_or(u64::MAX);
+    Duration::from_millis(WRITE_RETRY_MAX_MS.min(WRITE_BEHIND_MS.saturating_mul(doubled)))
+}
+
+/// What the next step of an [`AppendQueue`] is.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Next {
+    Idle,
+    /// Append these now, oldest first.
+    Flush(Vec<String>),
+    /// Wake with `due(epoch)` after `delay`.
+    Wait { epoch: u64, delay: Duration },
+}
+
+/// The appends not yet on disk (`pendingAppends`, `writeFailures`, `pendingTimers`,
+/// `prompt-history-store.mjs:94-98, 171-197`) of one thread. A flush that did not land puts its
+/// appends back ahead of newer ones and retries after [`write_retry_delay`] of the failures in a
+/// row, for ever; a landed one resets the count. A prompt arriving during the wait does not sit out
+/// the backoff: Node re-arms the timer at its window (`scheduleWriteBehind`, :269), here the flush
+/// starts at once, as for every append.
+#[derive(Debug, Default)]
+pub struct AppendQueue {
+    pending: Vec<String>,
+    failures: u32,
+    in_flight: bool,
+    wait: Option<u64>,
+    epoch: u64,
+}
+
+impl AppendQueue {
+    fn begin(&mut self) -> Vec<String> {
+        self.in_flight = true;
+        self.wait = None;
+        std::mem::take(&mut self.pending)
+    }
+
+    /// A prompt to append; `Some(batch)` when a flush starts now.
+    pub fn push(&mut self, text: String) -> Option<Vec<String>> {
+        self.pending.push(text);
+        (!self.in_flight).then(|| self.begin())
+    }
+
+    /// The flush ended; `unwritten` is what did not land (oldest first).
+    pub fn flushed(&mut self, unwritten: Vec<String>) -> Next {
+        self.in_flight = false;
+        if unwritten.is_empty() {
+            self.failures = 0;
+            return if self.pending.is_empty() { Next::Idle } else { Next::Flush(self.begin()) };
+        }
+        self.failures += 1;
+        let newer = std::mem::take(&mut self.pending);
+        self.pending = unwritten;
+        self.pending.extend(newer);
+        self.epoch += 1;
+        self.wait = Some(self.epoch);
+        Next::Wait { epoch: self.epoch, delay: write_retry_delay(self.failures) }
+    }
+
+    /// The wait `epoch` ended; `Some(batch)` when it is still the current one.
+    pub fn due(&mut self, epoch: u64) -> Option<Vec<String>> {
+        (self.wait == Some(epoch) && !self.in_flight).then(|| self.begin())
+    }
+}
 
 /// JavaScript's whitespace (`\s`, `String.prototype.trim`): Unicode `Zs` plus the line
 /// terminators, tab, VT, FF and BOM. Rust's `char::is_whitespace` differs (it has U+0085 and
@@ -149,15 +223,21 @@ pub(crate) fn recompute(rows: &[String]) -> Vec<String> {
     out
 }
 
+/// What one append did: the list as the writer sees it (also when the write failed, as today's
+/// optimistic in-memory list) and whether it reached the file.
+pub struct Appended {
+    pub list: Vec<String>,
+    pub written: bool,
+}
+
 /// The per-cwd persisted history (`src/tui/prompt-history-store.mjs`).
 pub trait PromptHistoryStore: Send + Sync + 'static {
     /// `loadPromptHistory(cwd)`: oldest → newest, at most 50 (empty for an empty cwd).
     fn load(&self, lane: &InLane<InteractiveIo>, cwd: &str) -> Vec<String>;
 
     /// `appendPromptHistory(cwd, text)`: re-reads the file, applies [`append_persisted`],
-    /// publishes it, and returns the list (also when the write failed, as today's optimistic
-    /// in-memory list).
-    fn append(&self, lane: &InLane<DurabilityIo>, cwd: &str, text: &str) -> Vec<String>;
+    /// publishes it, and returns the list with whether the write landed.
+    fn append(&self, lane: &InLane<DurabilityIo>, cwd: &str, text: &str) -> Appended;
 }
 
 /// The files of today's store: `<data>/tui-prompt-history/<sha256(cwd key)[..32]>.json`,
@@ -293,13 +373,14 @@ impl PromptHistoryStore for FilePromptHistory {
         self.file(cwd).map(|path| last_fifty(peek_entries(lane, &path))).unwrap_or_default()
     }
 
-    fn append(&self, lane: &InLane<DurabilityIo>, cwd: &str, text: &str) -> Vec<String> {
+    fn append(&self, lane: &InLane<DurabilityIo>, cwd: &str, text: &str) -> Appended {
+        // Nothing to write for an empty cwd or an empty prompt (`appendPromptHistory` returns null).
         let Some(path) = self.file(cwd) else {
-            return Vec::new();
+            return Appended { list: Vec::new(), written: true };
         };
         let before = recover_entries(lane, &path);
         if key(text).is_empty() {
-            return last_fifty(before);
+            return Appended { list: last_fifty(before), written: true };
         }
         let mut appended = None;
         let written = mixdog_statefile::update_json::<_, std::convert::Infallible>(
@@ -314,9 +395,8 @@ impl PromptHistoryStore for FilePromptHistory {
             },
             &file_opts(),
         );
-        // The list is the optimistic in-memory one also when the write failed.
-        let _ = written;
-        appended.unwrap_or_else(|| append_persisted(&before, text))
+        // The list is the optimistic in-memory one also when the write failed; the caller retries.
+        Appended { list: appended.unwrap_or_else(|| append_persisted(&before, text)), written: written.is_ok() }
     }
 }
 
@@ -413,6 +493,94 @@ mod tests {
             .filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().contains(".corrupt-"))
             .count();
         assert_eq!(kept, 1);
+    }
+
+    fn golden() -> Value {
+        serde_json::from_str(include_str!("../../../../fixtures/prompt-history-retry/golden.json")).expect("golden.json")
+    }
+
+    /// Recorded from Node's own `writeRetryDelayMs` (`record-prompt-history-retry.mjs`).
+    #[test]
+    fn the_retry_delay_is_nodes() {
+        for (failures, ms) in golden()["retryDelaysMs"].as_object().unwrap() {
+            assert_eq!(write_retry_delay(failures.parse().unwrap()), Duration::from_millis(ms.as_u64().unwrap()), "failures {failures}");
+        }
+        assert_eq!(write_retry_delay(u32::MAX), Duration::from_millis(WRITE_RETRY_MAX_MS));
+    }
+
+    /// Node's real `appendPromptHistory` with an unwritable directory, under a fake clock: the
+    /// waits between its flush attempts, and a prompt arriving during a wait.
+    #[test]
+    fn a_failed_flush_waits_as_nodes_does_and_a_new_prompt_does_not_sit_out_the_backoff() {
+        let golden = golden();
+        let recorded: Vec<u64> = golden["scenarioA"]["gapsMs"].as_array().unwrap().iter().map(|g| g.as_u64().unwrap()).collect();
+        let mut queue = AppendQueue::default();
+        let mut batch = queue.push("first".into()).expect("a first prompt flushes at once");
+        let mut waits = Vec::new();
+        for _ in &recorded {
+            let Next::Wait { epoch, delay } = queue.flushed(batch.clone()) else { panic!("a failed flush waits") };
+            waits.push(delay.as_millis() as u64);
+            batch = queue.due(epoch).expect("the wait ends in a flush");
+            assert_eq!(batch, s(&["first"]), "the same append is retried");
+        }
+        assert_eq!(waits, recorded);
+        assert_eq!(queue.flushed(Vec::new()), Next::Idle, "a landed flush ends it");
+        assert_eq!(queue.push("again".into()), Some(s(&["again"])), "and the count starts over");
+        assert_eq!(queue.flushed(s(&["again"])), Next::Wait { epoch: 7, delay: write_retry_delay(1) });
+
+        let mut queue = AppendQueue::default();
+        let batch = queue.push("first".into()).unwrap();
+        let Next::Wait { epoch, .. } = queue.flushed(batch) else { panic!() };
+        let batch = queue.due(epoch).unwrap();
+        let Next::Wait { epoch, delay } = queue.flushed(batch) else { panic!() };
+        assert_eq!(delay.as_millis() as u64, golden["scenarioB"]["backoffWouldHaveBeenMs"].as_u64().unwrap());
+        // Node's next attempt after the arrival came a window later, not after the backoff.
+        assert!(golden["scenarioB"]["thirdAttemptAfterSecondAttemptMs"].as_u64().unwrap() < delay.as_millis() as u64);
+        assert_eq!(queue.push("second".into()), Some(s(&["first", "second"])), "the retry goes now, oldest first");
+        assert_eq!(queue.due(epoch), None, "the wait it replaced wakes nothing");
+    }
+
+    struct Flaky {
+        fail: std::sync::atomic::AtomicU32,
+        stamps: std::sync::Mutex<Vec<tokio::time::Instant>>,
+        landed: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl PromptHistoryStore for Flaky {
+        fn load(&self, _: &InLane<InteractiveIo>, _: &str) -> Vec<String> {
+            Vec::new()
+        }
+        fn append(&self, _: &InLane<DurabilityIo>, _: &str, text: &str) -> Appended {
+            use std::sync::atomic::Ordering::SeqCst;
+            self.stamps.lock().unwrap().push(tokio::time::Instant::now());
+            let failing = self.fail.fetch_update(SeqCst, SeqCst, |n| n.checked_sub(1)).is_ok();
+            if !failing {
+                self.landed.lock().unwrap().push(text.to_owned());
+            }
+            Appended { list: s(&[text]), written: !failing }
+        }
+    }
+
+    /// A prompt whose write failed is not lost: the thread retries it on Node's backoff.
+    #[tokio::test(start_paused = true)]
+    async fn a_prompt_whose_write_failed_is_retried_on_nodes_backoff_until_it_lands() {
+        use crate::session::SessionDirectory;
+        use crate::session::testing::Rig;
+        use crate::session::tests::{eventually, start_thread, turn};
+
+        let rig = Rig::new();
+        let flaky = std::sync::Arc::new(Flaky { fail: 2.into(), stamps: Default::default(), landed: Default::default() });
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.prompts = flaky.clone();
+        let directory = SessionDirectory::new(std::sync::Arc::new(deps));
+        let handle = start_thread(&directory).await;
+        turn(&handle, "remember me", "op-1").await;
+        eventually(|| (!flaky.landed.lock().unwrap().is_empty()).then_some(())).await;
+        let stamps = flaky.stamps.lock().unwrap().clone();
+        assert_eq!(stamps.len(), 3);
+        assert_eq!(stamps[1] - stamps[0], write_retry_delay(1));
+        assert_eq!(stamps[2] - stamps[1], write_retry_delay(2));
+        assert_eq!(*flaky.landed.lock().unwrap(), s(&["remember me"]));
     }
 
     #[test]

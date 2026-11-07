@@ -1,0 +1,553 @@
+{
+  "scenarios": [
+    {
+      "name": "every kind of provider",
+      "providers": {
+        "openai": {
+          "enabled": true
+        },
+        "openai-oauth": {
+          "enabled": true,
+          "authState": "present"
+        },
+        "anthropic-oauth": {
+          "enabled": false
+        },
+        "cursor-oauth": {
+          "enabled": true
+        },
+        "mixdog-local": {
+          "enabled": true
+        },
+        "xai": {
+          "enabled": false,
+          "authState": "present"
+        }
+      },
+      "result": {
+        "managedByClient": true,
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "usable": true,
+            "status": "Connected"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API",
+            "group": "api",
+            "type": "api-key",
+            "enabled": false,
+            "authenticated": true,
+            "usable": false,
+            "status": "Off"
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "name": "OpenAI OAuth",
+            "group": "oauth",
+            "type": "oauth",
+            "enabled": true,
+            "authenticated": true,
+            "usable": true,
+            "status": "Connected"
+          },
+          {
+            "id": "anthropic-oauth",
+            "name": "Anthropic OAuth",
+            "group": "oauth",
+            "type": "oauth",
+            "enabled": false,
+            "authenticated": false,
+            "usable": false,
+            "status": "Not connected"
+          },
+          {
+            "id": "cursor-oauth",
+            "name": "Cursor OAuth",
+            "group": "oauth",
+            "type": "oauth",
+            "enabled": true,
+            "authenticated": true,
+            "usable": true,
+            "status": "Connected"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local",
+            "name": "Local Provider",
+            "group": "local",
+            "type": "local",
+            "enabled": true,
+            "authenticated": true,
+            "usable": true,
+            "detected": true,
+            "status": "Connected"
+          }
+        ]
+      }
+    },
+    {
+      "name": "auth states",
+      "providers": {
+        "openai": {
+          "enabled": true,
+          "authState": "present"
+        },
+        "anthropic": {
+          "enabled": true,
+          "authState": "absent"
+        },
+        "gemini": {
+          "enabled": true,
+          "authState": "unreadable"
+        },
+        "deepseek": {
+          "enabled": false,
+          "authState": "present"
+        },
+        "xai": {
+          "enabled": false,
+          "authState": "absent"
+        },
+        "openrouter": {
+          "enabled": false,
+          "authState": "unreadable"
+        },
+        "grok-oauth": {
+          "enabled": true,
+          "authState": "bogus"
+        }
+      },
+      "result": {
+        "managedByClient": true,
+        "api": [
+          {
+            "id": "openrouter",
+            "name": "OpenRouter",
+            "group": "api",
+            "type": "api-key",
+            "enabled": false,
+            "authenticated": false,
+            "usable": false,
+            "status": "Not connected"
+          },
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "usable": true,
+            "status": "Connected"
+          },
+          {
+            "id": "anthropic",
+            "name": "Anthropic API",
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": false,
+            "usable": false,
+            "status": "Not connected"
+          },
+          {
+            "id": "gemini",
+            "name": "Gemini API",
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": false,
+            "usable": true,
+            "status": "Checking…"
+          },
+          {
+            "id": "deepseek",
+            "name": "DeepSeek API",
+            "group": "api",
+            "type": "api-key",
+            "enabled": false,
+            "authenticated": true,
+            "usable": false,
+            "status": "Off"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API",
+            "group": "api",
+            "type": "api-key",
+            "enabled": false,
+            "authenticated": false,
+            "usable": false,
+            "status": "Not connected"
+          }
+        ],
+        "oauth": [
+          {
+            "id": "grok-oauth",
+            "name": "Grok OAuth",
+            "group": "oauth",
+            "type": "oauth",
+            "enabled": true,
+            "authenticated": false,
+            "usable": true,
+            "status": "Connected"
+          }
+        ],
+        "local": []
+      }
+    },
+    {
+      "name": "old desktops advertise only enabled",
+      "providers": {
+        "openai": {
+          "enabled": true
+        },
+        "anthropic": {
+          "enabled": false
+        },
+        "openai-oauth": {
+          "enabled": true
+        }
+      },
+      "result": {
+        "managedByClient": true,
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "usable": true,
+            "status": "Connected"
+          },
+          {
+            "id": "anthropic",
+            "name": "Anthropic API",
+            "group": "api",
+            "type": "api-key",
+            "enabled": false,
+            "authenticated": false,
+            "usable": false,
+            "status": "Not connected"
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "name": "OpenAI OAuth",
+            "group": "oauth",
+            "type": "oauth",
+            "enabled": true,
+            "authenticated": true,
+            "usable": true,
+            "status": "Connected"
+          }
+        ],
+        "local": []
+      }
+    },
+    {
+      "name": "enabled must be exactly true",
+      "providers": {
+        "openai": {
+          "enabled": "yes"
+        },
+        "anthropic": {
+          "enabled": 1
+        },
+        "gemini": {},
+        "xai": null
+      },
+      "result": {
+        "managedByClient": true,
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "group": "api",
+            "type": "api-key",
+            "enabled": false,
+            "authenticated": false,
+            "usable": false,
+            "status": "Not connected"
+          },
+          {
+            "id": "anthropic",
+            "name": "Anthropic API",
+            "group": "api",
+            "type": "api-key",
+            "enabled": false,
+            "authenticated": false,
+            "usable": false,
+            "status": "Not connected"
+          },
+          {
+            "id": "gemini",
+            "name": "Gemini API",
+            "group": "api",
+            "type": "api-key",
+            "enabled": false,
+            "authenticated": false,
+            "usable": false,
+            "status": "Not connected"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API",
+            "group": "api",
+            "type": "api-key",
+            "enabled": false,
+            "authenticated": false,
+            "usable": false,
+            "status": "Not connected"
+          }
+        ],
+        "oauth": [],
+        "local": []
+      }
+    },
+    {
+      "name": "secrets are never projected",
+      "providers": {
+        "openai-oauth": {
+          "enabled": true,
+          "access_token": "must-not-leak",
+          "accountId": "private-account"
+        }
+      },
+      "result": {
+        "managedByClient": true,
+        "api": [],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "name": "OpenAI OAuth",
+            "group": "oauth",
+            "type": "oauth",
+            "enabled": true,
+            "authenticated": true,
+            "usable": true,
+            "status": "Connected"
+          }
+        ],
+        "local": []
+      }
+    },
+    {
+      "name": "custom providers",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": " Alpha ",
+          "enabled": true,
+          "authState": "present",
+          "hiddenModels": [
+            "m1",
+            5,
+            "m2"
+          ]
+        },
+        "custom-22222222-2222-4222-8222-222222222222": {
+          "type": "custom",
+          "enabled": false
+        },
+        "custom-33333333-3333-4333-8333-333333333333": {
+          "type": "custom",
+          "name": "   ",
+          "enabled": true
+        },
+        "custom-44444444-4444-4444-8444-444444444444": {
+          "type": "openai",
+          "name": "not custom",
+          "enabled": true
+        },
+        "custom-not-a-uuid": {
+          "type": "custom",
+          "enabled": true
+        },
+        "custom-55555555-5555-4555-8555-555555555555": null
+      },
+      "result": {
+        "managedByClient": true,
+        "api": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "group": "api",
+            "type": "custom",
+            "enabled": true,
+            "authenticated": true,
+            "usable": true,
+            "custom": true,
+            "modelOverrides": {
+              "m1": {
+                "hidden": true
+              },
+              "m2": {
+                "hidden": true
+              }
+            },
+            "status": "Connected"
+          },
+          {
+            "id": "custom-22222222-2222-4222-8222-222222222222",
+            "name": "custom-22222222-2222-4222-8222-222222222222",
+            "group": "api",
+            "type": "custom",
+            "enabled": false,
+            "authenticated": false,
+            "usable": false,
+            "custom": true,
+            "modelOverrides": {},
+            "status": "Not connected"
+          },
+          {
+            "id": "custom-33333333-3333-4333-8333-333333333333",
+            "name": "custom-33333333-3333-4333-8333-333333333333",
+            "group": "api",
+            "type": "custom",
+            "enabled": true,
+            "authenticated": true,
+            "usable": true,
+            "custom": true,
+            "modelOverrides": {},
+            "status": "Connected"
+          }
+        ],
+        "oauth": [],
+        "local": []
+      }
+    },
+    {
+      "name": "custom hidden models of a custom provider that is off",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "Off",
+          "enabled": false,
+          "authState": "present",
+          "hiddenModels": "nope"
+        }
+      },
+      "result": {
+        "managedByClient": true,
+        "api": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Off",
+            "group": "api",
+            "type": "custom",
+            "enabled": false,
+            "authenticated": true,
+            "usable": false,
+            "custom": true,
+            "modelOverrides": {},
+            "status": "Off"
+          }
+        ],
+        "oauth": [],
+        "local": []
+      }
+    },
+    {
+      "name": "the local provider",
+      "providers": {
+        "mixdog-local": {
+          "enabled": false
+        }
+      },
+      "result": {
+        "managedByClient": true,
+        "api": [],
+        "oauth": [],
+        "local": [
+          {
+            "id": "mixdog-local",
+            "name": "Local Provider",
+            "group": "local",
+            "type": "local",
+            "enabled": false,
+            "authenticated": false,
+            "usable": false,
+            "detected": false,
+            "status": "Not connected"
+          }
+        ]
+      }
+    },
+    {
+      "name": "nothing advertised",
+      "providers": {},
+      "result": {
+        "managedByClient": true,
+        "api": [],
+        "oauth": [],
+        "local": []
+      }
+    },
+    {
+      "name": "providers the page does not list",
+      "providers": {
+        "nothing": {
+          "enabled": true
+        },
+        "devin-oauth": {
+          "enabled": true
+        },
+        "antigravity-oauth": {
+          "enabled": true
+        }
+      },
+      "result": {
+        "managedByClient": true,
+        "api": [],
+        "oauth": [
+          {
+            "id": "devin-oauth",
+            "name": "Devin",
+            "group": "oauth",
+            "type": "oauth",
+            "enabled": true,
+            "authenticated": true,
+            "usable": true,
+            "status": "Connected"
+          },
+          {
+            "id": "antigravity-oauth",
+            "name": "Antigravity OAuth",
+            "group": "oauth",
+            "type": "oauth",
+            "enabled": true,
+            "authenticated": true,
+            "usable": true,
+            "status": "Connected"
+          }
+        ],
+        "local": []
+      }
+    },
+    {
+      "name": "no PC connected",
+      "providers": null,
+      "result": {
+        "managedByClient": true,
+        "unavailable": true,
+        "api": [],
+        "oauth": [],
+        "local": []
+      }
+    }
+  ]
+}

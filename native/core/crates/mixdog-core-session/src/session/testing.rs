@@ -869,6 +869,8 @@ pub struct Rig {
     pub work: Arc<TestWork>,
     /// The agent status every session reads after a job of it changed.
     pub agents: Arc<TestAgents>,
+    /// The agent-status signals the actors emitted, in order.
+    pub signals: Arc<TestSignals>,
     /// The side-question store `thread/askSide` reads.
     pub side: Arc<TestSide>,
     /// The heir-route policy `thread/inheritancePreflight` measures on.
@@ -933,6 +935,19 @@ pub struct TestWork(pub AtomicBool);
 impl mixdog_core_run::run_host::guards::RunningWork for TestWork {
     async fn has_active(&self, _: &str, surface: &str, _: bool, _: Option<u64>) -> bool {
         surface == "agent" && self.0.load(Ordering::SeqCst)
+    }
+}
+
+/// The agent-status signals, in order: `approval:<id>`, `record:<id>`.
+#[derive(Default)]
+pub struct TestSignals(pub Mutex<Vec<String>>);
+
+impl super::agent_activity::AgentSignals for TestSignals {
+    fn approval_wait(&self, session: &str) {
+        lock(&self.0).push(format!("approval:{session}"));
+    }
+    fn session_record(&self, session: &str) {
+        lock(&self.0).push(format!("record:{session}"));
     }
 }
 
@@ -1094,6 +1109,7 @@ impl Rig {
             todos: Arc::default(),
             work: Arc::default(),
             agents: Arc::default(),
+            signals: Arc::default(),
             side: Arc::default(),
             inherit: Arc::default(),
             compaction: Arc::default(),
@@ -1164,6 +1180,7 @@ impl Rig {
             todos: self.todos.clone(),
             work: self.work.clone(),
             agent_status: self.agents.clone(),
+            agent_signals: self.signals.clone(),
             side: self.side.clone(),
             inherit: self.inherit.clone(),
             compaction: self.compaction.clone(),

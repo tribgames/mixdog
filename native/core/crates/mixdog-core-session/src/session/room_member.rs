@@ -63,15 +63,20 @@ mod tests {
 
     use super::super::room_log::{RoomLog, SessionRoomLog};
     use super::super::testing::Rig;
+    use super::super::transcript::RecordTranscript;
     use super::*;
     use std::sync::Arc;
 
     /// A room log read back: the rows posted come out as the room host's rows, in order, with the
-    /// message id as `id`, and a session that holds no turn is neither busy nor failing.
+    /// message id as `id`, and a session that holds no turn is neither busy nor failing. The rows
+    /// are read through the stored-record transcript, the one that shows a room message as its
+    /// room line (the rig's text transcript shows every row as a message).
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn posted_room_rows_read_back_as_rows_and_the_member_snapshot_is_idle() {
         let rig = Rig::new();
-        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.transcript = Arc::new(RecordTranscript::new());
+        let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
         let thread = ThreadId::from("sess_room_abc123");
         let mut header = Header::new();
         header.insert("createdAt".into(), json!(1));

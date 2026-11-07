@@ -4,6 +4,7 @@
 pub mod audience;
 pub mod decision;
 pub mod engine;
+pub mod held;
 pub mod presence;
 pub mod preview;
 pub mod screen;

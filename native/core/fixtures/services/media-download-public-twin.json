@@ -1,0 +1,1880 @@
+{
+  "domain": "media-download-public-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-media-download-public.mjs",
+  "scenarios": [
+    {
+      "name": "ok",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "chunks": [
+              "hel",
+              "lo"
+            ]
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "value": "68656c6c6f",
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "ok-empty-body",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "body": ""
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "value": "",
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "ok-many-chunks",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {
+        "maxBytes": 5
+      },
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "chunks": [
+              "a",
+              "b",
+              "c",
+              "d",
+              "e"
+            ]
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "value": "6162636465",
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "no-body",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "status": 204
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "generated media: response has no body",
+        "code": null,
+        "status": null,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "content-length-over",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {
+        "maxBytes": 10
+      },
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "headers": {
+              "content-length": "11"
+            },
+            "body": "x"
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "generated media: response exceeds the 10 byte limit",
+        "code": null,
+        "status": null,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "content-length-exact",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {
+        "maxBytes": 10
+      },
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "headers": {
+              "content-length": "10"
+            },
+            "body": "0123456789"
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "value": "30313233343536373839",
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "content-length-junk",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {
+        "maxBytes": 10
+      },
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "headers": {
+              "content-length": "abc"
+            },
+            "body": "x"
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "value": "78",
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "content-length-spaced",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {
+        "maxBytes": 10
+      },
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "headers": {
+              "content-length": " 99 "
+            },
+            "body": "x"
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "generated media: response exceeds the 10 byte limit",
+        "code": null,
+        "status": null,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "body-over-in-chunks",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {
+        "maxBytes": 10
+      },
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "chunks": [
+              "01234",
+              "56789",
+              "x"
+            ]
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "generated media: response exceeds the 10 byte limit",
+        "code": null,
+        "status": null,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "body-over-single-chunk",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {
+        "maxBytes": 10
+      },
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "body": "0123456789x"
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "generated media: response exceeds the 10 byte limit",
+        "code": null,
+        "status": null,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "custom-label",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {
+        "label": "Grok image"
+      },
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "status": 404
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "Grok image download failed (404)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 404,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "not-found",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "status": 404
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "generated media download failed (404)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 404,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "server-error",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "status": 500
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "generated media download failed (500)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "not-modified",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "status": 304
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "generated media download failed (304)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 304,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "redirect-absolute",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "status": 302,
+            "headers": {
+              "location": "https://cdn.example.com/dir/b.png"
+            }
+          }
+        ],
+        "https://cdn.example.com/dir/b.png": [
+          {
+            "body": "moved"
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        },
+        "https://cdn.example.com/dir/b.png": {
+          "ok": true
+        }
+      },
+      "value": "6d6f766564",
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://cdn.example.com/dir/b.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "redirect-relative",
+      "kind": "public",
+      "url": "https://cdn.example.com/dir/b.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/dir/b.png": [
+          {
+            "status": 301,
+            "headers": {
+              "location": "../c.png"
+            }
+          }
+        ],
+        "https://cdn.example.com/c.png": [
+          {
+            "body": "rel"
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/dir/b.png": {
+          "ok": true
+        },
+        "https://cdn.example.com/c.png": {
+          "ok": true
+        },
+        "../c.png": {
+          "ok": false,
+          "message": "Invalid URL",
+          "code": "ERR_INVALID_URL"
+        }
+      },
+      "value": "72656c",
+      "seen": [
+        {
+          "url": "https://cdn.example.com/dir/b.png",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://cdn.example.com/c.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "redirect-root-relative",
+      "kind": "public",
+      "url": "https://cdn.example.com/dir/b.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/dir/b.png": [
+          {
+            "status": 307,
+            "headers": {
+              "location": "/r.png?x=1"
+            }
+          }
+        ],
+        "https://cdn.example.com/r.png?x=1": [
+          {
+            "body": "root"
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/dir/b.png": {
+          "ok": true
+        },
+        "https://cdn.example.com/r.png?x=1": {
+          "ok": true
+        },
+        "/r.png?x=1": {
+          "ok": false,
+          "message": "Invalid URL",
+          "code": "ERR_INVALID_URL"
+        }
+      },
+      "value": "726f6f74",
+      "seen": [
+        {
+          "url": "https://cdn.example.com/dir/b.png",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://cdn.example.com/r.png?x=1",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "redirect-scheme-relative",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "status": 308,
+            "headers": {
+              "location": "//other.example.com/z.png"
+            }
+          }
+        ],
+        "https://other.example.com/z.png": [
+          {
+            "body": "sr"
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        },
+        "https://other.example.com/z.png": {
+          "ok": true
+        },
+        "//other.example.com/z.png": {
+          "ok": false,
+          "message": "Invalid URL",
+          "code": "ERR_INVALID_URL"
+        }
+      },
+      "value": "7372",
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://other.example.com/z.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "redirect-300",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "status": 300,
+            "headers": {
+              "location": "https://cdn.example.com/dir/b.png"
+            }
+          }
+        ],
+        "https://cdn.example.com/dir/b.png": [
+          {
+            "body": "x"
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        },
+        "https://cdn.example.com/dir/b.png": {
+          "ok": true
+        }
+      },
+      "value": "78",
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://cdn.example.com/dir/b.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "redirect-no-location",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "status": 302
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "generated media download failed (302)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 302,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "redirect-empty-location",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "status": 302,
+            "headers": {
+              "location": ""
+            }
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "generated media download failed (302)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 302,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "redirect-bad-location",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "status": 302,
+            "headers": {
+              "location": "http://"
+            }
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        },
+        "http://": {
+          "ok": false,
+          "message": "Invalid URL",
+          "code": "ERR_INVALID_URL"
+        }
+      },
+      "error": {
+        "message": "Invalid URL",
+        "code": "ERR_INVALID_URL",
+        "status": null,
+        "name": "TypeError"
+      },
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "redirect-to-private",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "status": 302,
+            "headers": {
+              "location": "http://127.0.0.1/secret"
+            }
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        },
+        "http://127.0.0.1/secret": {
+          "ok": false,
+          "message": "Blocked request to private address: 127.0.0.1",
+          "code": null
+        }
+      },
+      "error": {
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null,
+        "status": null,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "redirect-to-metadata",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "status": 302,
+            "headers": {
+              "location": "http://169.254.169.254/latest"
+            }
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        },
+        "http://169.254.169.254/latest": {
+          "ok": false,
+          "message": "Blocked request to private address: 169.254.169.254",
+          "code": null
+        }
+      },
+      "error": {
+        "message": "Blocked request to private address: 169.254.169.254",
+        "code": null,
+        "status": null,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "redirect-to-file",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "status": 302,
+            "headers": {
+              "location": "file:///etc/passwd"
+            }
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        },
+        "file:///etc/passwd": {
+          "ok": false,
+          "message": "Blocked non-HTTP protocol: file:",
+          "code": null
+        }
+      },
+      "error": {
+        "message": "Blocked non-HTTP protocol: file:",
+        "code": null,
+        "status": null,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "redirect-chain-5",
+      "kind": "public",
+      "url": "https://h.example.com/0",
+      "options": {},
+      "answers": {
+        "https://h.example.com/0": [
+          {
+            "status": 302,
+            "headers": {
+              "location": "/1"
+            }
+          }
+        ],
+        "https://h.example.com/1": [
+          {
+            "status": 302,
+            "headers": {
+              "location": "/2"
+            }
+          }
+        ],
+        "https://h.example.com/2": [
+          {
+            "status": 302,
+            "headers": {
+              "location": "/3"
+            }
+          }
+        ],
+        "https://h.example.com/3": [
+          {
+            "status": 302,
+            "headers": {
+              "location": "/4"
+            }
+          }
+        ],
+        "https://h.example.com/4": [
+          {
+            "status": 302,
+            "headers": {
+              "location": "/5"
+            }
+          }
+        ],
+        "https://h.example.com/5": [
+          {
+            "body": "done"
+          }
+        ]
+      },
+      "guard": {
+        "https://h.example.com/0": {
+          "ok": true
+        },
+        "https://h.example.com/1": {
+          "ok": true
+        },
+        "https://h.example.com/2": {
+          "ok": true
+        },
+        "https://h.example.com/3": {
+          "ok": true
+        },
+        "https://h.example.com/4": {
+          "ok": true
+        },
+        "https://h.example.com/5": {
+          "ok": true
+        },
+        "/1": {
+          "ok": false,
+          "message": "Invalid URL",
+          "code": "ERR_INVALID_URL"
+        },
+        "/2": {
+          "ok": false,
+          "message": "Invalid URL",
+          "code": "ERR_INVALID_URL"
+        },
+        "/3": {
+          "ok": false,
+          "message": "Invalid URL",
+          "code": "ERR_INVALID_URL"
+        },
+        "/4": {
+          "ok": false,
+          "message": "Invalid URL",
+          "code": "ERR_INVALID_URL"
+        },
+        "/5": {
+          "ok": false,
+          "message": "Invalid URL",
+          "code": "ERR_INVALID_URL"
+        }
+      },
+      "value": "646f6e65",
+      "seen": [
+        {
+          "url": "https://h.example.com/0",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://h.example.com/1",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://h.example.com/2",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://h.example.com/3",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://h.example.com/4",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://h.example.com/5",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "redirect-chain-6",
+      "kind": "public",
+      "url": "https://h.example.com/0",
+      "options": {},
+      "answers": {
+        "https://h.example.com/0": [
+          {
+            "status": 302,
+            "headers": {
+              "location": "/1"
+            }
+          }
+        ],
+        "https://h.example.com/1": [
+          {
+            "status": 302,
+            "headers": {
+              "location": "/2"
+            }
+          }
+        ],
+        "https://h.example.com/2": [
+          {
+            "status": 302,
+            "headers": {
+              "location": "/3"
+            }
+          }
+        ],
+        "https://h.example.com/3": [
+          {
+            "status": 302,
+            "headers": {
+              "location": "/4"
+            }
+          }
+        ],
+        "https://h.example.com/4": [
+          {
+            "status": 302,
+            "headers": {
+              "location": "/5"
+            }
+          }
+        ],
+        "https://h.example.com/5": [
+          {
+            "status": 302,
+            "headers": {
+              "location": "/6"
+            }
+          }
+        ]
+      },
+      "guard": {
+        "https://h.example.com/0": {
+          "ok": true
+        },
+        "https://h.example.com/1": {
+          "ok": true
+        },
+        "https://h.example.com/2": {
+          "ok": true
+        },
+        "https://h.example.com/3": {
+          "ok": true
+        },
+        "https://h.example.com/4": {
+          "ok": true
+        },
+        "https://h.example.com/5": {
+          "ok": true
+        },
+        "/1": {
+          "ok": false,
+          "message": "Invalid URL",
+          "code": "ERR_INVALID_URL"
+        },
+        "/2": {
+          "ok": false,
+          "message": "Invalid URL",
+          "code": "ERR_INVALID_URL"
+        },
+        "/3": {
+          "ok": false,
+          "message": "Invalid URL",
+          "code": "ERR_INVALID_URL"
+        },
+        "/4": {
+          "ok": false,
+          "message": "Invalid URL",
+          "code": "ERR_INVALID_URL"
+        },
+        "/5": {
+          "ok": false,
+          "message": "Invalid URL",
+          "code": "ERR_INVALID_URL"
+        },
+        "/6": {
+          "ok": false,
+          "message": "Invalid URL",
+          "code": "ERR_INVALID_URL"
+        }
+      },
+      "error": {
+        "message": "generated media download redirected too many times",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://h.example.com/0",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://h.example.com/1",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://h.example.com/2",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://h.example.com/3",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://h.example.com/4",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://h.example.com/5",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "redirect-loop",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "status": 302,
+            "headers": {
+              "location": "https://cdn.example.com/a.png"
+            }
+          },
+          {
+            "status": 302,
+            "headers": {
+              "location": "https://cdn.example.com/a.png"
+            }
+          },
+          {
+            "status": 302,
+            "headers": {
+              "location": "https://cdn.example.com/a.png"
+            }
+          },
+          {
+            "status": 302,
+            "headers": {
+              "location": "https://cdn.example.com/a.png"
+            }
+          },
+          {
+            "status": 302,
+            "headers": {
+              "location": "https://cdn.example.com/a.png"
+            }
+          },
+          {
+            "status": 302,
+            "headers": {
+              "location": "https://cdn.example.com/a.png"
+            }
+          },
+          {
+            "status": 302,
+            "headers": {
+              "location": "https://cdn.example.com/a.png"
+            }
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "generated media download redirected too many times",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        },
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "private-start",
+      "kind": "public",
+      "url": "http://localhost/a.png",
+      "options": {},
+      "answers": {},
+      "guard": {
+        "http://localhost/a.png": {
+          "ok": false,
+          "message": "Blocked request to private address: localhost",
+          "code": null
+        }
+      },
+      "error": {
+        "message": "Blocked request to private address: localhost",
+        "code": null,
+        "status": null,
+        "name": "Error"
+      },
+      "seen": []
+    },
+    {
+      "name": "private-start-10",
+      "kind": "public",
+      "url": "http://10.0.0.1/a.png",
+      "options": {},
+      "answers": {},
+      "guard": {
+        "http://10.0.0.1/a.png": {
+          "ok": false,
+          "message": "Blocked request to private address: 10.0.0.1",
+          "code": null
+        }
+      },
+      "error": {
+        "message": "Blocked request to private address: 10.0.0.1",
+        "code": null,
+        "status": null,
+        "name": "Error"
+      },
+      "seen": []
+    },
+    {
+      "name": "private-start-v6",
+      "kind": "public",
+      "url": "http://[::1]/a.png",
+      "options": {},
+      "answers": {},
+      "guard": {
+        "http://[::1]/a.png": {
+          "ok": false,
+          "message": "Blocked request to private address: [::1]",
+          "code": null
+        }
+      },
+      "error": {
+        "message": "Blocked request to private address: [::1]",
+        "code": null,
+        "status": null,
+        "name": "Error"
+      },
+      "seen": []
+    },
+    {
+      "name": "not-a-url",
+      "kind": "public",
+      "url": "nonsense",
+      "options": {},
+      "answers": {},
+      "guard": {
+        "nonsense": {
+          "ok": false,
+          "message": "Invalid URL",
+          "code": "ERR_INVALID_URL"
+        }
+      },
+      "error": {
+        "message": "Invalid URL",
+        "code": "ERR_INVALID_URL",
+        "status": null,
+        "name": "TypeError"
+      },
+      "seen": []
+    },
+    {
+      "name": "empty-url",
+      "kind": "public",
+      "url": "",
+      "options": {},
+      "answers": {},
+      "guard": {
+        "": {
+          "ok": false,
+          "message": "Invalid URL",
+          "code": "ERR_INVALID_URL"
+        }
+      },
+      "error": {
+        "message": "Invalid URL",
+        "code": "ERR_INVALID_URL",
+        "status": null,
+        "name": "TypeError"
+      },
+      "seen": []
+    },
+    {
+      "name": "non-http",
+      "kind": "public",
+      "url": "ftp://cdn.example.com/a.png",
+      "options": {},
+      "answers": {},
+      "guard": {
+        "ftp://cdn.example.com/a.png": {
+          "ok": false,
+          "message": "Blocked non-HTTP protocol: ftp:",
+          "code": null
+        }
+      },
+      "error": {
+        "message": "Blocked non-HTTP protocol: ftp:",
+        "code": null,
+        "status": null,
+        "name": "Error"
+      },
+      "seen": []
+    },
+    {
+      "name": "network-failure",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "fail": "fetch failed"
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "fetch failed",
+        "code": null,
+        "status": null,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "abort-failure",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {},
+      "answers": {
+        "https://cdn.example.com/a.png": [
+          {
+            "fail": "This operation was aborted",
+            "abort": true
+          }
+        ]
+      },
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "This operation was aborted",
+        "code": null,
+        "status": null,
+        "name": "AbortError"
+      },
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "unscripted-url",
+      "kind": "public",
+      "url": "https://cdn.example.com/a.png",
+      "options": {},
+      "answers": {},
+      "guard": {
+        "https://cdn.example.com/a.png": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "unscripted fetch https://cdn.example.com/a.png",
+        "code": null,
+        "status": null,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://cdn.example.com/a.png",
+          "headers": {},
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "gemini-ok",
+      "kind": "gemini",
+      "url": "https://generativelanguage.googleapis.com/v1beta/files/abc:download",
+      "options": {
+        "key": "k-1"
+      },
+      "answers": {
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media": [
+          {
+            "chunks": [
+              "vi",
+              "deo"
+            ]
+          }
+        ]
+      },
+      "guard": {
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download": {
+          "ok": true
+        },
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media": {
+          "ok": true
+        }
+      },
+      "value": "766964656f",
+      "seen": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media",
+          "headers": {
+            "x-goog-api-key": "k-1"
+          },
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "gemini-ok-with-query",
+      "kind": "gemini",
+      "url": "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=json&x=1",
+      "options": {
+        "key": "k-2"
+      },
+      "answers": {
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media&x=1": [
+          {
+            "body": "v"
+          }
+        ]
+      },
+      "guard": {
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=json&x=1": {
+          "ok": true
+        },
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media&x=1": {
+          "ok": true
+        }
+      },
+      "value": "76",
+      "seen": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media&x=1",
+          "headers": {
+            "x-goog-api-key": "k-2"
+          },
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "gemini-redirect-rejected",
+      "kind": "gemini",
+      "url": "https://generativelanguage.googleapis.com/v1beta/files/abc:download",
+      "options": {
+        "key": "k-1"
+      },
+      "answers": {
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media": [
+          {
+            "status": 302,
+            "headers": {
+              "location": "https://evil.example.com/x"
+            }
+          }
+        ]
+      },
+      "guard": {
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download": {
+          "ok": true
+        },
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media": {
+          "ok": true
+        },
+        "https://evil.example.com/x": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "Veo video download redirect was rejected",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media",
+          "headers": {
+            "x-goog-api-key": "k-1"
+          },
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "gemini-redirect-no-location",
+      "kind": "gemini",
+      "url": "https://generativelanguage.googleapis.com/v1beta/files/abc:download",
+      "options": {
+        "key": "k-1"
+      },
+      "answers": {
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media": [
+          {
+            "status": 302
+          }
+        ]
+      },
+      "guard": {
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download": {
+          "ok": true
+        },
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "Veo video download failed (302)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 302,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media",
+          "headers": {
+            "x-goog-api-key": "k-1"
+          },
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "gemini-not-found",
+      "kind": "gemini",
+      "url": "https://generativelanguage.googleapis.com/v1beta/files/abc:download",
+      "options": {
+        "key": "k-1"
+      },
+      "answers": {
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media": [
+          {
+            "status": 404
+          }
+        ]
+      },
+      "guard": {
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download": {
+          "ok": true
+        },
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "Veo video download failed (404)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 404,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media",
+          "headers": {
+            "x-goog-api-key": "k-1"
+          },
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "gemini-too-large-header",
+      "kind": "gemini",
+      "url": "https://generativelanguage.googleapis.com/v1beta/files/abc:download",
+      "options": {
+        "key": "k-1",
+        "maxBytes": 10
+      },
+      "answers": {
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media": [
+          {
+            "headers": {
+              "content-length": "11"
+            },
+            "body": "x"
+          }
+        ]
+      },
+      "guard": {
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download": {
+          "ok": true
+        },
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "Veo video: response exceeds the 10 byte limit",
+        "code": null,
+        "status": null,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media",
+          "headers": {
+            "x-goog-api-key": "k-1"
+          },
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "gemini-too-large-body",
+      "kind": "gemini",
+      "url": "https://generativelanguage.googleapis.com/v1beta/files/abc:download",
+      "options": {
+        "key": "k-1",
+        "maxBytes": 10
+      },
+      "answers": {
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media": [
+          {
+            "chunks": [
+              "0123456",
+              "789ab"
+            ]
+          }
+        ]
+      },
+      "guard": {
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download": {
+          "ok": true
+        },
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "Veo video: response exceeds the 10 byte limit",
+        "code": null,
+        "status": null,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media",
+          "headers": {
+            "x-goog-api-key": "k-1"
+          },
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "gemini-label",
+      "kind": "gemini",
+      "url": "https://generativelanguage.googleapis.com/v1beta/files/abc:download",
+      "options": {
+        "key": "k-1",
+        "label": "Veo clip"
+      },
+      "answers": {
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media": [
+          {
+            "status": 500
+          }
+        ]
+      },
+      "guard": {
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download": {
+          "ok": true
+        },
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "Veo clip download failed (500)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media",
+          "headers": {
+            "x-goog-api-key": "k-1"
+          },
+          "redirect": "manual"
+        }
+      ]
+    },
+    {
+      "name": "gemini-untrusted",
+      "kind": "gemini",
+      "url": "https://evil.example.com/v",
+      "options": {
+        "key": "k-1"
+      },
+      "answers": {},
+      "guard": {
+        "https://evil.example.com/v": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "Veo returned an untrusted video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "name": "Error"
+      },
+      "seen": []
+    },
+    {
+      "name": "gemini-invalid",
+      "kind": "gemini",
+      "url": "nope",
+      "options": {
+        "key": "k-1"
+      },
+      "answers": {},
+      "guard": {
+        "nope": {
+          "ok": false,
+          "message": "Invalid URL",
+          "code": "ERR_INVALID_URL"
+        }
+      },
+      "error": {
+        "message": "Veo returned an invalid video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "name": "Error"
+      },
+      "seen": []
+    },
+    {
+      "name": "gemini-network-failure",
+      "kind": "gemini",
+      "url": "https://generativelanguage.googleapis.com/v1beta/files/abc:download",
+      "options": {
+        "key": "k-1"
+      },
+      "answers": {
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media": [
+          {
+            "fail": "fetch failed"
+          }
+        ]
+      },
+      "guard": {
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download": {
+          "ok": true
+        },
+        "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media": {
+          "ok": true
+        }
+      },
+      "error": {
+        "message": "fetch failed",
+        "code": null,
+        "status": null,
+        "name": "Error"
+      },
+      "seen": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media",
+          "headers": {
+            "x-goog-api-key": "k-1"
+          },
+          "redirect": "manual"
+        }
+      ]
+    }
+  ]
+}

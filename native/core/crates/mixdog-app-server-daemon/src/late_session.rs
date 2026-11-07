@@ -88,6 +88,19 @@ impl Bound for LateCallerSessions {
     }
 }
 
+/// The cache-invalidation hook of `ProviderReadiness` (the cached provider setup and the usage
+/// dashboard are dropped with the catalog), bound once at compose; startup verifies it is bound.
+pub struct LateReadinessHook(pub Arc<mixdog_ai::catalog::ProviderReadiness>);
+
+impl Bound for LateReadinessHook {
+    fn cell(&self) -> &'static str {
+        "provider cache invalidation"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.0.invalidation_bound()
+    }
+}
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};

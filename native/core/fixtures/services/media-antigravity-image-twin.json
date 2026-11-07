@@ -1,0 +1,802 @@
+{
+  "domain": "media-antigravity-image-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-media-antigravity-image.mjs",
+  "headers": {
+    "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+  },
+  "scenarios": [
+    {
+      "name": "ok",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}}\n\n"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "ok-usage-cumulative",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"x\"}]}}],\"usageMetadata\":{\"promptTokenCount\":3}}}\n\ndata: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}],\"usageMetadata\":{\"promptTokenCount\":3,\"candidatesTokenCount\":1290}}}\n\n"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "inputTokens": 3,
+          "outputTokens": 1290
+        }
+      }
+    },
+    {
+      "name": "ok-unwrapped-chunk",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "data: {\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}\n\n"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "ok-aspect-refs",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {
+        "aspectRatio": "16:9"
+      },
+      "references": [
+        {
+          "base64": "cmVm",
+          "mime": "image/jpeg"
+        }
+      ],
+      "reply": {
+        "status": 200,
+        "text": "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}}\n\n"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"],\"imageConfig\":{\"aspectRatio\":\"16:9\"}},\"contents\":[{\"role\":\"user\",\"parts\":[{\"inlineData\":{\"mimeType\":\"image/jpeg\",\"data\":\"cmVm\"}},{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "ok-crlf-comments",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": ": ping\r\nevent: message\r\ndata: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}}\r\n\r\n"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "ok-no-trailing-newline",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}}"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "ok-done-marker-and-garbage",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "data: {broken\n\ndata: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}}\n\ndata: [DONE]\n\n"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "ok-parts-across-chunks",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"thinking\"}]}}]}}\n\ndata: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}}\n\n"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "ok-array-response",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "data: {\"response\":[1],\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}\n\n"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Antigravity returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "refusal-text",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"I cannot.\"}]}}],\"usageMetadata\":{\"promptTokenCount\":2}}}\n\n"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Antigravity returned no image data: I cannot.",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": {
+          "inputTokens": 2
+        }
+      }
+    },
+    {
+      "name": "in-band-error-message",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "data: {\"error\":{\"message\":\"quota exceeded\",\"code\":429}}\n\n"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Antigravity returned no image data: quota exceeded",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "in-band-error-no-message",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "data: {\"error\":{\"code\":500}}\n\n"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Antigravity returned no image data: {\"code\":500}",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "in-band-error-then-text",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "data: {\"error\":{\"message\":\"first\"}}\n\ndata: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"later\"}]}}]}}\n\n"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Antigravity returned no image data: first",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "blocked",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "data: {\"response\":{\"promptFeedback\":{\"blockReason\":\"SAFETY\"}}}\n\n"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Antigravity returned no image data: prompt blocked (SAFETY)",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "blocked-after-error",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "data: {\"error\":{\"message\":\"e\"}}\n\ndata: {\"response\":{\"promptFeedback\":{\"blockReason\":\"SAFETY\"}}}\n\n"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Antigravity returned no image data: e",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "empty-stream",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": ""
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Antigravity returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "empty-candidates",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "data: {\"response\":{\"candidates\":[]}}\n\n"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Antigravity returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "bad-b64",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"!!\"}}]}}]}}\n\n"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Antigravity image exceeds the media size limit",
+        "code": "MEDIA_RESULT_TOO_LARGE",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "http-401",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 401,
+        "text": "nope"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Antigravity image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401,
+        "usage": null
+      }
+    },
+    {
+      "name": "http-403-json",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 403,
+        "text": "{\"error\":{\"message\":\"Insufficient credits\"}}"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Antigravity image: account has no usable balance — Insufficient credits",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 403,
+        "usage": null
+      }
+    },
+    {
+      "name": "http-429",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 429,
+        "text": ""
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Antigravity image: rate limited — retry in a moment",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429,
+        "usage": null
+      }
+    },
+    {
+      "name": "http-500",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 500,
+        "text": "<html>x</html>"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Antigravity image failed (500)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500,
+        "usage": null
+      }
+    },
+    {
+      "name": "fetch-fails",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "fail": "fetch failed"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "fetch failed",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "timeout",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "fail": "The operation was aborted due to timeout",
+        "name": "TimeoutError"
+      },
+      "sent": [
+        {
+          "url": "https://agy.example.test/v1internal:streamGenerateContent?alt=sse",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer agy-token-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "User-Agent": "antigravity/hub/1.0.0 (aidev_client; os_type=darwin; arch=arm64; cl=963137146)"
+          },
+          "body": "{\"project\":\"proj-1\",\"model\":\"gemini-3-pro-image\",\"userAgent\":\"antigravity\",\"requestType\":\"agent\",\"requestId\":\"agent-00000000-0000-4000-8000-000000000001\",\"request\":{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}],\"sessionId\":\"-00000000-0000-4000-8000-000000000002\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "The operation was aborted due to timeout",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    }
+  ]
+}

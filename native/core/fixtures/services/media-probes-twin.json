@@ -1,0 +1,1563 @@
+{
+  "domain": "media-probes-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-media-probes.mjs",
+  "clock": 1700000000000,
+  "scenarios": [
+    {
+      "name": "doc-refreshable",
+      "files": {
+        "cred.json": "{\"access_token\":\"a\",\"refresh_token\":\"r\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": true,
+        "oauth:openai-oauth": true,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-access-only-no-expiry",
+      "files": {
+        "cred.json": "{\"access_token\":\"a\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": false,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-access-only-future-seconds",
+      "files": {
+        "cred.json": "{\"access_token\":\"a\",\"expires_at\":1700003600}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": true,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-access-only-future-ms",
+      "files": {
+        "cred.json": "{\"access_token\":\"a\",\"expires_at\":1700003600000}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": true,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-access-only-past-ms",
+      "files": {
+        "cred.json": "{\"access_token\":\"a\",\"expires_at\":1699996400000}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": false,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-access-only-numeric-string",
+      "files": {
+        "cred.json": "{\"access_token\":\"a\",\"expires_at\":\"1700003600\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": true,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-access-only-iso-future",
+      "files": {
+        "cred.json": "{\"access_token\":\"a\",\"expires_at\":\"2023-11-14T23:13:20.000Z\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": true,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-access-only-iso-past",
+      "files": {
+        "cred.json": "{\"access_token\":\"a\",\"expires_at\":\"2023-11-14T21:13:20.000Z\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": false,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-access-only-camel",
+      "files": {
+        "cred.json": "{\"access_token\":\"a\",\"expiresAt\":1700003600}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": true,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-jwt-future",
+      "files": {
+        "cred.json": "{\"access_token\":\"eyJhbGciOiJub25lIn0.eyJleHAiOjE3MDAwMDM2MDB9.sig\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": true,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-jwt-future-padded",
+      "files": {
+        "cred.json": "{\"access_token\":\"eyJhbGciOiJub25lIn0.eyJleHAiOjE3MDAwMDM2MDB9.sig\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": true,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-jwt-past",
+      "files": {
+        "cred.json": "{\"access_token\":\"eyJhbGciOiJub25lIn0.eyJleHAiOjE2OTk5OTY0MDB9.sig\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": false,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-jwt-string-exp",
+      "files": {
+        "cred.json": "{\"access_token\":\"eyJhbGciOiJub25lIn0.eyJleHAiOiIxNzAwMDAzNjAwIn0.sig\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": true,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-jwt-no-exp",
+      "files": {
+        "cred.json": "{\"access_token\":\"eyJhbGciOiJub25lIn0.eyJzdWIiOiJ4In0.sig\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": false,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-opaque-token",
+      "files": {
+        "cred.json": "{\"access_token\":\"a\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": false,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-no-access-token",
+      "files": {
+        "cred.json": "{\"refresh_token\":\"r\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": false,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-empty-access-token",
+      "files": {
+        "cred.json": "{\"access_token\":\"\",\"refresh_token\":\"r\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": false,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-with-project",
+      "files": {
+        "cred.json": "{\"access_token\":\"a\",\"refresh_token\":\"r\",\"project_id\":\"p\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": true,
+        "oauth:openai-oauth": true,
+        "oauth:antigravity-oauth": true
+      }
+    },
+    {
+      "name": "doc-with-empty-project",
+      "files": {
+        "cred.json": "{\"access_token\":\"a\",\"refresh_token\":\"r\",\"project_id\":\"\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": true,
+        "oauth:openai-oauth": true,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-garbage",
+      "files": {
+        "cred.json": "{not json"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": false,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-array",
+      "files": {
+        "cred.json": "[]"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": false,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "doc-null",
+      "files": {
+        "cred.json": "null"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "grok-oauth": "{s}/cred.json",
+        "openai-oauth": "{s}/cred.json",
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": false,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "legacy-files",
+      "files": {},
+      "dataFiles": {
+        "grok-oauth.json": "{\"access_token\":\"a\",\"refresh_token\":\"r\",\"project_id\":\"p\"}",
+        "openai-oauth.json": "{\"access_token\":\"a\",\"refresh_token\":\"r\",\"project_id\":\"p\"}",
+        "antigravity-oauth.json": "{\"access_token\":\"a\",\"refresh_token\":\"r\",\"project_id\":\"p\"}"
+      },
+      "written": [],
+      "env": {},
+      "bound": {},
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": true,
+        "oauth:openai-oauth": true,
+        "oauth:antigravity-oauth": true
+      }
+    },
+    {
+      "name": "path-variables",
+      "files": {
+        "v/g.json": "{\"access_token\":\"a\",\"refresh_token\":\"r\"}",
+        "v/o.json": "{\"access_token\":\"a\",\"refresh_token\":\"r\"}",
+        "v/a.json": "{\"access_token\":\"a\",\"refresh_token\":\"r\",\"project_id\":\"p\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "v/g.json",
+        "v/o.json",
+        "v/a.json"
+      ],
+      "env": {
+        "GROK_OAUTH_CREDENTIALS_PATH": "{s}/v/g.json",
+        "OPENAI_OAUTH_CREDENTIALS_PATH": "{s}/v/o.json",
+        "ANTIGRAVITY_OAUTH_CREDENTIALS_PATH": "{s}/v/a.json"
+      },
+      "bound": {},
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": true,
+        "oauth:openai-oauth": true,
+        "oauth:antigravity-oauth": true
+      }
+    },
+    {
+      "name": "account-beats-variable",
+      "files": {
+        "v/g.json": "{\"access_token\":\"a\",\"refresh_token\":\"r\"}",
+        "acct.json": "{\"refresh_token\":\"r\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "v/g.json",
+        "acct.json"
+      ],
+      "env": {
+        "GROK_OAUTH_CREDENTIALS_PATH": "{s}/v/g.json"
+      },
+      "bound": {
+        "grok-oauth": "{s}/acct.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false
+      }
+    },
+    {
+      "name": "empty-variable-falls-through",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {
+        "OPENAI_OAUTH_CREDENTIALS_PATH": ""
+      },
+      "bound": {},
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:openai-oauth"
+      ],
+      "results": {
+        "oauth:openai-oauth": false
+      }
+    },
+    {
+      "name": "nothing-anywhere",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {},
+      "bound": {},
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "oauth:openai-oauth",
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "oauth:openai-oauth": false,
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "gate-on",
+      "files": {
+        "cred.json": "{\"access_token\":\"a\",\"refresh_token\":\"r\",\"project_id\":\"p\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:antigravity-oauth": true
+      }
+    },
+    {
+      "name": "gate-off",
+      "files": {
+        "cred.json": "{\"access_token\":\"a\",\"refresh_token\":\"r\",\"project_id\":\"p\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": false
+          }
+        }
+      },
+      "calls": [
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "gate-unset",
+      "files": {
+        "cred.json": "{\"access_token\":\"a\",\"refresh_token\":\"r\",\"project_id\":\"p\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {},
+      "calls": [
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "gate-not-boolean",
+      "files": {
+        "cred.json": "{\"access_token\":\"a\",\"refresh_token\":\"r\",\"project_id\":\"p\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {},
+      "bound": {
+        "antigravity-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": "true"
+          }
+        }
+      },
+      "calls": [
+        "oauth:antigravity-oauth"
+      ],
+      "results": {
+        "oauth:antigravity-oauth": false
+      }
+    },
+    {
+      "name": "remote-mode",
+      "files": {
+        "cred.json": "{\"access_token\":\"a\",\"refresh_token\":\"r\"}"
+      },
+      "dataFiles": {},
+      "written": [
+        "cred.json"
+      ],
+      "env": {
+        "MIXDOG_MODEL_PROXY": "client",
+        "OPENROUTER_API_KEY": "k",
+        "XAI_API_KEY": "k"
+      },
+      "bound": {
+        "grok-oauth": "{s}/cred.json"
+      },
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "calls": [
+        "oauth:grok-oauth",
+        "imageApiKey:openrouter",
+        "gemini",
+        "xai"
+      ],
+      "results": {
+        "oauth:grok-oauth": false,
+        "imageApiKey:openrouter": false,
+        "gemini": {
+          "error": {
+            "message": "Gemini API key is not configured",
+            "code": "MEDIA_LANE_UNAUTHENTICATED",
+            "status": 401
+          }
+        },
+        "xai": {
+          "error": {
+            "message": "xAI API key is not configured",
+            "code": "MEDIA_LANE_UNAUTHENTICATED",
+            "status": 401
+          }
+        }
+      }
+    },
+    {
+      "name": "keys-in-environment",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {
+        "OPENROUTER_API_KEY": "or-key",
+        "XAI_API_KEY": "x-key",
+        "GEMINI_API_KEY": "g-key"
+      },
+      "bound": {},
+      "config": {},
+      "calls": [
+        "imageApiKey:openrouter",
+        "imageApiAuth:openrouter",
+        "gemini",
+        "xai"
+      ],
+      "results": {
+        "imageApiKey:openrouter": true,
+        "imageApiAuth:openrouter": {
+          "value": {
+            "baseURL": "https://openrouter.ai/api/v1",
+            "token": "or-key"
+          }
+        },
+        "gemini": {
+          "value": {
+            "token": "g-key"
+          }
+        },
+        "xai": {
+          "value": {
+            "baseURL": "https://api.x.ai/v1",
+            "token": "x-key"
+          }
+        }
+      }
+    },
+    {
+      "name": "xai-alias",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {
+        "GROK_API_KEY": "alias-key"
+      },
+      "bound": {},
+      "config": {},
+      "calls": [
+        "xai"
+      ],
+      "results": {
+        "xai": {
+          "value": {
+            "baseURL": "https://api.x.ai/v1",
+            "token": "alias-key"
+          }
+        }
+      }
+    },
+    {
+      "name": "xai-mixdog-name",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {
+        "MIXDOG_AGENT_XAI_APIKEY": "mx-key"
+      },
+      "bound": {},
+      "config": {},
+      "calls": [
+        "xai"
+      ],
+      "results": {
+        "xai": {
+          "value": {
+            "baseURL": "https://api.x.ai/v1",
+            "token": "mx-key"
+          }
+        }
+      }
+    },
+    {
+      "name": "gemini-mixdog-name",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {
+        "MIXDOG_AGENT_GEMINI_APIKEY": "mg-key"
+      },
+      "bound": {},
+      "config": {},
+      "calls": [
+        "gemini"
+      ],
+      "results": {
+        "gemini": {
+          "value": {
+            "token": "mg-key"
+          }
+        }
+      }
+    },
+    {
+      "name": "openrouter-mixdog-name",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {
+        "MIXDOG_AGENT_OPENROUTER_APIKEY": "mo-key"
+      },
+      "bound": {},
+      "config": {},
+      "calls": [
+        "imageApiKey:openrouter",
+        "imageApiAuth:openrouter"
+      ],
+      "results": {
+        "imageApiKey:openrouter": true,
+        "imageApiAuth:openrouter": {
+          "value": {
+            "baseURL": "https://openrouter.ai/api/v1",
+            "token": "mo-key"
+          }
+        }
+      }
+    },
+    {
+      "name": "nano-inline-key",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {},
+      "bound": {},
+      "config": {
+        "agent": {
+          "providers": {
+            "custom-nano": {
+              "type": "custom",
+              "baseURL": "https://nano-gpt.com/api/v1",
+              "apiKey": "inline"
+            }
+          }
+        }
+      },
+      "calls": [
+        "imageApiKey:nano-gpt",
+        "imageApiAuth:nano-gpt"
+      ],
+      "results": {
+        "imageApiKey:nano-gpt": true,
+        "imageApiAuth:nano-gpt": {
+          "value": {
+            "baseURL": "https://api.nano-gpt.com/api/v1",
+            "token": "inline"
+          }
+        }
+      }
+    },
+    {
+      "name": "nano-key-env",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {
+        "NANO_KEY": "from-env"
+      },
+      "bound": {},
+      "config": {
+        "agent": {
+          "providers": {
+            "custom-nano": {
+              "type": "custom",
+              "baseURL": "https://nano-gpt.com/api/v1",
+              "apiKeyEnv": "NANO_KEY"
+            }
+          }
+        }
+      },
+      "calls": [
+        "imageApiKey:nano-gpt",
+        "imageApiAuth:nano-gpt"
+      ],
+      "results": {
+        "imageApiKey:nano-gpt": true,
+        "imageApiAuth:nano-gpt": {
+          "value": {
+            "baseURL": "https://api.nano-gpt.com/api/v1",
+            "token": "from-env"
+          }
+        }
+      }
+    },
+    {
+      "name": "nano-key-env-unset",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {},
+      "bound": {},
+      "config": {
+        "agent": {
+          "providers": {
+            "custom-nano": {
+              "type": "custom",
+              "baseURL": "https://nano-gpt.com/api/v1",
+              "apiKeyEnv": "NANO_KEY_UNSET"
+            }
+          }
+        }
+      },
+      "calls": [
+        "imageApiKey:nano-gpt",
+        "imageApiAuth:nano-gpt"
+      ],
+      "results": {
+        "imageApiKey:nano-gpt": false,
+        "imageApiAuth:nano-gpt": {
+          "error": {
+            "message": "nano-gpt API key is not configured",
+            "code": "MEDIA_LANE_UNAUTHENTICATED",
+            "status": 401
+          }
+        }
+      }
+    },
+    {
+      "name": "nano-agent-key-env",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {
+        "MIXDOG_AGENT_CUSTOM-NANO_APIKEY": "agent-key"
+      },
+      "bound": {},
+      "config": {
+        "agent": {
+          "providers": {
+            "custom-nano": {
+              "type": "custom",
+              "baseURL": "https://nano-gpt.com/api/v1"
+            }
+          }
+        }
+      },
+      "calls": [
+        "imageApiKey:nano-gpt",
+        "imageApiAuth:nano-gpt"
+      ],
+      "results": {
+        "imageApiKey:nano-gpt": true,
+        "imageApiAuth:nano-gpt": {
+          "value": {
+            "baseURL": "https://api.nano-gpt.com/api/v1",
+            "token": "agent-key"
+          }
+        }
+      }
+    },
+    {
+      "name": "nano-disabled",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {},
+      "bound": {},
+      "config": {
+        "agent": {
+          "providers": {
+            "custom-nano": {
+              "type": "custom",
+              "baseURL": "https://nano-gpt.com/api/v1",
+              "apiKey": "k",
+              "enabled": false
+            }
+          }
+        }
+      },
+      "calls": [
+        "imageApiKey:nano-gpt"
+      ],
+      "results": {
+        "imageApiKey:nano-gpt": false
+      }
+    },
+    {
+      "name": "nano-no-auth",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {},
+      "bound": {},
+      "config": {
+        "agent": {
+          "providers": {
+            "custom-nano": {
+              "type": "custom",
+              "baseURL": "https://nano-gpt.com/api/v1",
+              "apiKey": "k",
+              "auth": "none"
+            }
+          }
+        }
+      },
+      "calls": [
+        "imageApiKey:nano-gpt"
+      ],
+      "results": {
+        "imageApiKey:nano-gpt": false
+      }
+    },
+    {
+      "name": "nano-other-host",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {},
+      "bound": {},
+      "config": {
+        "agent": {
+          "providers": {
+            "custom-nano": {
+              "type": "custom",
+              "baseURL": "https://example.com/v1",
+              "apiKey": "k"
+            }
+          }
+        }
+      },
+      "calls": [
+        "imageApiKey:nano-gpt"
+      ],
+      "results": {
+        "imageApiKey:nano-gpt": false
+      }
+    },
+    {
+      "name": "nano-lookalike-host",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {},
+      "bound": {},
+      "config": {
+        "agent": {
+          "providers": {
+            "custom-nano": {
+              "type": "custom",
+              "baseURL": "https://evilnano-gpt.com/v1",
+              "apiKey": "k"
+            }
+          }
+        }
+      },
+      "calls": [
+        "imageApiKey:nano-gpt"
+      ],
+      "results": {
+        "imageApiKey:nano-gpt": false
+      }
+    },
+    {
+      "name": "nano-subdomain-upper",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {},
+      "bound": {},
+      "config": {
+        "agent": {
+          "providers": {
+            "custom-nano": {
+              "type": "custom",
+              "baseURL": "https://API.NANO-GPT.COM/v1",
+              "apiKey": "k"
+            }
+          }
+        }
+      },
+      "calls": [
+        "imageApiKey:nano-gpt",
+        "imageApiAuth:nano-gpt"
+      ],
+      "results": {
+        "imageApiKey:nano-gpt": true,
+        "imageApiAuth:nano-gpt": {
+          "value": {
+            "baseURL": "https://api.nano-gpt.com/api/v1",
+            "token": "k"
+          }
+        }
+      }
+    },
+    {
+      "name": "nano-bad-url",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {},
+      "bound": {},
+      "config": {
+        "agent": {
+          "providers": {
+            "custom-nano": {
+              "type": "custom",
+              "baseURL": "not a url",
+              "apiKey": "k"
+            }
+          }
+        }
+      },
+      "calls": [
+        "imageApiKey:nano-gpt"
+      ],
+      "results": {
+        "imageApiKey:nano-gpt": false
+      }
+    },
+    {
+      "name": "nano-not-custom-type",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {},
+      "bound": {},
+      "config": {
+        "agent": {
+          "providers": {
+            "custom-nano": {
+              "type": "openai",
+              "baseURL": "https://nano-gpt.com/api/v1",
+              "apiKey": "k"
+            }
+          }
+        }
+      },
+      "calls": [
+        "imageApiKey:nano-gpt"
+      ],
+      "results": {
+        "imageApiKey:nano-gpt": false
+      }
+    },
+    {
+      "name": "nano-not-custom-id",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {},
+      "bound": {},
+      "config": {
+        "agent": {
+          "providers": {
+            "nano": {
+              "type": "custom",
+              "baseURL": "https://nano-gpt.com/api/v1",
+              "apiKey": "k"
+            }
+          }
+        }
+      },
+      "calls": [
+        "imageApiKey:nano-gpt"
+      ],
+      "results": {
+        "imageApiKey:nano-gpt": false
+      }
+    },
+    {
+      "name": "nano-first-keyed-wins",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {},
+      "bound": {},
+      "config": {
+        "agent": {
+          "providers": {
+            "custom-a": {
+              "type": "custom",
+              "baseURL": "https://nano-gpt.com/api/v1",
+              "apiKeyEnv": "NANO_KEY_UNSET"
+            },
+            "custom-b": {
+              "type": "custom",
+              "baseURL": "https://nano-gpt.com/api/v1",
+              "apiKey": "second"
+            },
+            "custom-c": {
+              "type": "custom",
+              "baseURL": "https://nano-gpt.com/api/v1",
+              "apiKey": "third"
+            }
+          }
+        }
+      },
+      "calls": [
+        "imageApiKey:nano-gpt",
+        "imageApiAuth:nano-gpt"
+      ],
+      "results": {
+        "imageApiKey:nano-gpt": true,
+        "imageApiAuth:nano-gpt": {
+          "value": {
+            "baseURL": "https://api.nano-gpt.com/api/v1",
+            "token": "second"
+          }
+        }
+      }
+    },
+    {
+      "name": "nano-no-providers",
+      "files": {},
+      "dataFiles": {},
+      "written": [],
+      "env": {},
+      "bound": {},
+      "config": {},
+      "calls": [
+        "imageApiKey:nano-gpt",
+        "imageApiAuth:nano-gpt"
+      ],
+      "results": {
+        "imageApiKey:nano-gpt": false,
+        "imageApiAuth:nano-gpt": {
+          "error": {
+            "message": "nano-gpt API key is not configured",
+            "code": "MEDIA_LANE_UNAUTHENTICATED",
+            "status": 401
+          }
+        }
+      }
+    }
+  ]
+}

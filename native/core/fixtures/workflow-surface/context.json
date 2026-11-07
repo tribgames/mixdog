@@ -1,0 +1,429 @@
+{
+  "cases": [
+    {
+      "name": "user-pack-drops-its-own-title",
+      "active": "review",
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n"
+      },
+      "data": {
+        "workflows/review/WORKFLOW.md": "---\nid: review\nname: Review\ndescription: Checks twice\n---\n# Review\n\nRead twice.\n"
+      },
+      "hasAgents": false,
+      "summary": {
+        "id": "review",
+        "name": "Review",
+        "description": "Checks twice",
+        "source": "user",
+        "delegatesAgents": false
+      },
+      "packContext": "# Active Workflow: Review — Checks twice\n\nRead twice."
+    },
+    {
+      "name": "title-matches-case-insensitively",
+      "active": "review",
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n"
+      },
+      "data": {
+        "workflows/review/WORKFLOW.md": "---\nname: Review\n---\n# REVIEW\n\n\n   Body after blanks.\n"
+      },
+      "hasAgents": false,
+      "summary": {
+        "id": "review",
+        "name": "Review",
+        "description": "",
+        "source": "user",
+        "delegatesAgents": false
+      },
+      "packContext": "# Active Workflow: Review\n\nBody after blanks."
+    },
+    {
+      "name": "other-title-is-kept",
+      "active": "review",
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n"
+      },
+      "data": {
+        "workflows/review/WORKFLOW.md": "---\nname: Review\ndescription: d\n---\n# Something else\n\nBody.\n"
+      },
+      "hasAgents": false,
+      "summary": {
+        "id": "review",
+        "name": "Review",
+        "description": "d",
+        "source": "user",
+        "delegatesAgents": false
+      },
+      "packContext": "# Active Workflow: Review — d\n\n# Something else\n\nBody."
+    },
+    {
+      "name": "one-line-body-equal-to-title-is-kept",
+      "active": "review",
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n"
+      },
+      "data": {
+        "workflows/review/WORKFLOW.md": "---\nname: Review\n---\n# Review"
+      },
+      "hasAgents": false,
+      "summary": {
+        "id": "review",
+        "name": "Review",
+        "description": "",
+        "source": "user",
+        "delegatesAgents": false
+      },
+      "packContext": "# Active Workflow: Review\n\n# Review"
+    },
+    {
+      "name": "no-description",
+      "active": "review",
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n"
+      },
+      "data": {
+        "workflows/review/WORKFLOW.md": "---\nname: Review\n---\nJust text\nsecond line"
+      },
+      "hasAgents": false,
+      "summary": {
+        "id": "review",
+        "name": "Review",
+        "description": "",
+        "source": "user",
+        "delegatesAgents": false
+      },
+      "packContext": "# Active Workflow: Review\n\nJust text\nsecond line"
+    },
+    {
+      "name": "name-defaults-to-the-id",
+      "active": "plain",
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n"
+      },
+      "data": {
+        "workflows/plain/WORKFLOW.md": "# plain\n\nBody"
+      },
+      "hasAgents": false,
+      "summary": {
+        "id": "plain",
+        "name": "plain",
+        "description": "",
+        "source": "user",
+        "delegatesAgents": false
+      },
+      "packContext": "# Active Workflow: plain\n\nBody"
+    },
+    {
+      "name": "crlf-title-line",
+      "active": "review",
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n"
+      },
+      "data": {
+        "workflows/review/WORKFLOW.md": "---\nname: Review\n---\n# Review \r\nBody line\r\nnext\r\n"
+      },
+      "hasAgents": false,
+      "summary": {
+        "id": "review",
+        "name": "Review",
+        "description": "",
+        "source": "user",
+        "delegatesAgents": false
+      },
+      "packContext": "# Active Workflow: Review\n\nBody line\r\nnext"
+    },
+    {
+      "name": "special-lowercase-names",
+      "active": "turkish",
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n"
+      },
+      "data": {
+        "workflows/turkish/WORKFLOW.md": "---\nname: İSTANBUL ΟΔΟΣ\n---\n# i̇stanbul οδος\n\nBody"
+      },
+      "hasAgents": false,
+      "summary": {
+        "id": "turkish",
+        "name": "İSTANBUL ΟΔΟΣ",
+        "description": "",
+        "source": "user",
+        "delegatesAgents": false
+      },
+      "packContext": "# Active Workflow: İSTANBUL ΟΔΟΣ\n\nBody"
+    },
+    {
+      "name": "description-with-dash-and-padding",
+      "active": "review",
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n"
+      },
+      "data": {
+        "workflows/review/WORKFLOW.md": "---\nname:  Review \ndescription:   a — b  \n---\nBody"
+      },
+      "hasAgents": false,
+      "summary": {
+        "id": "review",
+        "name": "Review",
+        "description": "a — b",
+        "source": "user",
+        "delegatesAgents": false
+      },
+      "packContext": "# Active Workflow: Review — a — b\n\nBody"
+    },
+    {
+      "name": "shipped-pack",
+      "active": "headless",
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n",
+        "workflows/headless/WORKFLOW.md": "---\nname: Headless\ndescription: No agents\n---\n# Headless\n\nShipped headless.\n"
+      },
+      "data": {},
+      "hasAgents": false,
+      "summary": {
+        "id": "headless",
+        "name": "Headless",
+        "description": "No agents",
+        "source": "built-in",
+        "delegatesAgents": false
+      },
+      "packContext": "# Active Workflow: Headless — No agents\n\nShipped headless."
+    },
+    {
+      "name": "user-copy-of-a-shipped-pack-wins",
+      "active": "headless",
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n",
+        "workflows/headless/WORKFLOW.md": "---\nname: Headless\n---\nShipped headless"
+      },
+      "data": {
+        "workflows/headless/WORKFLOW.md": "---\nname: Mine\n---\nMine body"
+      },
+      "hasAgents": false,
+      "summary": {
+        "id": "headless",
+        "name": "Mine",
+        "description": "",
+        "source": "user",
+        "delegatesAgents": false
+      },
+      "packContext": "# Active Workflow: Mine\n\nMine body"
+    },
+    {
+      "name": "missing-id-falls-back-to-the-default-pack",
+      "active": "nope",
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n"
+      },
+      "data": {},
+      "hasAgents": false,
+      "summary": {
+        "id": "default",
+        "name": "Default",
+        "description": "The shipped default",
+        "source": "built-in",
+        "delegatesAgents": false
+      },
+      "packContext": "# Active Workflow: Default — The shipped default\n\nShipped default body."
+    },
+    {
+      "name": "solo-is-the-default-pack",
+      "active": "solo",
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n"
+      },
+      "data": {},
+      "hasAgents": false,
+      "summary": {
+        "id": "default",
+        "name": "Default",
+        "description": "The shipped default",
+        "source": "built-in",
+        "delegatesAgents": false
+      },
+      "packContext": "# Active Workflow: Default — The shipped default\n\nShipped default body."
+    },
+    {
+      "name": "no-active-workflow",
+      "active": null,
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n"
+      },
+      "data": {},
+      "hasAgents": false,
+      "summary": {
+        "id": "default",
+        "name": "Default",
+        "description": "The shipped default",
+        "source": "built-in",
+        "delegatesAgents": false
+      },
+      "packContext": "# Active Workflow: Default — The shipped default\n\nShipped default body."
+    },
+    {
+      "name": "id-is-normalised",
+      "active": "My Review_2",
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n"
+      },
+      "data": {
+        "workflows/my-review-2/WORKFLOW.md": "---\nname: My Review 2\n---\nBody"
+      },
+      "hasAgents": false,
+      "summary": {
+        "id": "my-review-2",
+        "name": "My Review 2",
+        "description": "",
+        "source": "user",
+        "delegatesAgents": false
+      },
+      "packContext": "# Active Workflow: My Review 2\n\nBody"
+    },
+    {
+      "name": "declared-id-differs-from-the-folder",
+      "active": "folder",
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n"
+      },
+      "data": {
+        "workflows/folder/WORKFLOW.md": "---\nid: Declared\nname: Declared\n---\nBody"
+      },
+      "hasAgents": false,
+      "summary": {
+        "id": "declared",
+        "name": "Declared",
+        "description": "",
+        "source": "user",
+        "delegatesAgents": false
+      },
+      "packContext": "# Active Workflow: Declared\n\nBody"
+    },
+    {
+      "name": "hidden-pack-still-loads",
+      "active": "quiet",
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n"
+      },
+      "data": {
+        "workflows/quiet/WORKFLOW.md": "---\nname: Quiet\nhidden: true\n---\nBody"
+      },
+      "hasAgents": false,
+      "summary": {
+        "id": "quiet",
+        "name": "Quiet",
+        "description": "",
+        "source": "user",
+        "delegatesAgents": false
+      },
+      "packContext": "# Active Workflow: Quiet\n\nBody"
+    },
+    {
+      "name": "empty-user-pack-falls-through",
+      "active": "review",
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n",
+        "workflows/review/WORKFLOW.md": "---\nname: Review shipped\n---\nShipped review"
+      },
+      "data": {
+        "workflows/review/WORKFLOW.md": "---\nname: Review\n---\n   \n"
+      },
+      "hasAgents": false,
+      "summary": {
+        "id": "review",
+        "name": "Review shipped",
+        "description": "",
+        "source": "built-in",
+        "delegatesAgents": false
+      },
+      "packContext": "# Active Workflow: Review shipped\n\nShipped review"
+    },
+    {
+      "name": "agents-present",
+      "active": "review",
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n"
+      },
+      "data": {
+        "workflows/review/WORKFLOW.md": "---\nname: Review\n---\nBody",
+        "agents/mine/AGENT.md": "---\nname: Mine\n---\nDo things."
+      },
+      "hasAgents": true,
+      "summary": {
+        "id": "review",
+        "name": "Review",
+        "description": "",
+        "source": "user",
+        "delegatesAgents": true
+      },
+      "packContext": "# Active Workflow: Review\n\nBody"
+    },
+    {
+      "name": "agents-present-default",
+      "active": "default",
+      "root": {
+        "workflows/default/WORKFLOW.md": "---\nname: Default\ndescription: The shipped default\n---\n# Default\n\nShipped default body.\n"
+      },
+      "data": {
+        "agents/mine/AGENT.md": "---\nname: Mine\n---\nDo things."
+      },
+      "hasAgents": true,
+      "summary": {
+        "id": "default",
+        "name": "Default",
+        "description": "The shipped default",
+        "source": "built-in",
+        "delegatesAgents": true
+      },
+      "packContext": "# Active Workflow: Default — The shipped default\n\nShipped default body."
+    },
+    {
+      "name": "no-pack-at-all",
+      "active": "review",
+      "root": {},
+      "data": {},
+      "hasAgents": false,
+      "summary": {
+        "id": "default",
+        "name": "Default",
+        "description": "",
+        "source": "",
+        "delegatesAgents": false
+      },
+      "packContext": ""
+    },
+    {
+      "name": "no-pack-at-all-with-agents",
+      "active": "default",
+      "root": {},
+      "data": {
+        "agents/mine/AGENT.md": "---\nname: Mine\n---\nDo things."
+      },
+      "hasAgents": true,
+      "summary": {
+        "id": "default",
+        "name": "Default",
+        "description": "",
+        "source": "",
+        "delegatesAgents": true
+      },
+      "packContext": ""
+    },
+    {
+      "name": "default-without-a-name",
+      "active": "default",
+      "root": {
+        "workflows/default/WORKFLOW.md": "Body only"
+      },
+      "data": {},
+      "hasAgents": false,
+      "summary": {
+        "id": "default",
+        "name": "default",
+        "description": "",
+        "source": "built-in",
+        "delegatesAgents": false
+      },
+      "packContext": "# Active Workflow: default\n\nBody only"
+    }
+  ]
+}

@@ -234,7 +234,7 @@ impl ProviderAdmin {
         if !done {
             return Err(Failure::error(format!("{id} login did not complete")));
         }
-        let auth = oauth.describe(&self.current_account_id(id).await?);
+        let auth = oauth.describe(&self.current_account_id(id).await?).await;
         // Only a SUCCESSFUL login states `enabled`: a failed one is not a decision to turn the
         // provider off, and disabling is `forgetProviderAuth`'s job alone.
         if Self::authenticated(&auth) {
@@ -293,7 +293,7 @@ impl ProviderAdmin {
         } else {
             id_before
         };
-        let include_default = Self::authenticated(&oauth.describe("default"));
+        let include_default = Self::authenticated(&oauth.describe("default").await);
         if add_account && self.accounts.pool(&id).await.map_err(acct)?.accounts.len() >= 20 {
             return Err(Failure::error("At most 20 accounts can be connected."));
         }
@@ -328,7 +328,7 @@ impl ProviderAdmin {
         include_default: bool,
         label: &str,
     ) -> Result<bool, Failure> {
-        let auth = oauth.describe(signed_in);
+        let auth = oauth.describe(signed_in).await;
         if !Self::authenticated(&auth) {
             return Ok(false);
         }
@@ -367,7 +367,7 @@ impl ProviderAdmin {
         let null = Value::Null;
         let identity = (auth.get("identityId").unwrap_or(&null), auth.get("email").unwrap_or(&null));
         for row in pool.accounts.iter().filter(|r| r.id != "default" && r.id != new_account) {
-            let existing = oauth.describe(&row.id);
+            let existing = oauth.describe(&row.id).await;
             let theirs = (existing.get("identityId").unwrap_or(&null), existing.get("email").unwrap_or(&null));
             if same_identity(identity, theirs) {
                 return Ok(Some(row.id.clone()));
@@ -387,7 +387,7 @@ impl ProviderAdmin {
         let oauth = self.oauth(provider).ok_or_else(|| Failure::type_error("Unknown OAuth provider."))?;
         let pool = self.accounts.pool(provider).await.map_err(acct)?;
         let rows: Vec<Account> = if pool.accounts.is_empty() {
-            if Self::authenticated(&oauth.describe("default")) {
+            if Self::authenticated(&oauth.describe("default").await) {
                 let mut row = Account::new("default");
                 row.label = Some("Account 1".into());
                 vec![row]
@@ -399,7 +399,10 @@ impl ProviderAdmin {
         };
         let now = chrono::Utc::now().timestamp_millis();
         let use_credits = pool.uses_credits();
-        let accounts: Vec<Value> = rows.iter().map(|row| account_row(oauth, row, now, use_credits)).collect();
+        let mut accounts: Vec<Value> = Vec::with_capacity(rows.len());
+        for row in &rows {
+            accounts.push(account_row(oauth, row, now, use_credits).await);
+        }
         let selected = pool.selected_id.clone().filter(|s| !s.is_empty()).or_else(|| rows.first().map(|r| r.id.clone()));
         let mut out = Map::new();
         out.insert("provider".into(), json!(provider));
@@ -672,8 +675,8 @@ pub(crate) fn selected_of(pool: Result<mixdog_ai::accounts::Pool, AccountError>)
 }
 
 /// One roster row of `listProviderAccounts`.
-fn account_row(oauth: &Arc<dyn OAuthProvider>, row: &Account, now: i64, use_credits: bool) -> Value {
-    let auth = oauth.describe(&row.id);
+async fn account_row(oauth: &Arc<dyn OAuthProvider>, row: &Account, now: i64, use_credits: bool) -> Value {
+    let auth = oauth.describe(&row.id).await;
     let field = |key: &str| auth.get(key).and_then(Value::as_str).map(mixdog_js::js_trim).unwrap_or("").to_owned();
     let (email, account_id, org) = (field("email"), field("accountId"), field("orgName"));
     let mut identity = if !email.is_empty() {

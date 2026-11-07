@@ -263,6 +263,18 @@ impl Proc {
         Ok(())
     }
 
+    /// The gentle first stop of an escalating one (`ProcessManager::terminate`): SIGTERM to the group on
+    /// Unix, the forced kill where there is no gentle stop. The first reason wins, as for `kill`.
+    fn terminate(&self, reason: KillReason) -> Result<(), ProcessError> {
+        let mut life = self.life();
+        if life.finalized {
+            return Err(ProcessError::AlreadyExited);
+        }
+        life.killed.get_or_insert(reason);
+        self.containment.terminate();
+        Ok(())
+    }
+
     fn info(&self) -> ProcessInfo {
         ProcessInfo {
             handle: self.handle.clone(),
@@ -960,6 +972,10 @@ impl ProcessManager for LocalProcessManager {
 
     fn kill(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
         self.kill_with(handle, KillReason::Requested)
+    }
+
+    fn terminate(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+        self.inner.lookup(handle)?.terminate(KillReason::Requested)
     }
 
     fn list(&self) -> Vec<ProcessInfo> {

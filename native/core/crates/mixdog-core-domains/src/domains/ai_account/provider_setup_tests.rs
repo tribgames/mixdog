@@ -4,9 +4,9 @@
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
-use serde_json::Map;
 use serde_json::Value;
 
+use super::custom_admin::CustomFacts;
 use super::provider_setup::KeychainStatus;
 use super::provider_setup::SetupOptions;
 use super::provider_setup::SetupWorld;
@@ -29,10 +29,7 @@ fn id_of(account: &str) -> &str {
     account.strip_prefix("agent.").and_then(|rest| rest.strip_suffix(".apiKey")).unwrap_or_default()
 }
 
-impl SetupWorld for Recorded {
-    fn resolved_env_name(&self, id: &str) -> Option<String> {
-        self.world["resolvedEnv"][id].as_str().map(str::to_owned)
-    }
+impl CustomFacts for Recorded {
     fn env(&self, name: &str) -> Option<String> {
         self.env[name].as_str().map(str::to_owned)
     }
@@ -41,6 +38,16 @@ impl SetupWorld for Recorded {
     }
     fn is_fallback_secret(&self, account: &str) -> bool {
         listed(&self.world["fallback"], id_of(account))
+    }
+    /// The provider recordings hold no custom providers.
+    fn custom_key_ids(&self, _: &str) -> Vec<String> {
+        Vec::new()
+    }
+}
+
+impl SetupWorld for Recorded {
+    fn resolved_env_name(&self, id: &str) -> Option<String> {
+        self.world["resolvedEnv"][id].as_str().map(str::to_owned)
     }
     fn has_agent_api_key(&self, id: &str) -> bool {
         listed(&self.world["keyPresent"], id)
@@ -78,9 +85,6 @@ impl SetupWorld for Recorded {
         // `"throws"` is the status function throwing; no recorded status is the real probe of a
         // host with no local runtime, which reads as an absent runtime.
         Some(self.local.clone()).filter(Value::is_object)
-    }
-    fn custom_rows(&self, _providers: &Map<String, Value>, _check_secrets: bool) -> Vec<Value> {
-        Vec::new()
     }
 }
 

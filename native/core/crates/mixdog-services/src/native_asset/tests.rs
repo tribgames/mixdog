@@ -6,12 +6,14 @@
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use mixdog_rt::DurabilityIo;
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
 use super::{AssetDownloader, GraphBinary, ReleaseDownloader, bin_suffix, sha256_file};
 use crate::memory::ingest::system_now;
+use crate::model_install::fsio;
 use crate::tidy::install::platform_key_candidates;
 
 const GOLDEN: &str = include_str!("../../../../fixtures/native-asset/graph-binary.json");
@@ -29,6 +31,7 @@ fn host(text: &str, version: &str) -> String {
 
 /// `options.download` of the Node recording: writes what the scenario serves, or fails.
 struct Stub {
+    durability: DurabilityIo,
     dir: std::path::PathBuf,
     served: String,
     fail: Option<String>,
@@ -43,7 +46,7 @@ impl AssetDownloader for Stub {
         if let Some(message) = &self.fail {
             return Err(message.clone());
         }
-        tokio::fs::write(dest, &self.served).await.map_err(|e| e.to_string())
+        fsio::write(self.durability, dest, self.served.clone().into_bytes()).await.map_err(|e| e.to_string())
     }
 }
 
@@ -62,15 +65,16 @@ async fn installs_match_the_node_golden() {
         let dir = data.path().join("graph-bin");
         let seed = scenario["seed"].as_array().expect("seed");
         if !seed.is_empty() {
-            tokio::fs::create_dir_all(&dir).await.expect("bin dir");
+            fsio::create_dir_all(tokens.durability_io, &dir).await.expect("bin dir");
         }
         for file in seed {
-            tokio::fs::write(dir.join(host(file["name"].as_str().expect("name"), version)), file["content"].as_str().expect("content")).await.expect("seed");
+            fsio::write(tokens.durability_io, &dir.join(host(file["name"].as_str().expect("name"), version)), file["content"].as_str().expect("content").as_bytes().to_vec()).await.expect("seed");
         }
         // The template's version differs from the one its url names only for the leading-zero case,
         // whose url is spelled out in the manifest.
         let manifest: Value = serde_json::from_str(&host(&scenario["manifest"].to_string(), "1.2.3")).expect("manifest");
         let stub = Arc::new(Stub {
+            durability: tokens.durability_io,
             dir: dir.clone(),
             served: scenario["served"].as_str().unwrap_or(golden["bytes"].as_str().expect("bytes")).to_owned(),
             fail: scenario["fail"].as_str().map(str::to_owned),
@@ -97,12 +101,7 @@ async fn installs_match_the_node_golden() {
             .collect();
         assert_eq!(calls, want_calls, "{}", case("downloads"));
         assert_eq!(relative(binary.find_cached().await, &dir), host_value(&scenario["findAfter"]), "{}", case("find after"));
-        let mut files: Vec<String> = Vec::new();
-        if let Ok(mut read) = tokio::fs::read_dir(&dir).await {
-            while let Some(entry) = read.next_entry().await.expect("entry") {
-                files.push(entry.file_name().to_string_lossy().into_owned());
-            }
-        }
+        let mut files = fsio::list_names(tokens.durability_io, &dir).await;
         files.sort();
         let want_files: Vec<String> = scenario["files"].as_array().expect("files").iter().map(|f| host(f.as_str().expect("file"), version)).collect();
         assert_eq!(files, want_files, "{}", case("files"));
@@ -165,7 +164,7 @@ async fn the_release_downloader_matches_the_node_golden() {
             (Ok(()), Some(sha), _) => assert_eq!(sha256_file(tokens.cpu_bulk, &dest).await.expect("hash"), sha.as_str().expect("sha"), "{route}"),
             (Err(text), _, Some(error)) => {
                 assert_eq!(text, error.as_str().expect("text").replace("<BASE>", &base), "{route}");
-                assert!(tokio::fs::metadata(&dest).await.is_err(),"{route}: a failed download leaves no file");
+                assert!(!fsio::exists(tokens.durability_io, &dest).await.expect("exists"), "{route}: a failed download leaves no file");
             }
             (got, ..) => panic!("{route}: {got:?} against {}", case["outcome"]),
         }

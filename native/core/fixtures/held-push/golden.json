@@ -1,0 +1,1469 @@
+{
+  "note": "createPushNotifier.onHeldRequest over real paired phones: heldRequestPushText and the native push each phone decrypts",
+  "hostId": "host-1",
+  "text": [
+    {
+      "agentName": "",
+      "text": "Mixy가 승인을 기다립니다"
+    },
+    {
+      "agentName": "ann",
+      "text": "ann가 승인을 기다립니다"
+    },
+    {
+      "agentName": "Mixy",
+      "text": "Mixy가 승인을 기다립니다"
+    },
+    {
+      "agentName": " ",
+      "text": " 가 승인을 기다립니다"
+    },
+    {
+      "agentName": "민지",
+      "text": "민지가 승인을 기다립니다"
+    },
+    {
+      "agentName": "한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한",
+      "text": "한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한한가 승인을 기다립니다"
+    },
+    {
+      "agentName": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx가 승인을 기다립니다"
+    },
+    {
+      "agentName": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx가 승인을 기다립니다"
+    },
+    {
+      "agentName": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+      "text": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀가 승인을 기다립니다"
+    },
+    {
+      "agentName": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀tail",
+      "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa�가 승인을 기다립니다"
+    },
+    {
+      "agentName": "**bold** _it_ `code` [l](http://x)",
+      "text": "**bold** _it_ `code` [l](http://x)가 승인을 기다립니다"
+    },
+    {
+      "agentName": "two\nlines",
+      "text": "two\nlines가 승인을 기다립니다"
+    }
+  ],
+  "cases": [
+    {
+      "name": "one phone, default preferences",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_home_ann",
+        "agentId": "ann",
+        "agentName": "ann",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-a",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": [
+        {
+          "deviceId": "phone-a",
+          "afterHold": false,
+          "content": {
+            "title": "Mixdog",
+            "body": "ann가 승인을 기다립니다",
+            "sessionId": "sess_home_ann",
+            "reason": "approval-pending",
+            "approvalId": "held_1",
+            "hostId": "host-1"
+          },
+          "relay": {
+            "platform": "fcm",
+            "reason": "approval-pending",
+            "sandbox": false,
+            "collapseKey": "zPyg2tExJFS3S1QLSYIpxBjYQZ03Ptm8"
+          }
+        }
+      ]
+    },
+    {
+      "name": "no agent name says Mixy",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_home_ann",
+        "agentId": "ann",
+        "agentName": "",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-a",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": [
+        {
+          "deviceId": "phone-a",
+          "afterHold": false,
+          "content": {
+            "title": "Mixdog",
+            "body": "Mixy가 승인을 기다립니다",
+            "sessionId": "sess_home_ann",
+            "reason": "approval-pending",
+            "approvalId": "held_1",
+            "hostId": "host-1"
+          },
+          "relay": {
+            "platform": "fcm",
+            "reason": "approval-pending",
+            "sandbox": false,
+            "collapseKey": "zPyg2tExJFS3S1QLSYIpxBjYQZ03Ptm8"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a long name is clipped to 60 units",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_home_ann",
+        "agentId": "ann",
+        "agentName": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-a",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": [
+        {
+          "deviceId": "phone-a",
+          "afterHold": false,
+          "content": {
+            "title": "Mixdog",
+            "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx가 승인을 기다립니다",
+            "sessionId": "sess_home_ann",
+            "reason": "approval-pending",
+            "approvalId": "held_1",
+            "hostId": "host-1"
+          },
+          "relay": {
+            "platform": "fcm",
+            "reason": "approval-pending",
+            "sandbox": false,
+            "collapseKey": "zPyg2tExJFS3S1QLSYIpxBjYQZ03Ptm8"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a name cut inside an emoji",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_home_ann",
+        "agentId": "ann",
+        "agentName": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀tail",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-a",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": [
+        {
+          "deviceId": "phone-a",
+          "afterHold": false,
+          "content": {
+            "title": "Mixdog",
+            "body": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa�가 승인을 기다립니다",
+            "sessionId": "sess_home_ann",
+            "reason": "approval-pending",
+            "approvalId": "held_1",
+            "hostId": "host-1"
+          },
+          "relay": {
+            "platform": "fcm",
+            "reason": "approval-pending",
+            "sandbox": false,
+            "collapseKey": "zPyg2tExJFS3S1QLSYIpxBjYQZ03Ptm8"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Markdown in the name travels as it is",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_home_ann",
+        "agentId": "ann",
+        "agentName": "**ann** _x_ `y`",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-a",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": [
+        {
+          "deviceId": "phone-a",
+          "afterHold": false,
+          "content": {
+            "title": "Mixdog",
+            "body": "**ann** _x_ `y`가 승인을 기다립니다",
+            "sessionId": "sess_home_ann",
+            "reason": "approval-pending",
+            "approvalId": "held_1",
+            "hostId": "host-1"
+          },
+          "relay": {
+            "platform": "fcm",
+            "reason": "approval-pending",
+            "sandbox": false,
+            "collapseKey": "zPyg2tExJFS3S1QLSYIpxBjYQZ03Ptm8"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a device with scope off hears nothing",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_home_ann",
+        "agentId": "ann",
+        "agentName": "ann",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-off",
+          "preferences": {
+            "scope": "off",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        },
+        {
+          "deviceId": "phone-on",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": [
+        {
+          "deviceId": "phone-on",
+          "afterHold": false,
+          "content": {
+            "title": "Mixdog",
+            "body": "ann가 승인을 기다립니다",
+            "sessionId": "sess_home_ann",
+            "reason": "approval-pending",
+            "approvalId": "held_1",
+            "hostId": "host-1"
+          },
+          "relay": {
+            "platform": "fcm",
+            "reason": "approval-pending",
+            "sandbox": false,
+            "collapseKey": "zPyg2tExJFS3S1QLSYIpxBjYQZ03Ptm8"
+          }
+        }
+      ]
+    },
+    {
+      "name": "the approval toggle is the event toggle",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_home_ann",
+        "agentId": "ann",
+        "agentName": "ann",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-no",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": false,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        },
+        {
+          "deviceId": "phone-on",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": [
+        {
+          "deviceId": "phone-on",
+          "afterHold": false,
+          "content": {
+            "title": "Mixdog",
+            "body": "ann가 승인을 기다립니다",
+            "sessionId": "sess_home_ann",
+            "reason": "approval-pending",
+            "approvalId": "held_1",
+            "hostId": "host-1"
+          },
+          "relay": {
+            "platform": "fcm",
+            "reason": "approval-pending",
+            "sandbox": false,
+            "collapseKey": "zPyg2tExJFS3S1QLSYIpxBjYQZ03Ptm8"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a phone showing the home thread is not pushed",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_home_ann",
+        "agentId": "ann",
+        "agentName": "ann",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-fg",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": true
+        },
+        {
+          "deviceId": "phone-bg",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": [
+        {
+          "deviceId": "phone-bg",
+          "afterHold": false,
+          "content": {
+            "title": "Mixdog",
+            "body": "ann가 승인을 기다립니다",
+            "sessionId": "sess_home_ann",
+            "reason": "approval-pending",
+            "approvalId": "held_1",
+            "hostId": "host-1"
+          },
+          "relay": {
+            "platform": "fcm",
+            "reason": "approval-pending",
+            "sandbox": false,
+            "collapseKey": "zPyg2tExJFS3S1QLSYIpxBjYQZ03Ptm8"
+          }
+        }
+      ]
+    },
+    {
+      "name": "bots scope hears a bot home chat",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_home_ann",
+        "agentId": "ann",
+        "agentName": "ann",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-bots",
+          "preferences": {
+            "scope": "bots",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": [
+        {
+          "deviceId": "phone-bots",
+          "afterHold": false,
+          "content": {
+            "title": "Mixdog",
+            "body": "ann가 승인을 기다립니다",
+            "sessionId": "sess_home_ann",
+            "reason": "approval-pending",
+            "approvalId": "held_1",
+            "hostId": "host-1"
+          },
+          "relay": {
+            "platform": "fcm",
+            "reason": "approval-pending",
+            "sandbox": false,
+            "collapseKey": "zPyg2tExJFS3S1QLSYIpxBjYQZ03Ptm8"
+          }
+        }
+      ]
+    },
+    {
+      "name": "bots scope does not hear a plain session; the run agent only names an override",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_plain",
+        "agentId": "ann",
+        "agentName": "ann",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-bots",
+          "preferences": {
+            "scope": "bots",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        },
+        {
+          "deviceId": "phone-all",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": [
+        {
+          "deviceId": "phone-all",
+          "afterHold": false,
+          "content": {
+            "title": "Mixdog",
+            "body": "ann가 승인을 기다립니다",
+            "sessionId": "sess_plain",
+            "reason": "approval-pending",
+            "approvalId": "held_1",
+            "hostId": "host-1"
+          },
+          "relay": {
+            "platform": "fcm",
+            "reason": "approval-pending",
+            "sandbox": false,
+            "collapseKey": "CWAhd6SD-068DebUO_U80hUPSE7AV2Zi"
+          }
+        }
+      ]
+    },
+    {
+      "name": "the run agent is muted for a session that names no bot",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_plain",
+        "agentId": "ann",
+        "agentName": "ann",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [
+        {
+          "target": {
+            "kind": "agent",
+            "id": "ann"
+          },
+          "setting": {
+            "mode": "muted",
+            "until": null
+          }
+        }
+      ],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-a",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": []
+    },
+    {
+      "name": "the home thread bot, not the event agent, is the conversation agent",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_home_ann",
+        "agentId": "bob",
+        "agentName": "ann",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [
+        {
+          "target": {
+            "kind": "agent",
+            "id": "ann"
+          },
+          "setting": {
+            "mode": "muted",
+            "until": null
+          }
+        }
+      ],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-a",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": []
+    },
+    {
+      "name": "the event agent is not used where the session has a bot",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_home_ann",
+        "agentId": "bob",
+        "agentName": "ann",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [
+        {
+          "target": {
+            "kind": "agent",
+            "id": "bob"
+          },
+          "setting": {
+            "mode": "muted",
+            "until": null
+          }
+        }
+      ],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-a",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": [
+        {
+          "deviceId": "phone-a",
+          "afterHold": false,
+          "content": {
+            "title": "Mixdog",
+            "body": "ann가 승인을 기다립니다",
+            "sessionId": "sess_home_ann",
+            "reason": "approval-pending",
+            "approvalId": "held_1",
+            "hostId": "host-1"
+          },
+          "relay": {
+            "platform": "fcm",
+            "reason": "approval-pending",
+            "sandbox": false,
+            "collapseKey": "zPyg2tExJFS3S1QLSYIpxBjYQZ03Ptm8"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a muted session",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_home_ann",
+        "agentId": "ann",
+        "agentName": "ann",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [
+        {
+          "target": {
+            "kind": "session",
+            "id": "sess_home_ann"
+          },
+          "setting": {
+            "mode": "muted",
+            "until": null
+          }
+        }
+      ],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-a",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": []
+    },
+    {
+      "name": "an always override beats scope off",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_home_ann",
+        "agentId": "ann",
+        "agentName": "ann",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [
+        {
+          "target": {
+            "kind": "session",
+            "id": "sess_home_ann"
+          },
+          "setting": {
+            "mode": "always"
+          }
+        }
+      ],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-off",
+          "preferences": {
+            "scope": "off",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": [
+        {
+          "deviceId": "phone-off",
+          "afterHold": false,
+          "content": {
+            "title": "Mixdog",
+            "body": "ann가 승인을 기다립니다",
+            "sessionId": "sess_home_ann",
+            "reason": "approval-pending",
+            "approvalId": "held_1",
+            "hostId": "host-1"
+          },
+          "relay": {
+            "platform": "fcm",
+            "reason": "approval-pending",
+            "sandbox": false,
+            "collapseKey": "zPyg2tExJFS3S1QLSYIpxBjYQZ03Ptm8"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a known room session is a room conversation",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_in_room",
+        "agentId": "ann",
+        "agentName": "ann",
+        "requestId": "held_1"
+      },
+      "session": {
+        "id": "sess_in_room",
+        "agentRoom": {
+          "id": "room1"
+        }
+      },
+      "overrides": [],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-bots",
+          "preferences": {
+            "scope": "bots",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": [
+        {
+          "deviceId": "phone-bots",
+          "afterHold": false,
+          "content": {
+            "title": "Mixdog",
+            "body": "ann가 승인을 기다립니다",
+            "sessionId": "sess_in_room",
+            "reason": "approval-pending",
+            "approvalId": "held_1",
+            "hostId": "host-1"
+          },
+          "relay": {
+            "platform": "fcm",
+            "reason": "approval-pending",
+            "sandbox": false,
+            "collapseKey": "-Outz0O8kX2JC4QvW4heoHVUpqKZRoFb"
+          }
+        }
+      ]
+    },
+    {
+      "name": "a known room session honors a room mute",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_in_room",
+        "agentId": "ann",
+        "agentName": "ann",
+        "requestId": "held_1"
+      },
+      "session": {
+        "id": "sess_in_room",
+        "agentRoom": {
+          "id": "room1"
+        }
+      },
+      "overrides": [
+        {
+          "target": {
+            "kind": "room",
+            "id": "room1"
+          },
+          "setting": {
+            "mode": "muted",
+            "until": null
+          }
+        }
+      ],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-a",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": []
+    },
+    {
+      "name": "quiet hours silence it",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_home_ann",
+        "agentId": "ann",
+        "agentName": "ann",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-q",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": true,
+              "start": "00:00",
+              "end": "00:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": []
+    },
+    {
+      "name": "quiet hours that allow waiting let it through",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_home_ann",
+        "agentId": "ann",
+        "agentName": "ann",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-q",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": true,
+              "start": "00:00",
+              "end": "00:00",
+              "days": "every",
+              "allowWaiting": true
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": [
+        {
+          "deviceId": "phone-q",
+          "afterHold": false,
+          "content": {
+            "title": "Mixdog",
+            "body": "ann가 승인을 기다립니다",
+            "sessionId": "sess_home_ann",
+            "reason": "approval-pending",
+            "approvalId": "held_1",
+            "hostId": "host-1"
+          },
+          "relay": {
+            "platform": "fcm",
+            "reason": "approval-pending",
+            "sandbox": false,
+            "collapseKey": "zPyg2tExJFS3S1QLSYIpxBjYQZ03Ptm8"
+          }
+        }
+      ]
+    },
+    {
+      "name": "this PC in use holds it, then it is sent",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_home_ann",
+        "agentId": "ann",
+        "agentName": "ann",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [],
+      "desktopActive": true,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-hold",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        },
+        {
+          "deviceId": "phone-now",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": false,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": [
+        {
+          "deviceId": "phone-now",
+          "afterHold": false,
+          "content": {
+            "title": "Mixdog",
+            "body": "ann가 승인을 기다립니다",
+            "sessionId": "sess_home_ann",
+            "reason": "approval-pending",
+            "approvalId": "held_1",
+            "hostId": "host-1"
+          },
+          "relay": {
+            "platform": "fcm",
+            "reason": "approval-pending",
+            "sandbox": false,
+            "collapseKey": "zPyg2tExJFS3S1QLSYIpxBjYQZ03Ptm8"
+          }
+        },
+        {
+          "deviceId": "phone-hold",
+          "afterHold": true,
+          "content": {
+            "title": "Mixdog",
+            "body": "ann가 승인을 기다립니다",
+            "sessionId": "sess_home_ann",
+            "reason": "approval-pending",
+            "approvalId": "held_1",
+            "hostId": "host-1"
+          },
+          "relay": {
+            "platform": "fcm",
+            "reason": "approval-pending",
+            "sandbox": false,
+            "collapseKey": "zPyg2tExJFS3S1QLSYIpxBjYQZ03Ptm8"
+          }
+        }
+      ]
+    },
+    {
+      "name": "the notifier switched off",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_home_ann",
+        "agentId": "ann",
+        "agentName": "ann",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [],
+      "desktopActive": false,
+      "enabled": false,
+      "devices": [
+        {
+          "deviceId": "phone-a",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": []
+    },
+    {
+      "name": "no session id",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "",
+        "agentId": "ann",
+        "agentName": "ann",
+        "requestId": "held_1"
+      },
+      "session": null,
+      "overrides": [],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-a",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": []
+    },
+    {
+      "name": "no request id",
+      "now": 1800000000000,
+      "event": {
+        "sessionId": "sess_home_ann",
+        "agentId": "ann",
+        "agentName": "ann",
+        "requestId": ""
+      },
+      "session": null,
+      "overrides": [],
+      "desktopActive": false,
+      "enabled": true,
+      "devices": [
+        {
+          "deviceId": "phone-a",
+          "preferences": {
+            "scope": "all",
+            "events": {
+              "finished": true,
+              "question": true,
+              "approval": true,
+              "error": false
+            },
+            "automaticRuns": true,
+            "quietHours": {
+              "enabled": false,
+              "start": "23:00",
+              "end": "08:00",
+              "days": "every",
+              "allowWaiting": false
+            },
+            "holdWhileDesktopActive": true,
+            "taskbarFlash": true
+          },
+          "foreground": false
+        }
+      ],
+      "deliveries": []
+    }
+  ]
+}

@@ -26,8 +26,9 @@ fn fill(value: &Value, data: &str) -> Value {
 
 struct Selected(Value);
 
+#[async_trait]
 impl SelectedAccounts for Selected {
-    fn selected(&self, provider: &str) -> Option<String> {
+    async fn selected(&self, provider: &str) -> Option<String> {
         self.0[provider].as_str().map(str::to_owned)
     }
 }
@@ -40,7 +41,7 @@ struct Probe {
 
 #[async_trait]
 impl AccountProbe for Probe {
-    fn authenticated(&self, lane_id: &str, account: Option<&Path>) -> bool {
+    async fn authenticated(&self, lane_id: &str, account: Option<&Path>) -> bool {
         match account {
             Some(path) => path.exists(),
             None => lane_auth_provider(lane_id).is_some_and(|provider| self.default_creds.iter().any(|d| d == provider)),
@@ -79,7 +80,11 @@ async fn scopes_resolve_accounts_and_lists_as_nodes_do() {
     let probe: Arc<dyn AccountProbe> = Arc::new(Probe { default_creds: golden["defaultCreds"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect() });
     for recorded in golden["scopes"].as_array().unwrap() {
         let chain = &recorded["chain"];
-        let mut scope = Ok(AccountScope::default());
+        let host: Vec<(String, std::path::PathBuf)> = recorded["host"]
+            .as_object()
+            .map(|bound| bound.iter().map(|(provider, path)| (provider.clone(), std::path::PathBuf::from(path.as_str().unwrap().replace("{data}", &shown)))).collect())
+            .unwrap_or_default();
+        let mut scope = Ok(AccountScope::under_host(host));
         for pair in chain.as_array().unwrap() {
             scope = scope.and_then(|scope| scope.with(&data, pair[0].as_str().unwrap(), pair[1].as_str().unwrap()));
         }
@@ -92,18 +97,18 @@ async fn scopes_resolve_accounts_and_lists_as_nodes_do() {
             (got, want) => panic!("{chain}: {got:?} vs recorded {want:?}"),
         };
         let want = fill(recorded, &shown);
-        let lanes: Vec<Value> = want["lanes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|row| {
-                let lane = row["lane"].as_str().unwrap();
-                let provider = media_lane_account_provider(lane);
-                let id = (!provider.is_empty()).then(|| scope.account_id(provider, selected.as_ref()));
-                let path = (!provider.is_empty()).then(|| scope.auth_path(&data, provider, selected.as_ref())).flatten();
-                json!({ "lane": lane, "provider": provider, "id": id, "path": path.map(|p| p.to_string_lossy().into_owned()) })
-            })
-            .collect();
+        let chain = &json!({ "host": recorded["host"], "chain": chain });
+        let mut lanes: Vec<Value> = Vec::new();
+        for row in want["lanes"].as_array().unwrap() {
+            let lane = row["lane"].as_str().unwrap();
+            let provider = media_lane_account_provider(lane);
+            let (id, path) = if provider.is_empty() {
+                (None, None)
+            } else {
+                (Some(scope.account_id(provider, selected.as_ref()).await), scope.auth_path(&data, provider, selected.as_ref()).await)
+            };
+            lanes.push(json!({ "lane": lane, "provider": provider, "id": id, "path": path.map(|p| p.to_string_lossy().into_owned()) }));
+        }
         assert_eq!(serde_json::to_string(&lanes).unwrap(), serde_json::to_string(&want["lanes"]).unwrap(), "{chain}: accounts and files");
         let sources = ScopedLaneSources { data_dir: data.clone(), scope, selected: selected.clone(), probe: probe.clone() };
         let listed = MediaLanes::new(Arc::new(sources)).list(None).await;

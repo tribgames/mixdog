@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-oauth-forget.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 8424,
+      "path": "golden.json",
+      "sha256": "f1e5884f2f54e6894ff6180b1491dae41ed8528129db59bb3378057d18847fec"
+    }
+  ],
+  "product": {
+    "appsSha256": "3079841c30e6ff1ec56d1f9e6d33dfb6c8bc0fa1d52458a07f7b533896b376ac",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "dcbdc55a33af5229ea9a8c050220305d64c4cf06",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 2
+    },
+    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-oauth-forget.mjs",
+  "set": "oauth-forget",
+  "totalBytes": 8424
+}

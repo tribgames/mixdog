@@ -129,3 +129,69 @@ async fn a_thread_nobody_watched_stays_while_its_background_work_runs() {
     tokio::time::advance(Duration::from_secs(2)).await;
     eventually(|| directory.handle(&handle.id).is_none().then_some(())).await;
 }
+
+/// How often the actors emitted `signal` (`approval`, `record`) for `thread`.
+fn signals(rig: &Rig, signal: &str, thread: &ThreadId) -> usize {
+    let want = format!("{signal}:{}", thread.as_str());
+    rig.signals.0.lock().unwrap().iter().filter(|seen| **seen == want).count()
+}
+
+/// `sessionRecords.onChange`: an acked header change of the thread is its record signal.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stored_header_change_signals_the_session_record() {
+    use mixdog_core_api::ThreadHandle;
+    use mixdog_core_api::call::CallContext;
+    use mixdog_core_api::call::CoreRequest;
+    use mixdog_core_api::ids::Method;
+
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let before = signals(&rig, "record", &handle.id);
+    let patch = json!({ "threadId": handle.id, "set": { "provider": "openai", "model": "gpt-5" }, "unset": [] });
+    handle
+        .request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") })
+        .await
+        .expect("patch");
+    eventually(|| (signals(&rig, "record", &handle.id) > before).then_some(())).await;
+}
+
+/// `onSessionApprovalWaitChange`: a turn that starts waiting on an approval signals once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_approval_wait_signals_the_approval_change() {
+    use std::sync::Arc;
+
+    use mixdog_core_api::domain::approval::ApprovalAsk;
+    use mixdog_core_api::domain::approval::ApprovalGate;
+    use mixdog_core_api::domain::approval::ApprovalKind;
+
+    use super::seams::RunOutcome;
+
+    let rig = Rig::new();
+    rig.set_script(Arc::new(|run| {
+        Box::pin(async move {
+            run.port.input_durable().await.expect("input durable");
+            let _ = run
+                .port
+                .request(ApprovalAsk {
+                    kind: ApprovalKind::Tool,
+                    call_id: None,
+                    tool: Some("shell".into()),
+                    action_kind: None,
+                    reason: None,
+                    payload: json!({ "kind": "shell", "tool": "shell", "request": { "target": "make" } }),
+                    remember: Vec::new(),
+                    expires_after: None,
+                })
+                .await;
+            run.cancel.cancelled().await;
+            RunOutcome::Interrupted
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    assert_eq!(signals(&rig, "approval", &handle.id), 0, "no wait before the turn");
+    turn(&handle, "long job", "op-1").await;
+    eventually(|| (!handle.cell.approvals.load().is_empty()).then_some(())).await;
+    eventually(|| (signals(&rig, "approval", &handle.id) == 1).then_some(())).await;
+}

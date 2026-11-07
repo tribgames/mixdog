@@ -1,0 +1,18 @@
+{
+  "command": "node <repo>/benchmarks/rust-core/recorders/record-agent-status.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 136269,
+      "path": "golden.json",
+      "sha256": "916a99a8d9c7b875a542a98de83578a715f41fae478aee86a138b2b25d8b4fc5"
+    }
+  ],
+  "product": {
+    "tree": "product tree loaded by the recorder",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-agent-status.mjs",
+  "set": "agent-status",
+  "totalBytes": 136269
+}

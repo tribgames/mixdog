@@ -38,6 +38,14 @@ pub async fn set_voice_enabled(setup: &VoiceSetup, enabled: bool) -> Result<Valu
     Ok(json!({"voice": public_voice(&status), "appliesTo": "channel voice transcription and Desktop dictation now"}))
 }
 
+/// `rt.setVoiceEnabled(enabled)` (`media-api.mjs`): the same toggle the Built-in card uses, then
+/// the state read back. `error` is the last warning or failure the toggle reported (none: null);
+/// whether the state is the one asked for is the setup dispatcher's to judge.
+pub async fn voice_toggle_answer(setup: &VoiceSetup, enabled: bool) -> Value {
+    let result = setup.toggle(Some(enabled)).await;
+    json!({"status": setup.status().await, "error": result.notice_error()})
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -177,5 +185,30 @@ mod tests {
             voice_feature_status(&status),
             json!({"enabled": true, "installed": false, "components": {"whisper": true, "model": false, "ffmpeg": true}, "installing": true})
         );
+    }
+
+    /// Node's `rt.setVoiceEnabled` answer for each toggle outcome the setup twin scripted: the
+    /// error text and the state it reports.
+    #[tokio::test]
+    async fn the_toggle_answer_carries_the_state_and_the_last_notice() {
+        let mut checked = 0;
+        for (scenario, target) in [("enabled", true), ("disabled", false), ("offFailed", false), ("installFailed", true)] {
+            let dir = tempfile::tempdir().unwrap();
+            let installer = Installer { dir: dir.path().to_owned(), fail: (scenario == "installFailed").then_some("sha256 mismatch"), gate: None };
+            if matches!(scenario, "disabled" | "offFailed") {
+                install(dir.path());
+            }
+            let voice = setup(dir.path(), matches!(scenario, "disabled" | "offFailed"), (scenario == "offFailed").then_some("config is locked"), installer);
+            let got = voice_toggle_answer(&voice, target).await;
+            assert_eq!(got.as_object().unwrap().keys().collect::<Vec<_>>(), ["status", "error"], "{scenario}: key order");
+            let case = twin()["cases"].as_array().unwrap().iter().find(|c| c["kind"] == "voice" && c["scenario"] == scenario && c["calls"][0]["args"][0] == target).cloned().unwrap_or_else(|| panic!("no recorded {scenario}"));
+            let want = &case["answer"];
+            assert_eq!(got["error"], want["error"], "{scenario}: error");
+            for field in ["enabled", "installed", "busy", "components"] {
+                assert_eq!(got["status"][field], want["status"][field], "{scenario}: status.{field}");
+            }
+            checked += 1;
+        }
+        assert_eq!(checked, 4);
     }
 }

@@ -103,6 +103,9 @@ fn fingerprint(parts: &[&str]) -> String {
 }
 
 fn grant_of(value: &Value, path: &str, nested: bool) -> Result<(Grant, String, String), ProviderError> {
+    if !value.is_object() {
+        return Err(invalid(format!("The credentials in {path} are invalid.")));
+    }
     let missing = |type_: &str, names: &[&str]| {
         let lacking: Vec<&str> = names.iter().copied().filter(|n| text(value, n).is_empty()).collect();
         (!lacking.is_empty())

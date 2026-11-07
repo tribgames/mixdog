@@ -1,0 +1,2029 @@
+{
+  "domain": "voice-installer-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-voice-installer.mjs",
+  "hostKey": "win32-x64",
+  "assets": {
+    "/whisper.zip": "UEsDBBQAAAAAAAAAIQDTnmzrDAAAAAwAAAAaAAAAUmVsZWFzZS93aGlzcGVyLXNlcnZlci5leGVzZXJ2ZXIgYnl0ZXNQSwMEFAAAAAAAAAAhAOikmmoJAAAACQAAABcAAABSZWxlYXNlL3doaXNwZXItY2xpLmV4ZWNsaSBieXRlc1BLAwQUAAAAAAAAACEA4XhyewcAAAAHAAAAFwAAAFJlbGVhc2UvZG9jcy9yZWFkbWUudHh0cmVhZCBtZVBLAwQUAAAAAAAAACEAyoXmygwAAAAMAAAABwAAAExJQ0VOU0VsaWNlbnNlIHRleHRQSwECFAAUAAAAAAAAACEA055s6wwAAAAMAAAAGgAAAAAAAAAAAAAAAAAAAAAAUmVsZWFzZS93aGlzcGVyLXNlcnZlci5leGVQSwECFAAUAAAAAAAAACEA6KSaagkAAAAJAAAAFwAAAAAAAAAAAAAAAABEAAAAUmVsZWFzZS93aGlzcGVyLWNsaS5leGVQSwECFAAUAAAAAAAAACEA4XhyewcAAAAHAAAAFwAAAAAAAAAAAAAAAACCAAAAUmVsZWFzZS9kb2NzL3JlYWRtZS50eHRQSwECFAAUAAAAAAAAACEAyoXmygwAAAAMAAAABwAAAAAAAAAAAAAAAAC+AAAATElDRU5TRVBLBQYAAAAABAAEAAcBAADvAAAAAAA=",
+    "/whisper-noexec.zip": "UEsDBBQAAAAAAAAAIQDKhebKDAAAAAwAAAAHAAAATElDRU5TRWxpY2Vuc2UgdGV4dFBLAQIUABQAAAAAAAAAIQDKhebKDAAAAAwAAAAHAAAAAAAAAAAAAAAAAAAAAABMSUNFTlNFUEsFBgAAAAABAAEANQAAADEAAAAAAA==",
+    "/not-a-zip.zip": "dGhpcyBpcyBub3QgYSB6aXAgYXJjaGl2ZSBhdCBhbGw=",
+    "/model.bin": "bW9kZWwgd2VpZ2h0cw==",
+    "/ffmpeg.gz": "H4sIAAAAAAAACktLyy1ITVdIqixJLQYAuHJsdgwAAAA=",
+    "/ffmpeg.zip": "UEsDBBQAAAAAAAAAIQC3tWnXEAAAABAAAAAKAAAAZmZtcGVnLmV4ZWZmbXBlZyB6aXAgYnl0ZXNQSwECFAAUAAAAAAAAACEAt7Vp1xAAAAAQAAAACgAAAAAAAAAAAAAAAAAAAAAAZmZtcGVnLmV4ZVBLBQYAAAAAAQABADgAAAA4AAAAAAA=",
+    "/ffmpeg-noexec.zip": "UEsDBBQAAAAAAAAAIQCDFtyMAQAAAAEAAAAJAAAAb3RoZXIudHh0eFBLAQIUABQAAAAAAAAAIQCDFtyMAQAAAAEAAAAJAAAAAAAAAAAAAAAAAAAAAABvdGhlci50eHRQSwUGAAAAAAEAAQA3AAAAKAAAAAAA",
+    "/variant-base.zip": "UEsDBBQAAAAAAAAAIQBh/rTABAAAAAQAAAAaAAAAUmVsZWFzZS93aGlzcGVyLXNlcnZlci5leGViYXNlUEsBAhQAFAAAAAAAAAAhAGH+tMAEAAAABAAAABoAAAAAAAAAAAAAAAAAAAAAAFJlbGVhc2Uvd2hpc3Blci1zZXJ2ZXIuZXhlUEsFBgAAAAABAAEASAAAADwAAAAAAA=="
+  },
+  "scenarios": [
+    {
+      "name": "whisper-ok",
+      "op": "whisper",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "sha256": "2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "result": {
+        "whisperCmd": "{root}\\data\\whisper-ok\\voice-runtime\\whisper-1.0.0-cpu\\Release\\whisper-server.exe",
+        "version": "1.0.0",
+        "variantId": "cpu"
+      },
+      "requests": [
+        "/whisper.zip"
+      ],
+      "tree": {
+        "voice-runtime/": null,
+        "voice-runtime/active-version": {
+          "size": 17,
+          "sha256": "c0514d47400b191b6ec08dfcbfc00ef7acd4e935b0ab3a5ec5a58acbef4e4b4f"
+        },
+        "voice-runtime/whisper-1.0.0-cpu/": null,
+        "voice-runtime/whisper-1.0.0-cpu/LICENSE": {
+          "size": 12,
+          "sha256": "086ef1421303f033b3b925a9c783576ff65dc9d44a1aeadbd5fac5e61953ca26"
+        },
+        "voice-runtime/whisper-1.0.0-cpu/Release/": null,
+        "voice-runtime/whisper-1.0.0-cpu/Release/docs/": null,
+        "voice-runtime/whisper-1.0.0-cpu/Release/docs/readme.txt": {
+          "size": 7,
+          "sha256": "3f22095641508576e91dc7c6c7f7e08a093985d53ea998043c6619ad240dc92c"
+        },
+        "voice-runtime/whisper-1.0.0-cpu/Release/whisper-cli.exe": {
+          "size": 9,
+          "sha256": "178893fed67c46f50c58cd77b698bb27649bee32019baa1e72b5142f9676e7a2"
+        },
+        "voice-runtime/whisper-1.0.0-cpu/Release/whisper-server.exe": {
+          "size": 12,
+          "sha256": "6fac1c9e222157d1baa07e669d6df5b6be7177dc362306c79acfc2c6f31dfd0b"
+        }
+      }
+    },
+    {
+      "name": "whisper-http-404",
+      "op": "whisper",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone.zip",
+                "sha256": "2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] download failed 404 Not Found ({base}/gone.zip)",
+      "requests": [
+        "/gone.zip"
+      ],
+      "tree": {
+        "voice-runtime/": null
+      }
+    },
+    {
+      "name": "whisper-sha-mismatch",
+      "op": "whisper",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] sha256 mismatch for {root}\\data\\whisper-sha-mismatch\\voice-runtime\\staging-{tag}\\whisper.zip: expected 0000000000000000000000000000000000000000000000000000000000000000, got 2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+      "requests": [
+        "/whisper.zip"
+      ],
+      "tree": {
+        "voice-runtime/": null
+      }
+    },
+    {
+      "name": "whisper-size-advertised",
+      "op": "whisper",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "sha256": "2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+                "size": 525
+              }
+            ]
+          }
+        }
+      },
+      "error": "voice runtime download: expected 525 bytes, server advertised 524",
+      "requests": [
+        "/whisper.zip"
+      ],
+      "tree": {
+        "voice-runtime/": null
+      }
+    },
+    {
+      "name": "whisper-no-sha256",
+      "op": "whisper",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] manifest variant cpu for win32-x64 missing required sha256",
+      "requests": [
+        "/whisper.zip"
+      ],
+      "tree": {
+        "voice-runtime/": null
+      }
+    },
+    {
+      "name": "whisper-no-executable",
+      "op": "whisper",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper-noexec.zip",
+                "sha256": "d717115761e8c07dcc23c1c530deaef689248acbbafed4d2a708d67d758f0208",
+                "size": 124
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] expected executable Release/whisper-server.exe not present after extract",
+      "requests": [
+        "/whisper-noexec.zip"
+      ],
+      "tree": {
+        "voice-runtime/": null
+      }
+    },
+    {
+      "name": "whisper-corrupt-zip",
+      "op": "whisper",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/not-a-zip.zip",
+                "sha256": "d029d40ee6a02ea3d58f6a185eeab62d9f651b7306becbd828fe99d09481d674",
+                "size": 32
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] zip extract failed via Expand-Archive: ��ġ C:\\program files\\powershell\\7\\Modules\\Microsoft.PowerShell.Archive\\Microsoft.PowerShell.Archive.psm1:1035 ����:13\r\n+             throw $invalidFileFormatException\r\n+             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : OperationStopped: (:) [], FileFormatException\r\n    + FullyQualifiedErrorId : \r\n \r\n",
+      "requests": [
+        "/not-a-zip.zip"
+      ],
+      "tree": {
+        "voice-runtime/": null
+      }
+    },
+    {
+      "name": "whisper-unsupported-platform",
+      "op": "whisper",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "nope-x1": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "sha256": "2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "error": "voice runtime not supported on win32-x64 — voice transcription is unavailable on this platform",
+      "requests": [],
+      "tree": {}
+    },
+    {
+      "name": "whisper-no-variants",
+      "op": "whisper",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": []
+          }
+        }
+      },
+      "error": "[voice-runtime] manifest for win32-x64 has no variants array",
+      "requests": [],
+      "tree": {}
+    },
+    {
+      "name": "whisper-no-variant-matches",
+      "op": "whisper",
+      "seed": {},
+      "env": {
+        "SystemRoot": "{root}\\empty-sysroot"
+      },
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cuda12",
+                "requires": {
+                  "cudaMajor": 12
+                },
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-cuda12.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] no variant matched on win32-x64 (cuda=none nvidiaDriver=false) and no requires:null fallback in manifest",
+      "requests": [],
+      "tree": {}
+    },
+    {
+      "name": "variant-cuda-highest",
+      "op": "whisper",
+      "seed": {},
+      "env": {
+        "SystemRoot": "{root}\\empty-sysroot",
+        "CUDA_PATH": "{root}\\cuda12",
+        "CUDA_PATH_V11_8": "{root}\\cuda11"
+      },
+      "files": [
+        "{root}\\cuda12\\bin\\cublas64_12.dll",
+        "{root}\\cuda11\\bin\\cublas64_11.dll"
+      ],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-base.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              },
+              {
+                "id": "driver",
+                "requires": {
+                  "nvidiaDriver": true
+                },
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-driver.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              },
+              {
+                "id": "cuda11",
+                "requires": {
+                  "cudaMajor": 11
+                },
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-cuda11.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              },
+              {
+                "id": "cuda12",
+                "requires": {
+                  "cudaMajor": 12
+                },
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-cuda12.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] download failed 404 Not Found ({base}/gone-cuda12.zip)",
+      "requests": [
+        "/gone-cuda12.zip"
+      ],
+      "tree": {
+        "voice-runtime/": null
+      }
+    },
+    {
+      "name": "variant-cuda-standard-dir",
+      "op": "whisper",
+      "seed": {},
+      "env": {
+        "SystemRoot": "{root}\\empty-sysroot",
+        "ProgramFiles": "{root}\\pf"
+      },
+      "files": [
+        "{root}\\pf\\NVIDIA GPU Computing Toolkit\\CUDA\\v11.8\\bin\\cublas64_11.dll"
+      ],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-base.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              },
+              {
+                "id": "driver",
+                "requires": {
+                  "nvidiaDriver": true
+                },
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-driver.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              },
+              {
+                "id": "cuda11",
+                "requires": {
+                  "cudaMajor": 11
+                },
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-cuda11.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              },
+              {
+                "id": "cuda12",
+                "requires": {
+                  "cudaMajor": 12
+                },
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-cuda12.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] download failed 404 Not Found ({base}/gone-cuda11.zip)",
+      "requests": [
+        "/gone-cuda11.zip"
+      ],
+      "tree": {
+        "voice-runtime/": null
+      }
+    },
+    {
+      "name": "variant-driver",
+      "op": "whisper",
+      "seed": {},
+      "env": {
+        "SystemRoot": "{root}\\sysroot"
+      },
+      "files": [
+        "{root}\\sysroot\\System32\\nvml.dll"
+      ],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-base.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              },
+              {
+                "id": "driver",
+                "requires": {
+                  "nvidiaDriver": true
+                },
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-driver.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              },
+              {
+                "id": "cuda11",
+                "requires": {
+                  "cudaMajor": 11
+                },
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-cuda11.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              },
+              {
+                "id": "cuda12",
+                "requires": {
+                  "cudaMajor": 12
+                },
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-cuda12.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] download failed 404 Not Found ({base}/gone-driver.zip)",
+      "requests": [
+        "/gone-driver.zip"
+      ],
+      "tree": {
+        "voice-runtime/": null
+      }
+    },
+    {
+      "name": "variant-catch-all",
+      "op": "whisper",
+      "seed": {},
+      "env": {
+        "SystemRoot": "{root}\\empty-sysroot"
+      },
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-base.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              },
+              {
+                "id": "driver",
+                "requires": {
+                  "nvidiaDriver": true
+                },
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-driver.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              },
+              {
+                "id": "cuda11",
+                "requires": {
+                  "cudaMajor": 11
+                },
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-cuda11.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              },
+              {
+                "id": "cuda12",
+                "requires": {
+                  "cudaMajor": 12
+                },
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-cuda12.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] download failed 404 Not Found ({base}/gone-base.zip)",
+      "requests": [
+        "/gone-base.zip"
+      ],
+      "tree": {
+        "voice-runtime/": null
+      }
+    },
+    {
+      "name": "variant-cuda-13-only-falls-back",
+      "op": "whisper",
+      "seed": {},
+      "env": {
+        "SystemRoot": "{root}\\empty-sysroot",
+        "CUDA_PATH": "{root}\\cuda13"
+      },
+      "files": [
+        "{root}\\cuda13\\bin\\cublas64_13.dll"
+      ],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-base.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              },
+              {
+                "id": "driver",
+                "requires": {
+                  "nvidiaDriver": true
+                },
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-driver.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              },
+              {
+                "id": "cuda11",
+                "requires": {
+                  "cudaMajor": 11
+                },
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-cuda11.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              },
+              {
+                "id": "cuda12",
+                "requires": {
+                  "cudaMajor": 12
+                },
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/gone-cuda12.zip",
+                "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                "size": 1
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] download failed 404 Not Found ({base}/gone-base.zip)",
+      "requests": [
+        "/gone-base.zip"
+      ],
+      "tree": {
+        "voice-runtime/": null
+      }
+    },
+    {
+      "name": "model-ok",
+      "op": "model",
+      "seed": {
+        "voice/models/old.bin": "old",
+        "voice/models/notes.txt": "keep",
+        "voice/models/.staging-1-2-m.bin": "partial"
+      },
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "sha256": "2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "result": {
+        "modelPath": "{root}\\data\\model-ok\\voice\\models\\m.bin",
+        "modelId": "m",
+        "size": 13
+      },
+      "requests": [
+        "/model.bin"
+      ],
+      "tree": {
+        "voice/": null,
+        "voice/models/": null,
+        "voice/models/m.bin": {
+          "size": 13,
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38"
+        },
+        "voice/models/notes.txt": {
+          "size": 4,
+          "sha256": "6ca7ea2feefc88ecb5ed6356ed963f47dc9137f82526fdd25d618ea626d0803f"
+        }
+      }
+    },
+    {
+      "name": "model-wrong-file-refetched",
+      "op": "model",
+      "seed": {
+        "voice/models/m.bin": "damaged"
+      },
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "sha256": "2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "result": {
+        "modelPath": "{root}\\data\\model-wrong-file-refetched\\voice\\models\\m.bin",
+        "modelId": "m",
+        "size": 13
+      },
+      "requests": [
+        "/model.bin"
+      ],
+      "tree": {
+        "voice/": null,
+        "voice/models/": null,
+        "voice/models/m.bin": {
+          "size": 13,
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38"
+        }
+      }
+    },
+    {
+      "name": "model-http-404",
+      "op": "model",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/gone.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "sha256": "2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] download failed 404 Not Found ({base}/gone.bin)",
+      "requests": [
+        "/gone.bin"
+      ],
+      "tree": {
+        "voice/": null,
+        "voice/models/": null
+      }
+    },
+    {
+      "name": "model-sha-mismatch",
+      "op": "model",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "sha256": "2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] sha256 mismatch for {root}\\data\\model-sha-mismatch\\voice\\models\\.staging-{tag}-m.bin: expected 1111111111111111111111111111111111111111111111111111111111111111, got a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+      "requests": [
+        "/model.bin"
+      ],
+      "tree": {
+        "voice/": null,
+        "voice/models/": null
+      }
+    },
+    {
+      "name": "model-size-advertised",
+      "op": "model",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 14
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "sha256": "2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "error": "voice runtime download: expected 14 bytes, server advertised 13",
+      "requests": [
+        "/model.bin"
+      ],
+      "tree": {
+        "voice/": null,
+        "voice/models/": null
+      }
+    },
+    {
+      "name": "model-missing-section",
+      "op": "model",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "sha256": "2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] manifest is missing the `model` section — cannot resolve whisper model",
+      "requests": [],
+      "tree": {}
+    },
+    {
+      "name": "ffmpeg-ok-gz",
+      "op": "ffmpeg",
+      "seed": {
+        "ffmpeg-runtime/ffmpeg-1.0/ffmpeg": "old"
+      },
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "sha256": "2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "result": {
+        "ffmpegPath": "{root}\\data\\ffmpeg-ok-gz\\ffmpeg-runtime\\ffmpeg-2.0\\ffmpeg.exe",
+        "version": "2.0"
+      },
+      "requests": [
+        "/ffmpeg.gz"
+      ],
+      "tree": {
+        "ffmpeg-runtime/": null,
+        "ffmpeg-runtime/active-version": {
+          "size": 10,
+          "sha256": "0633493fa1d0f495cca3d58b403f8ef0ac45d555bdfade3fe474d56103e01a72"
+        },
+        "ffmpeg-runtime/ffmpeg-2.0/": null,
+        "ffmpeg-runtime/ffmpeg-2.0/ffmpeg.exe": {
+          "size": 12,
+          "sha256": "a80423b8593d9f631f1ea0ebdc08d74af0f8a4613a1e9867c28a8d34e751bb26"
+        }
+      }
+    },
+    {
+      "name": "ffmpeg-ok-zip",
+      "op": "ffmpeg",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "zip",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.zip",
+              "sha256": "dfe291ed6923ed03ca6434806a7724f9313fd649bfd1d849f5e3d741a79de6a4",
+              "size": 134
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "sha256": "2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "result": {
+        "ffmpegPath": "{root}\\data\\ffmpeg-ok-zip\\ffmpeg-runtime\\ffmpeg-2.0\\ffmpeg.exe",
+        "version": "2.0"
+      },
+      "requests": [
+        "/ffmpeg.zip"
+      ],
+      "tree": {
+        "ffmpeg-runtime/": null,
+        "ffmpeg-runtime/active-version": {
+          "size": 10,
+          "sha256": "0633493fa1d0f495cca3d58b403f8ef0ac45d555bdfade3fe474d56103e01a72"
+        },
+        "ffmpeg-runtime/ffmpeg-2.0/": null,
+        "ffmpeg-runtime/ffmpeg-2.0/ffmpeg.exe": {
+          "size": 16,
+          "sha256": "90e9ee699aac700d0fd00653e352151fb65e7a2d7237df12a99dbb65b02ef7ed"
+        }
+      }
+    },
+    {
+      "name": "ffmpeg-http-404",
+      "op": "ffmpeg",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/gone.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "sha256": "2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] download failed 404 Not Found ({base}/gone.gz)",
+      "requests": [
+        "/gone.gz"
+      ],
+      "tree": {
+        "ffmpeg-runtime/": null
+      }
+    },
+    {
+      "name": "ffmpeg-sha-mismatch",
+      "op": "ffmpeg",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "sha256": "2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] sha256 mismatch for {root}\\data\\ffmpeg-sha-mismatch\\ffmpeg-runtime\\staging-{tag}\\ffmpeg.gz: expected 2222222222222222222222222222222222222222222222222222222222222222, got dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+      "requests": [
+        "/ffmpeg.gz"
+      ],
+      "tree": {
+        "ffmpeg-runtime/": null
+      }
+    },
+    {
+      "name": "ffmpeg-no-sha256",
+      "op": "ffmpeg",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "sha256": "2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] manifest ffmpeg entry for win32-x64 missing required sha256",
+      "requests": [
+        "/ffmpeg.gz"
+      ],
+      "tree": {
+        "ffmpeg-runtime/": null
+      }
+    },
+    {
+      "name": "ffmpeg-bad-format",
+      "op": "ffmpeg",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "xz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "sha256": "2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] ffmpeg manifest format must be \"gz\" or \"zip\", got \"xz\"",
+      "requests": [
+        "/ffmpeg.gz"
+      ],
+      "tree": {
+        "ffmpeg-runtime/": null
+      }
+    },
+    {
+      "name": "ffmpeg-no-executable",
+      "op": "ffmpeg",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "win32-x64": {
+              "format": "zip",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg-noexec.zip",
+              "sha256": "fe2e3a3695e37f877fc63820e5365cb490a8f0474ec47ad2f898f7d49727a918",
+              "size": 117
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "sha256": "2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] expected ffmpeg executable ffmpeg.exe not present after extract",
+      "requests": [
+        "/ffmpeg-noexec.zip"
+      ],
+      "tree": {
+        "ffmpeg-runtime/": null
+      }
+    },
+    {
+      "name": "ffmpeg-missing-section",
+      "op": "ffmpeg",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "sha256": "2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "error": "[voice-runtime] manifest is missing the `ffmpeg` section — cannot resolve ffmpeg runtime",
+      "requests": [],
+      "tree": {}
+    },
+    {
+      "name": "ffmpeg-unsupported-platform",
+      "op": "ffmpeg",
+      "seed": {},
+      "env": {},
+      "files": [],
+      "manifest": {
+        "version": "1.0.0",
+        "model": {
+          "id": "m",
+          "filename": "m.bin",
+          "url": "{base}/model.bin",
+          "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+          "size": 13
+        },
+        "models": {
+          "standard": {
+            "id": "m",
+            "filename": "m.bin",
+            "url": "{base}/model.bin",
+            "sha256": "a2d42c4aa884e21216cbb8da4c7ba2fcf9b6033b2331666e666145c24caf7a38",
+            "size": 13
+          }
+        },
+        "ffmpeg": {
+          "version": "2.0",
+          "platforms": {
+            "nope-x1": {
+              "format": "gz",
+              "executable": "ffmpeg.exe",
+              "url": "{base}/ffmpeg.gz",
+              "sha256": "dfc4fc4b78a158a6d9f93f88388f3afc51211a1465b01a84508ca118e9144169",
+              "size": 32
+            }
+          }
+        },
+        "platforms": {
+          "win32-x64": {
+            "variants": [
+              {
+                "id": "cpu",
+                "requires": null,
+                "format": "zip",
+                "executable": "Release/whisper-server.exe",
+                "url": "{base}/whisper.zip",
+                "sha256": "2495a46a443b70969e6b632044a8bbfb4cfb7ca1bb6b33c93db09d7fe9cc779b",
+                "size": 524
+              }
+            ]
+          }
+        }
+      },
+      "error": "voice runtime not supported on win32-x64 — voice transcription is unavailable on this platform",
+      "requests": [],
+      "tree": {}
+    }
+  ]
+}

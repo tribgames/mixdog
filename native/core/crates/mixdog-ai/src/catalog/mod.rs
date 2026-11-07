@@ -7,6 +7,7 @@
 //! needs its key to list models can never be built without it.
 
 mod facts;
+mod failures;
 mod listing;
 mod lookup;
 mod modelsdev;
@@ -21,6 +22,8 @@ mod sources;
 mod store;
 mod traits;
 
+pub use failures::CatalogFailureStore;
+pub use failures::Failure as CatalogFailure;
 pub use listing::ListingLookup;
 pub use listing::enrich_listed;
 pub use listing::keep_native;
@@ -37,6 +40,7 @@ pub use pricing::Media;
 pub use pricing::PricedUsage;
 pub use pricing::PricingCatalog;
 pub use pricing::UsageArgs;
+pub use readiness::CacheDrop;
 pub use readiness::ProviderReadiness;
 pub use readiness::Ready;
 pub use readiness::is_known_provider;
@@ -71,4 +75,5 @@ pub use store::LIST_DEADLINE;
 pub use store::ProviderCatalog;
 pub use store::ProviderStatus;
 pub use store::RETRY_AFTER_MS;
-pub use store::RefreshOutcome;
+pub use store::RefreshOutcome;#[cfg(test)]
+mod failures_tests;

@@ -4,10 +4,11 @@
 //! credential files, the keychain, the gcloud login, the local runtime) comes through
 //! [`SetupWorld`], so each reader can be ported and tested on its own.
 //!
-//! Not in this slice: the custom-provider rows ([`SetupWorld::custom_rows`]), the
-//! `catalogError` overlay, the model-proxy client projection (`modelProxyProviderSetup`) and the
-//! caches and keychain overlay of `getProviderSetup`.
+//! The custom-provider rows are [`custom_provider_rows`] (the same builder the custom-provider
+//! admin answers with). Not here: the `catalogError` overlay, the model-proxy client projection
+//! (`modelProxyProviderSetup`) and the caches and keychain overlay of `getProviderSetup`.
 
+use super::custom_admin::{CustomFacts, custom_provider_rows, is_custom_id};
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -80,16 +81,14 @@ pub struct UnsafeStore {
 }
 
 /// What the rows read of the machine.
-pub trait SetupWorld: Send + Sync {
+///
+/// The environment (`process.env[name]`; empty counts as unset where Node tests truthiness), the
+/// keychain (`hasStoredSecret`, `isFallbackSecret`) and the custom providers' key roster are
+/// [`CustomFacts`], which the custom-provider rows read too.
+pub trait SetupWorld: CustomFacts + Send + Sync {
     /// `agentApiKeyEnvName(id)`: the variable that supplies the provider's key, in the
     /// resolver's precedence; `None` when none is set.
     fn resolved_env_name(&self, id: &str) -> Option<String>;
-    /// `process.env[name]`; empty counts as unset where Node tests truthiness.
-    fn env(&self, name: &str) -> Option<String>;
-    /// `hasStoredSecret(account)`.
-    fn has_stored_secret(&self, account: &str) -> bool;
-    /// `isFallbackSecret(account)`.
-    fn is_fallback_secret(&self, account: &str) -> bool;
     /// `Boolean(getAgentApiKey(id))`.
     fn has_agent_api_key(&self, id: &str) -> bool;
     fn keychain_status(&self) -> KeychainStatus;
@@ -108,8 +107,6 @@ pub trait SetupWorld: Send + Sync {
     fn vertex_key_project(&self) -> Option<String>;
     /// `(options.getLocalProviderStatus || localProviderStatus)()`; `None` when it throws.
     fn local_status(&self) -> Option<Value>;
-    /// `customProviderRows(providers, checkSecrets)`.
-    fn custom_rows(&self, providers: &Map<String, Value>, check_secrets: bool) -> Vec<Value>;
 }
 
 /// `providerSetup`'s second argument.
@@ -168,7 +165,11 @@ fn keychain_hint(state: &str) -> Option<&'static str> {
 
 /// `keychainIssueFor(true)`: why stored keys may read as absent, or `None`.
 pub fn keychain_issue(world: &dyn SetupWorld) -> Option<Value> {
-    let status = world.keychain_status();
+    keychain_issue_of(world.keychain_status())
+}
+
+/// [`keychain_issue`] for a status read on its own (the live overlay of a cached setup).
+pub fn keychain_issue_of(status: KeychainStatus) -> Option<Value> {
     if status.fallback {
         // The private file works unless its permissions make reads ignore it.
         let store = status.unsafe_store?;
@@ -454,7 +455,7 @@ pub fn provider_setup(world: &dyn SetupWorld, config: &Value, options: SetupOpti
     let mut api: Vec<Value> =
         API_PROVIDERS.iter().map(|p| api_provider_setup(world, p, providers, options.check_secrets, keychain.as_ref())).collect();
     if let Some(entries) = providers.as_object() {
-        api.extend(world.custom_rows(entries, options.check_secrets));
+        api.extend(custom_provider_rows(world, entries, options.check_secrets));
     }
     let oauth: Vec<Value> = OAUTH_PROVIDERS
         .iter()
@@ -469,4 +470,84 @@ pub fn provider_setup(world: &dyn SetupWorld, config: &Value, options: SetupOpti
     out.insert("oauth".into(), Value::Array(oauth));
     out.insert("local".into(), json!([local_provider_setup(world, config, options.detect_local)]));
     Value::Object(out)
+}
+
+/// `modelProxyProviderSetup(options)`: an SSH server holds no model credentials, so the setup projects
+/// only the availability the PC advertised (`providers`, from its `providerConfig`); account
+/// identities and credential management stay on the PC. `None` is no PC connected (the read gave up
+/// after its second): the setup says so and lists nothing.
+pub fn model_proxy_provider_setup(providers: Option<&Map<String, Value>>) -> Value {
+    let Some(providers) = providers else {
+        return json!({ "managedByClient": true, "unavailable": true, "api": [], "oauth": [], "local": [] });
+    };
+    let project = |definitions: &[(String, String)], group: &str, kind: &str| -> Vec<Value> {
+        definitions
+            .iter()
+            .filter(|(id, _)| providers.contains_key(id.as_str()))
+            .map(|(id, name)| {
+                let entry = &providers[id.as_str()];
+                let enabled = entry.get("enabled") == Some(&Value::Bool(true));
+                let auth_state = entry.get("authState").filter(|state| !state.is_null());
+                let state = auth_state.and_then(Value::as_str);
+                // Older desktops advertise only `enabled`; new ones tell a missing credential from a
+                // transiently unreadable, preserved adapter.
+                let authenticated = if auth_state.is_none() { enabled } else { state == Some("present") };
+                let usable = enabled && state != Some("absent");
+                let mut status = if usable { "Connected" } else { "Not connected" };
+                if enabled && state == Some("unreadable") {
+                    status = "Checking…";
+                } else if !enabled && state == Some("present") {
+                    // Signed in but switched off on the desktop.
+                    status = "Off";
+                }
+                let mut row = Map::new();
+                row.insert("id".into(), json!(id));
+                row.insert("name".into(), json!(name));
+                row.insert("group".into(), json!(group));
+                row.insert("type".into(), json!(kind));
+                row.insert("enabled".into(), json!(enabled));
+                row.insert("authenticated".into(), json!(authenticated));
+                row.insert("usable".into(), json!(usable));
+                if group == "local" {
+                    row.insert("detected".into(), json!(enabled));
+                }
+                if kind == "custom" {
+                    row.insert("custom".into(), json!(true));
+                    row.insert("modelOverrides".into(), hidden_model_overrides(entry));
+                }
+                row.insert("status".into(), json!(status));
+                Value::Object(row)
+            })
+            .collect()
+    };
+    let api: Vec<(String, String)> = API_PROVIDERS.iter().map(|p| (p.id.to_owned(), p.name.to_owned())).collect();
+    let oauth: Vec<(String, String)> = OAUTH_PROVIDERS.iter().map(|(id, name, _)| ((*id).to_owned(), (*name).to_owned())).collect();
+    // Older desktops advertise no name: the id is the fallback.
+    let custom: Vec<(String, String)> = providers
+        .iter()
+        .filter(|(id, entry)| is_custom_id(id) && entry.get("type").and_then(Value::as_str) == Some("custom"))
+        .map(|(id, entry)| {
+            let name = entry.get("name").and_then(Value::as_str).map(mixdog_js::js_trim).filter(|name| !name.is_empty()).unwrap_or(id);
+            (id.clone(), name.to_owned())
+        })
+        .collect();
+    let mut api_rows = project(&api, "api", "api-key");
+    api_rows.extend(project(&custom, "api", "custom"));
+    json!({
+        "managedByClient": true,
+        "api": api_rows,
+        "oauth": project(&oauth, "oauth", "oauth"),
+        "local": project(&[("mixdog-local".to_owned(), "Local Provider".to_owned())], "local", "local"),
+    })
+}
+
+/// `hiddenModelOverrides(entry)`: the desktop's hidden custom models, in the override shape pickers read.
+fn hidden_model_overrides(entry: &Value) -> Value {
+    let mut hidden = Map::new();
+    for id in entry.get("hiddenModels").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str) {
+        hidden.insert(id.to_owned(), json!({ "hidden": true }));
+    }
+    // A JavaScript object lists integer-like keys first, ascending.
+    let ordered: Map<String, Value> = mixdog_js::js_object_keys(&hidden).into_iter().map(|key| (key.clone(), hidden[key].clone())).collect();
+    Value::Object(ordered)
 }

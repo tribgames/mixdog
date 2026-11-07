@@ -28,6 +28,15 @@ use super::error::ErrorDialect;
 use super::error::in_band;
 use super::json::synthesized_call_id;
 
+/// The JSON payload of one line of a Gemini SSE stream: the text after `data:`, trimmed. A line
+/// that is not a `data:` line (an `event:` name, a comment, a blank), an empty payload and the
+/// `[DONE]` marker carry none. Shared by every consumer of the dialect: the decoder below and
+/// the media adapter that reads a whole Antigravity body.
+pub fn sse_data(line: &str) -> Option<&str> {
+    let data = line.strip_prefix("data:")?.trim();
+    (!data.is_empty() && data != "[DONE]").then_some(data)
+}
+
 /// How `usageMetadata` maps onto [`Usage`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UsageStyle {
@@ -186,13 +195,9 @@ impl GeminiDecoder {
             out.push(StreamEvent::ProviderKeepalive);
             return Ok(());
         }
-        let Some(data) = line.strip_prefix("data:") else {
+        let Some(data) = sse_data(line) else {
             return Ok(());
         };
-        let data = data.trim();
-        if data.is_empty() || data == "[DONE]" {
-            return Ok(());
-        }
         let payload: Value = serde_json::from_str(data).map_err(|_| {
             let mut err = truncated("malformed stream chunk", self.exposure);
             err.code = Some("malformed_stream".into());

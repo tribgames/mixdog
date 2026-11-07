@@ -17,6 +17,7 @@ use super::process::{ProcessWarmDeps, TokioTimers, WarmConfig, WarmProviders, Wa
 use super::stream::{WarmFailure, WarmUsage};
 use crate::catalog::{CatalogPricing, CatalogSnapshot, CatalogService, ModelsDev, ModelsDevSource};
 use crate::oauth::CredentialIo;
+use crate::accounts::ACCOUNT_PROVIDERS;
 use crate::registry::accounting::{UsageRow, UsageSink};
 use crate::transport::http::{HttpResponse, HttpSend};
 
@@ -207,7 +208,10 @@ async fn the_ledger_row_of_a_warm_is_nodes() {
             prompt_tokens: None,
             cost_usd: None,
         };
-        deps.record_usage(&request(case), &warm, case["startedAt"].as_f64().unwrap(), case["account"].as_str().unwrap()).await.unwrap();
+        // warmTarget: only a provider with a roster warms under an account; the recording drove the
+        // chain, so the account its row names is the target's, not the hit's.
+        let account = if ACCOUNT_PROVIDERS.contains(&case["provider"].as_str().unwrap()) { case["account"].as_str().unwrap() } else { "" };
+        deps.record_usage(&request(case), &warm, case["startedAt"].as_f64().unwrap(), account).await.unwrap();
         let rows = sink.0.lock().unwrap();
         assert_eq!(rows.len(), 1, "{}", case["name"]);
         let mut got = serde_json::to_value(&rows[0]).unwrap();
@@ -241,6 +245,8 @@ async fn the_setting_is_read_from_the_config_as_node_reads_it() {
 
 #[tokio::test]
 async fn a_timer_runs_after_its_delay_and_a_cancelled_one_never_does() {
+    // TokioTimers spawns through mixdog-rt, which needs its (test) backend installed.
+    mixdog_rt::testing::tokens();
     let fired = Arc::new(Mutex::new(Vec::<&'static str>::new()));
     for (name, delay, cancel) in [("late", 150.0, false), ("cancelled", 150.0, true), ("negative", -5.0, false)] {
         let fired = Arc::clone(&fired);

@@ -3,9 +3,9 @@
 //! agents (`SessionDirectory::agent_activity`, wp-session-29), which publishes `thread/agents/updated`
 //! only when the lists differ. Nothing polls.
 //!
-//! Node re-reads every status scope on each signal. The sources that name a session pass it as the
-//! owner (a background task added or finished, an approval wait changing); those that do not (a
-//! worker-index write, a session record reloaded, a role's watchdog policy resolved) reach every
+//! Node re-reads every status scope on each signal. A background task added or finished names its
+//! owner, and only that owner re-reads; every other source (an approval wait changing, a
+//! worker-index write, a session record reloaded, a role's watchdog policy resolved) reaches every
 //! loaded owner.
 
 use std::sync::Arc;
@@ -44,13 +44,13 @@ impl AgentActivity {
     }
 
     /// A source that names the session it concerns: `emitSessionActivityChange(ownerSessionId)` of a
-    /// background task added or finished (`JobBoard::new`'s `on_change`), `onSessionApprovalWaitChange`.
+    /// background task added or finished (`JobBoard::new`'s `on_change`).
     pub fn owner(&self, owner: &str) {
         self.sink.agent_activity(owner);
     }
 
     /// A source with no owner of its own: `registry.onWorkerRowsChange`, `sessionRecords.onChange`,
-    /// `onRolePolicyResolved`.
+    /// `onSessionApprovalWaitChange`, `onRolePolicyResolved`.
     pub fn everyone(&self) {
         for thread in self.sink.loaded() {
             self.sink.agent_activity(thread.as_str());
@@ -61,6 +61,19 @@ impl AgentActivity {
     pub fn name_listener(self: &Arc<Self>) -> Arc<dyn Fn(&str) + Send + Sync> {
         let this = Arc::clone(self);
         Arc::new(move |owner| this.owner(owner))
+    }
+}
+
+/// The session actor's sources (`SessionDeps.agent_signals`). Node's listeners of both ignore the
+/// session (`statusMayHaveChanged()` re-reads every scope): an approval a worker waits on shows in
+/// its Lead's status, so its own thread is not the one to tell.
+impl mixdog_core_session::session::agent_activity::AgentSignals for AgentActivity {
+    fn approval_wait(&self, _session: &str) {
+        self.everyone();
+    }
+
+    fn session_record(&self, _session: &str) {
+        self.everyone();
     }
 }
 
@@ -89,6 +102,17 @@ mod tests {
         (activity.name_listener())("b");
         activity.everyone();
         assert_eq!(*sink.1.lock().unwrap(), ["b", "a", "b"]);
+    }
+
+    /// The session actor's sources name no owner to Node's listener: all loaded threads re-read.
+    #[test]
+    fn the_session_actors_signals_reach_every_loaded_thread() {
+        use mixdog_core_session::session::agent_activity::AgentSignals;
+        let sink = Arc::new(Sink(vec!["a", "b"], Mutex::default()));
+        let activity = AgentActivity::new(sink.clone());
+        activity.approval_wait("w");
+        activity.session_record("w");
+        assert_eq!(*sink.1.lock().unwrap(), ["a", "b", "a", "b"]);
     }
 
     #[test]

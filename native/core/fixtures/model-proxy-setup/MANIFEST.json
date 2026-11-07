@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-model-proxy-setup.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 13730,
+      "path": "golden.json",
+      "sha256": "3e5a25ab0ecb7f9573e3102e7170b9f5c9d063aa5316bf7b617bc03189d41655"
+    }
+  ],
+  "product": {
+    "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
+    "commit": "1fd37c8971351e57557f9d15825a481f0dec7773",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "1fd37c8971351e57557f9d15825a481f0dec7773",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-model-proxy-setup.mjs",
+  "set": "model-proxy-setup",
+  "totalBytes": 13730
+}

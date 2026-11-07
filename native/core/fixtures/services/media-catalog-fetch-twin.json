@@ -1,0 +1,831 @@
+{
+  "domain": "media-catalog-fetch-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-media-catalog-fetch.mjs",
+  "clock": 1700000000000,
+  "timeouts": {
+    "gemini": 10000,
+    "xai": 10000,
+    "grok-oauth": 10000,
+    "openai-oauth": 10000,
+    "openrouter": 60000,
+    "nano-gpt": 60000,
+    "antigravity-oauth": 10000,
+    "bogus": 10000
+  },
+  "fetches": [
+    {
+      "name": "gemini-two-pages",
+      "lane": "gemini",
+      "auth": {
+        "token": "g-key"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": "{\"models\":[{\"name\":\"models/a\"}],\"nextPageToken\":\"next page/1+x\"}"
+        },
+        {
+          "status": 200,
+          "body": "{\"models\":[{\"name\":\"models/b\"},{\"name\":\"models/c\"}]}"
+        }
+      ],
+      "rows": [
+        {
+          "name": "models/a"
+        },
+        {
+          "name": "models/b"
+        },
+        {
+          "name": "models/c"
+        }
+      ],
+      "calls": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
+          "headers": {
+            "x-goog-api-key": "g-key"
+          },
+          "redirect": "error",
+          "hasSignal": true,
+          "hasDispatcher": false
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&pageToken=next+page%2F1%2Bx",
+          "headers": {
+            "x-goog-api-key": "g-key"
+          },
+          "redirect": "error",
+          "hasSignal": true,
+          "hasDispatcher": false
+        }
+      ]
+    },
+    {
+      "name": "gemini-one-page",
+      "lane": "gemini",
+      "auth": {
+        "token": "g-key"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": "{\"models\":[],\"nextPageToken\":7}"
+        }
+      ],
+      "rows": [],
+      "calls": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
+          "headers": {
+            "x-goog-api-key": "g-key"
+          },
+          "redirect": "error",
+          "hasSignal": true,
+          "hasDispatcher": false
+        }
+      ]
+    },
+    {
+      "name": "gemini-invalid",
+      "lane": "gemini",
+      "auth": {
+        "token": "g-key"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": "{\"items\":[]}"
+        }
+      ],
+      "error": {
+        "message": "Invalid Gemini media catalog response",
+        "code": null,
+        "status": null
+      },
+      "calls": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
+          "headers": {
+            "x-goog-api-key": "g-key"
+          },
+          "redirect": "error",
+          "hasSignal": true,
+          "hasDispatcher": false
+        }
+      ]
+    },
+    {
+      "name": "gemini-401",
+      "lane": "gemini",
+      "auth": {
+        "token": "bad"
+      },
+      "replies": [
+        {
+          "status": 401,
+          "body": "denied"
+        }
+      ],
+      "error": {
+        "message": "Authentication failed. Check the API key or reconnect the account.",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401
+      },
+      "calls": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
+          "headers": {
+            "x-goog-api-key": "bad"
+          },
+          "redirect": "error",
+          "hasSignal": true,
+          "hasDispatcher": false
+        }
+      ]
+    },
+    {
+      "name": "gemini-second-page-429",
+      "lane": "gemini",
+      "auth": {
+        "token": "g-key"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": "{\"models\":[{\"name\":\"models/a\"}],\"nextPageToken\":\"t\"}"
+        },
+        {
+          "status": 429,
+          "body": "slow down"
+        }
+      ],
+      "error": {
+        "message": "Too many requests. Wait a moment and retry.",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429
+      },
+      "calls": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
+          "headers": {
+            "x-goog-api-key": "g-key"
+          },
+          "redirect": "error",
+          "hasSignal": true,
+          "hasDispatcher": false
+        },
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&pageToken=t",
+          "headers": {
+            "x-goog-api-key": "g-key"
+          },
+          "redirect": "error",
+          "hasSignal": true,
+          "hasDispatcher": false
+        }
+      ]
+    },
+    {
+      "name": "xai-ok",
+      "lane": "xai",
+      "auth": {
+        "baseURL": "https://api.x.ai/v1",
+        "token": "x-key"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": "{\"data\":[{\"id\":\"grok-imagine-image\"}]}"
+        }
+      ],
+      "rows": [
+        {
+          "id": "grok-imagine-image"
+        }
+      ],
+      "calls": [
+        {
+          "url": "https://api.x.ai/v1/models",
+          "headers": {
+            "Authorization": "Bearer x-key"
+          },
+          "redirect": "error",
+          "hasSignal": true,
+          "hasDispatcher": false
+        }
+      ]
+    },
+    {
+      "name": "grok-oauth-403",
+      "lane": "grok-oauth",
+      "auth": {
+        "baseURL": "https://api.x.ai/v1",
+        "token": "tok"
+      },
+      "replies": [
+        {
+          "status": 403,
+          "body": "no"
+        }
+      ],
+      "error": {
+        "message": "Model catalog access denied. Check account permissions.",
+        "code": "MEDIA_ACCESS_DENIED",
+        "status": 403
+      },
+      "calls": [
+        {
+          "url": "https://api.x.ai/v1/models",
+          "headers": {
+            "Authorization": "Bearer tok"
+          },
+          "redirect": "error",
+          "hasSignal": true,
+          "hasDispatcher": false
+        }
+      ]
+    },
+    {
+      "name": "xai-invalid",
+      "lane": "xai",
+      "auth": {
+        "baseURL": "https://api.x.ai/v1",
+        "token": "x-key"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": "{\"data\":{\"id\":1}}"
+        }
+      ],
+      "error": {
+        "message": "Invalid media catalog response",
+        "code": null,
+        "status": null
+      },
+      "calls": [
+        {
+          "url": "https://api.x.ai/v1/models",
+          "headers": {
+            "Authorization": "Bearer x-key"
+          },
+          "redirect": "error",
+          "hasSignal": true,
+          "hasDispatcher": false
+        }
+      ]
+    },
+    {
+      "name": "xai-null-data",
+      "lane": "xai",
+      "auth": {
+        "baseURL": "https://api.x.ai/v1",
+        "token": "x-key"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": "null"
+        }
+      ],
+      "error": {
+        "message": "Invalid media catalog response",
+        "code": null,
+        "status": null
+      },
+      "calls": [
+        {
+          "url": "https://api.x.ai/v1/models",
+          "headers": {
+            "Authorization": "Bearer x-key"
+          },
+          "redirect": "error",
+          "hasSignal": true,
+          "hasDispatcher": false
+        }
+      ]
+    },
+    {
+      "name": "xai-500",
+      "lane": "xai",
+      "auth": {
+        "baseURL": "https://api.x.ai/v1",
+        "token": "x-key"
+      },
+      "replies": [
+        {
+          "status": 500,
+          "body": "boom"
+        }
+      ],
+      "error": {
+        "message": "Model catalog unavailable. Retry after checking the provider connection.",
+        "code": "MEDIA_CATALOG_UNAVAILABLE",
+        "status": 500
+      },
+      "calls": [
+        {
+          "url": "https://api.x.ai/v1/models",
+          "headers": {
+            "Authorization": "Bearer x-key"
+          },
+          "redirect": "error",
+          "hasSignal": true,
+          "hasDispatcher": false
+        }
+      ]
+    },
+    {
+      "name": "xai-504",
+      "lane": "xai",
+      "auth": {
+        "baseURL": "https://api.x.ai/v1",
+        "token": "x-key"
+      },
+      "replies": [
+        {
+          "status": 504,
+          "body": ""
+        }
+      ],
+      "error": {
+        "message": "Model catalog request timed out. Retry after checking the connection.",
+        "code": "MEDIA_CATALOG_TIMEOUT",
+        "status": 504
+      },
+      "calls": [
+        {
+          "url": "https://api.x.ai/v1/models",
+          "headers": {
+            "Authorization": "Bearer x-key"
+          },
+          "redirect": "error",
+          "hasSignal": true,
+          "hasDispatcher": false
+        }
+      ]
+    },
+    {
+      "name": "xai-408",
+      "lane": "xai",
+      "auth": {
+        "baseURL": "https://api.x.ai/v1",
+        "token": "x-key"
+      },
+      "replies": [
+        {
+          "status": 408,
+          "body": ""
+        }
+      ],
+      "error": {
+        "message": "Model catalog request timed out. Retry after checking the connection.",
+        "code": "MEDIA_CATALOG_TIMEOUT",
+        "status": 408
+      },
+      "calls": [
+        {
+          "url": "https://api.x.ai/v1/models",
+          "headers": {
+            "Authorization": "Bearer x-key"
+          },
+          "redirect": "error",
+          "hasSignal": true,
+          "hasDispatcher": false
+        }
+      ]
+    },
+    {
+      "name": "xai-billing-text",
+      "lane": "xai",
+      "auth": {
+        "baseURL": "https://api.x.ai/v1",
+        "token": "x-key"
+      },
+      "replies": [
+        {
+          "status": 400,
+          "body": "You have exceeded your spending limit"
+        }
+      ],
+      "error": {
+        "message": "API credits exhausted or spending limit reached. Check provider billing.",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 400
+      },
+      "calls": [
+        {
+          "url": "https://api.x.ai/v1/models",
+          "headers": {
+            "Authorization": "Bearer x-key"
+          },
+          "redirect": "error",
+          "hasSignal": true,
+          "hasDispatcher": false
+        }
+      ]
+    },
+    {
+      "name": "xai-billing-402",
+      "lane": "xai",
+      "auth": {
+        "baseURL": "https://api.x.ai/v1",
+        "token": "x-key"
+      },
+      "replies": [
+        {
+          "status": 402,
+          "body": "Payment Required"
+        }
+      ],
+      "error": {
+        "message": "API credits exhausted or spending limit reached. Check provider billing.",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      },
+      "calls": [
+        {
+          "url": "https://api.x.ai/v1/models",
+          "headers": {
+            "Authorization": "Bearer x-key"
+          },
+          "redirect": "error",
+          "hasSignal": true,
+          "hasDispatcher": false
+        }
+      ]
+    },
+    {
+      "name": "openrouter-ok",
+      "lane": "openrouter",
+      "auth": {
+        "baseURL": "https://openrouter.ai/api/v1",
+        "token": "or-key"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": "{\"data\":[{\"id\":\"flux-1\"}]}"
+        }
+      ],
+      "rows": [
+        {
+          "id": "flux-1"
+        }
+      ],
+      "calls": [
+        {
+          "url": "https://openrouter.ai/api/v1/images/models",
+          "headers": {
+            "Authorization": "Bearer or-key"
+          },
+          "redirect": "error",
+          "hasSignal": true,
+          "hasDispatcher": false
+        }
+      ]
+    },
+    {
+      "name": "nano-gpt-ok",
+      "lane": "nano-gpt",
+      "auth": {
+        "baseURL": "https://api.nano-gpt.com/api/v1",
+        "token": "ng-key"
+      },
+      "replies": [
+        {
+          "status": 200,
+          "body": "{\"data\":[]}"
+        }
+      ],
+      "rows": [],
+      "calls": [
+        {
+          "url": "https://api.nano-gpt.com/api/v1/images/models",
+          "headers": {
+            "Authorization": "Bearer ng-key"
+          },
+          "redirect": "error",
+          "hasSignal": true,
+          "hasDispatcher": false
+        }
+      ]
+    },
+    {
+      "name": "nano-gpt-network",
+      "lane": "nano-gpt",
+      "auth": {
+        "baseURL": "https://api.nano-gpt.com/api/v1",
+        "token": "ng-key"
+      },
+      "replies": [
+        {
+          "throws": "fetch failed"
+        }
+      ],
+      "error": {
+        "message": "fetch failed",
+        "code": null,
+        "status": null
+      },
+      "calls": [
+        {
+          "url": "https://api.nano-gpt.com/api/v1/images/models",
+          "headers": {
+            "Authorization": "Bearer ng-key"
+          },
+          "redirect": "error",
+          "hasSignal": true,
+          "hasDispatcher": false
+        }
+      ]
+    }
+  ],
+  "cache": [
+    {
+      "step": {
+        "op": "save",
+        "key": "k1",
+        "at": 0,
+        "rows": [
+          {
+            "id": "a"
+          },
+          {
+            "id": "b",
+            "n": 1
+          }
+        ]
+      },
+      "result": null,
+      "file": "{\n  \"version\": 1,\n  \"fetchedAt\": 1700000000000,\n  \"models\": [\n    {\n      \"id\": \"a\"\n    },\n    {\n      \"id\": \"b\",\n      \"n\": 1\n    }\n  ]\n}\n"
+    },
+    {
+      "step": {
+        "op": "load",
+        "key": "k1",
+        "at": 0
+      },
+      "result": [
+        {
+          "id": "a"
+        },
+        {
+          "id": "b",
+          "n": 1
+        }
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "key": "k1",
+        "at": 86400000
+      },
+      "result": [
+        {
+          "id": "a"
+        },
+        {
+          "id": "b",
+          "n": 1
+        }
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "key": "k1",
+        "at": 86400001
+      },
+      "result": null
+    },
+    {
+      "step": {
+        "op": "load",
+        "key": "k1",
+        "at": 86400001,
+        "stale": true
+      },
+      "result": [
+        {
+          "id": "a"
+        },
+        {
+          "id": "b",
+          "n": 1
+        }
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "key": "k1",
+        "at": -3600000
+      },
+      "result": [
+        {
+          "id": "a"
+        },
+        {
+          "id": "b",
+          "n": 1
+        }
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "key": "missing",
+        "at": 0
+      },
+      "result": null
+    },
+    {
+      "step": {
+        "op": "save",
+        "key": "k1",
+        "at": 108000000,
+        "rows": []
+      },
+      "result": null,
+      "file": "{\n  \"version\": 1,\n  \"fetchedAt\": 1700108000000,\n  \"models\": []\n}\n"
+    },
+    {
+      "step": {
+        "op": "load",
+        "key": "k1",
+        "at": 108000000
+      },
+      "result": []
+    },
+    {
+      "step": {
+        "op": "raw",
+        "key": "old-version",
+        "text": "{\"version\":2,\"fetchedAt\":1700000000000,\"models\":[{\"id\":\"x\"}]}"
+      },
+      "result": null,
+      "file": "{\"version\":2,\"fetchedAt\":1700000000000,\"models\":[{\"id\":\"x\"}]}"
+    },
+    {
+      "step": {
+        "op": "load",
+        "key": "old-version",
+        "at": 0
+      },
+      "result": null
+    },
+    {
+      "step": {
+        "op": "load",
+        "key": "old-version",
+        "at": 0,
+        "stale": true
+      },
+      "result": null
+    },
+    {
+      "step": {
+        "op": "raw",
+        "key": "no-version",
+        "text": "{\"fetchedAt\":1700000000000,\"models\":[{\"id\":\"x\"}]}"
+      },
+      "result": null,
+      "file": "{\"fetchedAt\":1700000000000,\"models\":[{\"id\":\"x\"}]}"
+    },
+    {
+      "step": {
+        "op": "load",
+        "key": "no-version",
+        "at": 0,
+        "stale": true
+      },
+      "result": null
+    },
+    {
+      "step": {
+        "op": "raw",
+        "key": "zero-time",
+        "text": "{\"version\":1,\"fetchedAt\":0,\"models\":[{\"id\":\"x\"}]}"
+      },
+      "result": null,
+      "file": "{\"version\":1,\"fetchedAt\":0,\"models\":[{\"id\":\"x\"}]}"
+    },
+    {
+      "step": {
+        "op": "load",
+        "key": "zero-time",
+        "at": 0,
+        "stale": true
+      },
+      "result": null
+    },
+    {
+      "step": {
+        "op": "raw",
+        "key": "string-time",
+        "text": "{\"version\":1,\"fetchedAt\":\"1700000000000\",\"models\":[{\"id\":\"x\"}]}"
+      },
+      "result": null,
+      "file": "{\"version\":1,\"fetchedAt\":\"1700000000000\",\"models\":[{\"id\":\"x\"}]}"
+    },
+    {
+      "step": {
+        "op": "load",
+        "key": "string-time",
+        "at": 0
+      },
+      "result": [
+        {
+          "id": "x"
+        }
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "key": "string-time",
+        "at": 90000000
+      },
+      "result": null
+    },
+    {
+      "step": {
+        "op": "raw",
+        "key": "models-object",
+        "text": "{\"version\":1,\"fetchedAt\":1700000000000,\"models\":{\"id\":\"x\"}}"
+      },
+      "result": null,
+      "file": "{\"version\":1,\"fetchedAt\":1700000000000,\"models\":{\"id\":\"x\"}}"
+    },
+    {
+      "step": {
+        "op": "load",
+        "key": "models-object",
+        "at": 0,
+        "stale": true
+      },
+      "result": null
+    },
+    {
+      "step": {
+        "op": "raw",
+        "key": "garbage",
+        "text": "{not json"
+      },
+      "result": null,
+      "file": "{not json"
+    },
+    {
+      "step": {
+        "op": "load",
+        "key": "garbage",
+        "at": 0,
+        "stale": true
+      },
+      "result": null
+    },
+    {
+      "step": {
+        "op": "raw",
+        "key": "empty",
+        "text": ""
+      },
+      "result": null,
+      "file": ""
+    },
+    {
+      "step": {
+        "op": "load",
+        "key": "empty",
+        "at": 0,
+        "stale": true
+      },
+      "result": null
+    },
+    {
+      "step": {
+        "op": "raw",
+        "key": "extra-fields",
+        "text": "{\"version\":1,\"fetchedAt\":1700000000000,\"requestedAt\":1700000000000,\"models\":[{\"id\":\"x\"}]}"
+      },
+      "result": null,
+      "file": "{\"version\":1,\"fetchedAt\":1700000000000,\"requestedAt\":1700000000000,\"models\":[{\"id\":\"x\"}]}"
+    },
+    {
+      "step": {
+        "op": "load",
+        "key": "extra-fields",
+        "at": 0
+      },
+      "result": [
+        {
+          "id": "x"
+        }
+      ]
+    }
+  ],
+  "cachePath": "{data}/studio-models-k1.json"
+}

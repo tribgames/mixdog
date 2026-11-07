@@ -354,6 +354,7 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
         features.clone(),
         Arc::new(SummaryStatus::new(late.clone(), Arc::new(WorkflowGetters(workflow_config)), features, inputs.seams.live_route.clone())),
         Arc::new(ModelStatus::new(inputs.seams.live_route.clone())),
+        local.media_status,
     ];
     Ok(PreDomains {
         services,

@@ -20,9 +20,15 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use indexmap::IndexMap;
 use indexmap::IndexSet;
+use mixdog_app_protocol::v2::domain::ReviewScope;
+use mixdog_core_api::domain::repo::ObjectId;
 use mixdog_core_api::turn_review::CallChange;
 use mixdog_core_api::turn_review::ReviewContent;
+use mixdog_protocol::ThreadId;
+use mixdog_scm::service::ReviewBases;
+use mixdog_scm::worktree::review_bases::CapturedBases;
 use serde_json::Value;
+use std::path::PathBuf;
 
 use super::call_diff::CardDiffs;
 use super::call_diff::TrackedChange;
@@ -206,6 +212,9 @@ pub struct Inner {
     pub(super) disk: Arc<dyn ReviewDisk>,
     pub(super) git: Arc<dyn ReviewGit>,
     pub(super) worktrees: Arc<dyn ReviewWorktrees>,
+    /// Where each thread's reviews start (`review/diff/get` reads it back): recorded where a turn's
+    /// worktree snapshot is taken.
+    pub(super) bases: Arc<CapturedBases>,
     pub(super) reg: Mutex<Reg>,
     // Per-session Undo/Reapply chain: a key exists while a task holds or waits on it.
     pub(super) mutations: Arc<mixdog_rt::KeyedChains>,
@@ -230,6 +239,7 @@ impl TurnReview {
         disk: Arc<dyn ReviewDisk>,
         git: Arc<dyn ReviewGit>,
         worktrees: Arc<dyn ReviewWorktrees>,
+        bases: Arc<CapturedBases>,
     ) -> Self {
         Self {
             inner: Arc::new(Inner {
@@ -241,6 +251,7 @@ impl TurnReview {
                 disk,
                 git,
                 worktrees,
+                bases,
                 reg: Mutex::new(Reg::default()),
                 mutations: mixdog_rt::KeyedChains::new(),
                 cpu,
@@ -254,6 +265,24 @@ impl TurnReview {
 
     pub fn store(&self) -> &Store {
         &self.inner.store
+    }
+
+    /// After a restart: the review start of the thread's last sealed turn, from its durable snapshot
+    /// record (`persist_turn_snapshot_record`: checkpoint, root, baseline tree), unless a base is
+    /// already held. The composition calls it when a thread is loaded. `false` when the thread has
+    /// no record. The session's own start is not on record (only the latest turn is), so a thread
+    /// that restarted has no session base until its next turn.
+    pub async fn restore_bases(&self, thread: &ThreadId) -> bool {
+        let Some(record) = self.inner.store.load_turn_snapshot_record(thread.as_str()).await else { return false };
+        let text = |key: &str| clean(record.get(key).and_then(Value::as_str).unwrap_or_default()).to_owned();
+        let (checkpoint, root, tree) = (text("checkpointId"), text("root"), text("baselineTree"));
+        if checkpoint.is_empty() || root.is_empty() || tree.is_empty() {
+            return false;
+        }
+        if self.inner.bases.base(thread, ReviewScope::Turn, Some(&checkpoint)).await.is_none() {
+            self.inner.bases.record(thread, ReviewScope::Turn, Some(&checkpoint), PathBuf::from(root), ObjectId(tree));
+        }
+        true
     }
 }
 
@@ -558,12 +587,30 @@ impl Inner {
         let current = self.tracker_of(&owner);
         if current.is_some_and(|t| Arc::ptr_eq(&t, &tracker)) {
             let has_root = snapshot.as_ref().is_some_and(|s| !s.root().is_empty());
+            let start = snapshot.as_ref().map(|s| (s.root(), s.baseline_tree())).filter(|(root, tree)| !root.is_empty() && !tree.is_empty());
             *tracker.snapshot.lock().unwrap_or_else(|e| e.into_inner()) = snapshot;
             if has_root {
                 Self::mark_worktree_contention(&self.reg(), &owner, &tracker);
             }
+            if let Some((root, tree)) = start {
+                self.record_bases(&owner, &token.checkpoint_id, root, tree).await;
+            }
         }
         Some(token)
+    }
+
+    /// Where this turn's review (and, at the thread's first turn, its session review) starts: the
+    /// tree of the worktree the snapshot just captured.
+    async fn record_bases(&self, owner: &str, checkpoint_id: &str, root: String, tree: String) {
+        let thread = ThreadId::from(owner);
+        let (cwd, base) = (PathBuf::from(root), ObjectId(tree));
+        let checkpoint = clean(checkpoint_id);
+        if !checkpoint.is_empty() {
+            self.bases.record(&thread, ReviewScope::Turn, Some(checkpoint), cwd.clone(), base.clone());
+        }
+        if self.bases.base(&thread, ReviewScope::Session, None).await.is_none() {
+            self.bases.record(&thread, ReviewScope::Session, None, cwd, base);
+        }
     }
 
     // ── per-session mutation chain ─────────────────────────────────────────

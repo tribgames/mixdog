@@ -89,9 +89,16 @@ impl VoiceRuntime {
     }
 }
 
-#[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
-fn has_data(path: &Path) -> bool {
-    std::fs::metadata(path).is_ok_and(|m| m.is_file() && m.len() > 0)
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a durability-lane job")]
+pub(super) fn has_data(path: &Path) -> bool {
+    use std::io::Read;
+    // `fileHasData`: false when the file is absent or its first 4096 bytes hold nothing but NUL
+    // and whitespace; a file that exists but cannot be read right now still counts as present.
+    let mut head = [0u8; 4096];
+    match std::fs::File::open(path).and_then(|mut file| file.read(&mut head)) {
+        Ok(read) => !head[..read].iter().all(|byte| matches!(byte, 0 | b' ' | b'\t' | b'\n' | b'\r')),
+        Err(error) => !matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory),
+    }
 }
 
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]

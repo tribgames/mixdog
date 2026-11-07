@@ -1,0 +1,157 @@
+{
+  "platform": "win32",
+  "steps": [
+    {
+      "step": "fresh",
+      "status": {
+        "state": "unknown",
+        "message": "",
+        "fallback": false
+      },
+      "notices": 0
+    },
+    {
+      "step": "ok",
+      "message": "a call succeeded",
+      "code": null,
+      "status": {
+        "state": "ok",
+        "message": "",
+        "fallback": false
+      },
+      "noticed": 0
+    },
+    {
+      "step": "fail",
+      "message": "the keyring is locked",
+      "code": null,
+      "status": {
+        "state": "locked",
+        "message": "the keyring is locked",
+        "fallback": false
+      },
+      "noticed": 1
+    },
+    {
+      "step": "fail",
+      "message": "secret store operation timed out after 15000ms",
+      "code": null,
+      "status": {
+        "state": "locked",
+        "message": "secret store operation timed out after 15000ms",
+        "fallback": false
+      },
+      "noticed": 1
+    },
+    {
+      "step": "fail",
+      "message": "secret-tool is not installed",
+      "code": null,
+      "status": {
+        "state": "missing",
+        "message": "secret-tool is not installed",
+        "fallback": false
+      },
+      "noticed": 1
+    },
+    {
+      "step": "fail",
+      "message": "storage exploded",
+      "code": null,
+      "status": {
+        "state": "error",
+        "message": "storage exploded",
+        "fallback": false
+      },
+      "noticed": 1
+    },
+    {
+      "step": "fail",
+      "message": "LOCKED outranks nothing: Locked",
+      "code": null,
+      "status": {
+        "state": "error",
+        "message": "LOCKED outranks nothing: Locked",
+        "fallback": false
+      },
+      "noticed": 1
+    },
+    {
+      "step": "fail",
+      "message": "no keyring provider on this host",
+      "code": "KEYRING_UNAVAILABLE",
+      "status": {
+        "state": "error",
+        "message": "no keyring provider on this host",
+        "fallback": false
+      },
+      "noticed": 0
+    },
+    {
+      "step": "fail",
+      "message": "gdbus gave an unparsable reply",
+      "code": "KEYRING_UNREACHABLE",
+      "status": {
+        "state": "unreachable",
+        "message": "gdbus gave an unparsable reply",
+        "fallback": false
+      },
+      "noticed": 0
+    },
+    {
+      "step": "fail",
+      "message": "the keyring is locked and unreachable",
+      "code": "KEYRING_UNREACHABLE",
+      "status": {
+        "state": "unreachable",
+        "message": "the keyring is locked and unreachable",
+        "fallback": false
+      },
+      "noticed": 0
+    },
+    {
+      "step": "ok",
+      "message": null,
+      "code": null,
+      "status": {
+        "state": "ok",
+        "message": "",
+        "fallback": false
+      },
+      "noticed": 0
+    },
+    {
+      "step": "syncFail",
+      "message": "the keyring is locked",
+      "code": null,
+      "status": {
+        "state": "ok",
+        "message": "",
+        "fallback": false
+      },
+      "noticed": 0
+    },
+    {
+      "step": "syncOk",
+      "message": null,
+      "code": null,
+      "status": {
+        "state": "ok",
+        "message": "",
+        "fallback": false
+      },
+      "noticed": 0
+    },
+    {
+      "step": "fail",
+      "message": "not installed but also timed out",
+      "code": null,
+      "status": {
+        "state": "missing",
+        "message": "not installed but also timed out",
+        "fallback": false
+      },
+      "noticed": 1
+    }
+  ]
+}

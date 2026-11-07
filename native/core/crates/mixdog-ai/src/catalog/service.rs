@@ -16,6 +16,7 @@ use super::ListingLookup;
 use super::ModelSource;
 use super::ModelsDev;
 use super::lookup::Lookup;
+use super::record::Capability;
 use super::rosters::RosterSnapshot;
 use crate::oauth::CredentialIo;
 use super::ModelsDevSource;
@@ -144,6 +145,17 @@ impl CatalogService {
     /// layer for what a row does not state.
     pub fn traits(&self, provider: ProviderId) -> CatalogTraits {
         CatalogTraits::new(self.catalog.clone(), provider).with_models_dev(self.metadata.clone())
+    }
+
+    /// `getCachedModelInfo(model) ?? getModelMetadataSync(model, provider)` marks prompt caching:
+    /// the model's catalog row when `provider` lists it (a row is the cached info, so its flag
+    /// decides even when it states none), else the resident tables.
+    pub fn prompt_caching(&self, provider: &str, model: &str) -> bool {
+        let snapshot = self.catalog.snapshot();
+        match snapshot.models_of(&ProviderId::from(provider)).iter().find(|record| record.id == model) {
+            Some(record) => record.prompt_caching == Capability::Yes,
+            None => self.listing.supports_prompt_caching(provider, model),
+        }
     }
 
     pub fn snapshot(&self) -> Arc<CatalogSnapshot> {

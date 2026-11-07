@@ -98,8 +98,18 @@ enum Parsed {
 /// nesting and out-of-range numbers are accepted as V8 accepts them (see
 /// [`mixdog_js::json_parse`]); the value is written back with [`json_bytes`].
 pub fn parse_json_text(content: &[u8]) -> Result<Value, mixdog_js::JsonSyntaxError> {
+    as_json_source(content, mixdog_js::json_parse)
+}
+
+/// The message of the `SyntaxError` `JSON.parse` throws for `content` (decoded as
+/// [`parse_json_text`] decodes it), in V8's words; `None` when it parses.
+pub fn json_text_problem(content: &[u8]) -> Option<String> {
+    as_json_source(content, mixdog_js::v8_json_parse_error)
+}
+
+fn as_json_source<T>(content: &[u8], read: impl FnOnce(&str) -> T) -> T {
     let text = String::from_utf8_lossy(content);
-    mixdog_js::json_parse(text.strip_prefix('\u{feff}').unwrap_or(&text))
+    read(text.strip_prefix('\u{feff}').unwrap_or(&text))
 }
 
 /// Whether `content` parses (a JSON write's backup takes only such a version).

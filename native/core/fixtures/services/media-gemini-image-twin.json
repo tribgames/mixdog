@@ -1,0 +1,1103 @@
+{
+  "domain": "media-gemini-image-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-media-gemini-image.mjs",
+  "scenarios": [
+    {
+      "name": "ok",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "ok-mime",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/jpeg\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/jpeg",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "ok-no-mime",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "ok-usage",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}],\"usageMetadata\":{\"promptTokenCount\":8,\"candidatesTokenCount\":1290,\"candidatesTokensDetails\":[{\"modality\":\"IMAGE\",\"tokenCount\":1290}]}}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "inputTokens": 8,
+          "outputTokens": 1290,
+          "outputImageTokens": 1290
+        }
+      }
+    },
+    {
+      "name": "ok-after-text",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"here you go\"},{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "ok-first-image-wins",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"data\":\"\"}},{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}},{\"inlineData\":{\"mimeType\":\"image/webp\",\"data\":\"AAAA\"}}]}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "aspect",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {
+        "aspectRatio": "16:9"
+      },
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"],\"imageConfig\":{\"aspectRatio\":\"16:9\"}},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "aspect-auto",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {
+        "aspectRatio": "auto"
+      },
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "aspect-blank",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {
+        "aspectRatio": ""
+      },
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "aspect-number",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {
+        "aspectRatio": 1
+      },
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"],\"imageConfig\":{\"aspectRatio\":\"1\"}},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "references",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [
+        {
+          "base64": "cmVm",
+          "mime": "image/jpeg"
+        },
+        {
+          "base64": "cmVm2"
+        }
+      ],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"inlineData\":{\"mimeType\":\"image/jpeg\",\"data\":\"cmVm\"}},{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"cmVm2\"}},{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "model-encoded",
+      "model": "models/gemini 3?pro#x",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/models%2Fgemini%203%3Fpro%23x:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "unicode-prompt",
+      "model": "gemini-3-pro-image",
+      "prompt": "고양이 🐈 \"q\"\n",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"고양이 🐈 \\\"q\\\"\\n\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "refusal-text",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"  I cannot draw that.  \"}]}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Gemini returned no image data:   I cannot draw that.  ",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "refusal-long",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}]}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Gemini returned no image data: xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "refusal-blank-then-text",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"   \"},{\"text\":\"second\"}]}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Gemini returned no image data: second",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "refusal-non-string-text",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":5}]}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Gemini returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "no-text",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{}]}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Gemini returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "refusal-usage-kept",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"no\"}]}}],\"usageMetadata\":{\"promptTokenCount\":4}}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Gemini returned no image data: no",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": {
+          "inputTokens": 4
+        }
+      }
+    },
+    {
+      "name": "body-not-json",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "oops"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Unexpected token 'o', \"oops\" is not valid JSON",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "body-html",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "<html><body>Bad gateway</body></html>"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Unexpected token '<', \"<html><bod\"... is not valid JSON",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "body-truncated",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Unexpected end of JSON input",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "body-empty",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": ""
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Unexpected end of JSON input",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "no-candidates",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Gemini returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "empty-candidates",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Gemini returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "null-parts",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":null}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Gemini returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "null-part",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[null,{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"iVBORw0KGgoAAAANSUhEUg==\"}}]}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": {
+          "images": 1
+        }
+      }
+    },
+    {
+      "name": "bad-b64",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 200,
+        "text": "{\"candidates\":[{\"content\":{\"parts\":[{\"inlineData\":{\"mimeType\":\"image/png\",\"data\":\"!!\"}}]}}]}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Gemini image exceeds the media size limit",
+        "code": "MEDIA_RESULT_TOO_LARGE",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "http-400",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 400,
+        "text": "{\"error\":{\"message\":\"API key not valid\"}}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Gemini image failed (400): API key not valid",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 400,
+        "usage": null
+      }
+    },
+    {
+      "name": "http-401",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 401,
+        "text": ""
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Gemini image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401,
+        "usage": null
+      }
+    },
+    {
+      "name": "http-402",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 402,
+        "text": "{\"error\":\"billing\"}"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Gemini image: account has no usable balance — billing",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402,
+        "usage": null
+      }
+    },
+    {
+      "name": "http-429",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 429,
+        "text": "slow"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Gemini image: rate limited — retry in a moment",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429,
+        "usage": null
+      }
+    },
+    {
+      "name": "http-500",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "status": 500,
+        "text": "<html>x</html>"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "Gemini image failed (500)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500,
+        "usage": null
+      }
+    },
+    {
+      "name": "fetch-fails",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "fail": "fetch failed"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "fetch failed",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "timeout",
+      "model": "gemini-3-pro-image",
+      "prompt": "a red circle",
+      "options": {},
+      "references": [],
+      "reply": {
+        "fail": "The operation was aborted due to timeout",
+        "name": "TimeoutError"
+      },
+      "sent": [
+        {
+          "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "x-goog-api-key": "secret-key"
+          },
+          "body": "{\"generationConfig\":{\"responseModalities\":[\"TEXT\",\"IMAGE\"]},\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"a red circle\"}]}]}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "error": {
+        "message": "The operation was aborted due to timeout",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    }
+  ]
+}

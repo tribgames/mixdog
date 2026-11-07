@@ -1,0 +1,194 @@
+{
+  "note": "what the real 1.4.5 desktop session-auto-retention.ts noteArchived leaves in session-auto-retention.json after each step (null: no file)",
+  "cases": [
+    {
+      "name": "a restore with no record yet creates it",
+      "initial": null,
+      "steps": [
+        {
+          "session": "s1",
+          "archived": false,
+          "at": 1000
+        },
+        {
+          "session": "s2",
+          "archived": true,
+          "at": 1100
+        },
+        {
+          "session": "s2",
+          "archived": false,
+          "at": 2000
+        },
+        {
+          "session": "s1",
+          "archived": true,
+          "at": 3000
+        },
+        {
+          "session": "s1",
+          "archived": true,
+          "at": 3100
+        },
+        {
+          "session": "s2",
+          "archived": false,
+          "at": 4000
+        }
+      ],
+      "after": [
+        {
+          "enabledAt": 1000,
+          "restored": {
+            "s1": 1000
+          }
+        },
+        {
+          "enabledAt": 1000,
+          "restored": {
+            "s1": 1000
+          }
+        },
+        {
+          "enabledAt": 1000,
+          "restored": {
+            "s1": 1000,
+            "s2": 2000
+          }
+        },
+        {
+          "enabledAt": 1000,
+          "restored": {
+            "s2": 2000
+          }
+        },
+        {
+          "enabledAt": 1000,
+          "restored": {
+            "s2": 2000
+          }
+        },
+        {
+          "enabledAt": 1000,
+          "restored": {
+            "s2": 4000
+          }
+        }
+      ]
+    },
+    {
+      "name": "an archive with no record yet still creates the record",
+      "initial": null,
+      "steps": [
+        {
+          "session": "s1",
+          "archived": true,
+          "at": 1000
+        }
+      ],
+      "after": [
+        {
+          "enabledAt": 1000,
+          "restored": {}
+        }
+      ]
+    },
+    {
+      "name": "a valid record with bad stamps is left as it is until it changes",
+      "initial": {
+        "enabledAt": 5,
+        "restored": {
+          "a": 0,
+          "b": -1,
+          "c": "x",
+          "d": 7
+        }
+      },
+      "steps": [
+        {
+          "session": "zz",
+          "archived": true,
+          "at": 1000
+        },
+        {
+          "session": "d",
+          "archived": true,
+          "at": 2000
+        }
+      ],
+      "after": [
+        {
+          "enabledAt": 5,
+          "restored": {
+            "a": 0,
+            "b": -1,
+            "c": "x",
+            "d": 7
+          }
+        },
+        {
+          "enabledAt": 5,
+          "restored": {}
+        }
+      ]
+    },
+    {
+      "name": "a record with no enabledAt is normalized on the next note",
+      "initial": {
+        "restored": {
+          "a": 0,
+          "d": 7
+        }
+      },
+      "steps": [
+        {
+          "session": "zz",
+          "archived": true,
+          "at": 1000
+        },
+        {
+          "session": "e",
+          "archived": false,
+          "at": 2000
+        }
+      ],
+      "after": [
+        {
+          "enabledAt": 1000,
+          "restored": {
+            "d": 7
+          }
+        },
+        {
+          "enabledAt": 1000,
+          "restored": {
+            "d": 7,
+            "e": 2000
+          }
+        }
+      ]
+    },
+    {
+      "name": "a record that is not an object starts over",
+      "initial": [
+        1,
+        2
+      ],
+      "steps": [
+        {
+          "session": "s1",
+          "archived": false,
+          "at": 1000
+        }
+      ],
+      "after": [
+        {
+          "enabledAt": 1000,
+          "restored": {
+            "s1": 1000
+          }
+        }
+      ]
+    }
+  ]
+}
