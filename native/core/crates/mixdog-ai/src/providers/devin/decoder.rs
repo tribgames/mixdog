@@ -321,7 +321,8 @@ impl DevinDecoder {
             } else if self.stop_reason == stop::MAX_TOKENS {
                 StopReason::MaxTokens
             } else {
-                StopReason::EndTurn
+                // `devin.mjs` returns the literal `'stop'` for a plain end, as the chat decoders do.
+                StopReason::Other("stop".to_owned())
             }),
         });
         Ok(events)

@@ -165,8 +165,9 @@ pub struct ResponsesDecoder {
     /// The runtime label Node prefixes to a stream error (`errLabel`, `httpLabel`, the compatible route's
     /// `<provider>:responses`); empty: no prefix.
     label: String,
-    /// Some visible text was relayed (`content` is not empty).
-    visible: bool,
+    /// The visible text so far (`state.content`): the live deltas, and the terminal bundle's text that the HTTP/SSE and
+    /// WebSocket collectors add without relaying.
+    content: String,
     /// The calls the turn collected, in occurrence order (`toolCalls`), dispatched or not.
     listed: Vec<Listed>,
     /// The leaked tool-call guard over the output text (`createLeakGuard`, harmony syntax on).
@@ -354,7 +355,7 @@ impl ResponsesDecoder {
             compat: false,
             model: None,
             label: String::new(),
-            visible: false,
+            content: String::new(),
             listed: Vec::new(),
             leak: LeakGuard::new(HashSet::new(), true),
             dedupe: Dedupe::default(),
@@ -367,13 +368,26 @@ impl ResponsesDecoder {
         self
     }
 
-    /// What the guard let through and recovered: visible text first, then the calls.
-    fn relay_leak(&mut self, (text, calls): (String, Vec<Recovered>), out: &mut Vec<StreamEvent>) {
-        if !text.is_empty() {
-            self.exposure.text_emitted = true;
-            self.visible = true;
-            out.push(StreamEvent::TextDelta(text));
+    /// Visible text joins the content. Live, it is relayed as a delta (`forwardText`, `relayText`) and the stream is
+    /// exposed to it; otherwise (`relayFinal`, `absorbCompletedText`: the bundle's text on the HTTP/SSE and WebSocket
+    /// collectors) only the content grows, so the turn's returned text is restated and `text` is reported.
+    fn add_text(&mut self, text: String, live: bool, out: &mut Vec<StreamEvent>) {
+        if text.is_empty() {
+            return;
         }
+        self.content.push_str(&text);
+        if live {
+            self.exposure.text_emitted = true;
+            out.push(StreamEvent::TextDelta(text));
+        } else {
+            out.push(StreamEvent::FinalContent(self.content.clone()));
+            out.push(StreamEvent::Progress(ProgressKind::Text));
+        }
+    }
+
+    /// What the guard let through and recovered: visible text first, then the calls.
+    fn relay_leak(&mut self, (text, calls): (String, Vec<Recovered>), live: bool, out: &mut Vec<StreamEvent>) {
+        self.add_text(text, live, out);
         for recovered in calls {
             let call = leak::openai_call(recovered);
             let fresh = self.dedupe.should_dispatch(&call.name, &call.arguments, &call.id);
@@ -528,11 +542,9 @@ impl ResponsesDecoder {
                         .push_str(delta);
                     if self.leak.enabled() {
                         let scanned = self.leak.push(delta, false);
-                        self.relay_leak(scanned, out);
+                        self.relay_leak(scanned, true, out);
                     } else {
-                        self.exposure.text_emitted = true;
-                        self.visible = true;
-                        out.push(StreamEvent::TextDelta(delta.to_owned()));
+                        self.add_text(delta.to_owned(), true, out);
                     }
                 }
             }
@@ -692,16 +704,16 @@ impl ResponsesDecoder {
         // The compatible fold adopts the bundle's text first, then sweeps the other items; none is skipped as seen.
         let start = out.len();
         let relay = self.nothing_streamed();
-        for item in output.iter().filter(|item| str_of(item, "type") == "message") {
-            if relay {
+        if relay {
+            for item in output.iter().filter(|item| str_of(item, "type") == "message") {
                 self.bundle_text(item, out);
             }
-            self.item_done(item, out);
         }
         let mut reported = out[start..]
             .iter()
             .any(|event| matches!(event, StreamEvent::TextDelta(_) | StreamEvent::Progress(ProgressKind::Tool)));
-        for item in output.iter().filter(|item| str_of(item, "type") != "message") {
+        // The items are collected in the bundle's order: the replay the turn returns keeps it.
+        for item in output {
             self.item_done(item, out);
             match str_of(item, "type") {
                 "function_call" | "tool_search_call" | "custom_tool_call" | "web_search_call" => {
@@ -740,9 +752,9 @@ impl ResponsesDecoder {
         }
         match kind {
             "message" => {
-                let mut reported = out[start..]
-                    .iter()
-                    .any(|event| matches!(event, StreamEvent::TextDelta(_) | StreamEvent::Progress(ProgressKind::Tool)));
+                let mut reported = out[start..].iter().any(|event| {
+                    matches!(event, StreamEvent::TextDelta(_) | StreamEvent::Progress(ProgressKind::Text | ProgressKind::Tool))
+                });
                 let refusal = item.get("content").and_then(Value::as_array).is_some_and(|parts| {
                     parts.iter().any(|part| str_of(part, "type") == "refusal" && part.get("refusal").is_some_and(Value::is_string))
                 });
@@ -828,10 +840,10 @@ impl ResponsesDecoder {
         if id.is_empty() || name.is_empty() || !self.calls_emitted.insert(id.to_owned()) {
             return;
         }
-        // A text-leaked call of the same name and arguments already ran: this one is skipped. The WebSocket
-        // collector's identity is the namespace-qualified name (`qualifiedToolCallName`), so a tool of a declared
-        // namespace is never conflated with a same-named top-level one.
-        let qualified = if self.collector() == Collector::WebSocket && !namespace.is_empty() {
+        // A text-leaked call of the same name and arguments already ran: this one is skipped. The WebSocket and
+        // HTTP/SSE collectors' identity is the namespace-qualified name (`qualifiedToolCallName`), so a tool of a
+        // declared namespace is never conflated with a same-named top-level one.
+        let qualified = if self.collector() != Collector::Compat && !namespace.is_empty() {
             format!("{namespace}.{name}")
         } else {
             name.to_owned()
@@ -886,7 +898,7 @@ impl ResponsesDecoder {
     /// Whether no text has streamed yet (`!content`).
     /// Node's `content` is the visible text: what a leak guard suppressed does not count.
     fn nothing_streamed(&self) -> bool {
-        !self.visible
+        self.content.is_empty()
     }
 
     /// The text of a message of the terminal bundle, relayed whole (`relayFinalText`, `absorbCompletedText`). The caller
@@ -902,20 +914,22 @@ impl ResponsesDecoder {
             .collect();
         if !text.is_empty() {
             self.texts.entry(str_of(item, "id").to_owned()).or_default().push_str(&text);
+            // Only the compatible fold relays the bundle's text live.
+            let live = self.collector() == Collector::Compat;
             if self.leak.enabled() {
                 // The bundle's text goes through the guard whole (`relayFinal`, `absorbCompletedText`).
                 let scanned = self.leak.push(&text, true);
-                self.relay_leak(scanned, out);
+                self.relay_leak(scanned, live, out);
             } else {
-                self.exposure.text_emitted = true;
-                self.visible = true;
-                out.push(StreamEvent::TextDelta(text));
+                self.add_text(text, live, out);
             }
         }
     }
     fn item_done(&mut self, item: &Value, out: &mut Vec<StreamEvent>) {
         let item_id = str_of(item, "id").to_owned();
-        if is_incomplete_tool_item(item) {
+        // A server-truncated call is held in flight and never collected; the compatible fold has no such case
+        // (`reconcileCompatFunctionCallItem` dispatches whatever the finished item carries).
+        if is_incomplete_tool_item(item) && self.collector() != Collector::Compat {
             return;
         }
         let mut dedupe_key = if item_id.is_empty() {
@@ -1023,7 +1037,7 @@ impl ResponsesDecoder {
     fn finish_turn(&mut self, response: &Value, stop: Option<StopReason>, out: &mut Vec<StreamEvent>) {
         // The turn is over: nothing is held back any more.
         let tail = self.leak.flush();
-        self.relay_leak(tail, out);
+        self.relay_leak(tail, true, out);
         // The compatible collector returns `state.content || responseOutputText(response)`: a turn whose text the
         // guard suppressed whole is returned with the response's own output text.
         // A recovered call ran live; the list the turn returns is `dedupeToolCallList` over what was collected, in
@@ -1035,7 +1049,7 @@ impl ResponsesDecoder {
             }
             out.push(StreamEvent::ReturnedCalls(leak::dedupe_list(listed.into_iter().map(|e| e.call).collect())));
         }
-        if self.collector() == Collector::Compat && !self.visible {
+        if self.collector() == Collector::Compat && self.nothing_streamed() {
             let output_text = response_output_text(response);
             if !output_text.is_empty() {
                 out.push(StreamEvent::FinalContent(output_text));
@@ -1215,6 +1229,12 @@ impl WireDecoder for ResponsesDecoder {
             return Ok(out);
         }
         let mut err = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
+        if self.collector() == Collector::Compat {
+            // `consumeCompatResponsesStream`: a source that ends without `response.completed` throws
+            // `truncatedCompatStreamError(label, 'no response.completed')`, carrying the model the stream named.
+            err.message = self.labelled("SSE stream truncated: no response.completed".into());
+            return Err(self.billed(self.fail(err), &Value::Null, true));
+        }
         err.message = "stream ended before the response completed".into();
         Err(self.fail(err))
     }
@@ -1225,7 +1245,8 @@ impl WireDecoder for ResponsesDecoder {
 
     fn exposure(&self) -> Exposure {
         Exposure {
-            tool_input_cut: self.in_flight(),
+            // The compatible fold's `pendingToolUse` is its latched flag; a call whose item finished cleared it.
+            tool_input_cut: if self.collector() == Collector::Compat { self.flight.compat_pending() } else { self.in_flight() },
             ..self.exposure
         }
     }
@@ -1304,6 +1325,14 @@ mod progress_tests {
                         failure = Some(error);
                         break;
                     }
+                }
+            }
+            // The recorder ends a compatible source after its last event (`consumeCompatResponsesStream` then throws
+            // when no terminal frame came); the other two collectors are recorded without an end.
+            if failure.is_none() && scenario["framing"] == "compat" {
+                match decoder.finish() {
+                    Ok(events) => streamed.extend(events),
+                    Err(error) => failure = Some(error),
                 }
             }
             // How the stream ended: Node's error (its label aside), the cut-stream flags, the billed usage and model.

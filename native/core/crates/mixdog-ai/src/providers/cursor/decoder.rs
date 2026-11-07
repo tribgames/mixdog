@@ -745,7 +745,8 @@ impl CursorDecoder {
         events.push(StreamEvent::Completed {
             pricing_model: self.pricing_model.clone(),
             request_ms: None,
-            stop: Some(if tool_use { StopReason::ToolUse } else { StopReason::EndTurn }),
+            // Node's cursor result names the plain end `'stop'`, as the chat decoders do.
+            stop: Some(if tool_use { StopReason::ToolUse } else { StopReason::Other("stop".to_owned()) }),
         });
         events
     }

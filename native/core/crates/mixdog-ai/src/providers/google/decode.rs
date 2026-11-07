@@ -467,6 +467,11 @@ impl GeminiDecoder {
         };
         // The stream ended cleanly: nothing is held back, and the held calls are released.
         let tail = self.leak.flush();
+        // The guard's flush forwards its text but reports no progress (`createGeminiTextLeakGuard` calls
+        // `onStreamDelta` only for a recovered call): the tail is transport only.
+        if !tail.0.is_empty() {
+            out.push(StreamEvent::ChunkProgress(None));
+        }
         self.relay_leak(tail, &mut out);
         // The returned content is the whole text scanned once more (`scrubAssistantText`); a call only that scan
         // finds is recovered too.
