@@ -2182,6 +2182,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         turn_review: Some(turn_review.clone() as Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>),
     })
     .map_err(ComposeError::Workspace)?;
+    workspace.spawn_idle_sweeper(); // abandoned uploads go at their idle deadline, as Node's per-upload timer
     builder.register(workspace.clone() as Arc<dyn mixdog_core_api::service::DomainService>)?;
     builder.register(Arc::new(mixdog_exthost::DocumentService::new(b.ext_host.clone(), b.user_data_dir.to_string_lossy().into_owned())))?;
     builder.register(secret.service.clone())?; // `approval/provideSecret`: the same `SecretSlots` as `SecretFill`

@@ -138,3 +138,10 @@ export async function notificationPreferencesState(
   );
   return { devices, preferences, currentDeviceId: String(currentDeviceId ?? '') };
 }
+
+/** `visualizeRemoteViewing(sessionId)`: whether a paired device shows the session (Node's `relay.viewsSessionLane`). The core
+ *  publishes the sessions they show as `hostState` key `remoteViewing` = { sessionIds }. */
+export function visualizeRemoteViewing(snapshot: DesktopSectionsSnapshot, args: readonly unknown[]): boolean {
+  const shown = record(held(snapshot, 'hostState', 'remoteViewing')).sessionIds;
+  return Array.isArray(shown) && shown.includes(String(args[0] || ''));
+}

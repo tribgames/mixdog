@@ -543,9 +543,11 @@ impl Shared {
             if !wants(schema::Kind::NotificationOverrides) {
                 return Err(invalid("the notifications.overrides path".into()));
             }
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |elapsed| elapsed.as_millis() as i64);
+            // `Date.now()`: milliseconds from the epoch, negative for a clock set before it.
+            let now = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+                Ok(since) => since.as_millis() as i64,
+                Err(before) => -(before.duration().as_millis() as i64),
+            };
             let next = notifications::set_conversation(get_in(doc, &parts), &edit.value, now).map_err(invalid)?;
             set_in(doc, &parts, next);
             return Ok(());

@@ -15,7 +15,8 @@ const paramsSchema = (method) => clientMethods.definitions[clientMethods.methods
 
 const HELD = { held: true };
 
-function lane(answer = async () => ({ ok: true })) {
+// A project path resolves to its folder first (project/directory); everything else answers ok.
+function lane(answer = async (method) => (method === 'project/directory' ? { path: '/resolved' } : { ok: true })) {
   const calls = [];
   const service = createServiceLane({
     protocol: {
@@ -60,29 +61,29 @@ const CASES = [
   ['renameProject', ['/p', 'al'], [['project/update', { path: '/p', alias: 'al' }]]],
   ['removeProject', ['/p'], [['project/delete', { path: '/p' }]]],
   ['getTaskWorkspace', [], [['project/taskWorkspace', {}]]],
-  ['codeGraphQuery', ['/p', 'symbols', 'q'], [['project/codeGraph', { path: '/p', mode: 'symbols', query: 'q' }]]],
-  ['listProjectDir', ['/p', 'a'], [['projectFs/listDir', { root: '/p', rel: 'a' }]]],
-  ['readProjectTextFile', ['/p', 'a.txt'], [['projectFs/readText', { root: '/p', rel: 'a.txt' }]]],
+  ['codeGraphQuery', ['/p', 'symbols', 'q'], [['project/directory', { path: '/p' }], ['project/codeGraph', { path: '/resolved', mode: 'symbols', query: 'q' }]]],
+  ['listProjectDir', ['/p', 'a'], [['project/directory', { path: '/p' }], ['projectFs/listDir', { root: '/resolved', rel: 'a' }]]],
+  ['readProjectTextFile', ['/p', 'a.txt'], [['project/directory', { path: '/p' }], ['projectFs/readText', { root: '/resolved', rel: 'a.txt' }]]],
   [
     'writeProjectTextFile',
     ['/p', 'a.txt', 'new', 'old', 'utf16le'],
-    [['projectFs/writeText', { root: '/p', rel: 'a.txt', content: 'new', expectedContent: 'old', encoding: 'utf16le' }]],
+    [['project/directory', { path: '/p' }], ['projectFs/writeText', { root: '/resolved', rel: 'a.txt', content: 'new', expectedContent: 'old', encoding: 'utf16le' }]],
   ],
   [
     'writeProjectTextFile',
     ['/p', 'a.txt', 'new', 'old'],
-    [['projectFs/writeText', { root: '/p', rel: 'a.txt', content: 'new', expectedContent: 'old' }]],
+    [['project/directory', { path: '/p' }], ['projectFs/writeText', { root: '/resolved', rel: 'a.txt', content: 'new', expectedContent: 'old' }]],
   ],
-  ['statProjectFile', ['/p', 'a'], [['projectFs/stat', { root: '/p', rel: 'a' }]]],
+  ['statProjectFile', ['/p', 'a'], [['project/directory', { path: '/p' }], ['projectFs/stat', { root: '/resolved', rel: 'a' }]]],
   [
     'createProjectEntry',
     ['/p', 'd', 'n', true],
-    [['projectFs/create', { root: '/p', relDir: 'd', name: 'n', directory: true }]],
+    [['project/directory', { path: '/p' }], ['projectFs/create', { root: '/resolved', relDir: 'd', name: 'n', directory: true }]],
   ],
-  ['renameProjectEntry', ['/p', 'a', 'b'], [['projectFs/rename', { root: '/p', rel: 'a', newName: 'b' }]]],
-  ['moveProjectEntry', ['/p', 'a', 'd'], [['projectFs/move', { root: '/p', rel: 'a', targetDirRel: 'd' }]]],
-  ['copyProjectEntry', ['/p', 'a', 'd'], [['projectFs/copy', { root: '/p', rel: 'a', targetDirRel: 'd' }]]],
-  ['projectEntryPath', ['/p', 'a'], [['projectFs/entryPath', { root: '/p', rel: 'a' }]]],
+  ['renameProjectEntry', ['/p', 'a', 'b'], [['project/directory', { path: '/p' }], ['projectFs/rename', { root: '/resolved', rel: 'a', newName: 'b' }]]],
+  ['moveProjectEntry', ['/p', 'a', 'd'], [['project/directory', { path: '/p' }], ['projectFs/move', { root: '/resolved', rel: 'a', targetDirRel: 'd' }]]],
+  ['copyProjectEntry', ['/p', 'a', 'd'], [['project/directory', { path: '/p' }], ['projectFs/copy', { root: '/resolved', rel: 'a', targetDirRel: 'd' }]]],
+  ['projectEntryPath', ['/p', 'a'], [['project/directory', { path: '/p' }], ['projectFs/entryPath', { root: '/resolved', rel: 'a' }]]],
   ['listSessions', [], [['thread/list', {}]]],
   [
     'markSessionRead',
@@ -296,4 +297,30 @@ test('invokeDesktopOperation and notifyDesktopOperation use the operation lane w
     ['gitStatus', ['/r', true]],
     ['termFocus', ['t']],
   ]);
+});
+
+test('a file method resolves its project through project/directory and sends only the folder it answered', async () => {
+  const { calls, service } = lane();
+  await service.call('readProjectTextFile', ['/project-string', 'a.txt']);
+  assert.deepEqual(calls, [
+    { method: 'project/directory', params: { path: '/project-string' } },
+    { method: 'projectFs/readText', params: { root: '/resolved', rel: 'a.txt' } },
+  ]);
+  assert.ok(calls.every(({ params }) => params.root !== '/project-string'));
+});
+
+test('a project the core refuses sends no file request, and the refusal reaches the caller', async () => {
+  const refused = Object.assign(new Error('Project is not available.'), { code: -32600 });
+  const { calls, service } = lane(async (method) => {
+    if (method === 'project/directory') throw refused;
+    return { ok: true };
+  });
+  await assert.rejects(service.call('writeProjectTextFile', ['/nope', 'a', 'c', 'e']));
+  assert.deepEqual(calls.map(({ method }) => method), ['project/directory']);
+});
+
+test('a folder answer without a path is an error, not a request with the project string', async () => {
+  const { calls, service } = lane(async () => ({}));
+  await assert.rejects(service.call('statProjectFile', ['/p', 'a']), /did not answer a folder/);
+  assert.equal(calls.length, 1);
 });
