@@ -19,7 +19,8 @@ use serde_json::{Map, Value, json};
 use crate::memory::core::action::{CoreContext, run};
 use crate::memory::ingest::SessionIngest;
 use crate::memory::pg::db::Db;
-use crate::memory::recall::Recall;
+use crate::memory::recall::{Recall, RecallOutcome};
+use crate::memory::reply::ToolReply;
 
 /// The session a call belongs to, as the memory domain reads it.
 #[derive(Debug, Clone)]
@@ -79,6 +80,17 @@ impl LocalMemory {
         self.revision.clone()
     }
 
+    /// The `memory` tool's reply, with the error flag the text alone does not carry.
+    pub async fn memory_reply(&self, args: &Value) -> ToolReply {
+        let ctx = CoreContext { db: &self.db, data_dir: &self.data_dir, session_cwd: None, snapshot_revision: &self.revision, lane: self.lane };
+        run(&ctx, args).await
+    }
+
+    /// The `recall` tool's outcome, with the error flag the text alone does not carry.
+    pub async fn recall_outcome(&self, args: &Value) -> RecallOutcome {
+        self.recall.recall(args).await
+    }
+
     /// `refreshCoreMemorySnapshot(reason)`: a failure is logged, never raised.
     pub async fn refresh_snapshot(&self, reason: &str) {
         if let Err(error) = crate::memory::core::snapshot::refresh(self.lane, &self.db, &self.data_dir, &self.revision).await {
@@ -93,12 +105,11 @@ impl MemoryModule for LocalMemory {
         if args.get("action").and_then(Value::as_str) == Some("ingest_session") {
             return self.ingest.ingest_session(&args).await.unwrap_or_else(|error| error.message());
         }
-        let ctx = CoreContext { db: &self.db, data_dir: &self.data_dir, session_cwd: None, snapshot_revision: &self.revision, lane: self.lane };
-        run(&ctx, &args).await.text
+        self.memory_reply(&args).await.text
     }
 
     async fn recall(&self, args: Value) -> String {
-        self.recall.recall(&args).await.text
+        self.recall_outcome(&args).await.text
     }
 }
 
