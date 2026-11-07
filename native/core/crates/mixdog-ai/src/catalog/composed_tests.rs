@@ -94,7 +94,7 @@ async fn both_tables_are_warm_from_the_disk_and_fetched_once_at_the_first_refres
     let before = now_ms();
     service.refresh().await;
     // Fresh disk copies do not spare the fetch: Node counts a disk warm as not fetched.
-    assert_eq!(asked(&http), [LITELLM_URL, MODELS_DEV_URL]);
+    assert_eq!(asked(&http), [MODELS_DEV_URL, LITELLM_URL]);
     let file: Value = serde_json::from_slice(&get(dir.path().join(LITELLM_CACHE_FILE)).await).unwrap();
     assert!(file["fetchedAt"].as_u64().unwrap() >= before, "the cache file is rewritten with the fetch time");
     assert_eq!(file["data"], serde_json::from_str::<Value>(LITELLM).unwrap(), "the body is stored verbatim");
@@ -107,7 +107,7 @@ async fn both_tables_are_warm_from_the_disk_and_fetched_once_at_the_first_refres
 async fn a_failed_fetch_keeps_the_disk_copies_and_is_not_retried_for_a_minute() {
     let (_dir, http, service) = composed(true).await;
     service.refresh().await;
-    assert_eq!(asked(&http), [LITELLM_URL, MODELS_DEV_URL]);
+    assert_eq!(asked(&http), [MODELS_DEV_URL, LITELLM_URL]);
     assert!(service.warm_stamps().is_some(), "the disk copies stay");
     service.refresh().await;
     assert_eq!(asked(&http).len(), 2, "the retry backoff holds");
@@ -119,7 +119,13 @@ async fn a_failed_fetch_keeps_the_disk_copies_and_is_not_retried_for_a_minute() 
 async fn the_price_audit_reports_unpriced_roster_routes_once_per_table_revision() {
     let (dir, _http, service) = composed(false).await;
     let service = Arc::new(service);
-    assert_eq!(service.audit_cached_pricing(), None, "no roster route, nothing to report");
+    // An audit records the revision it judged whether or not it reported (`lastAuditedRevision = revision`), so a
+    // roster that appears later under the same table stamps is not reported: this is checked on a service of its own.
+    let (empty_dir, _http, empty) = composed(false).await;
+    let empty = Arc::new(empty);
+    assert_eq!(empty.audit_cached_pricing(), None, "no roster route, nothing to report");
+    put(empty_dir.path().join("openai-oauth-models.json"), r#"{"models":[{"id":"zz-unpriced"}]}"#.to_owned()).await;
+    assert_eq!(empty.audit_cached_pricing(), None, "the revision was already audited");
 
     put(dir.path().join("openai-oauth-models.json"), r#"{"models":[{"id":"zz-unpriced"}]}"#.to_owned()).await;
     assert_eq!(
