@@ -171,6 +171,23 @@ export function routeService(method: string, args: readonly unknown[]): Route {
   return route(args);
 }
 
+/** The file methods that take a project path and work in its folder. Node resolved it in the daemon (`session-host.ts`
+ *  `projectDirectory`: a registered project or worktree, else a refusal); the core's `projectFs` ops take the
+ *  folder itself and trust a local caller with it, so the lane resolves it through `project/directory` first and sends
+ *  that folder, never the project string. */
+const ROOTED_SERVICE_METHODS: ReadonlySet<string> = new Set([
+  'listProjectDir',
+  'readProjectTextFile',
+  'writeProjectTextFile',
+  'statProjectFile',
+  'createProjectEntry',
+  'renameProjectEntry',
+  'moveProjectEntry',
+  'copyProjectEntry',
+  'projectEntryPath',
+  'codeGraphQuery',
+]);
+
 export interface ServiceLane {
   call<T = unknown>(method: string, args: unknown[], signal?: AbortSignal): Promise<T>;
 }
@@ -223,6 +240,12 @@ export function createServiceLane({
           searching.set(sessionId, root);
         }
         return (await send({ method: 'search/update', params: { sessionId, query } })) as T;
+      }
+      if (ROOTED_SERVICE_METHODS.has(method)) {
+        const [project, ...rest] = args;
+        const folder = (await send({ method: 'project/directory', params: { path: project } })) as { path?: unknown } | null;
+        if (typeof folder?.path !== 'string') throw new TypeError('project/directory did not answer a folder.');
+        args = [folder.path, ...rest];
       }
       const { requests, result } = routeService(method, args);
       let reply: unknown;

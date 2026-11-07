@@ -290,6 +290,24 @@ impl WorkspaceService {
         Ok(service)
     }
 
+    /// Starts the idle sweep of abandoned uploads on the daemon's runtime, the work of Node's
+    /// per-upload `setTimeout(idleMs)`: it sleeps to the earliest idle deadline and sweeps then, so a
+    /// partial file does not wait for the next upload call. Call once after construction.
+    pub fn spawn_idle_sweeper(&self) {
+        let (transfers, lanes) = (self.transfers.clone(), self.lanes);
+        drop(mixdog_rt::spawn("upload-idle-sweep", mixdog_rt::TaskClass::Work, async move {
+            let cancel = CancellationToken::new();
+            loop {
+                transfers.wait_idle_due(&crate::transfer::TokioTimer).await;
+                let sweeping = transfers.clone();
+                let _ = run_fallible(lanes.durability, &cancel, move || {
+                    sweeping.sweep_idle();
+                    Ok(())
+                })
+                .await;
+            }
+        }));
+    }
     pub fn catalog(&self) -> &Catalog {
         &self.catalog
     }

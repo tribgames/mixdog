@@ -102,6 +102,8 @@ struct Upload {
     unique: bool,
     /// A chunk is being written (Node's `upload.writing`): a second one is refused, not queued.
     writing: bool,
+    /// When the upload was last fed (begun, or a chunk written): the idle sweep's reference.
+    fed: Instant,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -190,10 +192,50 @@ pub trait TransferSource: Send + Sync + 'static {
     async fn open(&self, source: &serde_json::Value, cancel: &tokio_util::sync::CancellationToken) -> WsResult<SourceFile>;
 }
 
-#[derive(Default)]
+/// Monotonic time for the idle sweep of abandoned uploads; tests substitute a controllable one.
+pub trait IdleClock: Send + Sync {
+    fn now(&self) -> Instant;
+}
+
+struct SystemClock;
+
+impl IdleClock for SystemClock {
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
+}
+
+/// An upload nobody feeds for this long is abandoned and its partial file removed
+/// (`SERVER_UPLOAD_IDLE_MS`).
+pub const UPLOAD_IDLE: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// Sleeps until a monotonic instant; tests substitute a controllable one, so none of them waits.
+pub trait IdleTimer: Send + Sync {
+    fn sleep_until(&self, deadline: Instant) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>>;
+}
+
+/// The daemon's timer: tokio's.
+pub struct TokioTimer;
+
+impl IdleTimer for TokioTimer {
+    fn sleep_until(&self, deadline: Instant) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+        Box::pin(tokio::time::sleep_until(tokio::time::Instant::from_std(deadline)))
+    }
+}
+
 pub struct Transfers {
     reads: Mutex<HashMap<String, Read>>,
     writes: Mutex<HashMap<String, Upload>>,
+    clock: Arc<dyn IdleClock>,
+    idle: std::time::Duration,
+    /// Raised when an upload is begun or fed: the idle deadlines moved.
+    armed: tokio::sync::Notify,
+}
+
+impl Default for Transfers {
+    fn default() -> Self {
+        Self::with_clock(Arc::new(SystemClock), UPLOAD_IDLE)
+    }
 }
 
 fn new_id() -> String {
@@ -201,6 +243,55 @@ fn new_id() -> String {
 }
 
 impl Transfers {
+    pub fn with_clock(clock: Arc<dyn IdleClock>, idle: std::time::Duration) -> Self {
+        Self { reads: Mutex::default(), writes: Mutex::default(), clock, idle, armed: tokio::sync::Notify::new() }
+    }
+
+    /// When the first upload goes idle (`fed + idle`), or none while no upload is open.
+    fn next_idle_deadline(&self) -> Option<Instant> {
+        self.writes.lock().expect("transfer writes").values().map(|upload| upload.fed + self.idle).min()
+    }
+
+    /// Returns when the earliest open upload reaches its idle deadline, as Node's per-upload
+    /// `setTimeout(idleMs)` fires; an upload begun or fed meanwhile moves the deadline and the wait
+    /// is recomputed, and with no upload open it waits for the next one. The caller then runs
+    /// [`Self::sweep_idle`] (on a lane: it removes files).
+    pub async fn wait_idle_due(&self, timer: &dyn IdleTimer) {
+        loop {
+            let moved = self.armed.notified();
+            tokio::pin!(moved);
+            moved.as_mut().enable();
+            match self.next_idle_deadline() {
+                None => moved.await,
+                Some(deadline) => {
+                    tokio::select! {
+                        () = timer.sleep_until(deadline) => return,
+                        () = &mut moved => {}
+                    }
+                }
+            }
+        }
+    }
+
+    /// Discards every upload not fed for the idle time and removes its partial file, as Node's
+    /// per-upload idle timer does. Run before each upload call; a daemon with nothing calling may
+    /// run it itself, since no timer here fires on its own.
+    pub fn sweep_idle(&self) {
+        let now = self.clock.now();
+        let abandoned: Vec<Upload> = {
+            let mut writes = self.writes.lock().expect("transfer writes");
+            let stale: Vec<String> = writes
+                .iter()
+                .filter(|(_, upload)| now.saturating_duration_since(upload.fed) >= self.idle)
+                .map(|(id, _)| id.clone())
+                .collect();
+            stale.into_iter().filter_map(|id| writes.remove(&id)).collect()
+        };
+        for upload in abandoned {
+            let _ = std::fs::remove_file(upload.temp);
+        }
+    }
+
     fn register(&self, owner: &str, file: File, name: String, mime: &str, cleanup: Option<PathBuf>) -> WsResult<Opened> {
         let version = file_version(&file)?;
         let version = version_string(&version);
@@ -322,6 +413,7 @@ impl Transfers {
     }
 
     pub fn begin_write(&self, owner: &str, root: &Path, rel: &str, size: u64) -> WsResult<String> {
+        self.sweep_idle();
         let target = project_entry_path(root, rel)?;
         if target.exists() {
             return Err(WsError::new(Reason::AlreadyExists, "An entry with that name already exists in the target folder."));
@@ -334,21 +426,24 @@ impl Transfers {
         self.writes
             .lock()
             .expect("transfer writes")
-            .insert(id.clone(), Upload { owner: owner.to_owned(), temp, target, file, size, written: 0, unique: false, writing: false });
+            .insert(id.clone(), Upload { owner: owner.to_owned(), temp, target, file, size, written: 0, unique: false, writing: false, fed: self.clock.now() });
+        self.armed.notify_one();
         Ok(id)
     }
 
     /// `serverUploadBegin(name, size, scope)`: an upload into the staging folder `dir`, published at
     /// commit under `name`, or `name (2).ext`... when that is taken.
     pub fn begin_staged(&self, owner: &str, dir: &Path, name: &str, size: u64) -> WsResult<String> {
+        self.sweep_idle();
         std::fs::create_dir_all(dir)?;
         let id = new_id();
         let temp = dir.join(format!(".{id}.part"));
         let file = File::options().write(true).create_new(true).open(&temp)?;
         self.writes.lock().expect("transfer writes").insert(
             id.clone(),
-            Upload { owner: owner.to_owned(), temp, target: dir.join(upload_file_name(name)), file, size, written: 0, unique: true, writing: false },
+            Upload { owner: owner.to_owned(), temp, target: dir.join(upload_file_name(name)), file, size, written: 0, unique: true, writing: false, fed: self.clock.now() },
         );
+        self.armed.notify_one();
         Ok(id)
     }
 
@@ -359,6 +454,7 @@ impl Transfers {
     /// of order; one that arrives while another is being written is refused; one that would pass
     /// the declared size discards the upload. Answers the bytes received.
     pub fn write_chunk(&self, owner: &str, id: &str, offset: Option<u64>, encoded: &str) -> WsResult<u64> {
+        self.sweep_idle();
         let (file, bytes) = {
             let mut writes = self.writes.lock().expect("transfer writes");
             let (size, written, writing) = {
@@ -396,6 +492,8 @@ impl Transfers {
                 let write = writes.get_mut(id).ok_or_else(upload_gone)?;
                 write.written += bytes.len() as u64;
                 write.writing = false;
+                write.fed = self.clock.now();
+                self.armed.notify_one();
                 Ok(write.written)
             }
             Err(error) => {
@@ -407,6 +505,7 @@ impl Transfers {
         }
     }
     pub fn commit(&self, owner: &str, id: &str) -> WsResult<(u64, PathBuf)> {
+        self.sweep_idle();
         let write = {
             let mut writes = self.writes.lock().expect("transfer writes");
             if !writes.get(id).is_some_and(|w| w.owner == owner) {
@@ -436,6 +535,7 @@ impl Transfers {
     }
 
     pub fn abort(&self, owner: &str, id: &str) -> bool {
+        self.sweep_idle();
         let removed = {
             let mut writes = self.writes.lock().expect("transfer writes");
             if writes.get(id).is_some_and(|w| w.owner == owner) { writes.remove(id) } else { None }
@@ -501,11 +601,12 @@ pub fn read_path_range(root: &Path, rel: &str, offset: u64, length: u64) -> WsRe
         filled += n;
     }
     data.truncate(filled);
-    let mtime_ms = meta
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0.0, |elapsed| elapsed.as_secs_f64() * 1000.0);
+    // Node's `mtimeMs` of the file: an unreadable time is the stat's own error, and a time before the
+    // epoch is a negative number of milliseconds.
+    let mtime_ms = match meta.modified()?.duration_since(std::time::UNIX_EPOCH) {
+        Ok(since) => since.as_secs_f64() * 1000.0,
+        Err(before) => -(before.duration().as_secs_f64() * 1000.0),
+    };
     Ok(serde_json::json!({ "data": STANDARD.encode(&data), "offset": offset, "size": size, "mtimeMs": mtime_ms }))
 }
 
@@ -636,6 +737,104 @@ mod tests {
         same(&case("the upload is gone after that"), t.write_chunk("o", &small, Some(0), "YWI="));
     }
 
+    #[test]
+    fn an_upload_nobody_feeds_is_swept_after_the_idle_time() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        struct Steady(Instant, AtomicU64);
+        impl IdleClock for Steady {
+            fn now(&self) -> Instant {
+                self.0 + std::time::Duration::from_millis(self.1.load(Ordering::SeqCst))
+            }
+        }
+        let clock = Arc::new(Steady(Instant::now(), AtomicU64::new(0)));
+        let advance = |ms: u64| {
+            clock.1.fetch_add(ms, Ordering::SeqCst);
+        };
+        let t = Transfers::with_clock(clock.clone(), UPLOAD_IDLE);
+        let dir = tempfile::tempdir().unwrap();
+        let id = t.begin_staged("o", dir.path(), "a.txt", 4).unwrap();
+        let part = dir.path().join(format!(".{id}.part"));
+        // Each chunk written re-arms the idle time, as Node's `arm` does.
+        advance(119_999);
+        assert_eq!(t.write_chunk("o", &id, Some(0), "aGk=").unwrap(), 2);
+        advance(119_999);
+        assert!(part.exists());
+        assert_eq!(t.write_chunk("o", &id, Some(2), "aGk=").unwrap(), 4);
+        // Past the idle time the upload is gone and its partial file removed, without any call of its own.
+        advance(120_000);
+        t.sweep_idle();
+        assert!(!part.exists());
+        let gone = t.commit("o", &id).unwrap_err();
+        assert_eq!(gone.message, "The upload is gone: it was cancelled or sat idle too long.");
+        // A call on another upload sweeps too: the stale one is gone before the new one starts.
+        let stale = t.begin_staged("o", dir.path(), "b.txt", 2).unwrap();
+        advance(120_000);
+        t.begin_staged("o", dir.path(), "c.txt", 2).unwrap();
+        assert!(!dir.path().join(format!(".{stale}.part")).exists());
+    }
+
+    /// One shared manual time source for the idle clock and the idle timer: nothing here waits.
+    struct Manual {
+        base: Instant,
+        elapsed_ms: tokio::sync::watch::Sender<u64>,
+    }
+
+    impl Manual {
+        fn new() -> Arc<Self> {
+            Arc::new(Self { base: Instant::now(), elapsed_ms: tokio::sync::watch::Sender::new(0) })
+        }
+        fn advance(&self, ms: u64) {
+            self.elapsed_ms.send_modify(|elapsed| *elapsed += ms);
+        }
+    }
+
+    impl IdleClock for Manual {
+        fn now(&self) -> Instant {
+            self.base + std::time::Duration::from_millis(*self.elapsed_ms.borrow())
+        }
+    }
+
+    impl IdleTimer for Manual {
+        fn sleep_until(&self, deadline: Instant) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + '_>> {
+            let mut elapsed = self.elapsed_ms.subscribe();
+            let base = self.base;
+            Box::pin(async move {
+                loop {
+                    if base + std::time::Duration::from_millis(*elapsed.borrow_and_update()) >= deadline {
+                        return;
+                    }
+                    if elapsed.changed().await.is_err() {
+                        return;
+                    }
+                }
+            })
+        }
+    }
+
+    /// Node's per-upload idle timer: the wait ends at the deadline of the upload fed longest ago, a
+    /// chunk written moves it, and the partial file is gone without any upload call.
+    #[tokio::test]
+    async fn the_idle_timer_fires_at_the_deadline_and_a_chunk_moves_it() {
+        let manual = Manual::new();
+        let t = Transfers::with_clock(manual.clone(), UPLOAD_IDLE);
+        let dir = tempfile::tempdir().unwrap();
+        // Nothing open: the wait has nothing to end at.
+        let mut waiting = Box::pin(t.wait_idle_due(&*manual));
+        assert!(tokio::time::timeout(std::time::Duration::ZERO, &mut waiting).await.is_err());
+        let id = t.begin_staged("o", dir.path(), "a.txt", 4).unwrap();
+        let part = dir.path().join(format!(".{id}.part"));
+        // Begun at 0: due at 120 000 ms, not before.
+        manual.advance(119_999);
+        assert!(tokio::time::timeout(std::time::Duration::ZERO, &mut waiting).await.is_err());
+        // A chunk written at 119 999 ms moves the deadline to 239 999 ms.
+        assert_eq!(t.write_chunk("o", &id, Some(0), "aGk=").unwrap(), 2);
+        manual.advance(120_000 - 1);
+        assert!(tokio::time::timeout(std::time::Duration::ZERO, &mut waiting).await.is_err());
+        manual.advance(1);
+        waiting.await;
+        t.sweep_idle();
+        assert!(!part.exists(), "the abandoned upload's partial file is removed by the timer's sweep alone");
+    }
     #[test]
     fn path_outside_is_refused_and_upload_commits_by_rename() {
         let (_d, root) = project();

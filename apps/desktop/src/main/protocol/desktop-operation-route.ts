@@ -5,10 +5,13 @@
 // the Rust `v2/params.rs` structs and `operations_map.json`, not from this table.
 import { normalizeBrowserPermissionPolicy } from '../../shared/browser-permission-policy';
 import { isSessionRetentionSettingKey } from '../../shared/contract-settings';
+import { remoteClientKind } from '../../shared/remote-trust';
+import { pairedDeviceInfo } from '../notification-center';
 import { desktopSettingsFromConfig, storedPinsState } from '../settings-store';
 import type { ProtocolConnection } from './connection';
 import { coreErrorForWindow } from './core-error';
 import {
+  visualizeRemoteViewing,
   DEFAULT_OPERATION_HOST,
   listConversationNotifications,
   notificationPreferencesState,
@@ -46,7 +49,11 @@ const defined = (params: Record<string, unknown>): Record<string, unknown> =>
   Object.fromEntries(Object.entries(params).filter(([, value]) => value !== undefined));
 
 /** `config/value/write` on one key of the Config actor (desktop-services.md §3). */
-const configWrite = (path: string, value: unknown, mode?: 'initializeIfMissing'): OperationRoute => ({
+const configWrite = (
+  path: string,
+  value: unknown,
+  mode?: 'initializeIfMissing' | 'mergePatch' | 'mergePatchBots' | 'setConversation'
+): OperationRoute => ({
   method: 'config/value/write',
   params: defined({ path, value, mode }),
 });
@@ -107,8 +114,20 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   gitStashDrop: positional('git/stashDrop', ['cwd', 'ref']),
   gitStashList: positional('git/stashList', ['cwd']),
   gitStashPop: positional('git/stashPop', ['cwd']),
-  // The second argument is Node's status-scan cache hint (reuseLineStats / skipLineStats): the core owns that cache.
-  gitStatus: positional('git/status', ['cwd', null]),
+  // The second argument is Node's status-scan hint { reuseLineStats, skipLineStats }: it goes to the core, which skips the
+  // line counts on skip and serves the counted scan from its cache on reuse.
+  gitStatus: ([cwd, hint, ...extra]) => {
+    if (extra.length) throw new TypeError('desktop operation for git/status takes at most 2 arguments');
+    const options = hint && typeof hint === 'object' ? (hint as Record<string, unknown>) : {};
+    return {
+      method: 'git/status',
+      params: defined({
+        cwd,
+        reuseLineStats: options.reuseLineStats === true ? true : undefined,
+        skipLineStats: options.skipLineStats === true ? true : undefined,
+      }),
+    };
+  },
   gitSync: positional('git/sync', ['cwd']),
   gitUndoLastCommit: positional('git/undoLastCommit', ['cwd']),
   gitUnstage: positional('git/unstage', ['cwd', 'paths']),
@@ -118,6 +137,7 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   setGitGlobalConfig: positional('git/globalConfig/write', ['key', 'value']),
 
   // GitHub
+  githubRequest: positional('github/request', ['cwd', 'input']),
   ghPrCheckout: positional('github/pr/checkout', ['cwd', 'value']),
   ghPrCreate: positional('github/pr/create', ['cwd', 'value']),
   ghPrDefaultBranch: positional('github/pr/defaultBranch', ['cwd']),
@@ -165,6 +185,21 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   readWorkspaceFile: positional('projectFs/workspaceFile/read', ['workspaceFile']),
   writeWorkspaceFile: positional('projectFs/workspaceFile/write', ['workspaceFile', 'folders']),
   searchWorkspaceTextIn: positional('projectFs/searchText', ['root', 'options']),
+  replaceWorkspaceTextIn: positional('projectFs/replaceText', ['root', 'options', 'replacement', 'relPaths']),
+  // Node: projectRecoveryIn(root, { action: list | inspect | restore | discard, id?, revision? }).
+  projectRecoveryIn: ([root, request]) => {
+    const { action, id, revision } = record(request);
+    return { method: 'projectFs/recovery', params: defined({ root, action, id, revision }) };
+  },
+  // Node: lspDocument(projectPath, root, input); lspRequest(projectPath, root, relPath, languageId, method, params).
+  lspDocument: ([projectPath, root, input]) => ({
+    method: 'lsp/document',
+    params: { projectPath, root, document: input },
+  }),
+  lspRequest: ([projectPath, root, relPath, languageId, method, params]) => ({
+    method: 'lsp/request',
+    params: { projectPath, root, request: { relPath, languageId, method, params } },
+  }),
   statProjectFileIn: positional('projectFs/stat', ['root', 'rel']),
   listHostDirectories: positional('projectFs/browseDirs', ['path']),
   listServerDirectories: positional('projectFs/browseDirs', ['path', 'includeHidden']),
@@ -183,23 +218,23 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   },
   updateZoom: ([factor]) => configWrite('desktop.zoom', Number(factor)),
   sendTestNotification: positional('notify/test', ['target']),
+  // Node: setPreferences(currentDeviceId, pcCanNotify, deviceId, patch). The fifth value is the merge mode the lane
+  // decides from the device's pairing (PREPARERS); the patch is merged in the core, in one write.
+  setNotificationPreferences: ([, , deviceId, patch, mode]) =>
+    configWrite(`notifications.devices.${String(deviceId)}`, patch, mode === 'mergePatchBots' ? 'mergePatchBots' : 'mergePatch'),
+  setConversationNotification: ([target, setting]) =>
+    configWrite('notifications.overrides', { target, setting }, 'setConversation'),
 
   // terminals; the size owner is the calling connection, so Node's force flag and client id have no param
+  // With no id the core spawns a new terminal and answers the id it made.
   termEnsure: ([tabId, cwd, profile]) => ({
     method: 'terminal/ensure',
-    params: { tabId: tabId == null || tabId === '' ? crypto.randomUUID() : tabId, options: defined({ cwd, profile }) },
+    params: defined({ tabId: tabId == null || tabId === '' ? undefined : tabId, options: defined({ cwd, profile }) }),
   }),
   termAttach: positional('terminal/attach', ['tabId']),
   termProfiles: positional('terminal/profiles', []),
-  // Node: focus(id, focused, client). terminal/focus has no `focused`: a focus is sent, an unfocus has no op.
-  termFocus: ([tabId, focused]) => {
-    if (focused !== true) {
-      throw Object.assign(new Error('desktop operation termFocus is not mapped: terminal/focus cannot unfocus'), {
-        code: 'unmappedOperation',
-      });
-    }
-    return { method: 'terminal/focus', params: { tabId } };
-  },
+  // Node: focus(id, focused, client): a view shows (true) or leaves (false) the tab; the client is the connection.
+  termFocus: ([tabId, focused]) => ({ method: 'terminal/focus', params: { tabId, focused: focused === true } }),
   termPause: positional('terminal/pause', ['tabId']),
   termResume: positional('terminal/resume', ['tabId']),
   termDispose: positional('terminal/dispose', ['tabId']),
@@ -209,6 +244,16 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   remoteAccessSetName: positional('remoteAccess/setName', ['name']),
   remoteAccessSetClientAlias: positional('remoteAccess/setClientAlias', ['clientId', 'alias']),
   remoteAccessRotate: positional('remoteAccess/rotate', []),
+  // Node: resolve(String(args[0] || ''), args[1] === true).
+  remoteAccessResolveClaim: ([claimId, approve]) => ({
+    method: 'remoteAccess/resolveClaim',
+    params: { claimId: String(claimId || ''), approve: approve === true },
+  }),
+  // Node: 'release' and 'renew' as asked, anything else 'ensure'.
+  remoteAccessPairCode: ([action]) => ({
+    method: 'remoteAccess/pairCode',
+    params: { action: action === 'release' || action === 'renew' ? action : 'ensure' },
+  }),
   remoteAccessRevokeClient: positional('remoteAccess/revokeClient', ['clientId']),
   // Node: settleOwed(operationArgs), the whole argument list.
   remoteAccessSettleOwedControllerKeys: (args) => ({
@@ -222,28 +267,21 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   visualizeRemotePublish: hostState('visualize'),
 
   // server-window transfers (the upload bytes are already base64, as `bytesB64`)
+  serverUploadBegin: positional('transfer/beginWrite', ['name', 'size', 'scope']),
+  serverFileReadRange: positional('transfer/readRange', ['root', 'rel', 'offset', 'length']),
+  // Node: trashEntry(root, rel, permanent === true); the core names the root `path`, as trash/info does.
+  serverTrashEntry: ([root, rel, permanent]) => ({
+    method: 'transfer/trash/entry',
+    params: { path: root, rel, permanent: permanent === true },
+  }),
   serverUploadChunk: positional('transfer/writeChunk', ['transferId', 'offset', 'bytesB64']),
   serverUploadCommit: positional('transfer/commit', ['transferId']),
   serverUploadAbort: positional('transfer/abort', ['transferId']),
   serverTrashInfo: positional('transfer/trash/info', ['path']),
 };
 
-/** Operations whose Rust op exists but whose Node arguments the schema cannot carry, so a request would drop or
- *  invent data. They fail before anything is sent until the spec says how they map (desktop-ops-route-1.md "Open"). */
+/** Operations with a Rust op that the window serves over its own connection, so no operation call carries them. */
 const NEEDS_RULING: Readonly<Record<string, string>> = {
-  githubRequest: 'github/request has no cwd; Node resolves the repository from it',
-  replaceWorkspaceTextIn: 'projectFs/replaceText has no replacement or relPaths',
-  projectRecoveryIn: 'projectFs/recovery has no list action and no entry id',
-  lspDocument: 'lsp/document has one root; Node takes projectPath and root',
-  lspRequest: 'lsp/request has one root; Node takes projectPath, root, relPath, languageId, method and params',
-  remoteAccessResolveClaim: 'the shape of remoteAccess/resolveClaim input is not specified',
-  remoteAccessPairCode: 'remoteAccess/pairCode has no ensure/renew/release action',
-  visualizeRemoteViewing: 'host/state/set publishes; Node answers whether a phone views the session',
-  serverUploadBegin: 'transfer/beginWrite takes root and rel; Node takes name, size and a session scope',
-  serverFileReadRange: 'transfer/readRange takes a transferId from transfer/beginRead; Node takes root and rel',
-  serverTrashEntry: 'transfer/trash/entry has one path and no permanent flag; Node takes root, rel and permanent',
-  setNotificationPreferences: 'the config path of a device patch is not specified',
-  setConversationNotification: 'the config path of a notification target is not specified',
   // Served by the window process over the connection, not by an operation call (protocol/window-ipc.ts).
   folderWatch: 'fs/watch is owned by the window that watches (ProtocolConnection.watchFiles)',
   folderUnwatch: 'fs/unwatch is owned by the window that watches (ProtocolConnection.unwatchFiles)',
@@ -295,12 +333,55 @@ export function routeDesktopNotification(name: string, args: readonly unknown[] 
   return Object.hasOwn(NOTIFICATION_ROUTES, name) ? NOTIFICATION_ROUTES[name].route(args) : null;
 }
 
+interface SectionEntry {
+  readonly section: string;
+  readonly key: string | null;
+  readonly value: unknown;
+}
+
 export interface ReplyContext {
   args: readonly unknown[];
   params: Record<string, unknown>;
   call(method: string, params: unknown): Promise<unknown>;
+  invoke(name: string, args: unknown[]): Promise<unknown>;
 }
 type Reply = (reply: unknown, context: ReplyContext) => unknown;
+
+/** What an operation needs decided before its request is built. */
+type Prepare = (
+  args: readonly unknown[],
+  context: { entries(): readonly SectionEntry[] }
+) => Promise<unknown[]>;
+
+const PREPARERS: Readonly<Record<string, Prepare>> = {
+  // A phone app paired at or after the store was first written starts from bot chats only (Node's devicePreferencesIn):
+  // the mode names which default the core merges the patch onto. A device that is not paired is refused, as Node does.
+  // The paired device is a row of the `remote` section's `clients` (mixdog-remote `ClientInfo`: id, name, platform,
+  // browser, createdAt, lastSeenAt, online, and pendingRemoval while an unpair is queued); `migratedAt` is the one of
+  // `config.notifications`, 0 while that subtree has not been written, as the notification state reads it.
+  setNotificationPreferences: async (args, { entries }) => {
+    const deviceId = String(args[2] ?? '');
+    if (deviceId === 'pc') return [...args, 'mergePatch'];
+    const clients = record(entries().find((entry) => entry.section === 'remote' && entry.key === null)?.value).clients;
+    const client = (Array.isArray(clients) ? clients : [])
+      .map(record)
+      .find((candidate) => candidate.id === deviceId && candidate.pendingRemoval !== true);
+    if (!client) throw new TypeError('That device is not paired with this PC.');
+    const stored = record(entries().find((entry) => entry.section === 'config' && entry.key === 'notifications')?.value).migratedAt;
+    const migratedAt = Number.isSafeInteger(stored) ? (stored as number) : 0;
+    const info = pairedDeviceInfo({
+      id: deviceId,
+      name: '',
+      platform: '',
+      browser: String(client.browser ?? ''),
+      createdAt: Number(client.createdAt),
+      lastSeenAt: 0,
+      online: false,
+    });
+    const botsFirst = info.kind === 'phone-app' && info.pairedAt !== undefined && info.pairedAt >= migratedAt;
+    return [...args, botsFirst ? 'mergePatchBots' : 'mergePatch'];
+  },
+};
 
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
@@ -333,7 +414,9 @@ const SAME_REPLY: readonly string[] = [
   'writeProjectTextFilesIn', 'writeProjectTextFilesAuthorized', 'readScopedEditorSettings', 'readWorkspaceFile',
   'writeWorkspaceFile', 'searchWorkspaceTextIn', 'statProjectFileIn', 'listHostDirectories', 'listServerDirectories',
   'sendTestNotification', 'termProfiles', 'termAttach', 'remoteAccessSetEnabled', 'remoteAccessSetName',
-  'remoteAccessRotate', 'remoteAccessRevokeClient', 'serverUploadCommit', 'serverTrashInfo',
+  'remoteAccessRotate', 'remoteAccessRevokeClient', 'serverUploadCommit', 'serverTrashInfo', 'githubRequest',
+  'replaceWorkspaceTextIn', 'projectRecoveryIn', 'lspDocument', 'lspRequest', 'remoteAccessResolveClaim',
+  'remoteAccessPairCode', 'serverFileReadRange', 'serverTrashEntry',
 ];
 /** Node returned nothing. */
 const VOID_REPLY: readonly string[] = [
@@ -346,27 +429,40 @@ const NULL_REPLY: readonly string[] = [
 ];
 
 const CUSTOM_REPLY: Readonly<Record<string, Reply>> = {
-  // The core stats a list; Node answered the one entry.
+  // The core stats a list; Node answered the one entry, or threw the stat's error: a slot { error } is that error.
   statLocalEntryAbs: (reply) => {
     if (!Array.isArray(reply)) throw new TypeError('projectFs/statLocal did not answer a list.');
-    return reply[0];
+    const entry = reply[0];
+    const failure = record(entry).error;
+    if (typeof failure === 'string') throw new Error(failure);
+    return entry;
   },
   // Node answered the started flow; the core answers {flowId} and the flow is its status snapshot (DS 5.4).
   githubCliLoginStart: (reply, { call }) => call('github/login/status', { flowId: record(reply).flowId }),
   // Node answered the boolean the UI reads as "the browser was opened by gh".
   githubCliLoginOpenBrowser: (reply) => reply === true,
-  // The tab id is the client's own; Node answered {id, replay, sizeOwner?} and left `sizeOwner` out when no phone owns
-  // the size, where the core writes null.
-  termEnsure: (reply, { params }) => {
+  // Node answered {id, replay, sizeOwner?} and left `sizeOwner` out when no phone owns the size, where the core writes
+  // null; the id is the core's own (a client id it accepted, else the one it made).
+  termEnsure: (reply) => {
     const { sizeOwner, ...rest } = record(reply);
-    return { id: params.tabId, ...rest, ...(sizeOwner == null ? {} : { sizeOwner }) };
+    return { ...rest, ...(sizeOwner == null ? {} : { sizeOwner }) };
   },
   // Node answered the bytes received so far: a chunk is acknowledged only when written, at offset + its length.
   serverUploadChunk: (_reply, { args }) => ({
     received: Number(args[1]) + Buffer.from(String(args[2]), 'base64').length,
   }),
-  // Node answered false for an unknown upload; the core's EmptyResult is a success.
-  serverUploadAbort: () => true,
+  // Node answered false for an unknown upload: the core says so with { aborted }.
+  serverUploadAbort: (reply) => record(reply).aborted === true,
+  // Node: { uploadId, chunkBytes, maxBytes }.
+  serverUploadBegin: (reply) => {
+    const { uploadId, chunkBytes, maxBytes } = record(reply);
+    return { uploadId, chunkBytes, maxBytes };
+  },
+  // Node answered the whole state after the write; the core answers the merged record of the one device.
+  setNotificationPreferences: (_reply, { args, invoke }) =>
+    invoke('notificationPreferencesState', [args[0], args[1]]),
+  // Node answered the overrides in force: the stored list.
+  setConversationNotification: (reply) => written(reply),
   updateSetting: savedSettings,
   updateNotificationVolume: savedSettings,
   updateBrowserPermissions: savedSettings,
@@ -399,6 +495,7 @@ const SECTION_READS: Readonly<Record<string, SectionRead>> = {
   readMarkdownDefaultView: (snapshot) => readMarkdownDefaultView(snapshot),
   listConversationNotifications: (snapshot) => listConversationNotifications(snapshot, Date.now()),
   notificationPreferencesState: (snapshot, args, host) => notificationPreferencesState(snapshot, args, host),
+  visualizeRemoteViewing: (snapshot, args) => visualizeRemoteViewing(snapshot, args),
 };
 export const SECTION_READ_DESKTOP_OPERATIONS: readonly string[] = Object.keys(SECTION_READS);
 
@@ -454,7 +551,7 @@ export function createOperationLane({
     protocol.call(method, params).catch((error: unknown) => {
       throw coreErrorForWindow(error);
     });
-  return {
+  const lane: OperationLane = {
     async invoke(name, args = []) {
       const notification = routeDesktopNotification(name, args);
       if (notification) {
@@ -466,8 +563,12 @@ export function createOperationLane({
         return SECTION_READS[name](protocol.snapshot(), args, host);
       }
       if (IGNORED_DESKTOP_OPERATIONS.includes(name)) return undefined;
-      const { method, params } = routeDesktopOperation(name, args);
-      return REPLIES[name](await call(method, params), { args, params, call });
+      const prepare = Object.hasOwn(PREPARERS, name) ? PREPARERS[name] : undefined;
+      if (prepare && !protocol.snapshot) throw new Error(`desktop operation ${name} needs the connection's held sections.`);
+      const routed = prepare ? await prepare(args, { entries: () => protocol.snapshot!().entries }) : args;
+      const { method, params } = routeDesktopOperation(name, routed);
+      return REPLIES[name](await call(method, params), { args, params, call, invoke: lane.invoke });
     },
   };
+  return lane;
 }

@@ -10,6 +10,7 @@ import { BROWSER_PERMISSION_KINDS } from '../../shared/browser-permission-policy
 import {
   ROUTED_DESKTOP_OPERATIONS,
   NOTIFICATION_DESKTOP_OPERATIONS,
+  SECTION_READ_DESKTOP_OPERATIONS,
   REPLY_DESKTOP_OPERATIONS,
   UNROUTED_DESKTOP_OPERATIONS,
   createOperationLane,
@@ -104,7 +105,9 @@ const CASES = [
   ['gitStashList', [R], 'git/stashList', { cwd: R }],
   ['gitStashPop', [R], 'git/stashPop', { cwd: R }],
   ['gitStatus', [R], 'git/status', { cwd: R }],
-  ['gitStatus', [R, { skipLineStats: true }], 'git/status', { cwd: R }],
+  ['gitStatus', [R, { skipLineStats: true }], 'git/status', { cwd: R, skipLineStats: true }],
+  ['gitStatus', [R, { reuseLineStats: true }], 'git/status', { cwd: R, reuseLineStats: true }],
+  ['gitStatus', [R, { reuseLineStats: false, skipLineStats: false }], 'git/status', { cwd: R }],
   ['gitSync', [R], 'git/sync', { cwd: R }],
   ['gitUndoLastCommit', [R], 'git/undoLastCommit', { cwd: R }],
   ['gitUnstage', [R, ['a']], 'git/unstage', { cwd: R, paths: ['a'] }],
@@ -219,7 +222,8 @@ const CASES = [
   ],
   ['termAttach', ['t1'], 'terminal/attach', { tabId: 't1' }],
   ['termProfiles', [], 'terminal/profiles', {}],
-  ['termFocus', ['t1', true, 'client'], 'terminal/focus', { tabId: 't1' }],
+  ['termFocus', ['t1', true, 'client'], 'terminal/focus', { tabId: 't1', focused: true }],
+  ['termFocus', ['t1', false, 'client'], 'terminal/focus', { tabId: 't1', focused: false }],
   ['termPause', ['t1'], 'terminal/pause', { tabId: 't1' }],
   ['termResume', ['t1'], 'terminal/resume', { tabId: 't1' }],
   ['termDispose', ['t1'], 'terminal/dispose', { tabId: 't1' }],
@@ -254,6 +258,81 @@ const CASES = [
   ['serverUploadCommit', ['tr1'], 'transfer/commit', { transferId: 'tr1' }],
   ['serverUploadAbort', ['tr1'], 'transfer/abort', { transferId: 'tr1' }],
   ['serverTrashInfo', ['/srv/p'], 'transfer/trash/info', { path: '/srv/p' }],
+
+  // the operations whose Rust params carry what Node used (desktop-ops-gaps)
+  ['githubRequest', [R, { action: 'repo' }], 'github/request', { cwd: R, input: { action: 'repo' } }],
+  [
+    'replaceWorkspaceTextIn',
+    [R, { query: 'a' }, 'b', ['x.txt']],
+    'projectFs/replaceText',
+    { root: R, options: { query: 'a' }, replacement: 'b', relPaths: ['x.txt'] },
+  ],
+  [
+    'replaceWorkspaceTextIn',
+    [R, { query: 'a' }, 'b', undefined],
+    'projectFs/replaceText',
+    { root: R, options: { query: 'a' }, replacement: 'b' },
+  ],
+  ['projectRecoveryIn', [R, { action: 'list' }], 'projectFs/recovery', { root: R, action: 'list' }],
+  ['projectRecoveryIn', [R, { action: 'inspect', id: 'i1' }], 'projectFs/recovery', { root: R, action: 'inspect', id: 'i1' }],
+  [
+    'projectRecoveryIn',
+    [R, { action: 'restore', id: 'i1', revision: 'r1' }],
+    'projectFs/recovery',
+    { root: R, action: 'restore', id: 'i1', revision: 'r1' },
+  ],
+  [
+    'lspDocument',
+    ['/proj', R, { kind: 'open', relPath: 'a.ts' }],
+    'lsp/document',
+    { projectPath: '/proj', root: R, document: { kind: 'open', relPath: 'a.ts' } },
+  ],
+  [
+    'lspRequest',
+    ['/proj', R, 'a.ts', 'typescript', 'textDocument/hover', { position: { line: 0, character: 1 } }],
+    'lsp/request',
+    {
+      projectPath: '/proj',
+      root: R,
+      request: { relPath: 'a.ts', languageId: 'typescript', method: 'textDocument/hover', params: { position: { line: 0, character: 1 } } },
+    },
+  ],
+  ['remoteAccessResolveClaim', ['c1', true], 'remoteAccess/resolveClaim', { claimId: 'c1', approve: true }],
+  ['remoteAccessResolveClaim', ['c1', 'yes'], 'remoteAccess/resolveClaim', { claimId: 'c1', approve: false }],
+  ['remoteAccessPairCode', ['renew'], 'remoteAccess/pairCode', { action: 'renew' }],
+  ['remoteAccessPairCode', ['release'], 'remoteAccess/pairCode', { action: 'release' }],
+  ['remoteAccessPairCode', ['other'], 'remoteAccess/pairCode', { action: 'ensure' }],
+  ['serverUploadBegin', ['a.txt', 10, 'draft1'], 'transfer/beginWrite', { name: 'a.txt', size: 10, scope: 'draft1' }],
+  [
+    'serverFileReadRange',
+    ['/srv/p', 'a.bin', 4096, 65536],
+    'transfer/readRange',
+    { root: '/srv/p', rel: 'a.bin', offset: 4096, length: 65536 },
+  ],
+  ['serverTrashEntry', ['/srv/p', 'a', true], 'transfer/trash/entry', { path: '/srv/p', rel: 'a', permanent: true }],
+  ['serverTrashEntry', ['/srv/p', 'a', 'yes'], 'transfer/trash/entry', { path: '/srv/p', rel: 'a', permanent: false }],
+  [
+    'setNotificationPreferences',
+    ['pc', true, 'dev1', { events: { error: false } }, 'mergePatchBots'],
+    'config/value/write',
+    { path: 'notifications.devices.dev1', value: { events: { error: false } }, mode: 'mergePatchBots' },
+  ],
+  [
+    'setNotificationPreferences',
+    ['pc', true, 'dev1', { scope: 'off' }],
+    'config/value/write',
+    { path: 'notifications.devices.dev1', value: { scope: 'off' }, mode: 'mergePatch' },
+  ],
+  [
+    'setConversationNotification',
+    [{ kind: 'session', id: 's1' }, { mode: 'muted', until: null }],
+    'config/value/write',
+    {
+      path: 'notifications.overrides',
+      value: { target: { kind: 'session', id: 's1' }, setting: { mode: 'muted', until: null } },
+      mode: 'setConversation',
+    },
+  ],
 ];
 
 for (const [name, args, method, params] of CASES) {
@@ -262,13 +341,14 @@ for (const [name, args, method, params] of CASES) {
   });
 }
 
-test('termEnsure without a tab id sends a fresh client-chosen one', () => {
-  const first = routeDesktopOperation('termEnsure', [null, R, null]);
-  const second = routeDesktopOperation('termEnsure', ['', R, null]);
-  assert.equal(first.method, 'terminal/ensure');
-  assert.match(first.params.tabId, /^[0-9a-f-]{36}$/);
-  assert.notEqual(first.params.tabId, second.params.tabId);
-  assert.deepEqual(first.params.options, { cwd: R, profile: null });
+test('termEnsure without a tab id sends none: the core spawns a new terminal and names it', () => {
+  for (const id of [null, '', undefined]) {
+    const sent = routeDesktopOperation('termEnsure', [id, R, null]);
+    assert.equal(sent.method, 'terminal/ensure');
+    assert.equal('tabId' in sent.params, false);
+    assert.deepEqual(sent.params.options, { cwd: R, profile: null });
+  }
+  assert.equal(routeDesktopOperation('termEnsure', ['t9', R, null]).params.tabId, 't9');
 });
 
 test('an argument the core has no param for is refused, not dropped', () => {
@@ -286,7 +366,7 @@ test('the routed operations are the spec map targets with params the Rust schema
   assert.equal(operations.length, 166);
   assert.deepEqual(
     [...wantedMethods].filter(([, methods]) => methods).map(([name]) => name).sort(),
-    [...ROUTED_DESKTOP_OPERATIONS, ...UNROUTED_DESKTOP_OPERATIONS].sort()
+    [...ROUTED_DESKTOP_OPERATIONS, ...UNROUTED_DESKTOP_OPERATIONS, 'visualizeRemoteViewing'].sort()
   );
   const covered = new Set(CASES.map(([name]) => name));
   assert.deepEqual(ROUTED_DESKTOP_OPERATIONS.filter((name) => !covered.has(name)), []);
@@ -318,7 +398,7 @@ test('an operation with no Rust op is unknownMethod and one the schema cannot ca
   for (const name of unknown) {
     assert.throws(() => routeDesktopOperation(name, []), { code: 'unknownMethod' }, name);
   }
-  assert.equal(UNROUTED_DESKTOP_OPERATIONS.length, 16);
+  assert.deepEqual([...UNROUTED_DESKTOP_OPERATIONS].sort(), ['folderUnwatch', 'folderWatch', 'listListeningPorts']);
   for (const name of UNROUTED_DESKTOP_OPERATIONS) {
     assert.throws(() => routeDesktopOperation(name, []), { code: 'unmappedOperation' }, name);
   }
@@ -338,7 +418,7 @@ test('the lane sends the routed request through the connection and never falls b
   assert.deepEqual(await lane.invoke('gitBranches', [R]), { ok: true });
   assert.deepEqual(await lane.invoke('termProfiles', undefined), { ok: true });
   await assert.rejects(lane.invoke('gitPathspecChanges', [R]), { code: 'unknownMethod' });
-  await assert.rejects(lane.invoke('githubRequest', [R, {}]), { code: 'unmappedOperation' });
+  await assert.rejects(lane.invoke('folderWatch', [R, true]), { code: 'unmappedOperation' });
   assert.deepEqual(calls, [
     { method: 'git/branches', params: { cwd: R } },
     { method: 'terminal/profiles', params: {} },
@@ -366,10 +446,11 @@ test('a domain error of the core reaches the window as the error Node raised', a
 // ---- replies: what the desktop gets back is what Node returned -------------------------------------------------
 
 /** A lane over a fake core; `answers` maps a method to its reply. */
-function laneWith(answers, notified = []) {
+function laneWith(answers, notified = [], entries = []) {
   const calls = [];
   const lane = createOperationLane({
     protocol: {
+      snapshot: () => ({ status: 'ready', entries }),
       notify: (method, params) => notified.push({ method, params }),
       call: async (method, params) => {
         calls.push({ method, params });
@@ -417,12 +498,10 @@ test('statLocalEntryAbs answers the one entry of the list', async () => {
   await assert.rejects(bad.invoke('statLocalEntryAbs', ['/x/a']), /did not answer a list/);
 });
 
-test('termEnsure answers with the tab id it sent', async () => {
-  const { lane, calls } = laneWith({ 'terminal/ensure': { replay: 'r' } });
-  const first = await lane.invoke('termEnsure', ['t1', R, null]);
-  assert.deepEqual(first, { id: 't1', replay: 'r' });
-  const fresh = await lane.invoke('termEnsure', [null, R, null]);
-  assert.equal(fresh.id, calls[1].params.tabId);
+test('termEnsure answers with the id the core gave the terminal', async () => {
+  const { lane, calls } = laneWith({ 'terminal/ensure': { id: 'term_1_1', replay: 'r', sizeOwner: null } });
+  assert.deepEqual(await lane.invoke('termEnsure', [null, R, null]), { id: 'term_1_1', replay: 'r' });
+  assert.equal('tabId' in calls[0].params, false);
 });
 
 test('githubCliLoginStart answers the flow, read from the status of the started flow', async () => {
@@ -467,10 +546,11 @@ test('updateZoom, writeMarkdownDefaultView and updateActivityRailPins answer the
   await assert.rejects(broken.invoke('updateZoom', [1]), /did not return the stored value/);
 });
 
-test('upload chunks answer the bytes received; abort answers true', async () => {
-  const { lane } = laneWith({ 'transfer/writeChunk': {}, 'transfer/abort': {} });
+test('upload chunks answer the bytes received; abort answers what the core said, false for an unknown upload', async () => {
+  const { lane } = laneWith({ 'transfer/writeChunk': {}, 'transfer/abort': { aborted: true } });
   assert.deepEqual(await lane.invoke('serverUploadChunk', ['tr1', 8, 'AAAA']), { received: 11 });
   assert.equal(await lane.invoke('serverUploadAbort', ['tr1']), true);
+  assert.equal(await laneWith({ 'transfer/abort': { aborted: false } }).lane.invoke('serverUploadAbort', ['gone']), false);
 });
 
 test('githubCliLoginOpenBrowser answers a boolean', async () => {
@@ -478,12 +558,124 @@ test('githubCliLoginOpenBrowser answers a boolean', async () => {
   assert.equal(await laneWith({ 'github/login/openBrowser': {} }).lane.invoke('githubCliLoginOpenBrowser', ['f']), false);
 });
 
-test('termFocus sends a focus and refuses an unfocus, which terminal/focus cannot carry', async () => {
-  assert.deepEqual(routeDesktopOperation('termFocus', ['t1', true, 'desktop']), {
-    method: 'terminal/focus',
-    params: { tabId: 't1' },
+test('termFocus sends focused as given, so a view can leave a tab', () => {
+  assert.deepEqual(routeDesktopOperation('termFocus', ['t1', true, 'desktop']).params, { tabId: 't1', focused: true });
+  assert.deepEqual(routeDesktopOperation('termFocus', ['t1', false, 'desktop']).params, { tabId: 't1', focused: false });
+  assert.deepEqual(routeDesktopOperation('termFocus', ['t1', undefined, 'desktop']).params, { tabId: 't1', focused: false });
+});
+
+test('gitStatus passes Node\'s scan hint to the core', async () => {
+  const { lane, calls } = laneWith({ 'git/status': { repository: true } });
+  await lane.invoke('gitStatus', [R, { skipLineStats: true }]);
+  await lane.invoke('gitStatus', [R, { reuseLineStats: true }]);
+  await lane.invoke('gitStatus', [R]);
+  assert.deepEqual(calls.map((call) => call.params), [
+    { cwd: R, skipLineStats: true },
+    { cwd: R, reuseLineStats: true },
+    { cwd: R },
+  ]);
+  assert.throws(() => routeDesktopOperation('gitStatus', [R, {}, 'extra']), /at most 2 arguments/);
+});
+
+test('statLocalEntryAbs throws the stat error of an {error} slot, as Node did', async () => {
+  const { lane } = laneWith({ 'projectFs/statLocal': [{ error: "ENOENT: no such file or directory, stat '/x/gone'" }] });
+  await assert.rejects(lane.invoke('statLocalEntryAbs', ['/x/gone']), (error) => {
+    assert.equal(error.message, "ENOENT: no such file or directory, stat '/x/gone'");
+    return true;
   });
-  assert.throws(() => routeDesktopOperation('termFocus', ['t1', false, 'desktop']), { code: 'unmappedOperation' });
+});
+
+test('serverUploadBegin answers { uploadId, chunkBytes, maxBytes } and nothing of the core\'s own fields', async () => {
+  const { lane } = laneWith({
+    'transfer/beginWrite': { transferId: 'u1', uploadId: 'u1', chunkBytes: 2097152, maxBytes: 536870912 },
+  });
+  assert.deepEqual(await lane.invoke('serverUploadBegin', ['a.txt', 4, 'draft']), {
+    uploadId: 'u1',
+    chunkBytes: 2097152,
+    maxBytes: 536870912,
+  });
+});
+
+test('the extended operations answer what the core sent', async () => {
+  const same = [
+    ['githubRequest', [R, {}], 'github/request', { data: 1 }],
+    ['replaceWorkspaceTextIn', [R, {}, 'x'], 'projectFs/replaceText', { filesChanged: 1, replacements: 2, paths: ['a'] }],
+    ['projectRecoveryIn', [R, { action: 'list' }], 'projectFs/recovery', { records: [] }],
+    ['lspDocument', ['/p', R, {}], 'lsp/document', { state: 'running' }],
+    ['lspRequest', ['/p', R, 'a', 'ts', 'm', {}], 'lsp/request', { result: null }],
+    ['remoteAccessResolveClaim', ['c', true], 'remoteAccess/resolveClaim', true],
+    ['remoteAccessPairCode', ['ensure'], 'remoteAccess/pairCode', { code: '123456' }],
+    ['serverFileReadRange', [R, 'a', 0, 1], 'transfer/readRange', { data: 'AA==', offset: 0, size: 1, mtimeMs: 5 }],
+    ['serverTrashEntry', [R, 'a', false], 'transfer/trash/entry', { mode: 'trashed' }],
+  ];
+  for (const [name, args, method, answer] of same) {
+    assert.deepEqual(await laneWith({ [method]: answer }).lane.invoke(name, args), answer, name);
+  }
+});
+
+test('setConversationNotification answers the stored overrides', async () => {
+  const stored = [{ target: { kind: 'session', id: 's1' }, setting: { mode: 'always' } }];
+  const { lane } = laneWith({ 'config/value/write': { revision: 3, values: [stored] } });
+  assert.deepEqual(await lane.invoke('setConversationNotification', [{ kind: 'session', id: 's1' }, { mode: 'always' }]), stored);
+});
+
+// Rows as mixdog-remote's `ClientInfo` serializes them into the `remote` section (roster.rs): camelCase, `pendingRemoval` only
+// while an unpair is queued.
+const client = (id, browser, createdAt, extra = {}) => ({
+  id, name: id, platform: 'Android', browser, createdAt, lastSeenAt: createdAt, online: true, ...extra,
+});
+const REMOTE = {
+  section: 'remote',
+  key: null,
+  revision: 1,
+  value: {
+    clients: [
+      client('dev1', 'Mixdog App', 2_000),
+      client('web', 'Safari', 2_000),
+      client('old', 'Mixdog App', 100),
+      client('gone', 'Mixdog App', 5_000, { pendingRemoval: true }),
+    ],
+  },
+};
+const notificationsEntry = (migratedAt) => ({ section: 'config', key: 'notifications', revision: 1, value: { migratedAt } });
+
+test('setNotificationPreferences chooses the default the core merges onto by the pairing of the device', async () => {
+  const run = async (deviceId, entries) => {
+    const { lane, calls } = laneWith({ 'config/value/write': { revision: 1, values: [{}] } }, [], entries);
+    // the answer is the notification state (see the full-reply test); the write is what is checked here
+    await lane.invoke('setNotificationPreferences', ['pc', true, deviceId, { scope: 'off' }]).catch(() => undefined);
+    return calls;
+  };
+  // a phone app paired at or after the store was first written starts from bot chats only
+  assert.deepEqual(await run('dev1', [REMOTE, notificationsEntry(1_000)]), [
+    { method: 'config/value/write', params: { path: 'notifications.devices.dev1', value: { scope: 'off' }, mode: 'mergePatchBots' } },
+  ]);
+  // paired before it, a browser, and this PC: the plain default
+  for (const [id, migratedAt] of [['old', 1_000], ['web', 1_000], ['pc', 1_000]]) {
+    const [write] = await run(id, [REMOTE, notificationsEntry(migratedAt)]);
+    assert.equal(write.params.mode, 'mergePatch', id);
+    assert.equal(write.params.path, `notifications.devices.${id}`);
+  }
+  // no notifications subtree yet reads as migratedAt 0, as the notification state does: every paired phone app is "after"
+  assert.equal((await run('old', [REMOTE]))[0].params.mode, 'mergePatchBots');
+});
+
+test('setNotificationPreferences refuses a device that is not paired before writing anything', async () => {
+  const { lane, calls } = laneWith({}, [], [REMOTE]);
+  for (const id of ['nobody', 'gone']) {
+    await assert.rejects(lane.invoke('setNotificationPreferences', ['pc', true, id, {}]), /That device is not paired with this PC/);
+  }
+  assert.deepEqual(calls, []);
+});
+
+test('visualizeRemoteViewing reads the hostState remoteViewing section and sends nothing', async () => {
+  const viewing = { section: 'hostState', key: 'remoteViewing', revision: 2, value: { sessionIds: ['s1', 's2'] } };
+  const { lane, calls } = laneWith({}, [], [viewing, { section: 'hostState', key: 'visualize', revision: 1, value: {} }]);
+  assert.equal(await lane.invoke('visualizeRemoteViewing', ['s2']), true);
+  assert.equal(await lane.invoke('visualizeRemoteViewing', ['s3']), false);
+  assert.equal(await laneWith({}).lane.invoke('visualizeRemoteViewing', ['s1']), false);
+  assert.deepEqual(calls, []);
+  assert.ok(SECTION_READ_DESKTOP_OPERATIONS.includes('visualizeRemoteViewing'));
 });
 
 // ---- the five client notifications ------------------------------------------------------------------------------

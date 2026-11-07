@@ -106,7 +106,8 @@ test('ignored deletions answer undefined and send nothing; refused ones are unkn
     await assert.rejects(l.invoke(name, []), { code: 'unknownMethod' }, name);
   }
   assert.deepEqual([calls, notified], [[], []]);
-  assert.equal(SECTION_READ_DESKTOP_OPERATIONS.length, 6);
+  // the six of desktop-ops-new-a and visualizeRemoteViewing (desktop-ops-gaps-5r)
+  assert.equal(SECTION_READ_DESKTOP_OPERATIONS.length, 7);
 });
 
 test('browserRemoteOpen is the notification host/browser/surface', async () => {
