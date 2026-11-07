@@ -41,9 +41,11 @@ function rowBody(item: Obj, m: Obj): Obj | null {
     case 'userMessage':
       return userMessageRow(item, m);
     case 'agentMessage':
-      return { kind: 'assistant', id, text: text(item.text), ...atField(m), ...routeFields(m) };
+      return { kind: 'assistant', id, text: text(item.text), ...present('messageId', m.messageId), ...atField(m), ...routeFields(m) };
     case 'reasoning':
       return null;
+    case 'turnEnd':
+      return turnEndRow(item, m);
     case 'mcpToolCall':
       return toolRow(item, m, `mcp__${text(item.server)}__${text(item.tool)}`, item.arguments as Json, outputText(item.result ?? item.error), failed || item.error !== undefined);
     case 'webSearch':
@@ -69,6 +71,28 @@ function rowBody(item: Obj, m: Obj): Obj | null {
     default:
       return null;
   }
+}
+
+/** The `turndone` row of a turn end (turn.mjs `turnDoneItem`, restore.mjs `restoredTranscriptItems` for a stored completion): the
+ * typed members are the row's own attributes, and what only the live end states (`outputTokens`, `thinkingElapsedMs`, `toolCount`,
+ * `attemptId`, `completionVerb`) is `meta.ext`, applied last by `rowOf`. */
+function turnEndRow(item: Obj, m: Obj): Obj {
+  return {
+    kind: 'turndone',
+    id: item.id as Json,
+    ...present('checkpointId', item.checkpointId),
+    elapsedMs: item.elapsedMs as Json,
+    status: item.status as Json,
+    ...present('finalAssistantId', item.finalAssistantId),
+    ...present('verb', item.verb),
+    ...atField(m),
+    ...present('detail', item.detail),
+    ...present('errorDetails', item.errorDetails),
+    ...routeFields(m),
+    ...present('messageId', m.messageId),
+    ...(isObj(item.quota) ? { quota: item.quota as Json } : {}),
+    ...(isObj(item.errorKind) ? { errorKind: item.errorKind as Json } : {}),
+  };
 }
 
 // ───────────────────────────── tool rows ─────────────────────────────
@@ -443,6 +467,7 @@ function userRow(item: Obj, m: Obj): Obj {
     kind: 'user',
     id: item.id as Json,
     text: parts.filter((p) => p.type === 'text' || p.type === 'pastedText').map((p) => text(p.text)).join(''),
+    ...present('messageId', m.messageId),
     ...atField(m),
     ...routeFields(m),
     ...present('device', item.device),

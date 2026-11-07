@@ -834,15 +834,15 @@ pub struct ThreadRuntime {
     pub busy: bool,
     #[serde(default)]
     pub command_busy: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub thinking: Option<JsonValue>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub spinner: Option<JsonValue>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub command_status: Option<JsonValue>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub progress_hint: Option<JsonValue>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub active_tools: Option<JsonValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage: Option<StorageState>,
@@ -877,7 +877,7 @@ pub struct ThreadRoute {
 #[serde(rename_all = "camelCase")]
 #[ts(optional_fields)]
 pub struct ThreadContext {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub context_percent: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(type = "number")]

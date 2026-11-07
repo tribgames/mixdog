@@ -29,6 +29,46 @@ test('a tool call still running is its own card, never part of an aggregate; rea
   assert.equal('result' in (rows[1] ?? {}), false);
 });
 
+test('a turn end is the turndone row, with the live end\'s counters from ext and the typed message id on prompt, reply and end', () => {
+  const rows = project([
+    { type: 'userMessage', id: 'u', content: [{ type: 'text', text: 'go' }], meta: { at: 1, messageId: 'msg_u' } },
+    { type: 'agentMessage', id: 'a', text: 'done', meta: { at: 2, messageId: 'msg_a', model: 'M', modelId: 'm', provider: 'p', agent: 'Default' } },
+    {
+      type: 'turnEnd',
+      id: 'e',
+      status: 'done',
+      elapsedMs: 40,
+      verb: 'Mapped',
+      checkpointId: 'u',
+      finalAssistantId: 'a',
+      meta: { at: 3, model: 'M', modelId: 'm', provider: 'p', agent: 'Default', ext: { outputTokens: 48, thinkingElapsedMs: 0, toolCount: 1, attemptId: 't1', completionVerb: 'Mapped' } },
+    },
+  ]);
+  assert.deepEqual(rows, [
+    { kind: 'user', id: 'u', text: 'go', messageId: 'msg_u', at: 1 },
+    { kind: 'assistant', id: 'a', text: 'done', messageId: 'msg_a', at: 2, modelId: 'm', model: 'M', provider: 'p', agent: 'Default' },
+    {
+      kind: 'turndone',
+      id: 'e',
+      checkpointId: 'u',
+      elapsedMs: 40,
+      status: 'done',
+      finalAssistantId: 'a',
+      verb: 'Mapped',
+      at: 3,
+      modelId: 'm',
+      model: 'M',
+      provider: 'p',
+      agent: 'Default',
+      outputTokens: 48,
+      thinkingElapsedMs: 0,
+      toolCount: 1,
+      attemptId: 't1',
+      completionVerb: 'Mapped',
+    },
+  ]);
+});
+
 test('rows carry the product row model only: no protocol member names, compaction keeps status and label', () => {
   const rows = project([
     { type: 'toolCall', id: 'x', name: 'shell', input: { command: 'ls' }, output: '[exit code: 0]\nfile', meta: { status: 'completed' } },

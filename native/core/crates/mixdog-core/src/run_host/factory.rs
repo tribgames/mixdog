@@ -548,11 +548,8 @@ impl RunObserver for PortObserver {
             RunEvent::Compact(event) => {
                 let _ = self.out.send(Shown::Compact(event));
             }
-            // The context reading the footer shows (percent is the session's to derive).
-            RunEvent::ContextPressure { used_tokens, .. } => {
-                let context = mixdog_app_protocol::v2::thread::ThreadContext { context_tokens: i64::try_from(used_tokens).ok(), ..Default::default() };
-                let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::Context(context)));
-            }
+            // The context section is the route's window choice (`runtime.contextPercent`, exact `contextTokens` only for a
+            // non-default window), never the usage reading: usage reaches clients as `thread/tokenUsage/updated`.
             RunEvent::Stage(Stage::ModelFallback { model }) => {
                 let route = mixdog_app_protocol::v2::thread::ThreadRoute { session_model: Some(model), ..Default::default() };
                 let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::Route(route)));
