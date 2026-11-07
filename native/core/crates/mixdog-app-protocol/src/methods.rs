@@ -3911,7 +3911,7 @@ crate::client_request_definitions! {
     TerminalEnsure => "terminal/ensure" {
         params: TerminalEnsureParams,
         result: JsonValue,
-        scope: terminal(tab_id),
+        scope: terminal_or_none(tab_id),
         class: C2,
         mutation: op(Terminal),
         origins: [Local, Ssh, Relay],

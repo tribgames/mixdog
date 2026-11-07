@@ -14876,7 +14876,7 @@ export const methodTable = {
       "result": "JsonValue",
       "scope": {
         "field": "tabId",
-        "kind": "terminal"
+        "kind": "terminalOrNone"
       }
     },
     {

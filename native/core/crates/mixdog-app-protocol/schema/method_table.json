@@ -9653,7 +9653,7 @@
       "result": "JsonValue",
       "scope": {
         "field": "tabId",
-        "kind": "terminal"
+        "kind": "terminalOrNone"
       }
     },
     {

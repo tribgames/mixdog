@@ -215,6 +215,21 @@ fn ds_dup_1_no_duplicate_rows() {
 }
 
 /// CCR-4: scope and opScope fields are wire paths; agent home is keyed per agent.
+/// `terminal/ensure` without a `tabId` makes a new tab: nothing to order against, so it runs
+/// concurrently; naming a tab serializes on that tab like every other terminal request.
+#[test]
+fn terminal_ensure_is_keyed_by_its_tab_only_when_it_names_one() {
+    use mixdog_app_protocol::common::SerializationScope;
+    let scope = |params: Value| {
+        let request = JsonRpcRequest { id: RequestId::Integer(1), method: "terminal/ensure".into(), params: Some(params), trace: None };
+        ClientRequest::from_jsonrpc(request).unwrap().serialization_scope()
+    };
+    assert_eq!(scope(json!({ "opId": "o1", "options": {} })), None);
+    assert_eq!(
+        scope(json!({ "opId": "o2", "tabId": "tab1", "options": {} })),
+        Some(SerializationScope::Terminal { tab_id: "tab1".into() })
+    );
+}
 #[test]
 fn method_table_fields_are_wire_paths() {
     let table = serde_json::to_value(CLIENT_METHODS).unwrap();
