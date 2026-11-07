@@ -110,48 +110,86 @@ pub fn win32_error_name(code: u32) -> &'static str {
     }
 }
 
-/// The name libuv gives a POSIX errno: the C name of the constant. Only the errnos a file operation raises are
-/// listed (libuv's network errnos cannot come out of a read); any other is `UNKNOWN`.
+/// The name libuv gives a POSIX errno: the C name of the constant, for every errno `include/uv/errno.h` of libuv 1.51.0 names.
+/// `ECHARSET` is the one name of that list no Unix defines (libuv gives it a number of its own); `ENONET`, `EUNATCH` and
+/// `EREMOTEIO` exist on Linux only, `EFTYPE` on the BSDs and macOS only, and `ENODATA` is left to the platforms whose
+/// `<errno.h>` defines it (libuv gives FreeBSD a number that no errno has). An errno libuv has no name for is `UNKNOWN`.
 #[cfg(unix)]
 pub fn errno_name(code: i32) -> &'static str {
     match code {
         libc::E2BIG => "E2BIG",
         libc::EACCES => "EACCES",
+        libc::EADDRINUSE => "EADDRINUSE",
+        libc::EADDRNOTAVAIL => "EADDRNOTAVAIL",
+        libc::EAFNOSUPPORT => "EAFNOSUPPORT",
         libc::EAGAIN => "EAGAIN",
+        libc::EALREADY => "EALREADY",
         libc::EBADF => "EBADF",
         libc::EBUSY => "EBUSY",
         libc::ECANCELED => "ECANCELED",
+        libc::ECONNABORTED => "ECONNABORTED",
+        libc::ECONNREFUSED => "ECONNREFUSED",
+        libc::ECONNRESET => "ECONNRESET",
+        libc::EDESTADDRREQ => "EDESTADDRREQ",
         libc::EEXIST => "EEXIST",
         libc::EFAULT => "EFAULT",
-        libc::EFBIG => "EFBIG",
+        libc::EHOSTUNREACH => "EHOSTUNREACH",
         libc::EINTR => "EINTR",
         libc::EINVAL => "EINVAL",
         libc::EIO => "EIO",
+        libc::EISCONN => "EISCONN",
         libc::EISDIR => "EISDIR",
         libc::ELOOP => "ELOOP",
         libc::EMFILE => "EMFILE",
-        libc::EMLINK => "EMLINK",
+        libc::EMSGSIZE => "EMSGSIZE",
         libc::ENAMETOOLONG => "ENAMETOOLONG",
+        libc::ENETDOWN => "ENETDOWN",
+        libc::ENETUNREACH => "ENETUNREACH",
         libc::ENFILE => "ENFILE",
+        libc::ENOBUFS => "ENOBUFS",
         libc::ENODEV => "ENODEV",
         libc::ENOENT => "ENOENT",
         libc::ENOMEM => "ENOMEM",
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        libc::ENONET => "ENONET",
         libc::ENOSPC => "ENOSPC",
         libc::ENOSYS => "ENOSYS",
+        libc::ENOTCONN => "ENOTCONN",
         libc::ENOTDIR => "ENOTDIR",
         libc::ENOTEMPTY => "ENOTEMPTY",
+        libc::ENOTSOCK => "ENOTSOCK",
         libc::ENOTSUP => "ENOTSUP",
-        libc::ENOTTY => "ENOTTY",
-        libc::EOVERFLOW => "EOVERFLOW",
         libc::EPERM => "EPERM",
         libc::EPIPE => "EPIPE",
-        libc::ERANGE => "ERANGE",
+        libc::EPROTO => "EPROTO",
+        libc::EPROTONOSUPPORT => "EPROTONOSUPPORT",
+        libc::EPROTOTYPE => "EPROTOTYPE",
         libc::EROFS => "EROFS",
+        libc::ESHUTDOWN => "ESHUTDOWN",
         libc::ESPIPE => "ESPIPE",
         libc::ESRCH => "ESRCH",
         libc::ETIMEDOUT => "ETIMEDOUT",
         libc::ETXTBSY => "ETXTBSY",
         libc::EXDEV => "EXDEV",
+        libc::EFBIG => "EFBIG",
+        libc::ENOPROTOOPT => "ENOPROTOOPT",
+        libc::ERANGE => "ERANGE",
+        libc::ENXIO => "ENXIO",
+        libc::EMLINK => "EMLINK",
+        libc::EHOSTDOWN => "EHOSTDOWN",
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        libc::EREMOTEIO => "EREMOTEIO",
+        libc::ENOTTY => "ENOTTY",
+        #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd", target_os = "netbsd", target_os = "openbsd", target_os = "dragonfly"))]
+        libc::EFTYPE => "EFTYPE",
+        libc::EILSEQ => "EILSEQ",
+        libc::EOVERFLOW => "EOVERFLOW",
+        libc::ESOCKTNOSUPPORT => "ESOCKTNOSUPPORT",
+        #[cfg(any(target_os = "linux", target_os = "android", target_os = "macos", target_os = "ios"))]
+        libc::ENODATA => "ENODATA",
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        libc::EUNATCH => "EUNATCH",
+        libc::ENOEXEC => "ENOEXEC",
         _ => "UNKNOWN",
     }
 }

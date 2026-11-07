@@ -336,8 +336,21 @@ const MOCK: &str = env!("CARGO_BIN_EXE_mixdog-mcp-mock-server");
 /// (`disconnectMcpServer`, here `connect_configured_mcp(.., false)`), and everything dropped
 /// (`disconnectAll({ scopeId })`, which Node's runtime stop, `runtime-stops.mjs:24`, and a reset,
 /// `connect.mjs:107`, call; here `McpHub::release_scope`, whose servers all close).
+///
+/// Replayed twice: in the scope of a session, which a release retires for good, and in the runtime scope
+/// itself, which no release retires - there the reads that follow still answer, as Node's runtime does, and a
+/// reset connects the servers again.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_server_connected_through_the_real_glue_reads_as_it_does_in_node() {
+    connected_replay(false).await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn the_runtime_scope_reads_as_it_does_in_node_after_everything_is_dropped() {
+    connected_replay(true).await;
+}
+
+async fn connected_replay(runtime_scope: bool) {
     use mixdog_mcp::mcp_glue::McpScopes;
     const SCOPE: &str = "reader-scope";
     let dir = tempfile::tempdir().unwrap();
@@ -368,19 +381,31 @@ async fn a_server_connected_through_the_real_glue_reads_as_it_does_in_node() {
     })
     .await;
     let Stack { glue, host, service, surface, .. } = stack(dir.path());
-    *surface.scope.lock().unwrap() = Some(SCOPE.to_owned());
-    glue.open(SCOPE, "owner", &dir.path().join("proj")).await.unwrap();
+    // The runtime scope is read with no thread; a session's scope through the thread whose header names it.
+    let (scope, thread) = if runtime_scope {
+        glue.connect_runtime_scope().await.unwrap();
+        (glue.hub().runtime_scope().to_owned(), None)
+    } else {
+        *surface.scope.lock().unwrap() = Some(SCOPE.to_owned());
+        glue.open(SCOPE, "owner", &dir.path().join("proj")).await.unwrap();
+        (SCOPE.to_owned(), Some(THREAD))
+    };
     let steps = steps.as_array().unwrap();
     let check = |index: usize| {
         let (host, service, step) = (host.clone(), &service, &steps[index]);
         async move {
-            assert_eq!(host.plugin_mcp_summary(Some(THREAD)).await.unwrap(), step["summary"], "{}: the summary", step["name"]);
-            assert_status(step, &status_of(service, Some(THREAD)).await);
+            assert_eq!(host.plugin_mcp_summary(thread).await.unwrap(), step["summary"], "{}: the summary", step["name"]);
+            assert_status(step, &status_of(service, thread).await);
         }
     };
     check(0).await;
     host.connect_configured_mcp("plugin-hub-1-mock", false).await;
     check(1).await;
-    glue.hub().release_scope(SCOPE).await;
+    glue.hub().release_scope(&scope).await;
     check(2).await;
+    if runtime_scope {
+        // A reset (`connectConfiguredMcp({ reset: true })`) connects what was dropped, in the same scope.
+        host.reconnect_all_mcp_and_announce().await;
+        check(0).await;
+    }
 }

@@ -454,11 +454,16 @@ impl McpHub {
     /// scope is marked released and its generation moves on (so every operation in flight or queued
     /// for it is void from this instant), its servers leave the registry, and its sign-ins and
     /// accounts are forgotten. The servers are returned to be closed ([`close_retired`]).
+    ///
+    /// The runtime scope is the daemon's and is never tombstoned: Node's `disconnectAll` only drops the
+    /// servers and voids what is in flight, so the runtime stays readable (its servers read `disconnected`)
+    /// and a later reset or reconnect connects them again, which is what a reset (`connect.mjs:107`) and MCP
+    /// being switched off (`:142`) rely on. Every other scope is released for good.
     pub fn retire_scope(&self, scope: &str) -> Vec<Arc<McpServer>> {
         let scope = normalize_scope(Some(scope));
         let mut lives = self.lives.lock().unwrap_or_else(|e| e.into_inner());
         let life = lives.entry(scope.clone()).or_default();
-        life.released = true;
+        life.released = life.released || scope != self.runtime_scope();
         life.generation += 1;
         let closing = self.in_scope(&scope);
         self.servers.rcu(|all| {

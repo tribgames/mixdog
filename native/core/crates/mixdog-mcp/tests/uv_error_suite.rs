@@ -41,10 +41,28 @@ fn a_system_error_carries_the_name_node_gives_it() {
     assert_eq!(error_code(&std::io::Error::other("no code")), None);
 }
 
+const NAMES: &str = include_str!("../../../fixtures/plugins-status/uv-errno-names.json");
+
+/// Every errno of 1..=200 that has a name, against the list libuv's `errno.h` gives; what no errno of
+/// this platform reaches is exactly what the platform lacks (`ECHARSET` is no platform's errno).
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[test]
+fn every_errno_libuv_names_is_named() {
+    use mixdog_mcp::uv_error::errno_name;
+    let listed: Value = serde_json::from_str(NAMES).unwrap();
+    let listed: HashSet<&str> = listed["names"].as_array().unwrap().iter().map(|name| name.as_str().unwrap()).collect();
+    assert_eq!(listed.len(), 69);
+    let named: HashSet<&str> = (1..=200).map(errno_name).filter(|name| *name != "UNKNOWN").collect();
+    assert!(named.is_subset(&listed), "{:?}", named.difference(&listed).collect::<Vec<_>>());
+    let missing: HashSet<&str> = listed.difference(&named).copied().collect();
+    let lacking: &[&str] = if cfg!(target_os = "linux") { &["ECHARSET", "EFTYPE"] } else { &["ECHARSET", "ENONET", "EUNATCH", "EREMOTEIO"] };
+    assert_eq!(missing, lacking.iter().copied().collect::<HashSet<_>>());
+}
+
 #[cfg(unix)]
 #[test]
 fn a_system_error_carries_the_name_of_its_errno() {
     assert_eq!(error_code(&std::io::Error::from_raw_os_error(libc::ENOENT)), Some("ENOENT"));
-    assert_eq!(error_code(&std::io::Error::from_raw_os_error(libc::EACCES)), Some("EACCES"));
+    assert_eq!(error_code(&std::io::Error::from_raw_os_error(libc::ECONNRESET)), Some("ECONNRESET"));
     assert_eq!(error_code(&std::io::Error::other("no code")), None);
 }
