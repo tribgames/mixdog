@@ -76,11 +76,11 @@ pub(super) fn string_guard(p: &str) -> Option<&'static str> {
 }
 
 /// `posixPathToWindowsPath`: `/c/x`, `/cygdrive/c/x`, `/mnt/c/x` and `//host/x` on Windows.
-pub(super) fn posix_path_to_windows(p: &str) -> String {
+pub(super) fn posix_path_to_windows(p: &str, host: Host) -> String {
     static CYG: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     static MNT: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     static DRIVE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
-    if !cfg!(windows) {
+    if host != Host::Windows {
         return p.to_owned();
     }
     let re = |cell: &'static std::sync::OnceLock<regex::Regex>, pattern: &str| -> &'static regex::Regex {
@@ -113,36 +113,79 @@ pub(super) fn windows_path_to_posix(p: &str) -> String {
     p.to_owned()
 }
 
-/// `isWSL`: the WSL init sets one of these for every session.
-pub(super) fn is_wsl() -> bool {
-    cfg!(target_os = "linux") && (std::env::var_os("WSL_DISTRO_NAME").is_some() || std::env::var_os("WSL_INTEROP").is_some())
+/// What `normalizeInputPath` branches on: the host's path conventions.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Host {
+    Windows,
+    Wsl,
+    Other,
 }
 
-/// The Windows- and WSL-specific part of `normalizeInputPath`, after trim and `~`.
-pub(super) fn host_spelling(out: &str) -> String {
+static WSL: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+/// Records `isWSL` once: Linux, and `WSL_DISTRO_NAME` / `WSL_INTEROP` set, or `/proc/version`
+/// (`proc_version`, read by the caller) naming Microsoft or WSL.
+pub(super) fn set_wsl(proc_version: Option<&str>) {
+    let found = cfg!(target_os = "linux")
+        && (std::env::var_os("WSL_DISTRO_NAME").is_some_and(|v| !v.is_empty())
+            || std::env::var_os("WSL_INTEROP").is_some_and(|v| !v.is_empty())
+            || proc_version.is_some_and(|v| {
+                let v = v.to_lowercase();
+                v.contains("microsoft") || v.contains("wsl")
+            }));
+    let _ = WSL.set(found);
+}
+
+/// Whether `isWSL` has been settled, so the caller reads `/proc/version` only once.
+pub(super) fn wsl_known() -> bool {
+    WSL.get().is_some()
+}
+
+impl Host {
+    pub fn current() -> Self {
+        if cfg!(windows) {
+            Self::Windows
+        } else if WSL.get().copied().unwrap_or(false) {
+            Self::Wsl
+        } else {
+            Self::Other
+        }
+    }
+}
+
+/// `os.homedir()`: `USERPROFILE` on Windows, `HOME` elsewhere, else the account's home.
+pub(super) fn home_dir() -> Option<String> {
+    let key = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+    std::env::var(key).ok().filter(|v| !v.is_empty()).or_else(|| dirs::home_dir().map(|h| h.to_string_lossy().into_owned()))
+}
+
+/// The host-specific part of `normalizeInputPath`, after trim and `~`: the POSIX spellings of a
+/// drive on Windows, the Windows drive spelling under WSL.
+pub(super) fn host_spelling(out: &str, host: Host) -> String {
     static POSIX_DRIVE_COLON: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     static POSIX_SHAPES: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = |cell: &'static std::sync::OnceLock<regex::Regex>, pattern: &str| -> &'static regex::Regex {
         cell.get_or_init(|| regex::Regex::new(pattern).expect("a fixed pattern"))
     };
-    if cfg!(windows) {
-        if re(&POSIX_SHAPES, r"^(?:/[a-zA-Z]/|/cygdrive/[a-zA-Z]/|/mnt/[a-zA-Z]/|//)").is_match(out) {
-            return posix_path_to_windows(out);
+    match host {
+        Host::Windows => {
+            if re(&POSIX_SHAPES, r"^(?:/[a-zA-Z]/|/cygdrive/[a-zA-Z]/|/mnt/[a-zA-Z]/|//)").is_match(out) {
+                return posix_path_to_windows(out, host);
+            }
+            if re(&POSIX_DRIVE_COLON, r"^/[a-zA-Z]:[\\/]").is_match(out) {
+                return format!("{}:\\{}", &out[1..2], out[4..].replace('/', "\\"));
+            }
+            out.to_owned()
         }
-        if re(&POSIX_DRIVE_COLON, r"^/[a-zA-Z]:[\\/]").is_match(out) {
-            return format!("{}:\\{}", &out[1..2], out[4..].replace('/', "\\"));
-        }
-    } else if is_wsl() {
-        return windows_path_to_posix(out);
+        Host::Wsl => windows_path_to_posix(out),
+        Host::Other => out.to_owned(),
     }
-    out.to_owned()
 }
-
-/// The order a directory lists its names in (NTFS: by upper-cased UTF-16 unit).
+/// The order Node lists a directory in: the file system's own on Windows (NTFS keeps names in
+/// upper-cased UTF-16 order), libuv's `alphasort` (bytes) everywhere else.
 pub(super) fn dir_order_key(name: &str) -> Vec<u16> {
-    name.to_uppercase().encode_utf16().collect()
+    if cfg!(windows) { name.to_uppercase().encode_utf16().collect() } else { name.bytes().map(u16::from).collect() }
 }
-
 /// `normalizeErrorMessage`'s `redact` of one absolute path (forward slashes): relative to `cwd`
 /// when under it, else behind the runtime, data, root or home prefix it lies under.
 pub(super) fn redact(raw: &str, cwd: Option<&str>) -> String {
@@ -163,7 +206,7 @@ pub(super) fn redact(raw: &str, cwd: Option<&str>) -> String {
         return rel.to_owned();
     }
     let env = |key: &str| std::env::var(key).ok().map(|v| v.replace('\\', "/")).filter(|v| !v.is_empty());
-    let home = dirs::home_dir().map(|h| h.to_string_lossy().replace('\\', "/"));
+    let home = home_dir().map(|h| h.replace('\\', "/"));
     let mixdog_home = env("MIXDOG_HOME").or_else(|| home.as_ref().map(|h| format!("{h}/.mixdog")));
     let data = env("MIXDOG_DATA_DIR").or_else(|| mixdog_home.map(|h| format!("{h}/data")));
     for (prefix, label) in [(env("MIXDOG_RUNTIME_ROOT"), "<runtime>"), (data, "<mixdog-data>"), (env("MIXDOG_ROOT"), "<mixdog-root>"), (home, "~")] {
@@ -181,8 +224,11 @@ pub(super) fn normalize_error_message(msg: &str, cwd: Option<&str>) -> String {
     let quoted = QUOTED.get_or_init(|| {
         regex::Regex::new(r#"'([A-Za-z]:[\\/][^'"]+|/[^'"]+)'|"([A-Za-z]:[\\/][^'"]+|/[^'"]+)""#).expect("a fixed pattern")
     });
+    static FILE_URI: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let file_uri = FILE_URI.get_or_init(|| regex::Regex::new(r#"file:///([A-Za-z]:/[^\s'"<>)\]]+|/[^\s'"<>)\]]+)"#).expect("a fixed pattern"));
+    let msg = file_uri.replace_all(msg, |c: &regex::Captures| redact(&c[1], cwd));
     quoted
-        .replace_all(msg, |c: &regex::Captures| match (c.get(1), c.get(2)) {
+        .replace_all(&msg, |c: &regex::Captures| match (c.get(1), c.get(2)) {
             (Some(p), _) => format!("'{}'", redact(p.as_str(), cwd)),
             (None, Some(p)) => format!("\"{}\"", redact(p.as_str(), cwd)),
             (None, None) => c[0].to_owned(),

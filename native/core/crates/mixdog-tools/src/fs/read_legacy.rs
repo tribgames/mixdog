@@ -576,22 +576,15 @@ fn symbol_pattern() -> &'static regex::Regex {
     regex(&SYMBOL, &pattern)
 }
 
-/// `executeSummaryTool`'s text: the file's stats and its first `limit` symbol rows.
-pub(super) fn summary_text(shown: &str, content: &str, bytes: u64, limit: usize, render_line: &dyn Fn(u64, &str) -> String) -> String {
-    let mut symbols: Vec<String> = Vec::new();
-    for (i, raw) in content.split('\n').enumerate() {
-        let raw = raw.strip_suffix('\r').unwrap_or(raw);
-        let line = if i == 0 { raw.strip_prefix('\u{feff}').unwrap_or(raw) } else { raw };
-        if !symbol_pattern().is_match(line) {
-            continue;
-        }
-        symbols.push(render_line(i as u64 + 1, line.trim_end_matches(mixdog_js::is_js_space)));
-        if symbols.len() >= limit {
-            break;
-        }
-    }
+/// One row of `collectSummarySymbols`: the line, when it opens a symbol or heading.
+pub(super) fn symbol_row(line_no: u64, line: &str, render_line: &dyn Fn(u64, &str) -> String) -> Option<String> {
+    symbol_pattern().is_match(line).then(|| render_line(line_no, line.trim_end_matches(mixdog_js::is_js_space)))
+}
+
+/// `renderSummary`: the stats line, the symbol count (`capped` at `limit`) and the symbol rows.
+pub(super) fn summary_render(shown: &str, stats: &str, symbols: Vec<String>, limit: usize) -> String {
     let capped = if symbols.len() >= limit { format!(" (capped at {limit})") } else { String::new() };
-    let mut lines = vec![format!("summary {shown}"), text_stats(content, bytes), format!("symbols\t{}{capped}", symbols.len()), String::new()];
+    let mut lines = vec![format!("summary {shown}"), stats.to_owned(), format!("symbols\t{}{capped}", symbols.len()), String::new()];
     if symbols.is_empty() {
         lines.push("(no obvious symbols/headings found)".to_owned());
     } else {
@@ -600,6 +593,86 @@ pub(super) fn summary_text(shown: &str, content: &str, bytes: u64, limit: usize,
     cap_shell_output(&lines.join("\n"))
 }
 
+/// `executeSummaryTool`'s text over a file held whole: its stats and its first `limit` symbol rows.
+pub(super) fn summary_text(shown: &str, content: &str, bytes: u64, limit: usize, render_line: &dyn Fn(u64, &str) -> String) -> String {
+    let mut symbols: Vec<String> = Vec::new();
+    for (i, raw) in content.split('\n').enumerate() {
+        let raw = raw.strip_suffix('\r').unwrap_or(raw);
+        let line = if i == 0 { raw.strip_prefix('\u{feff}').unwrap_or(raw) } else { raw };
+        if let Some(row) = symbol_row(i as u64 + 1, line, render_line) {
+            symbols.push(row);
+            if symbols.len() >= limit {
+                break;
+            }
+        }
+    }
+    summary_render(shown, &text_stats(content, bytes), symbols, limit)
+}
+
+/// Node's `readline` over a byte stream: lines end at `\n`, `\r\n` or a lone `\r`; the last line
+/// needs no terminator. Bytes are decoded as UTF-8, a bad sequence becoming U+FFFD.
+#[derive(Default)]
+pub(super) struct LineReader {
+    pending: Vec<u8>,
+    after_cr: bool,
+}
+
+impl LineReader {
+    /// Feeds a chunk; completed lines go to `out` until it holds `max` of them.
+    pub fn feed(&mut self, chunk: &[u8], out: &mut Vec<String>, max: usize) {
+        for &byte in chunk {
+            if out.len() >= max {
+                return;
+            }
+            if self.after_cr {
+                self.after_cr = false;
+                if byte == b'\n' {
+                    continue;
+                }
+            }
+            match byte {
+                b'\n' => out.push(String::from_utf8_lossy(&std::mem::take(&mut self.pending)).into_owned()),
+                b'\r' => {
+                    out.push(String::from_utf8_lossy(&std::mem::take(&mut self.pending)).into_owned());
+                    self.after_cr = true;
+                }
+                other => self.pending.push(other),
+            }
+        }
+    }
+
+    /// The end of the stream: an unterminated last line is a line.
+    pub fn finish(&mut self, out: &mut Vec<String>) {
+        if !self.pending.is_empty() {
+            out.push(String::from_utf8_lossy(&std::mem::take(&mut self.pending)).into_owned());
+        }
+    }
+}
+
+/// `readLargeTailWindowSync` after its read: the last `target` lines of the tail window `buf` (the
+/// last `buf.len()` bytes of a file of `size`), and whether the window is approximate / capped.
+pub(super) fn large_tail_lines(buf: &[u8], size: u64, target: usize, window_cap: u64) -> (Vec<String>, bool, bool) {
+    let approximate = (buf.len() as u64) < size;
+    let skip = if approximate { buf.iter().take(4).take_while(|b| (**b & 0xc0) == 0x80).count() } else { 0 };
+    let text = String::from_utf8_lossy(&buf[skip..]).into_owned();
+    let mut lines: Vec<String> = text.split('\n').map(str::to_owned).collect();
+    if approximate && lines.len() > 1 {
+        lines.remove(0);
+    }
+    if lines.last().is_some_and(String::is_empty) {
+        lines.pop();
+    }
+    let from = lines.len().saturating_sub(target);
+    let capped = approximate && (buf.len() as u64) >= window_cap;
+    (lines.split_off(from), approximate, capped)
+}
+
+/// `renderTailWindowSync` without exact line numbers: a header, the rows, the cap note.
+pub(super) fn large_tail_text(lines: &[String], capped: bool, window_cap: u64, clip: &dyn Fn(&str) -> String) -> String {
+    let rendered = lines.iter().enumerate().map(|(i, l)| clip(display_line(l, i))).collect::<Vec<_>>().join("\n");
+    let marker = if capped { format!("\n... [tail window capped at {} KB]", window_cap / 1024) } else { String::new() };
+    cap_shell_output(&format!("... [tail of {} lines from end of file; line numbers omitted]\n{rendered}{marker}", lines.len()))
+}
 /// `executeHexTool`'s text: `bytes` is the window read from `offset` of a file of `size` bytes.
 pub(super) fn hex_text(shown: &str, bytes: &[u8], offset: u64, size: u64) -> String {
     let mut lines = vec![format!("hex {shown} offset={offset} read={}/{size}", bytes.len())];
