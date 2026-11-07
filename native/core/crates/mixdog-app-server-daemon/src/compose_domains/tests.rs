@@ -51,6 +51,8 @@ use mixdog_services::effort_judge::model::OrtRuntime;
 use mixdog_services::import::ImportSessions;
 use mixdog_services::import::ImportedSession;
 use mixdog_services::media::GeneratedMedia;
+use mixdog_services::media::MediaUsageCall;
+use mixdog_services::media::MediaUsageLedger;
 use mixdog_services::media::GenerationRequest;
 use mixdog_services::media::MediaFailure;
 use mixdog_services::media::MediaGenerator;
@@ -161,6 +163,11 @@ impl MediaGenerator for Quiet {
     async fn lanes(&self) -> Value {
         json!([])
     }
+}
+
+#[async_trait]
+impl MediaUsageLedger for Quiet {
+    async fn record(&self, _: MediaUsageCall<'_>) {}
 }
 
 #[async_trait]
@@ -498,6 +505,7 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
             local: LocalSeams {
                 import_sessions: quiet.clone(),
                 media_generator: quiet.clone(),
+            media_ledger: quiet.clone(),
                 voice_installer: quiet.clone(),
             },
             user_activity: UserActivity::new(
@@ -534,7 +542,7 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
     let served: Vec<&str> = pre.setup_actions.iter().flat_map(|owner| owner.actions().iter().copied()).collect();
     assert_eq!(served, EXPECTED_SETUP_ACTIONS);
     let read: Vec<&str> = pre.status_readers.iter().flat_map(|reader| reader.domains().iter().copied()).collect();
-    assert_eq!(read, ["autoclear", "compaction", "developer", "shell", "update", "worktree", "network-proxy", "output-style", "local-provider", "memory", "profile", "websearch", "onboarding", "workflow", "features", "summary", "model"]);
+    assert_eq!(read, ["autoclear", "compaction", "developer", "shell", "update", "worktree", "network-proxy", "output-style", "local-provider", "memory", "profile", "websearch", "onboarding", "workflow", "features", "summary", "model", "media"]);
     let composed = crate::compose_domains::compose_domains_post(
         &inputs,
         crate::compose_domains::PostSeams { session_attachments: quiet.clone(), doctor: quiet.clone() },

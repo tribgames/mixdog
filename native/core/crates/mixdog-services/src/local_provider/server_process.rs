@@ -179,8 +179,20 @@ impl ServerProcess {
             return Ok(());
         }
         state.inner.lock().unwrap().expected_exit = true;
-        state.process.kill();
-        let waited = tokio::time::timeout(self.stop_timeout, async {
+        // `server-process.mjs:52-57`: a kill and a wait, and when the child is still there a second
+        // kill and a second wait, then the failure. (Node sends SIGTERM and then SIGKILL; the
+        // process manager's `kill` is one tree kill, issued again.)
+        for _ in 0..2 {
+            state.process.kill();
+            if self.exits_within_stop_timeout(state).await {
+                return Ok(());
+            }
+        }
+        Err("[local-provider] llama-server did not exit after termination".into())
+    }
+
+    async fn exits_within_stop_timeout(&self, state: &ChildState) -> bool {
+        let _ = tokio::time::timeout(self.stop_timeout, async {
             while !state.has_exited() {
                 let notified = state.exited.notified();
                 if state.has_exited() {
@@ -190,10 +202,7 @@ impl ServerProcess {
             }
         })
         .await;
-        if waited.is_err() && !state.has_exited() {
-            return Err("[local-provider] llama-server did not exit after termination".into());
-        }
-        Ok(())
+        state.has_exited()
     }
 
     async fn start(&self, spec: StartSpec, cancel: CancellationToken) -> Result<Value, String> {
@@ -313,7 +322,9 @@ impl ServerProcess {
                 };
                 self.owner.lock().unwrap().last_error = (!cancel.is_cancelled()).then(|| failure.clone());
                 self.signal.notify();
-                let _ = self.stop_state(&Some(state)).await;
+                // `server-process.mjs:99`: awaited bare in the catch, so a server that will not die
+                // ends the start with that error instead of the start's own.
+                self.stop_state(&Some(state)).await?;
                 Err(failure)
             }
         }
@@ -542,6 +553,9 @@ mod tests {
 
     struct FakeProcess {
         killed: AtomicBool,
+        /// How many more kills the child ignores.
+        ignore: AtomicUsize,
+        kills: Mutex<Vec<tokio::time::Instant>>,
         exit: tokio::sync::watch::Sender<Option<ExitInfo>>,
         rx: tokio::sync::watch::Receiver<Option<ExitInfo>>,
     }
@@ -559,6 +573,11 @@ mod tests {
         }
         fn kill(&self) {
             self.killed.store(true, Ordering::SeqCst);
+            self.kills.lock().unwrap().push(tokio::time::Instant::now());
+            if self.ignore.load(Ordering::SeqCst) > 0 {
+                self.ignore.fetch_sub(1, Ordering::SeqCst);
+                return;
+            }
             let _ = self.exit.send(Some(ExitInfo { exit_code: None, signal: Some("SIGKILL".into()) }));
         }
     }
@@ -567,6 +586,8 @@ mod tests {
     struct FakeLauncher {
         launched: AtomicUsize,
         crash_at_launch: AtomicBool,
+        /// How many kills each launched child ignores.
+        ignore_kills: AtomicUsize,
         last: Mutex<Option<Arc<FakeProcess>>>,
     }
 
@@ -575,7 +596,7 @@ mod tests {
         async fn launch(&self, _: &str, args: &[String], _: &str, _: &[(String, String)], log: LogSink) -> Result<Arc<dyn RunningProcess>, String> {
             self.launched.fetch_add(1, Ordering::SeqCst);
             let (exit, rx) = tokio::sync::watch::channel(None);
-            let p = Arc::new(FakeProcess { killed: AtomicBool::new(false), exit, rx });
+            let p = Arc::new(FakeProcess { killed: AtomicBool::new(false), ignore: AtomicUsize::new(self.ignore_kills.load(Ordering::SeqCst)), kills: Mutex::new(Vec::new()), exit, rx });
             // The api key travels in argv; a crash log that echoes it must be redacted.
             log(&format!("starting with {}", args.join(" ")));
             if self.crash_at_launch.load(Ordering::SeqCst) {
@@ -614,9 +635,13 @@ mod tests {
     }
 
     fn server(healthy: bool) -> (ServerProcess, Arc<FakeLauncher>, Arc<FakeHealth>) {
+        server_stopping_after(healthy, Duration::from_secs(1))
+    }
+
+    fn server_stopping_after(healthy: bool, stop_timeout: Duration) -> (ServerProcess, Arc<FakeLauncher>, Arc<FakeHealth>) {
         let launcher = Arc::new(FakeLauncher::default());
         let health = Arc::new(FakeHealth(AtomicBool::new(healthy)));
-        let timing = Timing { start_timeout: Duration::from_secs(5), stop_timeout: Duration::from_secs(1), poll: Duration::from_millis(10) };
+        let timing = Timing { start_timeout: Duration::from_secs(5), stop_timeout, poll: Duration::from_millis(10) };
         (ServerProcess::new(launcher.clone(), health.clone(), timing, Arc::new(|_| {})), launcher, health)
     }
 
@@ -685,6 +710,50 @@ mod tests {
         assert!(error.contains("did not become ready"), "{error}");
         assert!(launcher.last.lock().unwrap().as_ref().unwrap().killed.load(Ordering::SeqCst));
         assert_eq!(s.status()["starting"], false);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_server_that_will_not_die_after_a_failed_start_ends_the_start_with_that_error() {
+        let (s, launcher, _) = server(false);
+        launcher.ignore_kills.store(usize::MAX, Ordering::SeqCst);
+        let error = s.ensure(spec("k", Arc::new(AtomicUsize::new(0))), None).await.unwrap_err();
+        assert_eq!(error, "[local-provider] llama-server did not exit after termination");
+    }
+
+    fn golden() -> Value {
+        serde_json::from_str(include_str!("../../../../fixtures/local-server-stop/golden.json")).expect("golden.json")
+    }
+
+    /// Node's real owner stopping a child that ignores its kill (`record-local-server-stop.mjs`,
+    /// fake clock): when each kill went out, and what `stop()` answered and when.
+    async fn stop_as_recorded(ignored_kills: usize, recorded: &Value) -> (Vec<u128>, Result<(), String>, u128) {
+        let golden = golden();
+        let (s, launcher, _) = server_stopping_after(true, Duration::from_millis(golden["stopTimeoutMs"].as_u64().unwrap()));
+        launcher.ignore_kills.store(ignored_kills, Ordering::SeqCst);
+        s.ensure(spec("k", Arc::new(AtomicUsize::new(0))), None).await.unwrap();
+        let process = launcher.last.lock().unwrap().clone().unwrap();
+        let began = tokio::time::Instant::now();
+        let outcome = s.stop().await;
+        let took = began.elapsed().as_millis();
+        let kills: Vec<u128> = process.kills.lock().unwrap().iter().map(|at| (*at - began).as_millis()).collect();
+        let node: Vec<u128> = recorded["kills"].as_array().unwrap().iter().map(|k| u128::from(k["atMs"].as_u64().unwrap())).collect();
+        assert_eq!(kills, node, "when each kill went out");
+        assert_eq!(took, u128::from(recorded["outcome"]["atMs"].as_u64().unwrap()), "when stop() answered");
+        (kills, outcome, took)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_child_that_ignores_the_first_kill_is_killed_again_as_nodes_stop_does() {
+        let golden = golden();
+        let (_, outcome, _) = stop_as_recorded(1, &golden["stubbornTerm"]).await;
+        assert_eq!(outcome.is_ok(), golden["stubbornTerm"]["outcome"]["resolved"].as_bool().unwrap());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_child_that_ignores_both_kills_fails_the_stop_with_nodes_text_after_two_waits() {
+        let golden = golden();
+        let (_, outcome, _) = stop_as_recorded(usize::MAX, &golden["stubbornBoth"]).await;
+        assert_eq!(outcome.unwrap_err(), golden["stubbornBoth"]["outcome"]["message"].as_str().unwrap());
     }
 
     #[tokio::test(start_paused = true)]

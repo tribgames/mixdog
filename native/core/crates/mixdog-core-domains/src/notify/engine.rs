@@ -9,9 +9,10 @@ use std::sync::Mutex;
 use serde::Serialize;
 
 use super::decision::{
-    Conversation, Decision, DecisionInput, Event, LocalClock, PreferencesView, SkipReason, allows_device_notice,
-    decide, DESKTOP_HOLD_MS,
+    Conversation, Decision, DecisionInput, Event, LocalClock, Origin, PreferencesView, SkipReason,
+    allows_device_notice, decide, DESKTOP_HOLD_MS,
 };
+use super::held::{HELD_PUSH_TITLE, HeldRequestEvent, held_request_push_text};
 use super::preview::notification_preview;
 
 /// The tool approval a push is about, and whether the phone may offer Allow on it
@@ -200,33 +201,40 @@ impl NotificationEngine {
             }
         }
 
-        let approval = match (event.event, &event.approval) {
-            (Event::Approval, Some(shown)) => Some(PushApproval {
-                id: mixdog_js::slice_utf16(&shown.id, APPROVAL_ID_UNITS),
-                allow_once: shown.allow_once,
-            }),
-            _ => None,
-        };
-        for device in &audience.devices {
-            let foreground = is_foreground(&device.foreground_thread);
-            let schedule = match decide_for(&device.view, foreground, audience.desktop_active) {
-                Decision::Notify => PushSchedule::Now,
-                Decision::Skip(SkipReason::DesktopActive) => {
-                    PushSchedule::HoldUntil(event.now_ms + DESKTOP_HOLD_MS as i64)
-                }
-                Decision::Skip(_) => continue,
-            };
-            plan.pushes.push(PushRequest {
-                device_id: device.device_id.clone(),
-                thread_id: event.thread_id.clone(),
-                event: event.event,
-                title: event.title.clone(),
-                body: body.clone(),
-                schedule,
-                approval: approval.clone(),
-            });
-        }
+        plan.pushes = device_pushes(event, &body, audience);
         plan
+    }
+
+    /// A held request of an unattended run (push-notifier.ts `onHeldRequest`): the phones are
+    /// told that `agent_name` waits, in `held_request_push_text`'s words and nothing else, with no
+    /// Allow on it. It is an approval wait of an automatic run: `conversation` is the session's
+    /// own, its origin is a schedule's and its bot is the session's, else the run's agent. No host
+    /// toast: only phones hear it. A request with no session or no id is not pushed.
+    pub fn on_held_request(
+        &self,
+        held: &HeldRequestEvent,
+        conversation: &Conversation,
+        audience: &Audience,
+        now_ms: i64,
+    ) -> Plan {
+        if held.session_id.is_empty() || held.request_id.is_empty() {
+            return Plan::default();
+        }
+        let conversation = Conversation {
+            origin: Origin::Schedule,
+            agent_id: if conversation.agent_id.is_empty() { held.agent_id.clone() } else { conversation.agent_id.clone() },
+            ..conversation.clone()
+        };
+        let event = ThreadEvent {
+            thread_id: held.session_id.clone(),
+            event: Event::Approval,
+            approval: Some(PushApproval { id: held.request_id.clone(), allow_once: false }),
+            conversation,
+            title: HELD_PUSH_TITLE.to_owned(),
+            body_markdown: String::new(),
+            now_ms,
+        };
+        Plan { toasts: Vec::new(), pushes: device_pushes(&event, &held_request_push_text(&held.agent_name), audience) }
     }
 
     /// A host connection attached: the toasts that waited for one, each exactly once.
@@ -269,6 +277,46 @@ impl NotificationEngine {
         }
         plan
     }
+}
+
+/// The relay pushes of one event with its banner text `body`: each paired device decides for
+/// itself (`sendPush` through `deliveryGate`).
+fn device_pushes(event: &ThreadEvent, body: &str, audience: &Audience) -> Vec<PushRequest> {
+    let clock = LocalClock::at(event.now_ms);
+    let approval = match (event.event, &event.approval) {
+        (Event::Approval, Some(shown)) => Some(PushApproval {
+            id: mixdog_js::slice_utf16(&shown.id, APPROVAL_ID_UNITS),
+            allow_once: shown.allow_once,
+        }),
+        _ => None,
+    };
+    let mut pushes = Vec::new();
+    for device in &audience.devices {
+        let decision = decide(&DecisionInput {
+            event: event.event,
+            conversation: &event.conversation,
+            view: &device.view,
+            now_ms: event.now_ms,
+            clock,
+            foreground: device.foreground_thread.as_deref() == Some(event.thread_id.as_str()),
+            desktop_active: audience.desktop_active,
+        });
+        let schedule = match decision {
+            Decision::Notify => PushSchedule::Now,
+            Decision::Skip(SkipReason::DesktopActive) => PushSchedule::HoldUntil(event.now_ms + DESKTOP_HOLD_MS as i64),
+            Decision::Skip(_) => continue,
+        };
+        pushes.push(PushRequest {
+            device_id: device.device_id.clone(),
+            thread_id: event.thread_id.clone(),
+            event: event.event,
+            title: event.title.clone(),
+            body: body.to_owned(),
+            schedule,
+            approval: approval.clone(),
+        });
+    }
+    pushes
 }
 
 /// An in-app notice that belongs to no conversation (a server window's link dropping or coming

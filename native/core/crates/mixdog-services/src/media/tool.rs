@@ -4,7 +4,7 @@
 //! [`ToolService`] behind `ServiceTool::media`; the graph it talks to is the [`MediaGraph`] seam
 //! (Node's injectable `deps`), [`StudioGraph`] over `MediaJobs` and `MediaStore` in production.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf, Prefix};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -186,18 +186,31 @@ fn text(value: &Value, key: &str) -> String {
     value.get(key).filter(|v| !v.is_null()).map(value_to_string).unwrap_or_default()
 }
 
+/// `path.toNamespacedPath`, which every `fs` call of Node applies on Windows: the resolved path
+/// behind `\\?\`, so the name reaches the file system as written. Win32 would trim a trailing `.`
+/// (`dotted.` is created as `dotted`). The errors still name the path as given.
+pub(super) fn namespaced(path: &Path) -> PathBuf {
+    let Some(Component::Prefix(prefix)) = path.components().next() else { return path.to_owned() };
+    let resolved = mixdog_workspace::pathguard::lexical(path);
+    match prefix.kind() {
+        Prefix::Disk(_) => PathBuf::from(format!(r"\\?\{}", resolved.display())),
+        Prefix::UNC(..) => PathBuf::from(format!(r"\\?\UNC\{}", resolved.to_string_lossy().trim_start_matches('\\'))),
+        _ => path.to_owned(),
+    }
+}
+
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
-    std::fs::read(path)
+    std::fs::read(namespaced(path))
 }
 
 /// `mkdir(dirname(to), { recursive: true })` then `copyFile(from, to)`.
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn copy_file(from: &Path, to: &Path) -> Result<(), FsFailure> {
     if let Some(parent) = to.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| FsFailure { error, step: FsStep::Mkdir(parent.to_owned()) })?;
+        std::fs::create_dir_all(namespaced(parent)).map_err(|error| FsFailure { error, step: FsStep::Mkdir(parent.to_owned()) })?;
     }
-    std::fs::copy(from, to).map(drop).map_err(|error| FsFailure { error, step: FsStep::CopyFile(from.to_owned(), to.to_owned()) })
+    std::fs::copy(namespaced(from), namespaced(to)).map(drop).map_err(|error| FsFailure { error, step: FsStep::CopyFile(from.to_owned(), to.to_owned()) })
 }
 
 /// `path.extname`.
@@ -711,7 +724,7 @@ impl MediaToolService {
             return Err(ToolFailure::new(format!("generation failed on {lane_id}/{model_id}: {why}")).with("job", json!(job_id)));
         }
         let output = copy_asset(self.graph.as_ref(), &asset_id, target, self.io).await?;
-        let elapsed = job_view(&job, self.now()).remove("elapsedMs").unwrap_or(json!(0));
+        let elapsed = job_view(&job, self.now()).shift_remove("elapsedMs").unwrap_or(json!(0));
         let mut out = Map::new();
         out.insert("ok".into(), json!(true));
         out.insert("output".into(), json!(output.to_string_lossy()));

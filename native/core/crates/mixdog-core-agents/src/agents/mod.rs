@@ -18,6 +18,7 @@ mod lead;
 mod lead_service;
 pub mod home_agent;
 mod home_api;
+mod memory_runtime;
 mod permissions;
 mod pool_list;
 mod service;
@@ -40,7 +41,7 @@ pub use lead_service::LEAD_METHODS;
 pub use lead_service::LeadService;
 pub use home_api::{AgentHomeService, AgentHomeSessions, AgentMemoryHost, DepError, HOME_METHODS, HomeDeps, MemoryRuntime};
 pub use permissions::AgentPermissions;
-pub use pool_list::{AgentPool, HEADER_FIELDS, PoolError, PoolLive, PoolStore, RuntimeEntry};
+pub use pool_list::{AgentPool, HEADER_FIELDS, PoolError, PoolLive, PoolStore, RuntimeEntry, todo_progress};
 pub use service::AgentService;
 pub use service::METHODS as AGENT_METHODS;
 

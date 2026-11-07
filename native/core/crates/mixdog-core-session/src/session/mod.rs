@@ -33,6 +33,8 @@ pub mod purge;
 pub mod sub_agent_retention;
 #[cfg(test)]
 mod sub_agent_retention_tests;
+#[cfg(test)]
+mod thread_list_overlay_tests;
 pub mod shell_jobs;
 pub mod thread_list;
 pub mod thread_context;
@@ -146,6 +148,7 @@ pub use self::directory::SessionDirectory;
 pub use self::model_switch::record_model_switch;
 pub use self::handle::SessionHandle;
 pub use self::prompt_history::FilePromptHistory;
+pub use self::prompt_history::Appended;
 pub use self::prompt_history::PromptHistoryStore;
 pub use self::run::ItemCommit;
 pub use self::run::RunError;
@@ -256,6 +259,8 @@ pub struct SessionDeps {
     /// The agent tool's status for a session, published as its `agents` section when a job of
     /// the session is added or finishes (`agent_activity.rs`).
     pub agent_status: Arc<dyn agent_activity::AgentStatus>,
+    /// The agent-status sources this session's actor emits (an approval wait, a stored record).
+    pub agent_signals: Arc<dyn agent_activity::AgentSignals>,
     pub cycles: Arc<mixdog_core_run::run_host::guards::UserCycles>,
     /// The quota-resume queue a quota-failed turn queues its resume on.
     pub quota: quota_lane::SessionQuota,

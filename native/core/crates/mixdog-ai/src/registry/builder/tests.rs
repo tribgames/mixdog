@@ -4,6 +4,7 @@ use super::*;
 use crate::oauth::CredentialIo;
 use crate::providers::google::traits::ThinkingControl;
 use crate::providers::openai::config::NoFacts;
+use crate::registry::keys::Environment;
 use crate::registry::keys::MemoryVault;
 use crate::registry::keys::ProcessEnv;
 use crate::transport::KeepaliveDialer;
@@ -22,9 +23,12 @@ impl ModelTraits for Traits {
 }
 
 fn builder(dir: &tempfile::TempDir) -> DefaultProviderBuilder {
+    builder_with(dir, Arc::new(ProcessEnv))
+}
+
+fn builder_with(dir: &tempfile::TempDir, env: Arc<dyn Environment>) -> DefaultProviderBuilder {
     let tokens = mixdog_rt::testing::tokens();
     let link = Arc::new(ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap());
-    let env = Arc::new(ProcessEnv);
     DefaultProviderBuilder::new(BuilderEnv {
         http: link.clone(),
         bidi: link,
@@ -75,6 +79,62 @@ async fn each_family_builds_under_its_own_id() {
     assert_eq!(id_of(&b, "custom-abc", custom).await, "custom-abc");
 }
 
+/// `describeVertexAdc` against Node's (`fixtures/vertex-adc/golden.json`, `record-vertex-adc.mjs`):
+/// the gcloud login the settings show, over ADC files and gcloud configuration seeded in a folder.
+mod adc {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    const GOLDEN: &str = include_str!("../../../../../fixtures/vertex-adc/golden.json");
+
+    struct MapEnv(HashMap<String, String>);
+
+    impl Environment for MapEnv {
+        fn var(&self, name: &str) -> Option<String> {
+            self.0.get(name).cloned()
+        }
+    }
+
+    /// Paths as the recording wrote them: the folder is `{dir}`, `/` separates.
+    fn normalized(value: &Value, dir: &str) -> Value {
+        match value {
+            Value::String(text) => Value::String(text.replace(dir, "{dir}").replace('\\', "/")),
+            Value::Object(map) => Value::Object(map.iter().map(|(k, v)| (k.clone(), normalized(v, dir))).collect()),
+            other => other.clone(),
+        }
+    }
+
+    #[tokio::test]
+    async fn every_login_is_described_as_node_does() {
+        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let scenarios = golden["scenarios"].as_array().unwrap();
+        assert_eq!(scenarios.len(), 28);
+        for scenario in scenarios {
+            let dir = tempfile::tempdir().unwrap();
+            for (relative, text) in scenario["files"].as_object().unwrap() {
+                let path = dir.path().join(relative);
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(path, text.as_str().unwrap()).unwrap();
+            }
+            let mut env: HashMap<String, String> =
+                scenario["env"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect();
+            if scenario["mode"] == "explicit" {
+                env.insert("GOOGLE_APPLICATION_CREDENTIALS".into(), dir.path().join("creds").join("key.json").to_string_lossy().into_owned());
+            } else {
+                env.insert("CLOUDSDK_CONFIG".into(), dir.path().to_string_lossy().into_owned());
+            }
+            let builder = builder_with(&dir, Arc::new(MapEnv(env)));
+            // A metadata server an earlier probe found (or did not).
+            if scenario.get("metadata").is_some() {
+                builder.metadata_project.set(scenario["metadata"].as_str().map(str::to_owned)).unwrap();
+            }
+            let described = builder.adc_describe(scenario["override"].as_str().unwrap(), false).await;
+            let got = normalized(&described, &dir.path().to_string_lossy());
+            assert_eq!(serde_json::to_string(&got).unwrap(), serde_json::to_string(&scenario["described"]).unwrap(), "{}", scenario["name"]);
+        }
+    }
+}
 #[tokio::test]
 async fn a_name_without_an_adapter_says_why() {
     let dir = tempfile::tempdir().unwrap();

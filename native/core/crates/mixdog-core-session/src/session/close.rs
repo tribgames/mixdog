@@ -117,7 +117,9 @@ async fn abort_and_drop(directory: &SessionDirectory, thread: &ThreadId, reason:
             op: Some(OpId::from(op)),
             ctx: CallContext::internal(caller),
         };
-        let _ = handle.request(request).await;
+        if let Err(error) = handle.request(request).await {
+            tracing::warn!(thread = %thread, "a queued entry was not dropped at close: {error:?}");
+        }
     }
     if let Some(run) = handle.cell.run.load_full() {
         let _ = handle.cell.abort(&run.turn, &mixdog_agent::cancel::close_session_reason(thread.as_str(), reason));

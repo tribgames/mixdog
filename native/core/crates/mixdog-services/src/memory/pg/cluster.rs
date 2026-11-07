@@ -199,10 +199,15 @@ impl ShareDir {
 
     async fn release(self, lane: DurabilityIo) {
         if let Some(link) = self.link {
-            // Both removals are non-recursive: the runtime share is never touched.
-            let _ = fsio::remove_dir(lane, &link).await;
-            if let Some(root) = link.parent() {
-                let _ = fsio::remove_dir(lane, root).await;
+            // Both removals are non-recursive: the runtime share is never touched. A failure of
+            // either is logged and never replaces initdb's own result (`process.mjs:313-321`).
+            if let Err(error) = fsio::remove_dir(lane, &link).await {
+                tracing::warn!("[pg-process] initdb share junction cleanup failed: {error}");
+            }
+            if let Some(root) = link.parent()
+                && let Err(error) = fsio::remove_dir(lane, root).await
+            {
+                tracing::warn!("[pg-process] initdb share junction cleanup failed: {error}");
             }
         }
     }

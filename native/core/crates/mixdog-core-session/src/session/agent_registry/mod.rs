@@ -26,6 +26,7 @@ mod lead_row;
 mod sessions;
 mod workers;
 mod worker_view;
+pub mod status_rows;
 #[cfg(test)]
 mod tests;
 

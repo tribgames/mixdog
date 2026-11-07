@@ -363,7 +363,10 @@ impl ManualCompaction for HostManualCompaction {
         rearm_prompt_settings_notice(&mut working);
         let change = header_change(&header, &working);
         if !change.set.is_empty() || !change.unset.is_empty() {
-            let _ = self.parts.threads.patch_header(thread, change.set, change.unset).await;
+            // Node changes the in-memory session (`compaction-runner.mjs:742-747`) and a later save logs its failure.
+            if let Err(error) = self.parts.threads.patch_header(thread, change.set, change.unset).await {
+                tracing::warn!(thread = %thread, "[session] re-armed tool notice save failed: {error:?}");
+            }
         }
     }
 

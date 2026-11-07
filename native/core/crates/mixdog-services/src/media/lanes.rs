@@ -42,7 +42,7 @@ pub struct CatalogRows {
 #[async_trait]
 pub trait LaneSources: Send + Sync + 'static {
     /// `laneAuthenticated(lane)`: a file-level credential check, never a network call.
-    fn authenticated(&self, lane: &str) -> bool;
+    async fn authenticated(&self, lane: &str) -> bool;
     /// `loadMediaModels(lane)`: single-flight per credential, so a listing that gave up waiting
     /// can be joined by the next one.
     async fn models(&self, lane: &str) -> Result<CatalogRows, CatalogFailure>;
@@ -109,6 +109,12 @@ pub fn lane_auth_provider(lane_id: &str) -> Option<&'static str> {
     lanes().into_iter().find(|lane| lane.id == id).map(|lane| lane.auth_provider)
 }
 
+/// `LANE_BY_ID.get(id)?.auth`: `(type, provider)`.
+pub fn lane_auth(lane_id: &str) -> Option<(&'static str, &'static str)> {
+    let id = js_trim(lane_id);
+    lanes().into_iter().find(|lane| lane.id == id).map(|lane| (lane.auth_type, lane.auth_provider))
+}
+
 impl LaneDef {
     fn spec(&self, kind: &str) -> Option<&Value> {
         if kind == "video" { self.video.as_ref() } else { self.image.as_ref() }
@@ -168,7 +174,7 @@ impl MediaLanes {
     /// `laneView(lane, budgetMs)`; `None` for a lane whose billing is blocked (unusable
     /// connections are absent from public catalogs).
     async fn lane_view(&self, lane: &LaneDef, budget: Option<Duration>) -> Option<Value> {
-        let signed_in = self.sources.authenticated(lane.id);
+        let signed_in = self.sources.authenticated(lane.id).await;
         let mut view = json!({
             "id": lane.id,
             "label": lane.label,

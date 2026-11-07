@@ -1,0 +1,1848 @@
+{
+  "scenarios": [
+    {
+      "name": "no failures",
+      "raw": {},
+      "recover": [],
+      "held": {},
+      "before": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      },
+      "after": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      }
+    },
+    {
+      "name": "one api provider",
+      "raw": {
+        "openai": {
+          "message": "Incorrect API key provided",
+          "providerMessage": null,
+          "status": 401,
+          "code": null
+        }
+      },
+      "recover": [],
+      "held": {
+        "openai": {
+          "message": "Incorrect API key provided",
+          "errorKind": {
+            "kind": "auth",
+            "code": "",
+            "status": 401,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        }
+      },
+      "before": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      },
+      "after": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set",
+            "catalogError": {
+              "message": "Incorrect API key provided",
+              "errorKind": {
+                "kind": "auth",
+                "code": "",
+                "status": 401,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      }
+    },
+    {
+      "name": "one per group",
+      "raw": {
+        "xai": {
+          "message": "boom",
+          "providerMessage": null,
+          "status": 0,
+          "code": null
+        },
+        "grok-oauth": {
+          "message": "expired",
+          "providerMessage": null,
+          "status": 403,
+          "code": null
+        },
+        "mixdog-local": {
+          "message": "not installed",
+          "providerMessage": null,
+          "status": 0,
+          "code": null
+        }
+      },
+      "recover": [],
+      "held": {
+        "xai": {
+          "message": "boom",
+          "errorKind": {
+            "kind": "unknown",
+            "code": "",
+            "status": 0,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "grok-oauth": {
+          "message": "expired",
+          "errorKind": {
+            "kind": "permission",
+            "code": "",
+            "status": 403,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "mixdog-local": {
+          "message": "not installed",
+          "errorKind": {
+            "kind": "unknown",
+            "code": "",
+            "status": 0,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        }
+      },
+      "before": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      },
+      "after": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API",
+            "catalogError": {
+              "message": "boom",
+              "errorKind": {
+                "kind": "unknown",
+                "code": "",
+                "status": 0,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth",
+            "catalogError": {
+              "message": "expired",
+              "errorKind": {
+                "kind": "permission",
+                "code": "",
+                "status": 403,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local",
+            "catalogError": {
+              "message": "not installed",
+              "errorKind": {
+                "kind": "unknown",
+                "code": "",
+                "status": 0,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          }
+        ],
+        "extra": 1
+      }
+    },
+    {
+      "name": "whitespace is collapsed",
+      "raw": {
+        "openai": {
+          "message": "line one\n  line   two\t\tend",
+          "providerMessage": null,
+          "status": 0,
+          "code": null
+        }
+      },
+      "recover": [],
+      "held": {
+        "openai": {
+          "message": "line one line two end",
+          "errorKind": {
+            "kind": "unknown",
+            "code": "",
+            "status": 0,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        }
+      },
+      "before": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      },
+      "after": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set",
+            "catalogError": {
+              "message": "line one line two end",
+              "errorKind": {
+                "kind": "unknown",
+                "code": "",
+                "status": 0,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      }
+    },
+    {
+      "name": "a long message is cut to 300",
+      "raw": {
+        "openai": {
+          "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "providerMessage": null,
+          "status": 0,
+          "code": null
+        }
+      },
+      "recover": [],
+      "held": {
+        "openai": {
+          "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "errorKind": {
+            "kind": "unknown",
+            "code": "",
+            "status": 0,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        }
+      },
+      "before": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      },
+      "after": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set",
+            "catalogError": {
+              "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+              "errorKind": {
+                "kind": "unknown",
+                "code": "",
+                "status": 0,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      }
+    },
+    {
+      "name": "the provider error is appended",
+      "raw": {
+        "openai": {
+          "message": "request failed",
+          "providerMessage": "insufficient_quota",
+          "status": 0,
+          "code": null
+        }
+      },
+      "recover": [],
+      "held": {
+        "openai": {
+          "message": "request failed: insufficient_quota",
+          "errorKind": {
+            "kind": "unknown",
+            "code": "",
+            "status": 0,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        }
+      },
+      "before": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      },
+      "after": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set",
+            "catalogError": {
+              "message": "request failed: insufficient_quota",
+              "errorKind": {
+                "kind": "unknown",
+                "code": "",
+                "status": 0,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      }
+    },
+    {
+      "name": "timeouts and rate limits",
+      "raw": {
+        "xai": {
+          "message": "timed out",
+          "providerMessage": null,
+          "status": 429,
+          "code": null
+        },
+        "custom-1": {
+          "message": "too slow",
+          "providerMessage": null,
+          "status": 0,
+          "code": null
+        }
+      },
+      "recover": [],
+      "held": {
+        "xai": {
+          "message": "timed out",
+          "errorKind": {
+            "kind": "rate_limited",
+            "code": "",
+            "status": 429,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "custom-1": {
+          "message": "too slow",
+          "errorKind": {
+            "kind": "unknown",
+            "code": "",
+            "status": 0,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        }
+      },
+      "before": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      },
+      "after": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API",
+            "catalogError": {
+              "message": "timed out",
+              "errorKind": {
+                "kind": "rate_limited",
+                "code": "",
+                "status": 429,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          },
+          {
+            "id": "custom-1",
+            "custom": true,
+            "catalogError": {
+              "message": "too slow",
+              "errorKind": {
+                "kind": "unknown",
+                "code": "",
+                "status": 0,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      }
+    },
+    {
+      "name": "a recovered provider has none",
+      "raw": {
+        "openai": {
+          "message": "first",
+          "providerMessage": null,
+          "status": 0,
+          "code": null
+        },
+        "xai": {
+          "message": "second",
+          "providerMessage": null,
+          "status": 0,
+          "code": null
+        }
+      },
+      "recover": [
+        "openai"
+      ],
+      "held": {
+        "xai": {
+          "message": "second",
+          "errorKind": {
+            "kind": "unknown",
+            "code": "",
+            "status": 0,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        }
+      },
+      "before": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      },
+      "after": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API",
+            "catalogError": {
+              "message": "second",
+              "errorKind": {
+                "kind": "unknown",
+                "code": "",
+                "status": 0,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      }
+    },
+    {
+      "name": "a provider that is not on the page",
+      "raw": {
+        "gemini": {
+          "message": "nobody sees this",
+          "providerMessage": null,
+          "status": 0,
+          "code": null
+        }
+      },
+      "recover": [],
+      "held": {
+        "gemini": {
+          "message": "nobody sees this",
+          "errorKind": {
+            "kind": "unknown",
+            "code": "",
+            "status": 0,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        }
+      },
+      "before": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      },
+      "after": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      }
+    },
+    {
+      "name": "every status a listing can answer",
+      "raw": {
+        "openai": {
+          "message": "HTTP 400",
+          "providerMessage": null,
+          "status": 400,
+          "code": null
+        },
+        "xai": {
+          "message": "HTTP 402",
+          "providerMessage": null,
+          "status": 402,
+          "code": null
+        },
+        "anthropic": {
+          "message": "HTTP 404",
+          "providerMessage": null,
+          "status": 404,
+          "code": null
+        },
+        "gemini": {
+          "message": "HTTP 408",
+          "providerMessage": null,
+          "status": 408,
+          "code": null
+        },
+        "deepseek": {
+          "message": "HTTP 413",
+          "providerMessage": null,
+          "status": 413,
+          "code": null
+        },
+        "openrouter": {
+          "message": "HTTP 500",
+          "providerMessage": null,
+          "status": 500,
+          "code": null
+        },
+        "grok-oauth": {
+          "message": "HTTP 502",
+          "providerMessage": null,
+          "status": 502,
+          "code": null
+        },
+        "openai-oauth": {
+          "message": "HTTP 503",
+          "providerMessage": null,
+          "status": 503,
+          "code": null
+        },
+        "mixdog-local": {
+          "message": "HTTP 529",
+          "providerMessage": null,
+          "status": 529,
+          "code": null
+        },
+        "custom-1": {
+          "message": "HTTP 525",
+          "providerMessage": null,
+          "status": 525,
+          "code": null
+        }
+      },
+      "recover": [],
+      "held": {
+        "openai": {
+          "message": "HTTP 400",
+          "errorKind": {
+            "kind": "invalid_request",
+            "code": "",
+            "status": 400,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "xai": {
+          "message": "HTTP 402",
+          "errorKind": {
+            "kind": "billing",
+            "code": "",
+            "status": 402,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "custom-1": {
+          "message": "HTTP 525",
+          "errorKind": {
+            "kind": "unknown",
+            "code": "",
+            "status": 525,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "openai-oauth": {
+          "message": "HTTP 503",
+          "errorKind": {
+            "kind": "transient",
+            "code": "",
+            "status": 503,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "grok-oauth": {
+          "message": "HTTP 502",
+          "errorKind": {
+            "kind": "transient",
+            "code": "",
+            "status": 502,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "mixdog-local": {
+          "message": "HTTP 529",
+          "errorKind": {
+            "kind": "overloaded",
+            "code": "",
+            "status": 529,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "gemini": {
+          "message": "HTTP 408",
+          "errorKind": {
+            "kind": "transient",
+            "code": "",
+            "status": 408,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "anthropic": {
+          "message": "HTTP 404",
+          "errorKind": {
+            "kind": "invalid_request",
+            "code": "",
+            "status": 404,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "deepseek": {
+          "message": "HTTP 413",
+          "errorKind": {
+            "kind": "request_too_large",
+            "code": "",
+            "status": 413,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "openrouter": {
+          "message": "HTTP 500",
+          "errorKind": {
+            "kind": "transient",
+            "code": "",
+            "status": 500,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        }
+      },
+      "before": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      },
+      "after": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set",
+            "catalogError": {
+              "message": "HTTP 400",
+              "errorKind": {
+                "kind": "invalid_request",
+                "code": "",
+                "status": 400,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          },
+          {
+            "id": "xai",
+            "name": "xAI API",
+            "catalogError": {
+              "message": "HTTP 402",
+              "errorKind": {
+                "kind": "billing",
+                "code": "",
+                "status": 402,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          },
+          {
+            "id": "custom-1",
+            "custom": true,
+            "catalogError": {
+              "message": "HTTP 525",
+              "errorKind": {
+                "kind": "unknown",
+                "code": "",
+                "status": 525,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true,
+            "catalogError": {
+              "message": "HTTP 503",
+              "errorKind": {
+                "kind": "transient",
+                "code": "",
+                "status": 503,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          },
+          {
+            "id": "grok-oauth",
+            "catalogError": {
+              "message": "HTTP 502",
+              "errorKind": {
+                "kind": "transient",
+                "code": "",
+                "status": 502,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local",
+            "catalogError": {
+              "message": "HTTP 529",
+              "errorKind": {
+                "kind": "overloaded",
+                "code": "",
+                "status": 529,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          }
+        ],
+        "extra": 1
+      }
+    },
+    {
+      "name": "typed codes",
+      "raw": {
+        "openai": {
+          "message": "x",
+          "providerMessage": null,
+          "status": 429,
+          "code": "insufficient_quota"
+        },
+        "xai": {
+          "message": "x",
+          "providerMessage": null,
+          "status": 401,
+          "code": "invalid_api_key"
+        },
+        "gemini": {
+          "message": "x",
+          "providerMessage": null,
+          "status": 429,
+          "code": "RESOURCE_EXHAUSTED"
+        },
+        "anthropic": {
+          "message": "x",
+          "providerMessage": null,
+          "status": 529,
+          "code": "overloaded_error"
+        },
+        "deepseek": {
+          "message": "x",
+          "providerMessage": null,
+          "status": 400,
+          "code": "context_length_exceeded"
+        }
+      },
+      "recover": [],
+      "held": {
+        "openai": {
+          "message": "x",
+          "errorKind": {
+            "kind": "billing",
+            "code": "insufficient_quota",
+            "status": 429,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "xai": {
+          "message": "x",
+          "errorKind": {
+            "kind": "auth",
+            "code": "invalid_api_key",
+            "status": 401,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "gemini": {
+          "message": "x",
+          "errorKind": {
+            "kind": "rate_limited",
+            "code": "resource_exhausted",
+            "status": 429,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "anthropic": {
+          "message": "x",
+          "errorKind": {
+            "kind": "overloaded",
+            "code": "overloaded_error",
+            "status": 529,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "deepseek": {
+          "message": "x",
+          "errorKind": {
+            "kind": "context_overflow",
+            "code": "context_length_exceeded",
+            "status": 400,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        }
+      },
+      "before": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      },
+      "after": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set",
+            "catalogError": {
+              "message": "x",
+              "errorKind": {
+                "kind": "billing",
+                "code": "insufficient_quota",
+                "status": 429,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          },
+          {
+            "id": "xai",
+            "name": "xAI API",
+            "catalogError": {
+              "message": "x",
+              "errorKind": {
+                "kind": "auth",
+                "code": "invalid_api_key",
+                "status": 401,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      }
+    },
+    {
+      "name": "the catalog deadline",
+      "raw": {
+        "openai": {
+          "message": "provider \"openai\" catalog list did not finish within 4000ms",
+          "providerMessage": null,
+          "status": 0,
+          "code": "ETIMEDOUT"
+        }
+      },
+      "recover": [],
+      "held": {
+        "openai": {
+          "message": "provider \"openai\" catalog list did not finish within 4000ms",
+          "errorKind": {
+            "kind": "transient",
+            "code": "etimedout",
+            "status": 0,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        }
+      },
+      "before": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      },
+      "after": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set",
+            "catalogError": {
+              "message": "provider \"openai\" catalog list did not finish within 4000ms",
+              "errorKind": {
+                "kind": "transient",
+                "code": "etimedout",
+                "status": 0,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      }
+    },
+    {
+      "name": "message-only wordings",
+      "raw": {
+        "openai": {
+          "message": "rate limit exceeded, retry later",
+          "providerMessage": null,
+          "status": 0,
+          "code": null
+        },
+        "xai": {
+          "message": "Insufficient credits",
+          "providerMessage": null,
+          "status": 0,
+          "code": null
+        },
+        "gemini": {
+          "message": "maximum context length exceeded",
+          "providerMessage": null,
+          "status": 0,
+          "code": null
+        },
+        "anthropic": {
+          "message": "fetch failed",
+          "providerMessage": null,
+          "status": 0,
+          "code": null
+        }
+      },
+      "recover": [],
+      "held": {
+        "openai": {
+          "message": "rate limit exceeded, retry later",
+          "errorKind": {
+            "kind": "unknown",
+            "code": "",
+            "status": 0,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "xai": {
+          "message": "Insufficient credits",
+          "errorKind": {
+            "kind": "unknown",
+            "code": "",
+            "status": 0,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "gemini": {
+          "message": "maximum context length exceeded",
+          "errorKind": {
+            "kind": "context_overflow",
+            "code": "",
+            "status": 0,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        },
+        "anthropic": {
+          "message": "fetch failed",
+          "errorKind": {
+            "kind": "transient",
+            "code": "",
+            "status": 0,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        }
+      },
+      "before": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      },
+      "after": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set",
+            "catalogError": {
+              "message": "rate limit exceeded, retry later",
+              "errorKind": {
+                "kind": "unknown",
+                "code": "",
+                "status": 0,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          },
+          {
+            "id": "xai",
+            "name": "xAI API",
+            "catalogError": {
+              "message": "Insufficient credits",
+              "errorKind": {
+                "kind": "unknown",
+                "code": "",
+                "status": 0,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      }
+    },
+    {
+      "name": "secret-like text in a message",
+      "raw": {
+        "openai": {
+          "message": "Bearer abc.def-ghi rejected for key=hidden-value",
+          "providerMessage": null,
+          "status": 0,
+          "code": null
+        }
+      },
+      "recover": [],
+      "held": {
+        "openai": {
+          "message": "Bearer [redacted] rejected for key=hidden-value",
+          "errorKind": {
+            "kind": "unknown",
+            "code": "",
+            "status": 0,
+            "retryAfterMs": null,
+            "resetAt": null
+          }
+        }
+      },
+      "before": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set"
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      },
+      "after": {
+        "keychain": {
+          "state": "locked"
+        },
+        "api": [
+          {
+            "id": "openai",
+            "name": "OpenAI API",
+            "status": "Set",
+            "catalogError": {
+              "message": "Bearer [redacted] rejected for key=hidden-value",
+              "errorKind": {
+                "kind": "unknown",
+                "code": "",
+                "status": 0,
+                "retryAfterMs": null,
+                "resetAt": null
+              }
+            }
+          },
+          {
+            "id": "xai",
+            "name": "xAI API"
+          },
+          {
+            "id": "custom-1",
+            "custom": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "openai-oauth",
+            "authenticated": true
+          },
+          {
+            "id": "grok-oauth"
+          }
+        ],
+        "local": [
+          {
+            "id": "mixdog-local"
+          }
+        ],
+        "extra": 1
+      }
+    }
+  ],
+  "passthrough": [
+    {
+      "value": null,
+      "after": null
+    },
+    {
+      "value": "text",
+      "after": "text"
+    },
+    {
+      "value": 5,
+      "after": 5
+    }
+  ]
+}

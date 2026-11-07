@@ -419,7 +419,7 @@ async fn a_wrapped_provider_warms_with_the_output_capped_at_one_token() {
     let real = request(base_messages(), RequestOptions::default());
     assert_eq!(real.options.max_output_tokens_override, None);
     let warm = registered.cache_warm().expect("the wrapper forwards the cache-warm mode");
-    let ctx = WarmContext { gate: &gate, target: &target("anthropic-oauth", ""), deadlines: Deadlines::DEFAULT, report: &|_| {} };
+    let ctx = WarmContext { gate: &gate, target: &target("anthropic", ""), deadlines: Deadlines::DEFAULT, report: &|_| {} };
     warm.send_cache_warm(&real, &ctx, &CancellationToken::new(), &mut |_| {}).await.unwrap();
     let sent = http.sent.lock().unwrap();
     assert_eq!(serde_json::from_slice::<Value>(&sent[0].body).unwrap()["max_tokens"], 1);

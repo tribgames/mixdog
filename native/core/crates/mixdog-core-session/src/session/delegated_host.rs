@@ -11,6 +11,7 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use async_trait::async_trait;
+use mixdog_services::bots::delivery::queue::Handoffs;
 use serde_json::Value;
 
 #[cfg(test)]
@@ -91,6 +92,26 @@ enum Step {
 #[derive(Default)]
 pub struct DelegatedApprovalHost {
     registry: Mutex<Registry>,
+}
+
+/// The report-watch store's [`Handoffs`] over the one host: a watch added is `noteHandoff`, a watch
+/// gone is `endHandoff` (`RoutineResultQueue::new(.., handoffs)`).
+pub struct HostHandoffs(Arc<DelegatedApprovalHost>);
+
+impl HostHandoffs {
+    pub fn new(host: Arc<DelegatedApprovalHost>) -> Arc<Self> {
+        Arc::new(Self(host))
+    }
+}
+
+impl Handoffs for HostHandoffs {
+    fn note(&self, watch: &Value) {
+        self.0.note_handoff(watch);
+    }
+
+    fn end(&self, run_id: &str) {
+        self.0.end_handoff(run_id);
+    }
 }
 
 /// A JS falsy `Value` (`!value`).

@@ -59,6 +59,8 @@ impl TurnReviewApi for TurnReview {
 
     fn forget_session(&self, session_id: &str) {
         self.inner.forget_session(session_id);
+        // Where its reviews started goes with the thread.
+        self.inner.bases.forget(&mixdog_protocol::ThreadId::from(session_id));
         // The session's own deletion takes the marker, and its stored first-seen file contents,
         // with it.
         let (inner, id) = (self.inner.clone(), session_id.to_owned());

@@ -111,6 +111,25 @@ impl CodeGraphTool {
     }
 }
 
+impl CodeGraphTool {
+    /// `prewarmCodeGraphIfProject(cwd)`: builds the graph of the project `cwd` belongs to, so the
+    /// first `code_graph` call finds its files in the cache instead of parsing them. The root is
+    /// the implicit walk (`stopAtUserBoundary`: a home or temp folder is never adopted, so the
+    /// whole profile is never warmed in the background). `true` when a project was found and its
+    /// build ran; a failed build is only a cold first call, as in Node's best-effort warm.
+    pub async fn prewarm_if_project(&self, cwd: &std::path::Path, io: mixdog_rt::MaintenanceIo, cancel: &mixdog_rt::CancellationToken) -> bool {
+        let (cwd, cache) = (cwd.to_path_buf(), self.cache.clone());
+        let built = mixdog_scm::repo::on_lane(io, cancel, move || {
+            let root = roots::find_dir_project_root(&cwd, true)?;
+            let _ = graph::Graph::build(&root, &[], &cache);
+            Some(root)
+        })
+        .await;
+        self.cache.schedule_flush(io);
+        matches!(built, Ok(Some(_)))
+    }
+}
+
 #[async_trait]
 impl Tool for CodeGraphTool {
     fn spec(&self) -> &ToolSpec {

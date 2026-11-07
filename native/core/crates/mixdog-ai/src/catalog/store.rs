@@ -18,6 +18,7 @@ use mixdog_protocol::ProviderId;
 use serde::Deserialize;
 use serde::Serialize;
 
+use super::failures::CatalogFailureStore;
 use super::record::ModelRecord;
 use super::sources::ModelSource;
 
@@ -132,7 +133,7 @@ struct Flight {
     work: Shared<BoxFuture<'static, Listing>>,
 }
 
-fn deadline_error(provider: &ProviderId) -> ProviderError {
+pub(super) fn deadline_error(provider: &ProviderId) -> ProviderError {
     let mut err = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
     err.code = Some("ETIMEDOUT".to_owned());
     err.message = format!(
@@ -160,6 +161,8 @@ pub struct ProviderCatalog {
     publish_lock: Mutex<()>,
     serial: AtomicU64,
     flights: Mutex<HashMap<ProviderId, Flight>>,
+    /// Why each provider's latest listing failed (`providerCatalogFailure`).
+    failures: Arc<CatalogFailureStore>,
     now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
 }
 
@@ -171,6 +174,7 @@ impl ProviderCatalog {
             publish_lock: Mutex::new(()),
             serial: AtomicU64::new(0),
             flights: Mutex::new(HashMap::new()),
+            failures: Arc::new(CatalogFailureStore::default()),
             now_ms: Arc::new(|| {
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -193,6 +197,8 @@ impl ProviderCatalog {
         let _publishing = self.publish_lock.lock().unwrap_or_else(PoisonError::into_inner);
         self.epoch.fetch_add(1, Ordering::SeqCst);
         self.flights.lock().unwrap_or_else(PoisonError::into_inner).clear();
+        // The failures belonged to the previous account too (`clearProviderCatalogFailures`).
+        self.failures.clear();
         self.current.rcu(|current| {
             Arc::new(CatalogSnapshot {
                 generation: current.generation + 1,
@@ -229,6 +235,11 @@ impl ProviderCatalog {
             Ok(listing) => listing,
             Err(_) => Err(deadline_error(&provider)),
         }
+    }
+
+    /// The failure store (`providerCatalogFailure`).
+    pub fn failures(&self) -> &Arc<CatalogFailureStore> {
+        &self.failures
     }
 
     /// One atomic load; never waits on a refresh.
@@ -305,6 +316,13 @@ impl ProviderCatalog {
         let _publishing = self.publish_lock.lock().unwrap_or_else(PoisonError::into_inner);
         if self.epoch.load(Ordering::SeqCst) != listed.epoch {
             return outcome;
+        }
+        // Only a listing of the current account is recorded (`callerGeneration === generation`).
+        for provider in &outcome.refreshed {
+            self.failures.recover(provider.as_str());
+        }
+        for (provider, error) in &outcome.failed {
+            self.failures.record(provider.as_str(), error);
         }
         self.current.rcu(|current| {
             let mut models = current.models.clone();

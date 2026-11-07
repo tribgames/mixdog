@@ -17,7 +17,7 @@ const DATA = join(ROOT, 'data');
 mkdirSync(DATA, { recursive: true });
 process.env.MIXDOG_DATA_DIR = DATA;
 const tree = resolveTree(parseArgs());
-const { withProviderAccount, currentProviderAccountId, boundProviderAuthPath } = await importFrom(tree, 'src/runtime/shared/provider-auth-binding.mjs');
+const { withProviderAccount, currentProviderAccountId, boundProviderAuthPath, replaceProviderAuthBindings } = await importFrom(tree, 'src/runtime/shared/provider-auth-binding.mjs');
 const { mediaLaneAccountProvider, createMediaLaneCatalog } = await importFrom(tree, 'src/runtime/media/lanes.mjs');
 const { ACCOUNT_PROVIDERS, readProviderAccountPool } = await importFrom(tree, 'src/runtime/shared/provider-accounts.mjs');
 
@@ -35,7 +35,7 @@ writeFileSync(
   })
 );
 // Credential files: the grok account UA has some; UB (openai) has none.
-const FILES = [join('provider-accounts', 'grok-oauth', `${UA}.json`)];
+const FILES = [join('provider-accounts', 'grok-oauth', `${UA}.json`), join('isolated', 'openai.json')];
 for (const rel of FILES) {
   mkdirSync(join(DATA, rel, '..'), { recursive: true });
   writeFileSync(join(DATA, rel), '{}');
@@ -73,7 +73,12 @@ const CHAINS = [
   [['custom-nano', 'default']],
   [['custom-', 'default']],
 ];
+// The pristine `mixdog exec` run binds the selected provider's credential file in process (host
+// bindings); its tools, media among them, then read that file. One binding exists, one does not.
+const HOSTS = [null, { 'openai-oauth': join(DATA, 'isolated', 'openai.json'), 'grok-oauth': join(DATA, 'isolated', 'missing.json') }];
 const scopes = [];
+for (const host of HOSTS) {
+const restore = host ? replaceProviderAuthBindings(host) : null;
 for (const chain of CHAINS) {
   try {
     const result = await inside(chain, async () => ({
@@ -83,10 +88,12 @@ for (const chain of CHAINS) {
       }),
       listed: await catalog.listMediaLanes(),
     }));
-    scopes.push({ chain, ...result });
+    scopes.push({ host, chain, ...result });
   } catch (error) {
-    scopes.push({ chain, error: error.message });
+    scopes.push({ host, chain, error: error.message });
   }
+}
+restore?.();
 }
 const providerOf = ['grok-oauth', ' xai ', 'openai-oauth', 'gemini', 'antigravity-oauth', 'openrouter', 'nano-gpt', 'bogus', '', null, undefined, 7].map((lane) => ({ lane: lane ?? null, provider: mediaLaneAccountProvider(lane) }));
 

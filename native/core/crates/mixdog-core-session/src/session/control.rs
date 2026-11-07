@@ -143,6 +143,8 @@ pub(crate) struct ControlCell {
     pub queue: ArcSwap<Vec<super::state::Queued>>,
     /// Approval ids that accept a decision.
     pub approvals: ArcSwap<HashSet<u64>>,
+    /// The approval the session shows now (`state.toolApproval`), if any.
+    pub shown_approval: ArcSwapOption<mixdog_core_api::domain::approval::ApprovalRequest>,
     /// What the session's open takeover holds (the secret fill's two locks read it).
     pub takeover: ArcSwap<super::secret_input::TakeoverHold>,
     /// The acked view (thread/read, resume results).

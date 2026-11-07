@@ -1,0 +1,36 @@
+{
+  "stopTimeoutMs": 5000,
+  "stubbornTerm": {
+    "kills": [
+      {
+        "signal": "SIGTERM",
+        "atMs": 0
+      },
+      {
+        "signal": "SIGKILL",
+        "atMs": 5000
+      }
+    ],
+    "outcome": {
+      "resolved": true,
+      "atMs": 5000
+    }
+  },
+  "stubbornBoth": {
+    "kills": [
+      {
+        "signal": "SIGTERM",
+        "atMs": 0
+      },
+      {
+        "signal": "SIGKILL",
+        "atMs": 5000
+      }
+    ],
+    "outcome": {
+      "resolved": false,
+      "atMs": 10000,
+      "message": "[local-provider] llama-server did not exit after termination"
+    }
+  }
+}

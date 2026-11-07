@@ -245,7 +245,7 @@ fn lifecycle(row: &Row) -> String {
 
 /// `todoProgress(session)` over the session's `todo` record: `{ completed, total, current? }`.
 /// The stored record is untrusted: a task needs an object with wording, a phase at least one task.
-fn todo_progress(todo: Option<&Value>) -> Option<Value> {
+pub fn todo_progress(todo: Option<&Value>) -> Option<Value> {
     let record = todo.filter(|record| record.is_object() || record.is_array())?;
     let phases: Vec<Vec<(String, &str)>> = get(record, "phases")
         .and_then(Value::as_array)

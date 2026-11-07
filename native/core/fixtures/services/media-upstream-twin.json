@@ -1,0 +1,5034 @@
+{
+  "domain": "media-upstream-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-media-upstream.mjs",
+  "upstreamErrors": [
+    {
+      "label": "Grok image",
+      "status": 0,
+      "text": "",
+      "error": {
+        "message": "Grok image failed (0)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 0
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 0,
+      "text": "   ",
+      "error": {
+        "message": "Grok image failed (0)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 0
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 0,
+      "text": "plain text failure",
+      "error": {
+        "message": "Grok image failed (0): plain text failure",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 0
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 0,
+      "text": "<html><body>Bad gateway</body></html>",
+      "error": {
+        "message": "Grok image failed (0)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 0
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 0,
+      "text": "  <!doctype html>",
+      "error": {
+        "message": "Grok image failed (0)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 0
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 0,
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "error": {
+        "message": "Grok image failed (0): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 0
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 0,
+      "text": "日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー",
+      "error": {
+        "message": "Grok image failed (0): 日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラ",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 0
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 0,
+      "text": "{\"error\":{\"message\":\"Your credit balance is too low\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Your credit balance is too low",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 0,
+      "text": "{\"error\":\"Insufficient quota for this request\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Insufficient quota for this request",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 0,
+      "text": "{\"message\":\"Model overloaded\"}",
+      "error": {
+        "message": "Grok image failed (0): Model overloaded",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 0
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 0,
+      "text": "{\"error\":{\"message\":\"Billing hard limit reached\"},\"message\":\"ignored\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Billing hard limit reached",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 0,
+      "text": "{\"error\":{\"message\":\"\"},\"message\":\"fallback message\"}",
+      "error": {
+        "message": "Grok image failed (0): {\"error\":{\"message\":\"\"},\"message\":\"fallback message\"}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 0
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 0,
+      "text": "{\"error\":{\"message\":7}}",
+      "error": {
+        "message": "Grok image failed (0): {\"error\":{\"message\":7}}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 0
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 0,
+      "text": "{\"error\":{\"code\":\"x\"}}",
+      "error": {
+        "message": "Grok image failed (0): {\"error\":{\"code\":\"x\"}}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 0
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 0,
+      "text": "{\"error\":\"payment required to continue\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — payment required to continue",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 0,
+      "text": "{\"error\":{\"message\":\"You hit a spending limit\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — You hit a spending limit",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 0,
+      "text": "[1,2]",
+      "error": {
+        "message": "Grok image failed (0): [1,2]",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 0
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 0,
+      "text": "null",
+      "error": {
+        "message": "Grok image failed (0): null",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 0
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 0,
+      "text": "{broken",
+      "error": {
+        "message": "Grok image failed (0): {broken",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 0
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 400,
+      "text": "",
+      "error": {
+        "message": "Grok image failed (400)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 400
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 400,
+      "text": "   ",
+      "error": {
+        "message": "Grok image failed (400)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 400
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 400,
+      "text": "plain text failure",
+      "error": {
+        "message": "Grok image failed (400): plain text failure",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 400
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 400,
+      "text": "<html><body>Bad gateway</body></html>",
+      "error": {
+        "message": "Grok image failed (400)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 400
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 400,
+      "text": "  <!doctype html>",
+      "error": {
+        "message": "Grok image failed (400)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 400
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 400,
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "error": {
+        "message": "Grok image failed (400): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 400
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 400,
+      "text": "日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー",
+      "error": {
+        "message": "Grok image failed (400): 日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラ",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 400
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 400,
+      "text": "{\"error\":{\"message\":\"Your credit balance is too low\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Your credit balance is too low",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 400
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 400,
+      "text": "{\"error\":\"Insufficient quota for this request\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Insufficient quota for this request",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 400
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 400,
+      "text": "{\"message\":\"Model overloaded\"}",
+      "error": {
+        "message": "Grok image failed (400): Model overloaded",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 400
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 400,
+      "text": "{\"error\":{\"message\":\"Billing hard limit reached\"},\"message\":\"ignored\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Billing hard limit reached",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 400
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 400,
+      "text": "{\"error\":{\"message\":\"\"},\"message\":\"fallback message\"}",
+      "error": {
+        "message": "Grok image failed (400): {\"error\":{\"message\":\"\"},\"message\":\"fallback message\"}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 400
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 400,
+      "text": "{\"error\":{\"message\":7}}",
+      "error": {
+        "message": "Grok image failed (400): {\"error\":{\"message\":7}}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 400
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 400,
+      "text": "{\"error\":{\"code\":\"x\"}}",
+      "error": {
+        "message": "Grok image failed (400): {\"error\":{\"code\":\"x\"}}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 400
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 400,
+      "text": "{\"error\":\"payment required to continue\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — payment required to continue",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 400
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 400,
+      "text": "{\"error\":{\"message\":\"You hit a spending limit\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — You hit a spending limit",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 400
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 400,
+      "text": "[1,2]",
+      "error": {
+        "message": "Grok image failed (400): [1,2]",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 400
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 400,
+      "text": "null",
+      "error": {
+        "message": "Grok image failed (400): null",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 400
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 400,
+      "text": "{broken",
+      "error": {
+        "message": "Grok image failed (400): {broken",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 400
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 401,
+      "text": "",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 401,
+      "text": "   ",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 401,
+      "text": "plain text failure",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 401,
+      "text": "<html><body>Bad gateway</body></html>",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 401,
+      "text": "  <!doctype html>",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 401,
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 401,
+      "text": "日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 401,
+      "text": "{\"error\":{\"message\":\"Your credit balance is too low\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Your credit balance is too low",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 401
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 401,
+      "text": "{\"error\":\"Insufficient quota for this request\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Insufficient quota for this request",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 401
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 401,
+      "text": "{\"message\":\"Model overloaded\"}",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 401,
+      "text": "{\"error\":{\"message\":\"Billing hard limit reached\"},\"message\":\"ignored\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Billing hard limit reached",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 401
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 401,
+      "text": "{\"error\":{\"message\":\"\"},\"message\":\"fallback message\"}",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 401,
+      "text": "{\"error\":{\"message\":7}}",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 401,
+      "text": "{\"error\":{\"code\":\"x\"}}",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 401,
+      "text": "{\"error\":\"payment required to continue\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — payment required to continue",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 401
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 401,
+      "text": "{\"error\":{\"message\":\"You hit a spending limit\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — You hit a spending limit",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 401
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 401,
+      "text": "[1,2]",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 401,
+      "text": "null",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 401,
+      "text": "{broken",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 402,
+      "text": "",
+      "error": {
+        "message": "Grok image: account has no usable balance — ",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 402,
+      "text": "   ",
+      "error": {
+        "message": "Grok image: account has no usable balance — ",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 402,
+      "text": "plain text failure",
+      "error": {
+        "message": "Grok image: account has no usable balance — plain text failure",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 402,
+      "text": "<html><body>Bad gateway</body></html>",
+      "error": {
+        "message": "Grok image: account has no usable balance — ",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 402,
+      "text": "  <!doctype html>",
+      "error": {
+        "message": "Grok image: account has no usable balance — ",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 402,
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "error": {
+        "message": "Grok image: account has no usable balance — xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 402,
+      "text": "日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー",
+      "error": {
+        "message": "Grok image: account has no usable balance — 日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラ",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 402,
+      "text": "{\"error\":{\"message\":\"Your credit balance is too low\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Your credit balance is too low",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 402,
+      "text": "{\"error\":\"Insufficient quota for this request\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Insufficient quota for this request",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 402,
+      "text": "{\"message\":\"Model overloaded\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Model overloaded",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 402,
+      "text": "{\"error\":{\"message\":\"Billing hard limit reached\"},\"message\":\"ignored\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Billing hard limit reached",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 402,
+      "text": "{\"error\":{\"message\":\"\"},\"message\":\"fallback message\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — {\"error\":{\"message\":\"\"},\"message\":\"fallback message\"}",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 402,
+      "text": "{\"error\":{\"message\":7}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — {\"error\":{\"message\":7}}",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 402,
+      "text": "{\"error\":{\"code\":\"x\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — {\"error\":{\"code\":\"x\"}}",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 402,
+      "text": "{\"error\":\"payment required to continue\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — payment required to continue",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 402,
+      "text": "{\"error\":{\"message\":\"You hit a spending limit\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — You hit a spending limit",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 402,
+      "text": "[1,2]",
+      "error": {
+        "message": "Grok image: account has no usable balance — [1,2]",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 402,
+      "text": "null",
+      "error": {
+        "message": "Grok image: account has no usable balance — null",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 402,
+      "text": "{broken",
+      "error": {
+        "message": "Grok image: account has no usable balance — {broken",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 403,
+      "text": "",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 403
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 403,
+      "text": "   ",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 403
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 403,
+      "text": "plain text failure",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 403
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 403,
+      "text": "<html><body>Bad gateway</body></html>",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 403
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 403,
+      "text": "  <!doctype html>",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 403
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 403,
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 403
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 403,
+      "text": "日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 403
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 403,
+      "text": "{\"error\":{\"message\":\"Your credit balance is too low\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Your credit balance is too low",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 403
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 403,
+      "text": "{\"error\":\"Insufficient quota for this request\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Insufficient quota for this request",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 403
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 403,
+      "text": "{\"message\":\"Model overloaded\"}",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 403
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 403,
+      "text": "{\"error\":{\"message\":\"Billing hard limit reached\"},\"message\":\"ignored\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Billing hard limit reached",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 403
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 403,
+      "text": "{\"error\":{\"message\":\"\"},\"message\":\"fallback message\"}",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 403
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 403,
+      "text": "{\"error\":{\"message\":7}}",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 403
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 403,
+      "text": "{\"error\":{\"code\":\"x\"}}",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 403
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 403,
+      "text": "{\"error\":\"payment required to continue\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — payment required to continue",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 403
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 403,
+      "text": "{\"error\":{\"message\":\"You hit a spending limit\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — You hit a spending limit",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 403
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 403,
+      "text": "[1,2]",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 403
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 403,
+      "text": "null",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 403
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 403,
+      "text": "{broken",
+      "error": {
+        "message": "Grok image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 403
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 404,
+      "text": "",
+      "error": {
+        "message": "Grok image failed (404)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 404
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 404,
+      "text": "   ",
+      "error": {
+        "message": "Grok image failed (404)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 404
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 404,
+      "text": "plain text failure",
+      "error": {
+        "message": "Grok image failed (404): plain text failure",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 404
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 404,
+      "text": "<html><body>Bad gateway</body></html>",
+      "error": {
+        "message": "Grok image failed (404)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 404
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 404,
+      "text": "  <!doctype html>",
+      "error": {
+        "message": "Grok image failed (404)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 404
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 404,
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "error": {
+        "message": "Grok image failed (404): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 404
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 404,
+      "text": "日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー",
+      "error": {
+        "message": "Grok image failed (404): 日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラ",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 404
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 404,
+      "text": "{\"error\":{\"message\":\"Your credit balance is too low\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Your credit balance is too low",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 404
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 404,
+      "text": "{\"error\":\"Insufficient quota for this request\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Insufficient quota for this request",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 404
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 404,
+      "text": "{\"message\":\"Model overloaded\"}",
+      "error": {
+        "message": "Grok image failed (404): Model overloaded",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 404
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 404,
+      "text": "{\"error\":{\"message\":\"Billing hard limit reached\"},\"message\":\"ignored\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Billing hard limit reached",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 404
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 404,
+      "text": "{\"error\":{\"message\":\"\"},\"message\":\"fallback message\"}",
+      "error": {
+        "message": "Grok image failed (404): {\"error\":{\"message\":\"\"},\"message\":\"fallback message\"}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 404
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 404,
+      "text": "{\"error\":{\"message\":7}}",
+      "error": {
+        "message": "Grok image failed (404): {\"error\":{\"message\":7}}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 404
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 404,
+      "text": "{\"error\":{\"code\":\"x\"}}",
+      "error": {
+        "message": "Grok image failed (404): {\"error\":{\"code\":\"x\"}}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 404
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 404,
+      "text": "{\"error\":\"payment required to continue\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — payment required to continue",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 404
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 404,
+      "text": "{\"error\":{\"message\":\"You hit a spending limit\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — You hit a spending limit",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 404
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 404,
+      "text": "[1,2]",
+      "error": {
+        "message": "Grok image failed (404): [1,2]",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 404
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 404,
+      "text": "null",
+      "error": {
+        "message": "Grok image failed (404): null",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 404
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 404,
+      "text": "{broken",
+      "error": {
+        "message": "Grok image failed (404): {broken",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 404
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 408,
+      "text": "",
+      "error": {
+        "message": "Grok image failed (408)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 408
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 408,
+      "text": "   ",
+      "error": {
+        "message": "Grok image failed (408)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 408
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 408,
+      "text": "plain text failure",
+      "error": {
+        "message": "Grok image failed (408): plain text failure",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 408
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 408,
+      "text": "<html><body>Bad gateway</body></html>",
+      "error": {
+        "message": "Grok image failed (408)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 408
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 408,
+      "text": "  <!doctype html>",
+      "error": {
+        "message": "Grok image failed (408)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 408
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 408,
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "error": {
+        "message": "Grok image failed (408): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 408
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 408,
+      "text": "日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー",
+      "error": {
+        "message": "Grok image failed (408): 日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラ",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 408
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 408,
+      "text": "{\"error\":{\"message\":\"Your credit balance is too low\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Your credit balance is too low",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 408
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 408,
+      "text": "{\"error\":\"Insufficient quota for this request\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Insufficient quota for this request",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 408
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 408,
+      "text": "{\"message\":\"Model overloaded\"}",
+      "error": {
+        "message": "Grok image failed (408): Model overloaded",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 408
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 408,
+      "text": "{\"error\":{\"message\":\"Billing hard limit reached\"},\"message\":\"ignored\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Billing hard limit reached",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 408
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 408,
+      "text": "{\"error\":{\"message\":\"\"},\"message\":\"fallback message\"}",
+      "error": {
+        "message": "Grok image failed (408): {\"error\":{\"message\":\"\"},\"message\":\"fallback message\"}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 408
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 408,
+      "text": "{\"error\":{\"message\":7}}",
+      "error": {
+        "message": "Grok image failed (408): {\"error\":{\"message\":7}}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 408
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 408,
+      "text": "{\"error\":{\"code\":\"x\"}}",
+      "error": {
+        "message": "Grok image failed (408): {\"error\":{\"code\":\"x\"}}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 408
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 408,
+      "text": "{\"error\":\"payment required to continue\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — payment required to continue",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 408
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 408,
+      "text": "{\"error\":{\"message\":\"You hit a spending limit\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — You hit a spending limit",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 408
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 408,
+      "text": "[1,2]",
+      "error": {
+        "message": "Grok image failed (408): [1,2]",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 408
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 408,
+      "text": "null",
+      "error": {
+        "message": "Grok image failed (408): null",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 408
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 408,
+      "text": "{broken",
+      "error": {
+        "message": "Grok image failed (408): {broken",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 408
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 429,
+      "text": "",
+      "error": {
+        "message": "Grok image: rate limited — retry in a moment",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 429,
+      "text": "   ",
+      "error": {
+        "message": "Grok image: rate limited — retry in a moment",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 429,
+      "text": "plain text failure",
+      "error": {
+        "message": "Grok image: rate limited — retry in a moment",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 429,
+      "text": "<html><body>Bad gateway</body></html>",
+      "error": {
+        "message": "Grok image: rate limited — retry in a moment",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 429,
+      "text": "  <!doctype html>",
+      "error": {
+        "message": "Grok image: rate limited — retry in a moment",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 429,
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "error": {
+        "message": "Grok image: rate limited — retry in a moment",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 429,
+      "text": "日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー",
+      "error": {
+        "message": "Grok image: rate limited — retry in a moment",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 429,
+      "text": "{\"error\":{\"message\":\"Your credit balance is too low\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Your credit balance is too low",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 429
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 429,
+      "text": "{\"error\":\"Insufficient quota for this request\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Insufficient quota for this request",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 429
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 429,
+      "text": "{\"message\":\"Model overloaded\"}",
+      "error": {
+        "message": "Grok image: rate limited — retry in a moment",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 429,
+      "text": "{\"error\":{\"message\":\"Billing hard limit reached\"},\"message\":\"ignored\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Billing hard limit reached",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 429
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 429,
+      "text": "{\"error\":{\"message\":\"\"},\"message\":\"fallback message\"}",
+      "error": {
+        "message": "Grok image: rate limited — retry in a moment",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 429,
+      "text": "{\"error\":{\"message\":7}}",
+      "error": {
+        "message": "Grok image: rate limited — retry in a moment",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 429,
+      "text": "{\"error\":{\"code\":\"x\"}}",
+      "error": {
+        "message": "Grok image: rate limited — retry in a moment",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 429,
+      "text": "{\"error\":\"payment required to continue\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — payment required to continue",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 429
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 429,
+      "text": "{\"error\":{\"message\":\"You hit a spending limit\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — You hit a spending limit",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 429
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 429,
+      "text": "[1,2]",
+      "error": {
+        "message": "Grok image: rate limited — retry in a moment",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 429,
+      "text": "null",
+      "error": {
+        "message": "Grok image: rate limited — retry in a moment",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 429,
+      "text": "{broken",
+      "error": {
+        "message": "Grok image: rate limited — retry in a moment",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 500,
+      "text": "",
+      "error": {
+        "message": "Grok image failed (500)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 500,
+      "text": "   ",
+      "error": {
+        "message": "Grok image failed (500)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 500,
+      "text": "plain text failure",
+      "error": {
+        "message": "Grok image failed (500): plain text failure",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 500,
+      "text": "<html><body>Bad gateway</body></html>",
+      "error": {
+        "message": "Grok image failed (500)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 500,
+      "text": "  <!doctype html>",
+      "error": {
+        "message": "Grok image failed (500)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 500,
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "error": {
+        "message": "Grok image failed (500): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 500,
+      "text": "日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー",
+      "error": {
+        "message": "Grok image failed (500): 日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラ",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 500,
+      "text": "{\"error\":{\"message\":\"Your credit balance is too low\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Your credit balance is too low",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 500
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 500,
+      "text": "{\"error\":\"Insufficient quota for this request\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Insufficient quota for this request",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 500
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 500,
+      "text": "{\"message\":\"Model overloaded\"}",
+      "error": {
+        "message": "Grok image failed (500): Model overloaded",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 500,
+      "text": "{\"error\":{\"message\":\"Billing hard limit reached\"},\"message\":\"ignored\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Billing hard limit reached",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 500
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 500,
+      "text": "{\"error\":{\"message\":\"\"},\"message\":\"fallback message\"}",
+      "error": {
+        "message": "Grok image failed (500): {\"error\":{\"message\":\"\"},\"message\":\"fallback message\"}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 500,
+      "text": "{\"error\":{\"message\":7}}",
+      "error": {
+        "message": "Grok image failed (500): {\"error\":{\"message\":7}}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 500,
+      "text": "{\"error\":{\"code\":\"x\"}}",
+      "error": {
+        "message": "Grok image failed (500): {\"error\":{\"code\":\"x\"}}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 500,
+      "text": "{\"error\":\"payment required to continue\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — payment required to continue",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 500
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 500,
+      "text": "{\"error\":{\"message\":\"You hit a spending limit\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — You hit a spending limit",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 500
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 500,
+      "text": "[1,2]",
+      "error": {
+        "message": "Grok image failed (500): [1,2]",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 500,
+      "text": "null",
+      "error": {
+        "message": "Grok image failed (500): null",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 500,
+      "text": "{broken",
+      "error": {
+        "message": "Grok image failed (500): {broken",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 502,
+      "text": "",
+      "error": {
+        "message": "Grok image failed (502)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 502,
+      "text": "   ",
+      "error": {
+        "message": "Grok image failed (502)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 502,
+      "text": "plain text failure",
+      "error": {
+        "message": "Grok image failed (502): plain text failure",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 502,
+      "text": "<html><body>Bad gateway</body></html>",
+      "error": {
+        "message": "Grok image failed (502)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 502,
+      "text": "  <!doctype html>",
+      "error": {
+        "message": "Grok image failed (502)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 502,
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "error": {
+        "message": "Grok image failed (502): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 502,
+      "text": "日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー",
+      "error": {
+        "message": "Grok image failed (502): 日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラ",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 502,
+      "text": "{\"error\":{\"message\":\"Your credit balance is too low\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Your credit balance is too low",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 502
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 502,
+      "text": "{\"error\":\"Insufficient quota for this request\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Insufficient quota for this request",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 502
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 502,
+      "text": "{\"message\":\"Model overloaded\"}",
+      "error": {
+        "message": "Grok image failed (502): Model overloaded",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 502,
+      "text": "{\"error\":{\"message\":\"Billing hard limit reached\"},\"message\":\"ignored\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Billing hard limit reached",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 502
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 502,
+      "text": "{\"error\":{\"message\":\"\"},\"message\":\"fallback message\"}",
+      "error": {
+        "message": "Grok image failed (502): {\"error\":{\"message\":\"\"},\"message\":\"fallback message\"}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 502,
+      "text": "{\"error\":{\"message\":7}}",
+      "error": {
+        "message": "Grok image failed (502): {\"error\":{\"message\":7}}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 502,
+      "text": "{\"error\":{\"code\":\"x\"}}",
+      "error": {
+        "message": "Grok image failed (502): {\"error\":{\"code\":\"x\"}}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 502,
+      "text": "{\"error\":\"payment required to continue\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — payment required to continue",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 502
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 502,
+      "text": "{\"error\":{\"message\":\"You hit a spending limit\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — You hit a spending limit",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 502
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 502,
+      "text": "[1,2]",
+      "error": {
+        "message": "Grok image failed (502): [1,2]",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 502,
+      "text": "null",
+      "error": {
+        "message": "Grok image failed (502): null",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 502,
+      "text": "{broken",
+      "error": {
+        "message": "Grok image failed (502): {broken",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 503,
+      "text": "",
+      "error": {
+        "message": "Grok image failed (503)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 503
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 503,
+      "text": "   ",
+      "error": {
+        "message": "Grok image failed (503)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 503
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 503,
+      "text": "plain text failure",
+      "error": {
+        "message": "Grok image failed (503): plain text failure",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 503
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 503,
+      "text": "<html><body>Bad gateway</body></html>",
+      "error": {
+        "message": "Grok image failed (503)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 503
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 503,
+      "text": "  <!doctype html>",
+      "error": {
+        "message": "Grok image failed (503)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 503
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 503,
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "error": {
+        "message": "Grok image failed (503): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 503
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 503,
+      "text": "日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー",
+      "error": {
+        "message": "Grok image failed (503): 日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラー日本語のエラ",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 503
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 503,
+      "text": "{\"error\":{\"message\":\"Your credit balance is too low\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Your credit balance is too low",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 503
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 503,
+      "text": "{\"error\":\"Insufficient quota for this request\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Insufficient quota for this request",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 503
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 503,
+      "text": "{\"message\":\"Model overloaded\"}",
+      "error": {
+        "message": "Grok image failed (503): Model overloaded",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 503
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 503,
+      "text": "{\"error\":{\"message\":\"Billing hard limit reached\"},\"message\":\"ignored\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — Billing hard limit reached",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 503
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 503,
+      "text": "{\"error\":{\"message\":\"\"},\"message\":\"fallback message\"}",
+      "error": {
+        "message": "Grok image failed (503): {\"error\":{\"message\":\"\"},\"message\":\"fallback message\"}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 503
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 503,
+      "text": "{\"error\":{\"message\":7}}",
+      "error": {
+        "message": "Grok image failed (503): {\"error\":{\"message\":7}}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 503
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 503,
+      "text": "{\"error\":{\"code\":\"x\"}}",
+      "error": {
+        "message": "Grok image failed (503): {\"error\":{\"code\":\"x\"}}",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 503
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 503,
+      "text": "{\"error\":\"payment required to continue\"}",
+      "error": {
+        "message": "Grok image: account has no usable balance — payment required to continue",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 503
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 503,
+      "text": "{\"error\":{\"message\":\"You hit a spending limit\"}}",
+      "error": {
+        "message": "Grok image: account has no usable balance — You hit a spending limit",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 503
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 503,
+      "text": "[1,2]",
+      "error": {
+        "message": "Grok image failed (503): [1,2]",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 503
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 503,
+      "text": "null",
+      "error": {
+        "message": "Grok image failed (503): null",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 503
+      }
+    },
+    {
+      "label": "Grok image",
+      "status": 503,
+      "text": "{broken",
+      "error": {
+        "message": "Grok image failed (503): {broken",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 503
+      }
+    }
+  ],
+  "usageInfos": [
+    {
+      "error": null,
+      "headers": {},
+      "value": null
+    },
+    {
+      "error": null,
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": null,
+      "headers": {
+        "x-codex-active-limit": "codex_image"
+      },
+      "value": null
+    },
+    {
+      "error": null,
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "error": null,
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "99",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "error": null,
+      "headers": {
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000200",
+        "x-codex-secondary-used-percent": "100",
+        "x-codex-secondary-reset-at": "1800000300"
+      },
+      "value": null
+    },
+    {
+      "error": null,
+      "headers": {
+        "x-codex-active-limit": "Codex_Image",
+        "x-codex-image-secondary-used-percent": "150",
+        "x-codex-image-secondary-reset-at": "1800000400.7",
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000250"
+      },
+      "value": null
+    },
+    {
+      "error": null,
+      "headers": {
+        "x-codex-active-limit": " spaced ",
+        "x-spaced-primary-used-percent": " 100 ",
+        "x-spaced-primary-reset-at": " 1800000500 "
+      },
+      "value": null
+    },
+    {
+      "error": null,
+      "headers": {
+        "x-codex-primary-used-percent": "abc",
+        "x-codex-primary-reset-at": "1800000200"
+      },
+      "value": null
+    },
+    {
+      "error": {},
+      "headers": {},
+      "value": null
+    },
+    {
+      "error": {},
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {},
+      "headers": {
+        "x-codex-active-limit": "codex_image"
+      },
+      "value": null
+    },
+    {
+      "error": {},
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "error": {},
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "99",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "error": {},
+      "headers": {
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000200",
+        "x-codex-secondary-used-percent": "100",
+        "x-codex-secondary-reset-at": "1800000300"
+      },
+      "value": null
+    },
+    {
+      "error": {},
+      "headers": {
+        "x-codex-active-limit": "Codex_Image",
+        "x-codex-image-secondary-used-percent": "150",
+        "x-codex-image-secondary-reset-at": "1800000400.7",
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000250"
+      },
+      "value": null
+    },
+    {
+      "error": {},
+      "headers": {
+        "x-codex-active-limit": " spaced ",
+        "x-spaced-primary-used-percent": " 100 ",
+        "x-spaced-primary-reset-at": " 1800000500 "
+      },
+      "value": null
+    },
+    {
+      "error": {},
+      "headers": {
+        "x-codex-primary-used-percent": "abc",
+        "x-codex-primary-reset-at": "1800000200"
+      },
+      "value": null
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached"
+      },
+      "headers": {},
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached"
+      },
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000100
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "99",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000200",
+        "x-codex-secondary-used-percent": "100",
+        "x-codex-secondary-reset-at": "1800000300"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000300
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached"
+      },
+      "headers": {
+        "x-codex-active-limit": "Codex_Image",
+        "x-codex-image-secondary-used-percent": "150",
+        "x-codex-image-secondary-reset-at": "1800000400.7",
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000250"
+      },
+      "value": {
+        "limitId": "Codex_Image",
+        "resetsAt": 1800000400
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached"
+      },
+      "headers": {
+        "x-codex-active-limit": " spaced ",
+        "x-spaced-primary-used-percent": " 100 ",
+        "x-spaced-primary-reset-at": " 1800000500 "
+      },
+      "value": {
+        "limitId": "spaced",
+        "resetsAt": 1800000500
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "abc",
+        "x-codex-primary-reset-at": "1800000200"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "code": "usagelimit"
+      },
+      "headers": {},
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "code": "usagelimit"
+      },
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "code": "usagelimit"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "code": "usagelimit"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000100
+      }
+    },
+    {
+      "error": {
+        "code": "usagelimit"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "99",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "code": "usagelimit"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000200",
+        "x-codex-secondary-used-percent": "100",
+        "x-codex-secondary-reset-at": "1800000300"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000300
+      }
+    },
+    {
+      "error": {
+        "code": "usagelimit"
+      },
+      "headers": {
+        "x-codex-active-limit": "Codex_Image",
+        "x-codex-image-secondary-used-percent": "150",
+        "x-codex-image-secondary-reset-at": "1800000400.7",
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000250"
+      },
+      "value": {
+        "limitId": "Codex_Image",
+        "resetsAt": 1800000400
+      }
+    },
+    {
+      "error": {
+        "code": "usagelimit"
+      },
+      "headers": {
+        "x-codex-active-limit": " spaced ",
+        "x-spaced-primary-used-percent": " 100 ",
+        "x-spaced-primary-reset-at": " 1800000500 "
+      },
+      "value": {
+        "limitId": "spaced",
+        "resetsAt": 1800000500
+      }
+    },
+    {
+      "error": {
+        "code": "usagelimit"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "abc",
+        "x-codex-primary-reset-at": "1800000200"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "USAGE_LIMIT"
+      },
+      "headers": {},
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "USAGE_LIMIT"
+      },
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "USAGE_LIMIT"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "USAGE_LIMIT"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000100
+      }
+    },
+    {
+      "error": {
+        "type": "USAGE_LIMIT"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "99",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "USAGE_LIMIT"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000200",
+        "x-codex-secondary-used-percent": "100",
+        "x-codex-secondary-reset-at": "1800000300"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000300
+      }
+    },
+    {
+      "error": {
+        "type": "USAGE_LIMIT"
+      },
+      "headers": {
+        "x-codex-active-limit": "Codex_Image",
+        "x-codex-image-secondary-used-percent": "150",
+        "x-codex-image-secondary-reset-at": "1800000400.7",
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000250"
+      },
+      "value": {
+        "limitId": "Codex_Image",
+        "resetsAt": 1800000400
+      }
+    },
+    {
+      "error": {
+        "type": "USAGE_LIMIT"
+      },
+      "headers": {
+        "x-codex-active-limit": " spaced ",
+        "x-spaced-primary-used-percent": " 100 ",
+        "x-spaced-primary-reset-at": " 1800000500 "
+      },
+      "value": {
+        "limitId": "spaced",
+        "resetsAt": 1800000500
+      }
+    },
+    {
+      "error": {
+        "type": "USAGE_LIMIT"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "abc",
+        "x-codex-primary-reset-at": "1800000200"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "rate_limit"
+      },
+      "headers": {},
+      "value": null
+    },
+    {
+      "error": {
+        "type": "rate_limit"
+      },
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "rate_limit"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image"
+      },
+      "value": null
+    },
+    {
+      "error": {
+        "type": "rate_limit"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "error": {
+        "type": "rate_limit"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "99",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "error": {
+        "type": "rate_limit"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000200",
+        "x-codex-secondary-used-percent": "100",
+        "x-codex-secondary-reset-at": "1800000300"
+      },
+      "value": null
+    },
+    {
+      "error": {
+        "type": "rate_limit"
+      },
+      "headers": {
+        "x-codex-active-limit": "Codex_Image",
+        "x-codex-image-secondary-used-percent": "150",
+        "x-codex-image-secondary-reset-at": "1800000400.7",
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000250"
+      },
+      "value": null
+    },
+    {
+      "error": {
+        "type": "rate_limit"
+      },
+      "headers": {
+        "x-codex-active-limit": " spaced ",
+        "x-spaced-primary-used-percent": " 100 ",
+        "x-spaced-primary-reset-at": " 1800000500 "
+      },
+      "value": null
+    },
+    {
+      "error": {
+        "type": "rate_limit"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "abc",
+        "x-codex-primary-reset-at": "1800000200"
+      },
+      "value": null
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": 1800000000
+      },
+      "headers": {},
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": 1800000000
+      },
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": 1800000000
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": 1800000000
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": 1800000000
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "99",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": 1800000000
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000200",
+        "x-codex-secondary-used-percent": "100",
+        "x-codex-secondary-reset-at": "1800000300"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": 1800000000
+      },
+      "headers": {
+        "x-codex-active-limit": "Codex_Image",
+        "x-codex-image-secondary-used-percent": "150",
+        "x-codex-image-secondary-reset-at": "1800000400.7",
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000250"
+      },
+      "value": {
+        "limitId": "Codex_Image",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": 1800000000
+      },
+      "headers": {
+        "x-codex-active-limit": " spaced ",
+        "x-spaced-primary-used-percent": " 100 ",
+        "x-spaced-primary-reset-at": " 1800000500 "
+      },
+      "value": {
+        "limitId": "spaced",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": 1800000000
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "abc",
+        "x-codex-primary-reset-at": "1800000200"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": "1800000000"
+      },
+      "headers": {},
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": "1800000000"
+      },
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": "1800000000"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": "1800000000"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": "1800000000"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "99",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": "1800000000"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000200",
+        "x-codex-secondary-used-percent": "100",
+        "x-codex-secondary-reset-at": "1800000300"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": "1800000000"
+      },
+      "headers": {
+        "x-codex-active-limit": "Codex_Image",
+        "x-codex-image-secondary-used-percent": "150",
+        "x-codex-image-secondary-reset-at": "1800000400.7",
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000250"
+      },
+      "value": {
+        "limitId": "Codex_Image",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": "1800000000"
+      },
+      "headers": {
+        "x-codex-active-limit": " spaced ",
+        "x-spaced-primary-used-percent": " 100 ",
+        "x-spaced-primary-reset-at": " 1800000500 "
+      },
+      "value": {
+        "limitId": "spaced",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": "1800000000"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "abc",
+        "x-codex-primary-reset-at": "1800000200"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": 1800000000.9
+      },
+      "headers": {},
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": 1800000000.9
+      },
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": 1800000000.9
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": 1800000000.9
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": 1800000000.9
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "99",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": 1800000000.9
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000200",
+        "x-codex-secondary-used-percent": "100",
+        "x-codex-secondary-reset-at": "1800000300"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": 1800000000.9
+      },
+      "headers": {
+        "x-codex-active-limit": "Codex_Image",
+        "x-codex-image-secondary-used-percent": "150",
+        "x-codex-image-secondary-reset-at": "1800000400.7",
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000250"
+      },
+      "value": {
+        "limitId": "Codex_Image",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": 1800000000.9
+      },
+      "headers": {
+        "x-codex-active-limit": " spaced ",
+        "x-spaced-primary-used-percent": " 100 ",
+        "x-spaced-primary-reset-at": " 1800000500 "
+      },
+      "value": {
+        "limitId": "spaced",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": 1800000000.9
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "abc",
+        "x-codex-primary-reset-at": "1800000200"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": -5
+      },
+      "headers": {},
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": -5
+      },
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": -5
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": -5
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000100
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": -5
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "99",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": -5
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000200",
+        "x-codex-secondary-used-percent": "100",
+        "x-codex-secondary-reset-at": "1800000300"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000300
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": -5
+      },
+      "headers": {
+        "x-codex-active-limit": "Codex_Image",
+        "x-codex-image-secondary-used-percent": "150",
+        "x-codex-image-secondary-reset-at": "1800000400.7",
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000250"
+      },
+      "value": {
+        "limitId": "Codex_Image",
+        "resetsAt": 1800000400
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": -5
+      },
+      "headers": {
+        "x-codex-active-limit": " spaced ",
+        "x-spaced-primary-used-percent": " 100 ",
+        "x-spaced-primary-reset-at": " 1800000500 "
+      },
+      "value": {
+        "limitId": "spaced",
+        "resetsAt": 1800000500
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": -5
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "abc",
+        "x-codex-primary-reset-at": "1800000200"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": "soon"
+      },
+      "headers": {},
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": "soon"
+      },
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": "soon"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": "soon"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000100
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": "soon"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "99",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": "soon"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000200",
+        "x-codex-secondary-used-percent": "100",
+        "x-codex-secondary-reset-at": "1800000300"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000300
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": "soon"
+      },
+      "headers": {
+        "x-codex-active-limit": "Codex_Image",
+        "x-codex-image-secondary-used-percent": "150",
+        "x-codex-image-secondary-reset-at": "1800000400.7",
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000250"
+      },
+      "value": {
+        "limitId": "Codex_Image",
+        "resetsAt": 1800000400
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": "soon"
+      },
+      "headers": {
+        "x-codex-active-limit": " spaced ",
+        "x-spaced-primary-used-percent": " 100 ",
+        "x-spaced-primary-reset-at": " 1800000500 "
+      },
+      "value": {
+        "limitId": "spaced",
+        "resetsAt": 1800000500
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "resets_at": "soon"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "abc",
+        "x-codex-primary-reset-at": "1800000200"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": "image_gen"
+      },
+      "headers": {},
+      "value": {
+        "limitId": "image_gen",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": "image_gen"
+      },
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "image_gen",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": "image_gen"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": "image_gen"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000100
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": "image_gen"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "99",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": "image_gen"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000200",
+        "x-codex-secondary-used-percent": "100",
+        "x-codex-secondary-reset-at": "1800000300"
+      },
+      "value": {
+        "limitId": "image_gen",
+        "resetsAt": 1800000300
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": "image_gen"
+      },
+      "headers": {
+        "x-codex-active-limit": "Codex_Image",
+        "x-codex-image-secondary-used-percent": "150",
+        "x-codex-image-secondary-reset-at": "1800000400.7",
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000250"
+      },
+      "value": {
+        "limitId": "Codex_Image",
+        "resetsAt": 1800000400
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": "image_gen"
+      },
+      "headers": {
+        "x-codex-active-limit": " spaced ",
+        "x-spaced-primary-used-percent": " 100 ",
+        "x-spaced-primary-reset-at": " 1800000500 "
+      },
+      "value": {
+        "limitId": "spaced",
+        "resetsAt": 1800000500
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": "image_gen"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "abc",
+        "x-codex-primary-reset-at": "1800000200"
+      },
+      "value": {
+        "limitId": "image_gen",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": 7
+      },
+      "headers": {},
+      "value": {
+        "limitId": "7",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": 7
+      },
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "7",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": 7
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": 7
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000100
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": 7
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "99",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": 7
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000200",
+        "x-codex-secondary-used-percent": "100",
+        "x-codex-secondary-reset-at": "1800000300"
+      },
+      "value": {
+        "limitId": "7",
+        "resetsAt": 1800000300
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": 7
+      },
+      "headers": {
+        "x-codex-active-limit": "Codex_Image",
+        "x-codex-image-secondary-used-percent": "150",
+        "x-codex-image-secondary-reset-at": "1800000400.7",
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000250"
+      },
+      "value": {
+        "limitId": "Codex_Image",
+        "resetsAt": 1800000400
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": 7
+      },
+      "headers": {
+        "x-codex-active-limit": " spaced ",
+        "x-spaced-primary-used-percent": " 100 ",
+        "x-spaced-primary-reset-at": " 1800000500 "
+      },
+      "value": {
+        "limitId": "spaced",
+        "resetsAt": 1800000500
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": 7
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "abc",
+        "x-codex-primary-reset-at": "1800000200"
+      },
+      "value": {
+        "limitId": "7",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "metered_feature": "codex_image"
+      },
+      "headers": {},
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "metered_feature": "codex_image"
+      },
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "metered_feature": "codex_image"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "metered_feature": "codex_image"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000100
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "metered_feature": "codex_image"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "99",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "metered_feature": "codex_image"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000200",
+        "x-codex-secondary-used-percent": "100",
+        "x-codex-secondary-reset-at": "1800000300"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000300
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "metered_feature": "codex_image"
+      },
+      "headers": {
+        "x-codex-active-limit": "Codex_Image",
+        "x-codex-image-secondary-used-percent": "150",
+        "x-codex-image-secondary-reset-at": "1800000400.7",
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000250"
+      },
+      "value": {
+        "limitId": "Codex_Image",
+        "resetsAt": 1800000400
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "metered_feature": "codex_image"
+      },
+      "headers": {
+        "x-codex-active-limit": " spaced ",
+        "x-spaced-primary-used-percent": " 100 ",
+        "x-spaced-primary-reset-at": " 1800000500 "
+      },
+      "value": {
+        "limitId": "spaced",
+        "resetsAt": 1800000500
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "metered_feature": "codex_image"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "abc",
+        "x-codex-primary-reset-at": "1800000200"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": "",
+        "metered_feature": "meter"
+      },
+      "headers": {},
+      "value": {
+        "limitId": "meter",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": "",
+        "metered_feature": "meter"
+      },
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "meter",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": "",
+        "metered_feature": "meter"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": "",
+        "metered_feature": "meter"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000100
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": "",
+        "metered_feature": "meter"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "99",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": "",
+        "metered_feature": "meter"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000200",
+        "x-codex-secondary-used-percent": "100",
+        "x-codex-secondary-reset-at": "1800000300"
+      },
+      "value": {
+        "limitId": "meter",
+        "resetsAt": 1800000300
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": "",
+        "metered_feature": "meter"
+      },
+      "headers": {
+        "x-codex-active-limit": "Codex_Image",
+        "x-codex-image-secondary-used-percent": "150",
+        "x-codex-image-secondary-reset-at": "1800000400.7",
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000250"
+      },
+      "value": {
+        "limitId": "Codex_Image",
+        "resetsAt": 1800000400
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": "",
+        "metered_feature": "meter"
+      },
+      "headers": {
+        "x-codex-active-limit": " spaced ",
+        "x-spaced-primary-used-percent": " 100 ",
+        "x-spaced-primary-reset-at": " 1800000500 "
+      },
+      "value": {
+        "limitId": "spaced",
+        "resetsAt": 1800000500
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached",
+        "limit_id": "",
+        "metered_feature": "meter"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "abc",
+        "x-codex-primary-reset-at": "1800000200"
+      },
+      "value": {
+        "limitId": "meter",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": 7,
+        "code": "usage_limit"
+      },
+      "headers": {},
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": 7,
+        "code": "usage_limit"
+      },
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": 7,
+        "code": "usage_limit"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": 7,
+        "code": "usage_limit"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000100
+      }
+    },
+    {
+      "error": {
+        "type": 7,
+        "code": "usage_limit"
+      },
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "99",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": 7,
+        "code": "usage_limit"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000200",
+        "x-codex-secondary-used-percent": "100",
+        "x-codex-secondary-reset-at": "1800000300"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000300
+      }
+    },
+    {
+      "error": {
+        "type": 7,
+        "code": "usage_limit"
+      },
+      "headers": {
+        "x-codex-active-limit": "Codex_Image",
+        "x-codex-image-secondary-used-percent": "150",
+        "x-codex-image-secondary-reset-at": "1800000400.7",
+        "x-codex-primary-used-percent": "100",
+        "x-codex-primary-reset-at": "1800000250"
+      },
+      "value": {
+        "limitId": "Codex_Image",
+        "resetsAt": 1800000400
+      }
+    },
+    {
+      "error": {
+        "type": 7,
+        "code": "usage_limit"
+      },
+      "headers": {
+        "x-codex-active-limit": " spaced ",
+        "x-spaced-primary-used-percent": " 100 ",
+        "x-spaced-primary-reset-at": " 1800000500 "
+      },
+      "value": {
+        "limitId": "spaced",
+        "resetsAt": 1800000500
+      }
+    },
+    {
+      "error": {
+        "type": 7,
+        "code": "usage_limit"
+      },
+      "headers": {
+        "x-codex-primary-used-percent": "abc",
+        "x-codex-primary-reset-at": "1800000200"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "error": {
+        "type": "usage_limit_reached"
+      },
+      "headers": null,
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    }
+  ],
+  "usageFromResponse": [
+    {
+      "status": 200,
+      "text": "{\"error\":{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}}",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "{\"error\":{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "{\"error\":{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "{\"error\":\"usage_limit_reached\"}",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "{\"error\":\"usage_limit_reached\"}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "{\"error\":\"usage_limit_reached\"}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "{\"error\":[]}",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "{\"error\":[]}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "{\"error\":[]}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "{\"error\":{\"type\":\"rate_limit\"}}",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "{\"error\":{\"type\":\"rate_limit\"}}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "{\"error\":{\"type\":\"rate_limit\"}}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "not json",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "not json",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "not json",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 200,
+      "text": "",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "{\"error\":{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}}",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "{\"error\":{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "{\"error\":{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "{\"error\":\"usage_limit_reached\"}",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "{\"error\":\"usage_limit_reached\"}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "{\"error\":\"usage_limit_reached\"}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "{\"error\":[]}",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "{\"error\":[]}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "{\"error\":[]}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "{\"error\":{\"type\":\"rate_limit\"}}",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "{\"error\":{\"type\":\"rate_limit\"}}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "{\"error\":{\"type\":\"rate_limit\"}}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "not json",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "not json",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "not json",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 400,
+      "text": "",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 429,
+      "text": "{\"error\":{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}}",
+      "headers": {},
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "status": 429,
+      "text": "{\"error\":{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "status": 429,
+      "text": "{\"error\":{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "status": 429,
+      "text": "{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}",
+      "headers": {},
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "status": 429,
+      "text": "{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "status": 429,
+      "text": "{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": {
+        "limitId": "codex_image",
+        "resetsAt": 1800000000
+      }
+    },
+    {
+      "status": 429,
+      "text": "{\"error\":\"usage_limit_reached\"}",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 429,
+      "text": "{\"error\":\"usage_limit_reached\"}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "status": 429,
+      "text": "{\"error\":\"usage_limit_reached\"}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 429,
+      "text": "{\"error\":[]}",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 429,
+      "text": "{\"error\":[]}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "status": 429,
+      "text": "{\"error\":[]}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 429,
+      "text": "{\"error\":{\"type\":\"rate_limit\"}}",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 429,
+      "text": "{\"error\":{\"type\":\"rate_limit\"}}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "status": 429,
+      "text": "{\"error\":{\"type\":\"rate_limit\"}}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 429,
+      "text": "not json",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 429,
+      "text": "not json",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "status": 429,
+      "text": "not json",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 429,
+      "text": "",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 429,
+      "text": "",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": {
+        "limitId": "",
+        "resetsAt": null
+      }
+    },
+    {
+      "status": 429,
+      "text": "",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "{\"error\":{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}}",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "{\"error\":{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "{\"error\":{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "{\"error\":\"usage_limit_reached\"}",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "{\"error\":\"usage_limit_reached\"}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "{\"error\":\"usage_limit_reached\"}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "{\"error\":[]}",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "{\"error\":[]}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "{\"error\":[]}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "{\"error\":{\"type\":\"rate_limit\"}}",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "{\"error\":{\"type\":\"rate_limit\"}}",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "{\"error\":{\"type\":\"rate_limit\"}}",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "not json",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "not json",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "not json",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "",
+      "headers": {},
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "",
+      "headers": {
+        "x-codex-rate-limit-reached-type": "usage_limit_reached"
+      },
+      "value": null
+    },
+    {
+      "status": 500,
+      "text": "",
+      "headers": {
+        "x-codex-active-limit": "codex_image",
+        "x-codex-image-primary-used-percent": "100",
+        "x-codex-image-primary-reset-at": "1800000100"
+      },
+      "value": null
+    }
+  ],
+  "usageErrors": [
+    {
+      "options": {},
+      "error": {
+        "message": "Codex image: usage limit reached — try again after the usage window resets",
+        "code": "MEDIA_USAGE_LIMIT",
+        "status": 429
+      }
+    },
+    {
+      "options": {
+        "limitId": "codex_image"
+      },
+      "error": {
+        "message": "Codex image: image generation usage limit reached — try again after the usage window resets",
+        "code": "MEDIA_USAGE_LIMIT",
+        "status": 429
+      }
+    },
+    {
+      "options": {
+        "limitId": "IMAGE"
+      },
+      "error": {
+        "message": "Codex image: image generation usage limit reached — try again after the usage window resets",
+        "code": "MEDIA_USAGE_LIMIT",
+        "status": 429
+      }
+    },
+    {
+      "options": {
+        "resetsAt": 1800000000
+      },
+      "error": {
+        "message": "Codex image: usage limit reached — resets 2027-01-15 08:00 UTC",
+        "code": "MEDIA_USAGE_LIMIT",
+        "status": 429,
+        "resetsAt": "2027-01-15T08:00:00.000Z"
+      }
+    },
+    {
+      "options": {
+        "limitId": "codex",
+        "resetsAt": 1800000000
+      },
+      "error": {
+        "message": "Codex image: usage limit reached — resets 2027-01-15 08:00 UTC",
+        "code": "MEDIA_USAGE_LIMIT",
+        "status": 429,
+        "resetsAt": "2027-01-15T08:00:00.000Z"
+      }
+    },
+    {
+      "options": {
+        "limitId": "image_gen",
+        "resetsAt": 1700000000
+      },
+      "error": {
+        "message": "Codex image: image generation usage limit reached — resets 2023-11-14 22:13 UTC",
+        "code": "MEDIA_USAGE_LIMIT",
+        "status": 429,
+        "resetsAt": "2023-11-14T22:13:20.000Z"
+      }
+    },
+    {
+      "options": {
+        "resetsAt": 0
+      },
+      "error": {
+        "message": "Codex image: usage limit reached — try again after the usage window resets",
+        "code": "MEDIA_USAGE_LIMIT",
+        "status": 429
+      }
+    },
+    {
+      "options": {
+        "resetsAt": null
+      },
+      "error": {
+        "message": "Codex image: usage limit reached — try again after the usage window resets",
+        "code": "MEDIA_USAGE_LIMIT",
+        "status": 429
+      }
+    }
+  ],
+  "decoded": [
+    {
+      "input": "aGVsbG8=",
+      "value": "68656c6c6f"
+    },
+    {
+      "input": "aGVsbG8",
+      "value": "68656c6c6f"
+    },
+    {
+      "input": "aGVs bG8=",
+      "value": "68656c6c6f"
+    },
+    {
+      "input": "aGVs\nbG8=",
+      "value": "68656c6c6f"
+    },
+    {
+      "input": "-_-_",
+      "value": "fbffbf"
+    },
+    {
+      "input": "+/+/",
+      "value": "fbffbf"
+    },
+    {
+      "input": "aGVsbG8=aGVsbG8=",
+      "value": "68656c6c6f"
+    },
+    {
+      "input": "aGVs!bG8=",
+      "value": "68656c6c6f"
+    },
+    {
+      "input": "!!!!",
+      "error": {
+        "message": "Grok image exceeds the media size limit",
+        "code": "MEDIA_RESULT_TOO_LARGE",
+        "status": 502
+      }
+    },
+    {
+      "input": "=",
+      "error": {
+        "message": "Grok image exceeds the media size limit",
+        "code": "MEDIA_RESULT_TOO_LARGE",
+        "status": 502
+      }
+    },
+    {
+      "input": "a",
+      "error": {
+        "message": "Grok image exceeds the media size limit",
+        "code": "MEDIA_RESULT_TOO_LARGE",
+        "status": 502
+      }
+    },
+    {
+      "input": "ab",
+      "value": "69"
+    },
+    {
+      "input": "abc",
+      "value": "69b7"
+    },
+    {
+      "input": "YQ==",
+      "value": "61"
+    },
+    {
+      "input": "",
+      "error": {
+        "message": "Grok image exceeds the media size limit",
+        "code": "MEDIA_RESULT_TOO_LARGE",
+        "status": 502
+      }
+    },
+    {
+      "input": 7,
+      "error": {
+        "message": "Grok image exceeds the media size limit",
+        "code": "MEDIA_RESULT_TOO_LARGE",
+        "status": 502
+      }
+    },
+    {
+      "input": null,
+      "error": {
+        "message": "Grok image exceeds the media size limit",
+        "code": "MEDIA_RESULT_TOO_LARGE",
+        "status": 502
+      }
+    },
+    {
+      "error": {
+        "message": "Grok image exceeds the media size limit",
+        "code": "MEDIA_RESULT_TOO_LARGE",
+        "status": 502
+      }
+    },
+    {
+      "input": {},
+      "error": {
+        "message": "Grok image exceeds the media size limit",
+        "code": "MEDIA_RESULT_TOO_LARGE",
+        "status": 502
+      }
+    }
+  ],
+  "geminiUrls": [
+    {
+      "input": "https://generativelanguage.googleapis.com/v1beta/files/abc:download",
+      "value": "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media"
+    },
+    {
+      "input": "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=json",
+      "value": "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media"
+    },
+    {
+      "input": "https://generativelanguage.googleapis.com/v1beta/files/abc:download?a=b c&alt=x&alt=y&z=1",
+      "value": "https://generativelanguage.googleapis.com/v1beta/files/abc:download?a=b+c&alt=media&z=1"
+    },
+    {
+      "input": "https://generativelanguage.googleapis.com/v1beta/files/abc:download?a=%20x&b=é",
+      "value": "https://generativelanguage.googleapis.com/v1beta/files/abc:download?a=+x&b=%C3%A9&alt=media"
+    },
+    {
+      "input": "https://generativelanguage.googleapis.com/v1beta/files/abc:download#frag",
+      "value": "https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media#frag"
+    },
+    {
+      "input": "https://GENERATIVELANGUAGE.googleapis.com/v1/f",
+      "value": "https://generativelanguage.googleapis.com/v1/f?alt=media"
+    },
+    {
+      "input": "https://generativelanguage.googleapis.com:443/v1/f",
+      "value": "https://generativelanguage.googleapis.com/v1/f?alt=media"
+    },
+    {
+      "input": "https://generativelanguage.googleapis.com:8443/v1/f",
+      "value": "https://generativelanguage.googleapis.com:8443/v1/f?alt=media"
+    },
+    {
+      "input": "https://generativelanguage.googleapis.com./v1/f",
+      "error": {
+        "message": "Veo returned an untrusted video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "input": "http://generativelanguage.googleapis.com/v1/f",
+      "error": {
+        "message": "Veo returned an untrusted video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "input": "https://user@generativelanguage.googleapis.com/v1/f",
+      "error": {
+        "message": "Veo returned an untrusted video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "input": "https://user:pw@generativelanguage.googleapis.com/v1/f",
+      "error": {
+        "message": "Veo returned an untrusted video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "input": "https://evil.example.com/v1/f",
+      "error": {
+        "message": "Veo returned an untrusted video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "input": "https://generativelanguage.googleapis.com.evil.com/v1/f",
+      "error": {
+        "message": "Veo returned an untrusted video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "input": "not a url",
+      "error": {
+        "message": "Veo returned an invalid video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "input": "",
+      "error": {
+        "message": "Veo returned an invalid video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "input": null,
+      "error": {
+        "message": "Veo returned an invalid video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    },
+    {
+      "input": 7,
+      "error": {
+        "message": "Veo returned an invalid video URI",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502
+      }
+    }
+  ]
+}

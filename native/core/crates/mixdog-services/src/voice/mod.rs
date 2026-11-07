@@ -2,6 +2,7 @@
 
 #![cfg_attr(test, allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup"))]
 
+pub mod installer;
 pub mod language;
 pub mod pipeline;
 pub mod runtime;
@@ -15,6 +16,7 @@ pub mod whisper_server;
 #[cfg(test)]
 mod whisper_twin_tests;
 
+pub use installer::{InstallerParts, ManagedVoiceInstaller, VariantEnv, detect_variant_env, release_held_locks};
 pub use pipeline::{AudioTools, ServerContract, VoiceError, VoicePipeline, VoiceSettings, VoiceSettingsSource, WhisperEngine};
 pub use runtime::{RuntimeManifest, VoiceRuntime, resolve_voice_runtime, voice_runtime_info};
 pub use service::VoiceService;

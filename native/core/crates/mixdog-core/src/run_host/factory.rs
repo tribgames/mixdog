@@ -243,11 +243,16 @@ impl PortSink {
             while let Some(job) = queue.recv().await {
                 let n = match job {
                     Job::Commit(n, item) => {
-                        let _ = worker.commit_item(item).await;
+                        // Node logs a failed session save and goes on (`ask-turn-state.mjs:107`, `session-lifecycle.mjs:522`).
+                        if let Err(error) = worker.commit_item(item).await {
+                            tracing::warn!("[session] message save failed: {error:?}");
+                        }
                         n
                     }
                     Job::Compact(n, compaction) => {
-                        let _ = worker.compacted(compaction).await;
+                        if let Err(error) = worker.compacted(compaction).await {
+                            tracing::warn!("[session] compaction save failed: {error:?}");
+                        }
                         n
                     }
                 };

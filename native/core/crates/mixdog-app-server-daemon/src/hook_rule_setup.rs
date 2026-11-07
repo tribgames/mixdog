@@ -328,6 +328,23 @@ mod tests {
     use crate::domain_seams::hook_status::HookEventLog;
     use crate::domain_seams::hook_status::HookStatus;
 
+    /// The length of the case folder `hook_rules.mjs` recorded in (`<tmp>\hook-rules-golden-xxxxxx\case<n>`).
+    /// The event log clips a row at 120 (summary) and 180 (payload) UTF-16 units, so the recorded
+    /// rows end where a folder of this length puts the cut (`hooks.`, `(l`); another length cuts
+    /// them elsewhere.
+    const RECORDED_DATA_DIR_LEN: usize = 86;
+
+    /// A fresh folder as long as the recorded one.
+    fn recorded_length_dir() -> tempfile::TempDir {
+        let base = std::env::temp_dir();
+        let stem = base.join("x").to_string_lossy().encode_utf16().count() - 1;
+        let name = RECORDED_DATA_DIR_LEN
+            .checked_sub(stem)
+            .filter(|name| *name >= 6)
+            .expect("the temp folder is too long for a folder of the recorded length: point TEMP at a shorter path");
+        tempfile::Builder::new().prefix(&"d".repeat(name - 6)).rand_bytes(6).tempdir_in(&base).unwrap()
+    }
+
     /// Every step of every recorded case: the receipt text (or the message of the error) and the
     /// hooks file afterwards, as Node's real setup executor over the real rule store produced them;
     /// then the `hook:error` rows the status shows. A case whose error text is the operating
@@ -337,7 +354,7 @@ mod tests {
         let golden: Value = serde_json::from_str(include_str!("../tests/golden/hook_rules.json")).unwrap();
         let tokens = mixdog_rt::testing::tokens();
         for case in golden["cases"].as_array().unwrap() {
-            let dir = tempfile::tempdir().unwrap();
+            let dir = recorded_length_dir();
             let here = |text: &str| text.replace(&dir.path().to_string_lossy().into_owned(), "{data}");
             let path = dir.path().join("hooks.json");
             if let Some(file) = case["file"].as_str() {

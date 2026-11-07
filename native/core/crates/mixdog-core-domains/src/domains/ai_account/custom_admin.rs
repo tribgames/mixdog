@@ -26,7 +26,7 @@ use mixdog_ai::accounts::rotation::SendContext;
 use mixdog_ai::accounts::rotation::Stage;
 use mixdog_ai::admission::AdmissionRequest;
 use mixdog_ai::admission::LaneKey;
-use mixdog_ai::admission::LaneSettings;
+use mixdog_ai::admission::process_lane_settings;
 use mixdog_ai::broker::AttemptSink;
 use mixdog_ai::broker::ModelBroker;
 use mixdog_ai::broker::SendError;
@@ -105,7 +105,7 @@ fn is_uuid(text: &str) -> bool {
 }
 
 /// `CUSTOM_ID_RE`.
-fn is_custom_id(id: &str) -> bool {
+pub(super) fn is_custom_id(id: &str) -> bool {
     id.strip_prefix("custom-").is_some_and(is_uuid)
 }
 
@@ -431,88 +431,162 @@ impl CustomHost {
 
     /// `customProviderRow`: the secret-free public view of a custom provider.
     /// `Err` when a keychain read never ran: the row would say "No Key" for a key that is stored.
+    /// The reads are made here (they are async); the row itself is [`custom_provider_row`].
     async fn row(&self, id: &str, entry: &Value) -> Result<Value, Failure> {
-        let (config, config_error) = match normalize(entry) {
-            Ok(config) => (Some(config), None),
-            Err(message) => (None, Some(message.strip_prefix("[custom-provider] ").unwrap_or(&message).to_owned())),
-        };
-        let configured_enabled = entry.get("enabled") != Some(&Value::Bool(false));
-        let keyless = config.as_ref().and_then(|c| c.get("auth")).or_else(|| entry.get("auth")).and_then(Value::as_str)
-            == Some("none");
-        let api_key_env = if keyless {
-            String::new()
-        } else {
-            config.as_ref().and_then(|c| c.get("apiKeyEnv")).and_then(Value::as_str).unwrap_or_default().to_owned()
-        };
-        let env_set = !api_key_env.is_empty() && self.env.var(&api_key_env).is_some_and(|value| !value.is_empty());
-        let stored = match self.vault.get(&api_key_account(id)).await {
+        let account = api_key_account(id);
+        let stored = match self.vault.get(&account).await {
             Ok(key) => key.is_some_and(|key| !key.is_empty()),
             // A read that ran and failed shows no key, as before; one that never ran is no answer.
             Err(error) if error.unrun => return Err(vault_failure(error)),
             Err(_) => false,
         };
-        let unstored_status = if configured_enabled { "No Key" } else { "Off" };
-        let mut status = if stored { "Set" } else { unstored_status };
-        let located = if self.vault.is_fallback(&api_key_account(id)).await.map_err(vault_failure)? { "stored in private file" } else { "stored in keychain" };
-        let mut detail = if stored { located } else { "custom endpoint" }.to_owned();
-        if !api_key_env.is_empty() {
-            status = if env_set { "Env" } else { unstored_status };
-            detail = api_key_env.clone();
-        }
-        if keyless {
-            status = if configured_enabled { "Keyless" } else { "Off" };
-            detail = "no API key required".into();
-        }
-        let key_authenticated = if api_key_env.is_empty() { stored } else { env_set };
-        let mut row = Obj::new();
-        row.insert("id".into(), json!(id));
-        for key in ["name", "protocol", "baseURL"] {
-            if let Some(value) = entry.get(key) {
-                row.insert(key.into(), value.clone());
-            }
-        }
-        row.insert("models".into(), json!(config.as_ref().map(|c| public_rows(&manual_rows(c))).unwrap_or_default()));
-        row.insert("custom".into(), json!(true));
-        row.insert("group".into(), json!("api"));
-        row.insert("type".into(), json!("api-key"));
-        row.insert("enabled".into(), json!(configured_enabled));
-        row.insert("authenticated".into(), json!(keyless || key_authenticated));
-        row.insert("stored".into(), json!(stored));
-        row.insert("env".into(), json!(env_set));
-        row.insert("envName".into(), if api_key_env.is_empty() { Value::Null } else { json!(api_key_env) });
-        row.insert("status".into(), json!(status));
-        row.insert("detail".into(), json!(detail));
-        if !api_key_env.is_empty() {
-            row.insert("apiKeyEnv".into(), json!(api_key_env));
-        }
-        let from = |key: &str| config.as_ref().and_then(|c| c.get(key)).or_else(|| entry.get(key));
-        if let Some(version) = from("schemaVersion") {
-            row.insert("schemaVersion".into(), version.clone());
-        }
-        row.insert("auth".into(), json!(if keyless { "none" } else { "key" }));
-        row.insert("discovery".into(), from("discovery").cloned().unwrap_or_else(|| json!({ "newModelsHidden": false })));
-        row.insert("modelOverrides".into(), from("modelOverrides").cloned().unwrap_or_else(|| json!({})));
-        for key in ["headers", "requestBody", "wires", "modelWires"] {
-            if let Some(value) = config.as_ref().and_then(|c| c.get(key)) {
-                row.insert(key.into(), value.clone());
-            }
-        }
-        // Additional API keys by id only; their values never leave the keychain.
-        let extra = if keyless { Vec::new() } else { self.key_ids_of(id).await? };
-        if !extra.is_empty() {
-            row.insert("extraApiKeys".into(), json!(extra.iter().map(|key| json!({ "id": key })).collect::<Vec<_>>()));
-        }
-        // A stored config that does not normalize cannot run: say so instead of listing it as connected.
-        if let Some(error) = config_error {
-            row.insert("configError".into(), json!(error));
-            row.insert("status".into(), json!("Invalid config"));
-            row.insert("detail".into(), json!(error));
-            row.insert("usable".into(), json!(false));
-            row.insert("ready".into(), json!(false));
-            row.insert("authenticated".into(), json!(false));
-        }
-        Ok(Value::Object(row))
+        let fallback = self.vault.is_fallback(&account).await.map_err(vault_failure)?;
+        let keyless = is_keyless(normalize(entry).ok().as_ref(), entry);
+        let key_ids = if keyless { Vec::new() } else { self.key_ids_of(id).await? };
+        let facts = Prefetched { account, stored, fallback, key_ids, env: Arc::clone(&self.env) };
+        Ok(custom_provider_row(&facts, id, entry, true))
     }
+}
+
+/// What a custom provider's row reads of the process: the environment, the keychain and the key roster.
+pub trait CustomFacts: Send + Sync {
+    /// `process.env[name]`.
+    fn env(&self, name: &str) -> Option<String>;
+    /// `hasStoredSecret(account)`.
+    fn has_stored_secret(&self, account: &str) -> bool;
+    /// `isFallbackSecret(account)`: the secret is in the private file, not the keychain.
+    fn is_fallback_secret(&self, account: &str) -> bool;
+    /// `customProviderKeyIds(id)`: the additional API key ids, in use order.
+    fn custom_key_ids(&self, id: &str) -> Vec<String>;
+}
+
+/// The vault's answers for one provider, read before the row is built.
+struct Prefetched {
+    account: String,
+    stored: bool,
+    fallback: bool,
+    key_ids: Vec<String>,
+    env: Arc<dyn Environment>,
+}
+
+impl CustomFacts for Prefetched {
+    fn env(&self, name: &str) -> Option<String> {
+        self.env.var(name)
+    }
+    fn has_stored_secret(&self, account: &str) -> bool {
+        account == self.account && self.stored
+    }
+    fn is_fallback_secret(&self, account: &str) -> bool {
+        account == self.account && self.fallback
+    }
+    fn custom_key_ids(&self, _: &str) -> Vec<String> {
+        self.key_ids.clone()
+    }
+}
+
+/// `(config?.auth ?? entry.auth) === 'none'`.
+fn is_keyless(config: Option<&Value>, entry: &Value) -> bool {
+    config.and_then(|c| c.get("auth")).or_else(|| entry.get("auth")).and_then(Value::as_str) == Some("none")
+}
+
+/// `customProviderRow(id, entry, checkSecrets)`: the secret-free public view of a custom provider,
+/// always in the v2 shape. `models` are the rows known without network I/O (manual models with
+/// their overrides). With `check_secrets` false the keychain is not read: nothing is stored, and a
+/// keyed provider counts as authenticated when it is enabled.
+pub fn custom_provider_row<F: CustomFacts + ?Sized>(facts: &F, id: &str, entry: &Value, check_secrets: bool) -> Value {
+    let (config, config_error) = match normalize(entry) {
+        Ok(config) => (Some(config), None),
+        Err(message) => (None, Some(message.strip_prefix("[custom-provider] ").unwrap_or(&message).to_owned())),
+    };
+    let configured_enabled = entry.get("enabled") != Some(&Value::Bool(false));
+    let keyless = is_keyless(config.as_ref(), entry);
+    let api_key_env = if keyless {
+        String::new()
+    } else {
+        config.as_ref().and_then(|c| c.get("apiKeyEnv")).and_then(Value::as_str).unwrap_or_default().to_owned()
+    };
+    let env_set = !api_key_env.is_empty() && facts.env(&api_key_env).is_some_and(|value| !value.is_empty());
+    let account = api_key_account(id);
+    let stored = check_secrets && facts.has_stored_secret(&account);
+    let unstored_status = if configured_enabled { "No Key" } else { "Off" };
+    let mut status = if stored { "Set" } else { unstored_status };
+    let located = if facts.is_fallback_secret(&account) { "stored in private file" } else { "stored in keychain" };
+    let mut detail = if stored { located } else { "custom endpoint" }.to_owned();
+    if !api_key_env.is_empty() {
+        status = if env_set { "Env" } else { unstored_status };
+        detail = api_key_env.clone();
+    }
+    if keyless {
+        status = if configured_enabled { "Keyless" } else { "Off" };
+        detail = "no API key required".into();
+    }
+    let key_authenticated = if !api_key_env.is_empty() {
+        env_set
+    } else if check_secrets {
+        stored
+    } else {
+        configured_enabled
+    };
+    let mut row = Obj::new();
+    row.insert("id".into(), json!(id));
+    for key in ["name", "protocol", "baseURL"] {
+        if let Some(value) = entry.get(key) {
+            row.insert(key.into(), value.clone());
+        }
+    }
+    row.insert("models".into(), json!(config.as_ref().map(|c| public_rows(&manual_rows(c))).unwrap_or_default()));
+    row.insert("custom".into(), json!(true));
+    row.insert("group".into(), json!("api"));
+    row.insert("type".into(), json!("api-key"));
+    row.insert("enabled".into(), json!(configured_enabled));
+    row.insert("authenticated".into(), json!(keyless || key_authenticated));
+    row.insert("stored".into(), json!(stored));
+    row.insert("env".into(), json!(env_set));
+    row.insert("envName".into(), if api_key_env.is_empty() { Value::Null } else { json!(api_key_env) });
+    row.insert("status".into(), json!(status));
+    row.insert("detail".into(), json!(detail));
+    if !api_key_env.is_empty() {
+        row.insert("apiKeyEnv".into(), json!(api_key_env));
+    }
+    let from = |key: &str| config.as_ref().and_then(|c| c.get(key)).or_else(|| entry.get(key));
+    if let Some(version) = from("schemaVersion") {
+        row.insert("schemaVersion".into(), version.clone());
+    }
+    row.insert("auth".into(), json!(if keyless { "none" } else { "key" }));
+    row.insert("discovery".into(), from("discovery").cloned().unwrap_or_else(|| json!({ "newModelsHidden": false })));
+    row.insert("modelOverrides".into(), from("modelOverrides").cloned().unwrap_or_else(|| json!({})));
+    for key in ["headers", "requestBody", "wires", "modelWires"] {
+        if let Some(value) = config.as_ref().and_then(|c| c.get(key)) {
+            row.insert(key.into(), value.clone());
+        }
+    }
+    // Additional API keys by id only; their values never leave the keychain.
+    let extra = if keyless { Vec::new() } else { facts.custom_key_ids(id) };
+    if !extra.is_empty() {
+        row.insert("extraApiKeys".into(), json!(extra.iter().map(|key| json!({ "id": key })).collect::<Vec<_>>()));
+    }
+    // A stored config that does not normalize cannot run: say so instead of listing it as connected.
+    if let Some(error) = config_error {
+        row.insert("configError".into(), json!(error));
+        row.insert("status".into(), json!("Invalid config"));
+        row.insert("detail".into(), json!(error));
+        row.insert("usable".into(), json!(false));
+        row.insert("ready".into(), json!(false));
+        row.insert("authenticated".into(), json!(false));
+    }
+
+Value::Object(row)
+}
+
+/// `customProviderRows(providers, checkSecrets)`: the rows of the stored custom providers, in
+/// config order; an entry whose id is not a generated custom id, or that is not a custom config, is
+/// not one.
+pub fn custom_provider_rows<F: CustomFacts + ?Sized>(facts: &F, providers: &Map<String, Value>, check_secrets: bool) -> Vec<Value> {
+    providers
+        .iter()
+        .filter(|(id, entry)| is_custom_id(id) && is_custom_entry(Some(entry)))
+        .map(|(id, entry)| custom_provider_row(facts, id, entry, check_secrets))
+        .collect()
 }
 
 /// One custom provider built from a resolved input, probed by `CustomProbes`.
@@ -592,10 +666,8 @@ impl AccountSender<Option<String>> for KeyEngines {
     /// One key's send through the shared broker: the retry rules every request follows.
     async fn send(&self, account: &str, _scoped: bool) -> Result<Option<String>, Failed> {
         let engine = self.engine(account).await.map_err(Failed::new)?;
-        let lane = self
-            .broker
-            .admission()
-            .lane(&LaneKey::new(ProviderId::from(self.id.as_str()), account), LaneSettings::default());
+        let key = LaneKey::new(ProviderId::from(self.id.as_str()), account);
+        let lane = self.broker.admission().lane(&key, process_lane_settings()(&key));
         let send = SendRequest { request: self.request.clone(), lane, admission: AdmissionRequest::default() };
         match self.broker.send(engine.as_ref(), send, &mut Discard, &CancellationToken::new()).await {
             Ok(_) => Ok(None),

@@ -1,0 +1,1302 @@
+{
+  "domain": "media-image-api-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-media-image-api.mjs",
+  "scenarios": [
+    {
+      "name": "openrouter-b64",
+      "lane": "openrouter",
+      "model": "google/gemini-image",
+      "prompt": "a cat",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "json": {
+          "data": [
+            {
+              "b64_json": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAACAAEA//8DAAAGAAVXv6vUAAAAAElFTkSuQmCC",
+              "revised_prompt": "a cute cat"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 5,
+            "completion_tokens": 1290,
+            "completion_tokens_details": {
+              "image_tokens": 1290
+            },
+            "cost": 0.039
+          }
+        }
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"google/gemini-image\",\"prompt\":\"a cat\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c6360000002000100ffff03000006000557bfabd40000000049454e44ae426082",
+        "mime": "image/png",
+        "revisedPrompt": "a cute cat",
+        "usage": {
+          "inputTokens": 5,
+          "outputTokens": 1290,
+          "outputImageTokens": 1290,
+          "costUsd": 0.039
+        }
+      }
+    },
+    {
+      "name": "nano-b64-xno-cost",
+      "lane": "nano-gpt",
+      "model": "flux",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "ng-key-1",
+        "baseURL": "https://api.nano-gpt.com/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "json": {
+          "data": [
+            {
+              "b64_json": "/9j/4AAQSkZJRg=="
+            }
+          ],
+          "cost": 0.5,
+          "paymentSource": "XNO"
+        }
+      },
+      "sent": [
+        {
+          "url": "https://api.nano-gpt.com/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer ng-key-1"
+          },
+          "body": "{\"model\":\"flux\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "value": {
+        "bytes": "ffd8ffe000104a464946",
+        "mime": "image/jpeg",
+        "revisedPrompt": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "nano-b64-usd-cost",
+      "lane": "nano-gpt",
+      "model": "flux",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "ng-key-1",
+        "baseURL": "https://api.nano-gpt.com/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "json": {
+          "data": [
+            {
+              "b64_json": "UklGRgAAAABXRUJQAAAAAA=="
+            }
+          ],
+          "cost": 0.5,
+          "paymentSource": "USD"
+        }
+      },
+      "sent": [
+        {
+          "url": "https://api.nano-gpt.com/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer ng-key-1"
+          },
+          "body": "{\"model\":\"flux\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "value": {
+        "bytes": "52494646000000005745425000000000",
+        "mime": "image/webp",
+        "revisedPrompt": null,
+        "usage": {
+          "costUsd": 0.5
+        }
+      }
+    },
+    {
+      "name": "options-all",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": {
+        "aspectRatio": " 16:9 ",
+        "resolution": "2K",
+        "quality": "high",
+        "background": "transparent",
+        "ignored": "x"
+      },
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "json": {
+          "data": [
+            {
+              "b64_json": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAACAAEA//8DAAAGAAVXv6vUAAAAAElFTkSuQmCC"
+            }
+          ]
+        }
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1,\"aspect_ratio\":\"16:9\",\"resolution\":\"2K\",\"quality\":\"high\",\"background\":\"transparent\"}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c6360000002000100ffff03000006000557bfabd40000000049454e44ae426082",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "options-blank",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": {
+        "aspectRatio": "   ",
+        "resolution": "",
+        "quality": null,
+        "background": 0
+      },
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "json": {
+          "data": [
+            {
+              "b64_json": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAACAAEA//8DAAAGAAVXv6vUAAAAAElFTkSuQmCC"
+            }
+          ]
+        }
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c6360000002000100ffff03000006000557bfabd40000000049454e44ae426082",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "options-numbers",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": {
+        "resolution": 2,
+        "quality": true
+      },
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "json": {
+          "data": [
+            {
+              "b64_json": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAACAAEA//8DAAAGAAVXv6vUAAAAAElFTkSuQmCC"
+            }
+          ]
+        }
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1,\"resolution\":\"2\",\"quality\":\"true\"}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c6360000002000100ffff03000006000557bfabd40000000049454e44ae426082",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "references",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [
+        {
+          "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAACAAEA//8DAAAGAAVXv6vUAAAAAElFTkSuQmCC",
+          "mime": "image/png"
+        },
+        {
+          "base64": "data:image/jpeg;base64,/9j/",
+          "mime": "image/png"
+        },
+        {
+          "base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAACAAEA//8DAAAGAAVXv6vUAAAAAElFTkSuQmCC"
+        },
+        {
+          "base64": "",
+          "mime": "image/webp"
+        },
+        {}
+      ],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "json": {
+          "data": [
+            {
+              "b64_json": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAACAAEA//8DAAAGAAVXv6vUAAAAAElFTkSuQmCC"
+            }
+          ]
+        }
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1,\"input_references\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAACAAEA//8DAAAGAAVXv6vUAAAAAElFTkSuQmCC\"}},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/jpeg;base64,/9j/\"}},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAACAAEA//8DAAAGAAVXv6vUAAAAAElFTkSuQmCC\"}},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/webp;base64,\"}},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,\"}}]}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c6360000002000100ffff03000006000557bfabd40000000049454e44ae426082",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "unicode-prompt",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "고양이 🐈 \"quoted\" \\ line\nbreak",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "json": {
+          "data": [
+            {
+              "b64_json": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAACAAEA//8DAAAGAAVXv6vUAAAAAElFTkSuQmCC"
+            }
+          ]
+        }
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"고양이 🐈 \\\"quoted\\\" \\\\ line\\nbreak\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c6360000002000100ffff03000006000557bfabd40000000049454e44ae426082",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "unsupported-format",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "json": {
+          "data": [
+            {
+              "b64_json": "R0lGODlhAQABAA=="
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 3,
+            "cost": 0.01
+          }
+        }
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "OpenRouter image returned an unsupported image format",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": {
+          "inputTokens": 3,
+          "costUsd": 0.01
+        }
+      }
+    },
+    {
+      "name": "unsupported-no-usage",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "json": {
+          "data": [
+            {
+              "b64_json": "R0lGODlhAQABAA=="
+            }
+          ]
+        }
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "OpenRouter image returned an unsupported image format",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "short-bytes",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "json": {
+          "data": [
+            {
+              "b64_json": "iVBORw=="
+            }
+          ]
+        }
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "OpenRouter image returned an unsupported image format",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "bad-b64",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "json": {
+          "data": [
+            {
+              "b64_json": "!!!"
+            }
+          ],
+          "usage": {
+            "completion_tokens": 4
+          }
+        }
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "OpenRouter image exceeds the media size limit",
+        "code": "MEDIA_RESULT_TOO_LARGE",
+        "status": 502,
+        "usage": {
+          "outputTokens": 4
+        }
+      }
+    },
+    {
+      "name": "no-data",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "json": {
+          "data": [],
+          "usage": {
+            "prompt_tokens": 9
+          }
+        }
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "OpenRouter image returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": {
+          "inputTokens": 9
+        }
+      }
+    },
+    {
+      "name": "data-not-array",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "json": {
+          "data": {
+            "b64_json": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAACAAEA//8DAAAGAAVXv6vUAAAAAElFTkSuQmCC"
+          }
+        }
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "OpenRouter image returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "entry-empty",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "json": {
+          "data": [
+            {}
+          ]
+        }
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "OpenRouter image returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "entry-null",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "json": {
+          "data": [
+            null
+          ]
+        }
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "OpenRouter image returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "body-not-json",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "text": "oops"
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "OpenRouter image returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "body-null",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "text": "null"
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "OpenRouter image returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "url-private",
+      "lane": "nano-gpt",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "ng-key-1",
+        "baseURL": "https://api.nano-gpt.com/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "json": {
+          "data": [
+            {
+              "url": "http://127.0.0.1/a.png"
+            }
+          ],
+          "cost": 0.2,
+          "paymentSource": "USD"
+        }
+      },
+      "sent": [
+        {
+          "url": "https://api.nano-gpt.com/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer ng-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null,
+        "status": null,
+        "usage": {
+          "costUsd": 0.2
+        }
+      }
+    },
+    {
+      "name": "url-metadata",
+      "lane": "nano-gpt",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "ng-key-1",
+        "baseURL": "https://api.nano-gpt.com/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "json": {
+          "data": [
+            {
+              "url": "http://169.254.169.254/x"
+            }
+          ]
+        }
+      },
+      "sent": [
+        {
+          "url": "https://api.nano-gpt.com/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer ng-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "Blocked request to private address: 169.254.169.254",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "b64-wins-over-url",
+      "lane": "nano-gpt",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "ng-key-1",
+        "baseURL": "https://api.nano-gpt.com/api/v1"
+      },
+      "reply": {
+        "status": 200,
+        "json": {
+          "data": [
+            {
+              "b64_json": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAACAAEA//8DAAAGAAVXv6vUAAAAAElFTkSuQmCC",
+              "url": "http://127.0.0.1/a.png"
+            }
+          ]
+        }
+      },
+      "sent": [
+        {
+          "url": "https://api.nano-gpt.com/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer ng-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c6360000002000100ffff03000006000557bfabd40000000049454e44ae426082",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "http-401",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 401,
+        "text": "{\"error\":{\"message\":\"bad key\"}}"
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "OpenRouter image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401,
+        "usage": null
+      }
+    },
+    {
+      "name": "http-402",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 402,
+        "text": "{\"error\":{\"message\":\"Insufficient credits\"}}"
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "OpenRouter image: account has no usable balance — Insufficient credits",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402,
+        "usage": null
+      }
+    },
+    {
+      "name": "http-429",
+      "lane": "nano-gpt",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "ng-key-1",
+        "baseURL": "https://api.nano-gpt.com/api/v1"
+      },
+      "reply": {
+        "status": 429,
+        "text": "slow down"
+      },
+      "sent": [
+        {
+          "url": "https://api.nano-gpt.com/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer ng-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "NanoGPT image: rate limited — retry in a moment",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429,
+        "usage": null
+      }
+    },
+    {
+      "name": "http-500-html",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 500,
+        "text": "<html>bad gateway</html>"
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "OpenRouter image failed (500)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500,
+        "usage": null
+      }
+    },
+    {
+      "name": "http-500-long",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "status": 500,
+        "text": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "OpenRouter image failed (500): éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500,
+        "usage": null
+      }
+    },
+    {
+      "name": "http-400-json",
+      "lane": "nano-gpt",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "ng-key-1",
+        "baseURL": "https://api.nano-gpt.com/api/v1"
+      },
+      "reply": {
+        "status": 400,
+        "text": "{\"message\":\"prompt rejected\"}"
+      },
+      "sent": [
+        {
+          "url": "https://api.nano-gpt.com/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer ng-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "NanoGPT image failed (400): prompt rejected",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 400,
+        "usage": null
+      }
+    },
+    {
+      "name": "redirect",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "fail": "fetch failed"
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "fetch failed",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "timeout",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "fail": "The operation was aborted due to timeout",
+        "name": "TimeoutError"
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "OpenRouter image timed out",
+        "code": "MEDIA_TIMEOUT",
+        "status": 504,
+        "usage": null
+      }
+    },
+    {
+      "name": "timeout-nano",
+      "lane": "nano-gpt",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "ng-key-1",
+        "baseURL": "https://api.nano-gpt.com/api/v1"
+      },
+      "reply": {
+        "fail": "The operation was aborted due to timeout",
+        "name": "TimeoutError"
+      },
+      "sent": [
+        {
+          "url": "https://api.nano-gpt.com/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer ng-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "NanoGPT image timed out",
+        "code": "MEDIA_TIMEOUT",
+        "status": 504,
+        "usage": null
+      }
+    },
+    {
+      "name": "aborted",
+      "lane": "openrouter",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "or-key-1",
+        "baseURL": "https://openrouter.ai/api/v1"
+      },
+      "reply": {
+        "fail": "This operation was aborted",
+        "name": "AbortError"
+      },
+      "sent": [
+        {
+          "url": "https://openrouter.ai/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer or-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "This operation was aborted",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "unknown-lane-label",
+      "lane": "nano-gpt",
+      "model": "m",
+      "prompt": "p",
+      "options": null,
+      "references": [],
+      "auth": {
+        "token": "ng-key-1",
+        "baseURL": "https://api.nano-gpt.com/api/v1"
+      },
+      "reply": {
+        "status": 503,
+        "text": ""
+      },
+      "sent": [
+        {
+          "url": "https://api.nano-gpt.com/api/v1/images",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer ng-key-1"
+          },
+          "body": "{\"model\":\"m\",\"prompt\":\"p\",\"n\":1}",
+          "redirect": "error",
+          "timeout": true
+        }
+      ],
+      "error": {
+        "message": "NanoGPT image failed (503)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 503,
+        "usage": null
+      }
+    }
+  ]
+}

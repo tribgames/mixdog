@@ -138,6 +138,27 @@ async fn stop_cancels_the_held_relays_the_next_request_and_leaves_the_running_tu
 }
 
 #[tokio::test]
+async fn relays_held_back_when_a_save_fails_end_failed_with_the_error_and_the_running_turn_goes_on() {
+    let runner = Arc::new(Fake::default());
+    runner.holds.store(1, Ordering::SeqCst);
+    let calls = scheduler(&runner);
+    let (running, running_settled) = relay("bench", "awake_1");
+    calls.relay_when_idle("room01", running);
+    runner.entered.notified().await;
+    let (held, held_settled) = relay("lead", "awake_2");
+    let seen = held.clone();
+    calls.relay_when_idle("room01", held);
+    calls.fail_relays("room02", "elsewhere");
+    assert!(!seen.is_settled(), "another room's failure touches nothing");
+    calls.fail_relays("room01", "disk full");
+    assert_eq!(status(held_settled).await, "failed");
+    assert_eq!(seen.detail().and_then(|detail| detail.error).as_deref(), Some("disk full"));
+    runner.release.notify_one();
+    assert_eq!(status(running_settled).await, "done");
+    assert_eq!(runner.seen.lock().unwrap().len(), 1, "the failed relay never ran");
+}
+
+#[tokio::test]
 async fn a_member_that_left_has_what_is_owed_to_it_cancelled() {
     let runner = Arc::new(Fake::default());
     runner.holds.store(1, Ordering::SeqCst);
@@ -170,6 +191,27 @@ async fn an_exchange_that_fails_ends_its_calls_failed_and_the_room_is_free_again
     calls.relay_when_idle("room01", again);
     assert_eq!(status(again_settled).await, "done");
     assert!(!calls.is_running("room01"));
+}
+
+#[tokio::test]
+async fn a_failed_exchange_is_logged_with_nodes_text_and_ends_so_the_room_runs_again() {
+    // Node `start`: `log(`room ${roomId} exchange failed: ${message}`)`, the calls fail, the room is free.
+    mixdog_rt::testing::tokens();
+    let runner = Arc::new(Fake::default());
+    runner.fail.store(true, Ordering::SeqCst);
+    let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+    let sink = lines.clone();
+    let calls = RoomCalls::new(runner.clone(), Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_owned())));
+    let (call, settled) = relay("bench", "awake_1");
+    calls.relay_when_idle("room01", call);
+    assert_eq!(status(settled).await, "failed");
+    assert_eq!(*lines.lock().unwrap(), ["room room01 exchange failed: the room could not be saved"]);
+    assert!(!calls.is_running("room01"));
+    runner.fail.store(false, Ordering::SeqCst);
+    let (again, again_settled) = relay("bench", "awake_2");
+    calls.relay_when_idle("room01", again);
+    assert_eq!(status(again_settled).await, "done");
+    assert_eq!(lines.lock().unwrap().len(), 1, "a good exchange logs nothing");
 }
 
 #[test]

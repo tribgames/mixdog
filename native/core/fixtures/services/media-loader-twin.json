@@ -1,0 +1,1697 @@
+{
+  "domain": "media-loader-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-media-loader.mjs",
+  "clock": 1700000000000,
+  "targets": {
+    "a": {
+      "key": "a-key",
+      "revision": "r1"
+    },
+    "b": {
+      "key": "b-key",
+      "revision": "r1"
+    },
+    "c": {
+      "key": "c-key",
+      "revision": "r1"
+    },
+    "d": {
+      "key": "d-key",
+      "revision": "r1"
+    },
+    "f": {
+      "key": "f-key",
+      "revision": "r1",
+      "cache": false
+    },
+    "e": {
+      "error": {
+        "code": "MEDIA_LANE_UNAUTHENTICATED"
+      }
+    }
+  },
+  "steps": [
+    {
+      "step": {
+        "op": "script",
+        "lane": "a",
+        "results": [
+          {
+            "rows": [
+              {
+                "id": "x"
+              }
+            ]
+          }
+        ]
+      },
+      "result": null,
+      "fetches": [],
+      "saves": []
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "a"
+      },
+      "result": {
+        "rows": [
+          {
+            "id": "x"
+          }
+        ],
+        "warning": null
+      },
+      "fetches": [
+        "a"
+      ],
+      "saves": [
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "a"
+      },
+      "result": {
+        "rows": [
+          {
+            "id": "x"
+          }
+        ],
+        "warning": null
+      },
+      "fetches": [
+        "a"
+      ],
+      "saves": [
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "expire",
+        "key": "a-key"
+      },
+      "result": null,
+      "fetches": [
+        "a"
+      ],
+      "saves": [
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "script",
+        "lane": "a",
+        "results": [
+          {
+            "error": {
+              "code": "MEDIA_CATALOG_TIMEOUT"
+            }
+          }
+        ]
+      },
+      "result": null,
+      "fetches": [
+        "a"
+      ],
+      "saves": [
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "a"
+      },
+      "result": {
+        "rows": [
+          {
+            "id": "x"
+          }
+        ],
+        "warning": "Using the last successful model catalog. Model catalog request timed out. Retry after checking the connection."
+      },
+      "fetches": [
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "a"
+      },
+      "result": {
+        "rows": [
+          {
+            "id": "x"
+          }
+        ],
+        "warning": "Using the last successful model catalog. Model catalog request timed out. Retry after checking the connection."
+      },
+      "fetches": [
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "tick",
+        "ms": 59999
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "a"
+      },
+      "result": {
+        "rows": [
+          {
+            "id": "x"
+          }
+        ],
+        "warning": "Using the last successful model catalog. Model catalog request timed out. Retry after checking the connection."
+      },
+      "fetches": [
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "tick",
+        "ms": 2
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "script",
+        "lane": "a",
+        "results": [
+          {
+            "rows": [
+              {
+                "id": "y"
+              },
+              {
+                "id": "z"
+              }
+            ]
+          }
+        ]
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "a"
+      },
+      "result": {
+        "rows": [
+          {
+            "id": "y"
+          },
+          {
+            "id": "z"
+          }
+        ],
+        "warning": null
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "a"
+      },
+      "result": {
+        "rows": [
+          {
+            "id": "y"
+          },
+          {
+            "id": "z"
+          }
+        ],
+        "warning": null
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "expire",
+        "key": "a-key"
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "script",
+        "lane": "a",
+        "results": [
+          {
+            "error": {
+              "code": "MEDIA_AUTH_REJECTED"
+            }
+          }
+        ]
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "a"
+      },
+      "result": {
+        "error": {
+          "code": "MEDIA_AUTH_REJECTED",
+          "timedOut": false
+        }
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "script",
+        "lane": "a",
+        "results": [
+          {
+            "error": {
+              "code": "MEDIA_ACCESS_DENIED"
+            }
+          }
+        ]
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "a"
+      },
+      "result": {
+        "error": {
+          "code": "MEDIA_ACCESS_DENIED",
+          "timedOut": false
+        }
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "script",
+        "lane": "a",
+        "results": [
+          {
+            "error": {
+              "code": "MEDIA_BILLING_BLOCKED"
+            }
+          }
+        ]
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "a"
+      },
+      "result": {
+        "error": {
+          "code": "MEDIA_BILLING_BLOCKED",
+          "timedOut": false
+        }
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "script",
+        "lane": "a",
+        "results": [
+          {
+            "error": {
+              "name": "TimeoutError"
+            }
+          }
+        ]
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "a"
+      },
+      "result": {
+        "rows": [
+          {
+            "id": "y"
+          },
+          {
+            "id": "z"
+          }
+        ],
+        "warning": "Using the last successful model catalog. Model catalog request timed out. Retry after checking the connection."
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "tick",
+        "ms": 61000
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "script",
+        "lane": "a",
+        "results": [
+          {
+            "error": {
+              "code": "MEDIA_RATE_LIMITED"
+            }
+          }
+        ]
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "a"
+      },
+      "result": {
+        "rows": [
+          {
+            "id": "y"
+          },
+          {
+            "id": "z"
+          }
+        ],
+        "warning": "Using the last successful model catalog. Too many requests. Wait a moment and retry."
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "unexpire",
+        "key": "a-key"
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "a"
+      },
+      "result": {
+        "rows": [
+          {
+            "id": "y"
+          },
+          {
+            "id": "z"
+          }
+        ],
+        "warning": "Using the last successful model catalog. Too many requests. Wait a moment and retry."
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "revision",
+        "lane": "a",
+        "revision": "r2"
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "script",
+        "lane": "a",
+        "results": [
+          {
+            "rows": [
+              {
+                "id": "w"
+              }
+            ]
+          }
+        ]
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "a"
+      },
+      "result": {
+        "rows": [
+          {
+            "id": "w"
+          }
+        ],
+        "warning": null
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "a"
+      },
+      "result": {
+        "rows": [
+          {
+            "id": "w"
+          }
+        ],
+        "warning": null
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "expire",
+        "key": "a-key"
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "script",
+        "lane": "a",
+        "results": [
+          {
+            "error": {
+              "code": "MEDIA_CATALOG_UNAVAILABLE"
+            }
+          }
+        ]
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "a"
+      },
+      "result": {
+        "rows": [
+          {
+            "id": "w"
+          }
+        ],
+        "warning": "Using the last successful model catalog. Model catalog unavailable. Retry after checking the provider connection."
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "revision",
+        "lane": "a",
+        "revision": "r3"
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "script",
+        "lane": "a",
+        "results": [
+          {
+            "rows": [
+              {
+                "id": "v"
+              }
+            ]
+          }
+        ]
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "a"
+      },
+      "result": {
+        "rows": [
+          {
+            "id": "v"
+          }
+        ],
+        "warning": null
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "script",
+        "lane": "b",
+        "results": [
+          {
+            "error": {
+              "message": "down"
+            }
+          }
+        ]
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "b"
+      },
+      "result": {
+        "error": {
+          "code": null,
+          "timedOut": false
+        }
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "script",
+        "lane": "b",
+        "results": [
+          {
+            "rows": []
+          }
+        ]
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "b"
+      },
+      "result": {
+        "rows": [],
+        "warning": null
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "b"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key",
+        "b-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "expire",
+        "key": "b-key"
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "b"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key",
+        "b-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "script",
+        "lane": "b",
+        "results": [
+          {
+            "error": {
+              "message": "down"
+            }
+          }
+        ]
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "b"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key",
+        "b-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "b"
+      },
+      "result": {
+        "rows": [],
+        "warning": "Using the last successful model catalog. Model catalog unavailable. Retry after checking the provider connection."
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "b",
+        "b"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key",
+        "b-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "script",
+        "lane": "c",
+        "results": [
+          {
+            "rows": [
+              {
+                "id": "c1"
+              }
+            ]
+          }
+        ]
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "b",
+        "b"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key",
+        "b-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load-many",
+        "lane": "c",
+        "count": 3
+      },
+      "result": [
+        {
+          "rows": [
+            {
+              "id": "c1"
+            }
+          ],
+          "warning": null
+        },
+        {
+          "rows": [
+            {
+              "id": "c1"
+            }
+          ],
+          "warning": null
+        },
+        {
+          "rows": [
+            {
+              "id": "c1"
+            }
+          ],
+          "warning": null
+        }
+      ],
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "b",
+        "b",
+        "c"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key",
+        "b-key",
+        "c-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "script",
+        "lane": "d",
+        "results": [
+          {
+            "notArray": true
+          }
+        ]
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "b",
+        "b",
+        "c"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key",
+        "b-key",
+        "c-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "d"
+      },
+      "result": {
+        "error": {
+          "code": null,
+          "timedOut": false
+        }
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "b",
+        "b",
+        "c",
+        "d"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key",
+        "b-key",
+        "c-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "script",
+        "lane": "d",
+        "results": [
+          {
+            "rows": [
+              {
+                "id": "d1"
+              }
+            ]
+          }
+        ]
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "b",
+        "b",
+        "c",
+        "d"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key",
+        "b-key",
+        "c-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "expire",
+        "key": "d-key"
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "b",
+        "b",
+        "c",
+        "d"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key",
+        "b-key",
+        "c-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "script",
+        "lane": "d",
+        "results": [
+          {
+            "notArray": true
+          }
+        ]
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "b",
+        "b",
+        "c",
+        "d"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key",
+        "b-key",
+        "c-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "d"
+      },
+      "result": {
+        "error": {
+          "code": null,
+          "timedOut": false
+        }
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "b",
+        "b",
+        "c",
+        "d",
+        "d"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key",
+        "b-key",
+        "c-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "e"
+      },
+      "result": {
+        "error": {
+          "code": "MEDIA_LANE_UNAUTHENTICATED",
+          "timedOut": false
+        }
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "b",
+        "b",
+        "c",
+        "d",
+        "d"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key",
+        "b-key",
+        "c-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "script",
+        "lane": "f",
+        "results": [
+          {
+            "rows": [
+              {
+                "id": "f1"
+              }
+            ]
+          },
+          {
+            "rows": [
+              {
+                "id": "f2"
+              }
+            ]
+          },
+          {
+            "error": {
+              "code": "MEDIA_CATALOG_TIMEOUT"
+            }
+          }
+        ]
+      },
+      "result": null,
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "b",
+        "b",
+        "c",
+        "d",
+        "d"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key",
+        "b-key",
+        "c-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "f"
+      },
+      "result": {
+        "rows": [
+          {
+            "id": "f1"
+          }
+        ],
+        "warning": null
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "b",
+        "b",
+        "c",
+        "d",
+        "d",
+        "f"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key",
+        "b-key",
+        "c-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "f"
+      },
+      "result": {
+        "rows": [
+          {
+            "id": "f2"
+          }
+        ],
+        "warning": null
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "b",
+        "b",
+        "c",
+        "d",
+        "d",
+        "f",
+        "f"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key",
+        "b-key",
+        "c-key"
+      ]
+    },
+    {
+      "step": {
+        "op": "load",
+        "lane": "f"
+      },
+      "result": {
+        "error": {
+          "code": "MEDIA_CATALOG_TIMEOUT",
+          "timedOut": false
+        }
+      },
+      "fetches": [
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "a",
+        "b",
+        "b",
+        "b",
+        "c",
+        "d",
+        "d",
+        "f",
+        "f",
+        "f"
+      ],
+      "saves": [
+        "a-key",
+        "a-key",
+        "a-key",
+        "a-key",
+        "b-key",
+        "c-key"
+      ]
+    }
+  ]
+}

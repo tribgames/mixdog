@@ -184,13 +184,17 @@ impl RawEmbedFlush {
             let ids = match self.claim_roots(&client, cursor).await {
                 Ok(ids) => ids,
                 Err(error) => {
-                    let _ = client.batch_execute("ROLLBACK").await;
+                    let rollback = client.batch_execute("ROLLBACK").await;
                     destroy(client);
                     if cancel.is_cancelled() {
                         return Err(FlushFailure::Cancelled);
                     }
                     tracing::warn!(%error, "[embed] flush SKIP LOCKED claim failed");
-                    return Err(error.into());
+                    // `memory-embed.mjs:258-271`: a rollback that fails too is part of the fault's text.
+                    return Err(match rollback {
+                        Err(rollback) => FlushFailure::Store(format!("{error}; rollback failed: {rollback}")),
+                        Ok(()) => error.into(),
+                    });
                 }
             };
             if ids.is_empty() {

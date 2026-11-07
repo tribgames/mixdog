@@ -176,7 +176,13 @@ impl SessionDirectory {
                     if let Some(queued) = queued {
                         let unqueue = OpId::from(format!("{op}:unqueue"));
                         let params = json!({ "threadId": thread, "opId": unqueue, "queuedId": queued, "restore": false });
-                        let _ = handle.request(CoreRequest { method: Method("thread/queue/delete"), params, op: Some(unqueue), ctx }).await;
+                        // Node takes the entry off its in-memory queue (`abortDiscardOnAbort`), which cannot be
+                        // refused; here the actor can refuse it, and a fire left queued would run later with
+                        // nobody waiting. Node logs a failed abort of the started turn the same way
+                        // (`routine-home-turn.mjs:165`).
+                        if let Err(error) = handle.request(CoreRequest { method: Method("thread/queue/delete"), params, op: Some(unqueue), ctx }).await {
+                            tracing::warn!("routine {}: its queued turn was not taken off the queue: {error:?}", turn.id);
+                        }
                     }
                 } else {
                     self.abort_session_turn(&thread, "routine-abort");

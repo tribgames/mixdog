@@ -15,7 +15,7 @@ use super::failure::Failure;
 pub trait OAuthProvider: Send + Sync {
     fn id(&self) -> &'static str;
     /// `describe<Provider>OAuthCredentials()`: `{ authenticated, status, email?, identityId?, ... }`.
-    fn describe(&self, account: &str) -> Value;
+    async fn describe(&self, account: &str) -> Value;
     /// `forget<Provider>OAuthCredentials()`: `{ removed }`.
     async fn forget(&self, account: &str) -> Result<Value, String>;
     /// The interactive login writing `account`'s credential file; `None` when the provider

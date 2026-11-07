@@ -32,7 +32,8 @@ impl RuntimeMemoryControl {
         Self { db, data_dir, snapshot_revision, lane }
     }
 
-    async fn call(&self, args: Value) -> String {
+    /// The `memory` op runner's reply text for `args` (errors included, as text).
+    pub async fn call(&self, args: Value) -> String {
         let ctx = CoreContext {
             db: &self.db,
             data_dir: &self.data_dir,

@@ -53,7 +53,7 @@ impl WorkflowPaths {
 }
 
 /// A pack as the loader reads it.
-pub(crate) struct Pack {
+pub struct Pack {
     pub id: String,
     pub name: String,
     pub description: String,
@@ -143,8 +143,23 @@ fn parse_pack(text: &str, source: &'static str, dir_name: &str) -> Option<Pack> 
     })
 }
 
+/// `workflowSummary(pack, { hasAgents })` of `runtime-core/workflow/context.mjs`: the row a session
+/// records. No pack (not even the shipped default could be read) is the default workflow's row.
+pub fn workflow_summary(pack: Option<&Pack>, has_agents: bool) -> Map<String, Value> {
+    let id = pack.map_or(DEFAULT_WORKFLOW_ID, |pack| pack.id.as_str());
+    let name = js_trim(pack.map_or("", |pack| pack.name.as_str()));
+    let mut summary = Map::new();
+    summary.insert("id".into(), json!(id));
+    summary.insert("name".into(), json!(if !name.is_empty() { name } else if id == DEFAULT_WORKFLOW_ID { "Default" } else { id }));
+    summary.insert("description".into(), json!(js_trim(pack.map_or("", |pack| pack.description.as_str()))));
+    summary.insert("source".into(), json!(js_trim(pack.map_or("", |pack| pack.source))));
+    // Effective session capability, not an editable workflow property.
+    summary.insert("delegatesAgents".into(), json!(has_agents));
+    summary
+}
+
 /// `loadWorkflowPack(dir, id)`: the user copy, then the shipped one, then the shipped default.
-pub(crate) fn load_pack(paths: &WorkflowPaths, id: &str) -> Option<Pack> {
+pub fn load_pack(paths: &WorkflowPaths, id: &str) -> Option<Pack> {
     let wanted = wanted_workflow_id(id);
     let user = paths.data.join("workflows").join(&wanted).join(ENTRY);
     let shipped = paths.root.join("workflows").join(&wanted).join(ENTRY);

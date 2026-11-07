@@ -1,0 +1,126 @@
+{
+  "domain": "media-status-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-media-status.mjs",
+  "cases": [
+    {
+      "name": "empty",
+      "defaults": null,
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":null,\"video\":null},\"remembered\":{\"image\":null,\"video\":null}}",
+      "sameWithDetail": true
+    },
+    {
+      "name": "pin-image",
+      "defaults": "{\n  \"pinned\": {\n    \"image\": {\n      \"lane\": \"xai\",\n      \"model\": \"grok-imagine-image\",\n      \"account\": \"work\"\n    }\n  }\n}\n",
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":{\"lane\":\"xai\",\"model\":\"grok-imagine-image\",\"account\":\"work\"},\"video\":null},\"remembered\":{\"image\":null,\"video\":null}}",
+      "sameWithDetail": true
+    },
+    {
+      "name": "pin-video-lane-default",
+      "defaults": "{\n  \"pinned\": {\n    \"video\": {\n      \"lane\": \"gemini\",\n      \"model\": \"\",\n      \"account\": \"\"\n    }\n  }\n}\n",
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":null,\"video\":{\"lane\":\"gemini\",\"model\":\"\",\"account\":\"\"}},\"remembered\":{\"image\":null,\"video\":null}}",
+      "sameWithDetail": true
+    },
+    {
+      "name": "pin-both",
+      "defaults": "{\n  \"pinned\": {\n    \"image\": {\n      \"lane\": \"openai-oauth\",\n      \"model\": \"gpt-image-2\",\n      \"account\": \"a\"\n    },\n    \"video\": {\n      \"lane\": \"xai\",\n      \"model\": \"grok-imagine-video\",\n      \"account\": \"b\"\n    }\n  }\n}\n",
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":{\"lane\":\"openai-oauth\",\"model\":\"gpt-image-2\",\"account\":\"a\"},\"video\":{\"lane\":\"xai\",\"model\":\"grok-imagine-video\",\"account\":\"b\"}},\"remembered\":{\"image\":null,\"video\":null}}",
+      "sameWithDetail": true
+    },
+    {
+      "name": "remembered-only",
+      "defaults": "{\n  \"image\": {\n    \"lane\": \"gemini\",\n    \"model\": \"gemini-2.5-flash-image\",\n    \"updatedAt\": 1794024109558\n  },\n  \"video\": {\n    \"lane\": \"xai\",\n    \"model\": \"\",\n    \"updatedAt\": 1794024109560\n  }\n}\n",
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":null,\"video\":null},\"remembered\":{\"image\":{\"lane\":\"gemini\",\"model\":\"gemini-2.5-flash-image\"},\"video\":{\"lane\":\"xai\",\"model\":\"\"}}}",
+      "sameWithDetail": true
+    },
+    {
+      "name": "pin-and-remembered",
+      "defaults": "{\n  \"pinned\": {\n    \"image\": {\n      \"lane\": \"xai\",\n      \"model\": \"m\",\n      \"account\": \"\"\n    }\n  },\n  \"image\": {\n    \"lane\": \"gemini\",\n    \"model\": \"g\",\n    \"updatedAt\": 1794024109566\n  },\n  \"video\": {\n    \"lane\": \"xai\",\n    \"model\": \"v\",\n    \"updatedAt\": 1794024109568\n  }\n}\n",
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":{\"lane\":\"xai\",\"model\":\"m\",\"account\":\"\"},\"video\":null},\"remembered\":{\"image\":{\"lane\":\"gemini\",\"model\":\"g\"},\"video\":{\"lane\":\"xai\",\"model\":\"v\"}}}",
+      "sameWithDetail": true
+    },
+    {
+      "name": "pin-cleared",
+      "defaults": "{\n  \"pinned\": {}\n}\n",
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":null,\"video\":null},\"remembered\":{\"image\":null,\"video\":null}}",
+      "sameWithDetail": true
+    },
+    {
+      "name": "pin-replaced",
+      "defaults": "{\n  \"pinned\": {\n    \"image\": {\n      \"lane\": \"gemini\",\n      \"model\": \"\",\n      \"account\": \"\"\n    }\n  }\n}\n",
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":{\"lane\":\"gemini\",\"model\":\"\",\"account\":\"\"},\"video\":null},\"remembered\":{\"image\":null,\"video\":null}}",
+      "sameWithDetail": true
+    },
+    {
+      "name": "trimmed",
+      "defaults": "{\n  \"pinned\": {\n    \"image\": {\n      \"lane\": \"xai\",\n      \"model\": \"m\",\n      \"account\": \"a\"\n    }\n  },\n  \"video\": {\n    \"lane\": \"gemini\",\n    \"model\": \"v\",\n    \"updatedAt\": 1794024109581\n  }\n}\n",
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":{\"lane\":\"xai\",\"model\":\"m\",\"account\":\"a\"},\"video\":null},\"remembered\":{\"image\":null,\"video\":{\"lane\":\"gemini\",\"model\":\"v\"}}}",
+      "sameWithDetail": true
+    },
+    {
+      "name": "long-ids",
+      "defaults": "{\n  \"pinned\": {\n    \"image\": {\n      \"lane\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\n      \"model\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\n      \"account\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"\n    }\n  },\n  \"image\": {\n    \"lane\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\n    \"model\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\n    \"updatedAt\": 1794024109585\n  }\n}\n",
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":{\"lane\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"model\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"account\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"},\"video\":null},\"remembered\":{\"image\":{\"lane\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\",\"model\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"},\"video\":null}}",
+      "sameWithDetail": true
+    },
+    {
+      "name": "unicode",
+      "defaults": "{\n  \"pinned\": {\n    \"image\": {\n      \"lane\": \"lane-日本\",\n      \"model\": \"모델 😀\",\n      \"account\": \"ä\"\n    }\n  }\n}\n",
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":{\"lane\":\"lane-日本\",\"model\":\"모델 😀\",\"account\":\"ä\"},\"video\":null},\"remembered\":{\"image\":null,\"video\":null}}",
+      "sameWithDetail": true
+    },
+    {
+      "name": "raw-not-an-object",
+      "defaults": "[1,2]",
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":null,\"video\":null},\"remembered\":{\"image\":null,\"video\":null}}",
+      "sameWithDetail": true
+    },
+    {
+      "name": "raw-broken",
+      "defaults": "{broken",
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":null,\"video\":null},\"remembered\":{\"image\":null,\"video\":null}}",
+      "sameWithDetail": true
+    },
+    {
+      "name": "raw-empty",
+      "defaults": "",
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":null,\"video\":null},\"remembered\":{\"image\":null,\"video\":null}}",
+      "sameWithDetail": true
+    },
+    {
+      "name": "raw-null-pins",
+      "defaults": "{\"pinned\":null,\"image\":{\"lane\":\"xai\",\"model\":\"m\"}}",
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":null,\"video\":null},\"remembered\":{\"image\":{\"lane\":\"xai\",\"model\":\"m\"},\"video\":null}}",
+      "sameWithDetail": true
+    },
+    {
+      "name": "raw-array-pins",
+      "defaults": "{\"pinned\":[1]}",
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":null,\"video\":null},\"remembered\":{\"image\":null,\"video\":null}}",
+      "sameWithDetail": true
+    },
+    {
+      "name": "raw-wrong-types",
+      "defaults": "{\"pinned\":{\"image\":{\"lane\":5,\"model\":[\"x\"],\"account\":{}},\"video\":\"x\"},\"image\":{\"lane\":7},\"video\":\"str\"}",
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":null,\"video\":null},\"remembered\":{\"image\":null,\"video\":null}}",
+      "sameWithDetail": true
+    },
+    {
+      "name": "raw-extra-fields",
+      "defaults": "{\"pinned\":{\"image\":{\"lane\":\"xai\",\"model\":\"m\",\"account\":\"a\",\"extra\":1,\"kind\":\"other\"}},\"image\":{\"lane\":\"gemini\",\"model\":\"g\",\"updatedAt\":5},\"audio\":{\"lane\":\"x\"}}",
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":{\"lane\":\"xai\",\"model\":\"m\",\"account\":\"a\"},\"video\":null},\"remembered\":{\"image\":{\"lane\":\"gemini\",\"model\":\"g\"},\"video\":null}}",
+      "sameWithDetail": true
+    },
+    {
+      "name": "raw-unknown-kind-pin",
+      "defaults": "{\"pinned\":{\"audio\":{\"lane\":\"x\"}}}",
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":null,\"video\":null},\"remembered\":{\"image\":null,\"video\":null}}",
+      "sameWithDetail": true
+    },
+    {
+      "name": "raw-lane-blank",
+      "defaults": "{\"pinned\":{\"image\":{\"lane\":\"   \",\"model\":\"m\"}},\"video\":{\"lane\":\"\",\"model\":\"m\"}}",
+      "text": "{\"domain\":\"media\",\"pinned\":{\"image\":null,\"video\":null},\"remembered\":{\"image\":null,\"video\":null}}",
+      "sameWithDetail": true
+    }
+  ]
+}

@@ -99,6 +99,8 @@ pub struct WorkerLive {
     pub queued_followups: Option<u64>,
     /// Set while the worker's turn waits on shell jobs.
     pub tool_silence: Option<ToolSilence>,
+    /// The turn sits in `task wait` (`runtime.taskWaits > 0`).
+    pub task_waiting: bool,
 }
 
 /// The worker sessions, from the session directory.

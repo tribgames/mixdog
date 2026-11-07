@@ -1,0 +1,4945 @@
+{
+  "domain": "media-xai-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-media-xai.mjs",
+  "clock": 1700000000000,
+  "scenarios": [
+    {
+      "name": "image-ok",
+      "kind": "image",
+      "model": "grok-imagine-image",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "data": [
+              {
+                "b64_json": "iVBORw0KGgoAAAANSUhEUg==",
+                "revised_prompt": "a cute cat"
+              }
+            ],
+            "usage": {
+              "cost_in_usd_ticks": 200000000
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/images/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"a cat\",\"n\":1,\"response_format\":\"b64_json\"}",
+          "timeoutMs": 180000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": "a cute cat",
+        "usage": {
+          "costUsd": 0.02
+        }
+      }
+    },
+    {
+      "name": "image-mime",
+      "kind": "image",
+      "model": "grok-imagine-image",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "data": [
+              {
+                "b64_json": "iVBORw0KGgoAAAANSUhEUg==",
+                "mime_type": "image/jpeg"
+              }
+            ]
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/images/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"a cat\",\"n\":1,\"response_format\":\"b64_json\"}",
+          "timeoutMs": 180000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/jpeg",
+        "revisedPrompt": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "image-size",
+      "kind": "image",
+      "model": "grok-imagine-image",
+      "prompt": "a cat",
+      "options": {
+        "aspectRatio": "16:9",
+        "resolution": "2K"
+      },
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "data": [
+              {
+                "b64_json": "iVBORw0KGgoAAAANSUhEUg=="
+              }
+            ]
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/images/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"a cat\",\"n\":1,\"response_format\":\"b64_json\",\"aspect_ratio\":\"16:9\",\"resolution\":\"2k\"}",
+          "timeoutMs": 180000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "image-size-auto",
+      "kind": "image",
+      "model": "grok-imagine-image",
+      "prompt": "a cat",
+      "options": {
+        "aspectRatio": "auto",
+        "resolution": "4k"
+      },
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "data": [
+              {
+                "b64_json": "iVBORw0KGgoAAAANSUhEUg=="
+              }
+            ]
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/images/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"a cat\",\"n\":1,\"response_format\":\"b64_json\"}",
+          "timeoutMs": 180000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "image-size-1k-default",
+      "kind": "image",
+      "model": "grok-imagine-image",
+      "prompt": "a cat",
+      "options": {
+        "resolution": "1k"
+      },
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "data": [
+              {
+                "b64_json": "iVBORw0KGgoAAAANSUhEUg=="
+              }
+            ]
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/images/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"a cat\",\"n\":1,\"response_format\":\"b64_json\",\"resolution\":\"1k\"}",
+          "timeoutMs": 180000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "image-one-ref",
+      "kind": "image",
+      "model": "grok-imagine-image",
+      "prompt": "a cat",
+      "options": {},
+      "references": [
+        {
+          "base64": "iVBORw0KGgoAAAANSUhEUg==",
+          "mime": "image/png"
+        }
+      ],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "data": [
+              {
+                "b64_json": "iVBORw0KGgoAAAANSUhEUg=="
+              }
+            ]
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/images/edits",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"a cat\",\"n\":1,\"response_format\":\"b64_json\",\"image\":{\"type\":\"image_url\",\"url\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==\"}}",
+          "timeoutMs": 180000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "image-two-refs",
+      "kind": "image",
+      "model": "grok-imagine-image",
+      "prompt": "a cat",
+      "options": {
+        "aspectRatio": "1:1"
+      },
+      "references": [
+        {
+          "base64": "iVBORw0KGgoAAAANSUhEUg=="
+        },
+        {
+          "base64": "data:image/webp;base64,AAAA",
+          "mime": "x"
+        }
+      ],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "data": [
+              {
+                "b64_json": "iVBORw0KGgoAAAANSUhEUg=="
+              }
+            ]
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/images/edits",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"a cat\",\"n\":1,\"response_format\":\"b64_json\",\"images\":[{\"type\":\"image_url\",\"url\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==\"},{\"type\":\"image_url\",\"url\":\"data:image/webp;base64,AAAA\"}],\"aspect_ratio\":\"1:1\"}",
+          "timeoutMs": 180000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "image-no-data",
+      "kind": "image",
+      "model": "grok-imagine-image",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "data": [
+              {}
+            ]
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/images/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"a cat\",\"n\":1,\"response_format\":\"b64_json\"}",
+          "timeoutMs": 180000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "xAI returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "image-body-not-json",
+      "kind": "image",
+      "model": "grok-imagine-image",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "text": "oops",
+          "headers": {}
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/images/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"a cat\",\"n\":1,\"response_format\":\"b64_json\"}",
+          "timeoutMs": 180000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "Unexpected token 'o', \"oops\" is not valid JSON",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "image-body-html",
+      "kind": "image",
+      "model": "grok-imagine-image",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "text": "<!doctype html><html><body>Bad gateway</body></html>",
+          "headers": {}
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/images/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"a cat\",\"n\":1,\"response_format\":\"b64_json\"}",
+          "timeoutMs": 180000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "Unexpected token '<', \"<!doctype \"... is not valid JSON",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "image-body-truncated",
+      "kind": "image",
+      "model": "grok-imagine-image",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "text": "{\"data\":[{\"b64_json\":\"AAAA",
+          "headers": {}
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/images/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"a cat\",\"n\":1,\"response_format\":\"b64_json\"}",
+          "timeoutMs": 180000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "Unterminated string in JSON at position 26 (line 1 column 27)",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "image-no-array",
+      "kind": "image",
+      "model": "grok-imagine-image",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {}
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/images/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"a cat\",\"n\":1,\"response_format\":\"b64_json\"}",
+          "timeoutMs": 180000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "xAI returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "image-http-401",
+      "kind": "image",
+      "model": "grok-imagine-image",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 401,
+          "text": "nope"
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/images/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"a cat\",\"n\":1,\"response_format\":\"b64_json\"}",
+          "timeoutMs": 180000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "xAI image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401,
+        "usage": null
+      }
+    },
+    {
+      "name": "image-http-402",
+      "kind": "image",
+      "model": "grok-imagine-image",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 402,
+          "text": "{\"error\":\"Insufficient credits\"}"
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/images/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"a cat\",\"n\":1,\"response_format\":\"b64_json\"}",
+          "timeoutMs": 180000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "xAI image: account has no usable balance — Insufficient credits",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402,
+        "usage": null
+      }
+    },
+    {
+      "name": "image-http-429",
+      "kind": "image",
+      "model": "grok-imagine-image",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 429,
+          "text": ""
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/images/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"a cat\",\"n\":1,\"response_format\":\"b64_json\"}",
+          "timeoutMs": 180000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "xAI image: rate limited — retry in a moment",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429,
+        "usage": null
+      }
+    },
+    {
+      "name": "image-http-500",
+      "kind": "image",
+      "model": "grok-imagine-image",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 500,
+          "text": "<html>x</html>"
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/images/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"a cat\",\"n\":1,\"response_format\":\"b64_json\"}",
+          "timeoutMs": 180000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "xAI image failed (500)",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500,
+        "usage": null
+      }
+    },
+    {
+      "name": "image-bad-b64",
+      "kind": "image",
+      "model": "grok-imagine-image",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "data": [
+              {
+                "b64_json": "!!"
+              }
+            ]
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/images/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"a cat\",\"n\":1,\"response_format\":\"b64_json\"}",
+          "timeoutMs": 180000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "xAI image exceeds the media size limit",
+        "code": "MEDIA_RESULT_TOO_LARGE",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "image-fetch-fails",
+      "kind": "image",
+      "model": "grok-imagine-image",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "fail": "fetch failed"
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/images/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"a cat\",\"n\":1,\"response_format\":\"b64_json\"}",
+          "timeoutMs": 180000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "fetch failed",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "image-timeout",
+      "kind": "image",
+      "model": "grok-imagine-image",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "fail": "The operation was aborted due to timeout",
+          "name": "TimeoutError"
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/images/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-image\",\"prompt\":\"a cat\",\"n\":1,\"response_format\":\"b64_json\"}",
+          "timeoutMs": 180000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "The operation was aborted due to timeout",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "video-done-private-url",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "status": "done",
+            "video": {
+              "url": "http://127.0.0.1/v.mp4",
+              "duration": 6
+            },
+            "usage": {
+              "cost_in_usd_ticks": 5000000000
+            },
+            "progress": 100
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [
+        100
+      ],
+      "elapsedMs": 4000,
+      "error": {
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null,
+        "status": null,
+        "usage": {
+          "costUsd": 0.5,
+          "seconds": 6,
+          "resolution": "480p"
+        }
+      }
+    },
+    {
+      "name": "video-defaults",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "status": "done",
+            "video": {
+              "url": "http://127.0.0.1/v.mp4"
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 4000,
+      "error": {
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null,
+        "status": null,
+        "usage": {
+          "seconds": 5,
+          "resolution": "480p"
+        }
+      }
+    },
+    {
+      "name": "video-options",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {
+        "duration": "30",
+        "resolution": "720p",
+        "aspectRatio": "9:16"
+      },
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "status": "done",
+            "video": {
+              "url": "http://127.0.0.1/v.mp4",
+              "duration": 15
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":15,\"resolution\":\"720p\",\"aspect_ratio\":\"9:16\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 4000,
+      "error": {
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null,
+        "status": null,
+        "usage": {
+          "seconds": 15,
+          "resolution": "720p"
+        }
+      }
+    },
+    {
+      "name": "video-options-low",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {
+        "duration": 0.4,
+        "resolution": "4k",
+        "aspectRatio": "auto"
+      },
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "status": "done",
+            "video": {
+              "url": "http://127.0.0.1/v.mp4",
+              "duration": 0
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":1,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 4000,
+      "error": {
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null,
+        "status": null,
+        "usage": {
+          "seconds": 1,
+          "resolution": "480p"
+        }
+      }
+    },
+    {
+      "name": "video-options-1080",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {
+        "duration": "x",
+        "resolution": "1080p"
+      },
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "status": "done",
+            "video": {
+              "url": "http://127.0.0.1/v.mp4",
+              "duration": "8"
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"1080p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 4000,
+      "error": {
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null,
+        "status": null,
+        "usage": {
+          "seconds": 8,
+          "resolution": "1080p"
+        }
+      }
+    },
+    {
+      "name": "video-one-ref",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [
+        {
+          "base64": "iVBORw0KGgoAAAANSUhEUg=="
+        }
+      ],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "status": "done",
+            "video": {
+              "url": "http://127.0.0.1/v.mp4"
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\",\"image\":{\"url\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==\"}}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 4000,
+      "error": {
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null,
+        "status": null,
+        "usage": {
+          "seconds": 5,
+          "resolution": "480p"
+        }
+      }
+    },
+    {
+      "name": "video-many-refs",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [
+        {
+          "base64": "data:image/png;base64,R0"
+        },
+        {
+          "base64": "data:image/png;base64,R1"
+        },
+        {
+          "base64": "data:image/png;base64,R2"
+        },
+        {
+          "base64": "data:image/png;base64,R3"
+        },
+        {
+          "base64": "data:image/png;base64,R4"
+        },
+        {
+          "base64": "data:image/png;base64,R5"
+        },
+        {
+          "base64": "data:image/png;base64,R6"
+        },
+        {
+          "base64": "data:image/png;base64,R7"
+        },
+        {
+          "base64": "data:image/png;base64,R8"
+        }
+      ],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "status": "done",
+            "video": {
+              "url": "http://127.0.0.1/v.mp4"
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\",\"reference_images\":[{\"url\":\"data:image/png;base64,R0\"},{\"url\":\"data:image/png;base64,R1\"},{\"url\":\"data:image/png;base64,R2\"},{\"url\":\"data:image/png;base64,R3\"},{\"url\":\"data:image/png;base64,R4\"},{\"url\":\"data:image/png;base64,R5\"},{\"url\":\"data:image/png;base64,R6\"}]}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 4000,
+      "error": {
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null,
+        "status": null,
+        "usage": {
+          "seconds": 5,
+          "resolution": "480p"
+        }
+      }
+    },
+    {
+      "name": "video-id-fallback",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "id": "alt-id"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "status": "done",
+            "video": {
+              "url": "http://127.0.0.1/v.mp4"
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/alt-id",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 4000,
+      "error": {
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null,
+        "status": null,
+        "usage": {
+          "seconds": 5,
+          "resolution": "480p"
+        }
+      }
+    },
+    {
+      "name": "video-start-not-json",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "text": "Internal Server Error",
+          "headers": {}
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "Unexpected token 'I', \"Internal S\"... is not valid JSON",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "video-no-id",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {}
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "xAI video start returned no request id",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "video-start-402",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 402,
+          "text": "{\"error\":{\"message\":\"Billing limit\"}}"
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "xAI video: account has no usable balance — Billing limit",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402,
+        "usage": null
+      }
+    },
+    {
+      "name": "video-polls-then-done",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "status": 202,
+          "json": {
+            "status": "pending"
+          },
+          "repeat": 3
+        },
+        {
+          "status": 200,
+          "json": {
+            "status": "done",
+            "video": {
+              "url": "http://127.0.0.1/v.mp4"
+            },
+            "progress": 100
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [
+        100
+      ],
+      "elapsedMs": 16000,
+      "error": {
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null,
+        "status": null,
+        "usage": {
+          "seconds": 5,
+          "resolution": "480p"
+        }
+      }
+    },
+    {
+      "name": "video-progress",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "status": "processing",
+            "progress": 30
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "status": "processing",
+            "progress": "half"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "status": "processing",
+            "progress": 80
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "status": "done",
+            "video": {
+              "url": "http://127.0.0.1/v.mp4"
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [
+        30,
+        80
+      ],
+      "elapsedMs": 16000,
+      "error": {
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null,
+        "status": null,
+        "usage": {
+          "seconds": 5,
+          "resolution": "480p"
+        }
+      }
+    },
+    {
+      "name": "video-no-url",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "status": "done",
+            "video": {},
+            "usage": {
+              "cost_in_usd_ticks": 10000000000
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 4000,
+      "error": {
+        "message": "xAI video finished without a URL",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": {
+          "costUsd": 1,
+          "seconds": 5,
+          "resolution": "480p"
+        }
+      }
+    },
+    {
+      "name": "video-failed-code",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "status": "failed",
+            "error": {
+              "code": "moderation"
+            },
+            "usage": {
+              "cost_in_usd_ticks": 1000000000
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 4000,
+      "error": {
+        "message": "xAI video failed: moderation",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": {
+          "costUsd": 0.1
+        }
+      }
+    },
+    {
+      "name": "video-failed",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "status": "failed"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 4000,
+      "error": {
+        "message": "xAI video failed",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "video-expired",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "status": 200,
+          "json": {
+            "status": "expired"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 4000,
+      "error": {
+        "message": "xAI video expired",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 502,
+        "usage": null
+      }
+    },
+    {
+      "name": "video-poll-500",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "status": 500,
+          "text": "down"
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 4000,
+      "error": {
+        "message": "xAI video poll failed (500): down",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500,
+        "usage": null
+      }
+    },
+    {
+      "name": "video-poll-401",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "status": 401,
+          "text": ""
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 4000,
+      "error": {
+        "message": "xAI video poll: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401,
+        "usage": null
+      }
+    },
+    {
+      "name": "video-poll-not-json",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "status": 200,
+          "text": "garbage"
+        },
+        {
+          "status": 200,
+          "json": {
+            "status": "done",
+            "video": {
+              "url": "http://127.0.0.1/v.mp4"
+            }
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 8000,
+      "error": {
+        "message": "Blocked request to private address: 127.0.0.1",
+        "code": null,
+        "status": null,
+        "usage": {
+          "seconds": 5,
+          "resolution": "480p"
+        }
+      }
+    },
+    {
+      "name": "video-poll-timeout",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "fail": "The operation was aborted due to timeout",
+          "name": "TimeoutError"
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 4000,
+      "error": {
+        "message": "The operation was aborted due to timeout",
+        "code": null,
+        "status": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "video-budget",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": null,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "status": 202,
+          "json": {
+            "status": "pending"
+          },
+          "repeat": 300
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 56000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 52000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 48000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 44000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 40000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 36000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 32000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 28000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 24000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 20000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 16000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 12000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 8000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 4000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 1,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 1,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 904000,
+      "error": {
+        "message": "xAI video poll budget exceeded",
+        "code": "MEDIA_TIMEOUT",
+        "status": 504,
+        "usage": null
+      }
+    },
+    {
+      "name": "video-canceled-first",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": 1,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "status": 202,
+          "json": {
+            "status": "pending"
+          },
+          "repeat": 5
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 0,
+      "error": {
+        "message": "canceled",
+        "code": "MEDIA_CANCELED",
+        "status": 499,
+        "usage": null
+      }
+    },
+    {
+      "name": "video-canceled-later",
+      "kind": "video",
+      "model": "grok-imagine-video",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "abortAfterFetches": 4,
+      "auth": {
+        "token": "xai-key-1",
+        "baseURL": "https://api.x.ai/v1"
+      },
+      "script": [
+        {
+          "status": 200,
+          "json": {
+            "request_id": "req-1"
+          }
+        },
+        {
+          "status": 202,
+          "json": {
+            "status": "pending"
+          },
+          "repeat": 9
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://api.x.ai/v1/videos/generations",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": "{\"model\":\"grok-imagine-video\",\"prompt\":\"a cat\",\"duration\":5,\"resolution\":\"480p\"}",
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        },
+        {
+          "url": "https://api.x.ai/v1/videos/req-1",
+          "method": "GET",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer xai-key-1"
+          },
+          "body": null,
+          "timeoutMs": 60000,
+          "signal": true
+        }
+      ],
+      "progress": [],
+      "elapsedMs": 12000,
+      "error": {
+        "message": "canceled",
+        "code": "MEDIA_CANCELED",
+        "status": 499,
+        "usage": null
+      }
+    }
+  ]
+}

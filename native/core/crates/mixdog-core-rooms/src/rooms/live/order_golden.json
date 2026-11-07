@@ -1,0 +1,326 @@
+[
+ {
+  "name": "empty both",
+  "read": [],
+  "posted": [],
+  "out": []
+ },
+ {
+  "name": "no shared, posted newer",
+  "read": [
+   {
+    "id": "a",
+    "at": 1
+   },
+   {
+    "id": "b",
+    "at": 2
+   }
+  ],
+  "posted": [
+   {
+    "id": "p",
+    "at": 3
+   }
+  ],
+  "out": [
+   {
+    "id": "a",
+    "at": 1
+   },
+   {
+    "id": "b",
+    "at": 2
+   },
+   {
+    "id": "p",
+    "at": 3
+   }
+  ]
+ },
+ {
+  "name": "no shared, posted older",
+  "read": [
+   {
+    "id": "a",
+    "at": 5
+   },
+   {
+    "id": "b",
+    "at": 6
+   }
+  ],
+  "posted": [
+   {
+    "id": "p",
+    "at": 4
+   }
+  ],
+  "out": [
+   {
+    "id": "p",
+    "at": 4
+   },
+   {
+    "id": "a",
+    "at": 5
+   },
+   {
+    "id": "b",
+    "at": 6
+   }
+  ]
+ },
+ {
+  "name": "no shared, posted equal time goes before",
+  "read": [
+   {
+    "id": "a",
+    "at": 5
+   }
+  ],
+  "posted": [
+   {
+    "id": "p",
+    "at": 5
+   }
+  ],
+  "out": [
+   {
+    "id": "p",
+    "at": 5
+   },
+   {
+    "id": "a",
+    "at": 5
+   }
+  ]
+ },
+ {
+  "name": "no shared, posted without time",
+  "read": [
+   {
+    "id": "a",
+    "at": 5
+   }
+  ],
+  "posted": [
+   {
+    "id": "p"
+   }
+  ],
+  "out": [
+   {
+    "id": "a",
+    "at": 5
+   },
+   {
+    "id": "p"
+   }
+  ]
+ },
+ {
+  "name": "no shared, read empty",
+  "read": [],
+  "posted": [
+   {
+    "id": "p",
+    "at": 1
+   },
+   {
+    "id": "q",
+    "at": 2
+   }
+  ],
+  "out": [
+   {
+    "id": "p",
+    "at": 1
+   },
+   {
+    "id": "q",
+    "at": 2
+   }
+  ]
+ },
+ {
+  "name": "shared, pending after",
+  "read": [
+   {
+    "id": "a",
+    "at": 1
+   },
+   {
+    "id": "b",
+    "at": 2
+   }
+  ],
+  "posted": [
+   {
+    "id": "b",
+    "at": 2
+   },
+   {
+    "id": "p",
+    "at": 3
+   }
+  ],
+  "out": [
+   {
+    "id": "a",
+    "at": 1
+   },
+   {
+    "id": "b",
+    "at": 2
+   },
+   {
+    "id": "p",
+    "at": 3
+   }
+  ]
+ },
+ {
+  "name": "shared, fell out before",
+  "read": [
+   {
+    "id": "b",
+    "at": 2
+   },
+   {
+    "id": "c",
+    "at": 3
+   }
+  ],
+  "posted": [
+   {
+    "id": "x",
+    "at": 1
+   },
+   {
+    "id": "b",
+    "at": 2
+   }
+  ],
+  "out": [
+   {
+    "id": "x",
+    "at": 1
+   },
+   {
+    "id": "b",
+    "at": 2
+   },
+   {
+    "id": "c",
+    "at": 3
+   }
+  ]
+ },
+ {
+  "name": "shared, between",
+  "read": [
+   {
+    "id": "a",
+    "at": 1
+   },
+   {
+    "id": "b",
+    "at": 2
+   },
+   {
+    "id": "c",
+    "at": 3
+   }
+  ],
+  "posted": [
+   {
+    "id": "a",
+    "at": 1
+   },
+   {
+    "id": "m",
+    "at": 2
+   },
+   {
+    "id": "c",
+    "at": 3
+   },
+   {
+    "id": "z",
+    "at": 4
+   }
+  ],
+  "out": [
+   {
+    "id": "a",
+    "at": 1
+   },
+   {
+    "id": "b",
+    "at": 2
+   },
+   {
+    "id": "m",
+    "at": 2
+   },
+   {
+    "id": "c",
+    "at": 3
+   },
+   {
+    "id": "z",
+    "at": 4
+   }
+  ]
+ },
+ {
+  "name": "duplicate read ids",
+  "read": [
+   {
+    "id": "a",
+    "at": 1
+   },
+   {
+    "id": "a",
+    "at": 2
+   },
+   {
+    "id": "b",
+    "at": 3
+   }
+  ],
+  "posted": [
+   {
+    "id": "a",
+    "at": 1
+   },
+   {
+    "id": "p",
+    "at": 2
+   },
+   {
+    "id": "b",
+    "at": 3
+   }
+  ],
+  "out": [
+   {
+    "id": "a",
+    "at": 1
+   },
+   {
+    "id": "a",
+    "at": 2
+   },
+   {
+    "id": "p",
+    "at": 2
+   },
+   {
+    "id": "b",
+    "at": 3
+   }
+  ]
+ }
+]

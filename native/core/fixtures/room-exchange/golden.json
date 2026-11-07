@@ -219,7 +219,7 @@
         ],
         [
           "switchedOff",
-          "bench"
+          "alpha"
         ],
         [
           "rows"
@@ -229,16 +229,16 @@
         ],
         [
           "memberSession",
-          "bench"
+          "alpha"
         ],
         [
           "switchedOff",
-          "bench"
+          "alpha"
         ],
         [
           "submit",
-          "sess_bench",
-          1602,
+          "sess_alpha",
+          1817,
           {
             "roomRow": "r1"
           }
@@ -249,7 +249,7 @@
         ],
         [
           "readSnapshot",
-          "sess_bench"
+          "sess_alpha"
         ],
         [
           "persist"
@@ -259,14 +259,14 @@
           [
             {
               "artifactsFrom": {
-                "sessionId": "sess_bench",
+                "sessionId": "sess_alpha",
                 "since": 1002
               },
               "at": 1003,
               "id": "row_n2",
               "kind": "speech",
-              "name": "Bench",
-              "speaker": "bench",
+              "name": "Alpha",
+              "speaker": "alpha",
               "text": "Fine."
             }
           ]
@@ -280,7 +280,7 @@
         [
           "decideTurn",
           {
-            "last": "bench",
+            "last": "alpha",
             "members": [
               {
                 "description": "tester",
@@ -309,7 +309,7 @@
             ],
             "turns": [
               {
-                "id": "bench",
+                "id": "alpha",
                 "result": "speech"
               }
             ]
@@ -333,7 +333,7 @@
       "result": "ok",
       "room": {
         "cursors": {
-          "bench": "r1"
+          "alpha": "r1"
         },
         "members": [
           "bench",
@@ -347,8 +347,8 @@
         "decisions": [
           {
             "action": "speak",
+            "agentId": "alpha",
             "instruction": "check it",
-            "member": "alpha",
             "scene": "work"
           },
           {
@@ -541,6 +541,112 @@
           }
         ],
         [
+          "switchedOff",
+          "gh"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "gh"
+        ],
+        [
+          "switchedOff",
+          "gh"
+        ],
+        [
+          "submit",
+          "sess_gh",
+          1897,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_gh"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_gh",
+                "since": 1006
+              },
+              "at": 1007,
+              "id": "row_n6",
+              "kind": "speech",
+              "name": "Git Hub",
+              "speaker": "gh",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "gh",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": false,
+            "remaining": {
+              "messages": 3,
+              "steps": 11
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": [
+              {
+                "id": "bench",
+                "result": "speech"
+              },
+              {
+                "id": "alpha",
+                "result": "speech"
+              },
+              {
+                "id": "gh",
+                "result": "speech"
+              }
+            ]
+          }
+        ],
+        [
           "untrack"
         ],
         [
@@ -564,7 +670,8 @@
       "room": {
         "cursors": {
           "alpha": "r1",
-          "bench": "r1"
+          "bench": "r1",
+          "gh": "r1"
         },
         "members": [
           "bench",
@@ -578,7 +685,7 @@
         "decisions": [
           {
             "action": "speak",
-            "member": "gh",
+            "agentId": "gh",
             "scene": "casual"
           },
           {
@@ -1597,7 +1704,7 @@
         ],
         [
           "switchedOff",
-          "bench"
+          "alpha"
         ],
         [
           "rows"
@@ -1607,15 +1714,15 @@
         ],
         [
           "memberSession",
-          "bench"
+          "alpha"
         ],
         [
           "switchedOff",
-          "bench"
+          "alpha"
         ],
         [
           "submit",
-          "sess_bench",
+          "sess_alpha",
           1602,
           {
             "roomRow": "r1"
@@ -1627,7 +1734,7 @@
         ],
         [
           "readSnapshot",
-          "sess_bench"
+          "sess_alpha"
         ],
         [
           "persist"
@@ -1637,14 +1744,14 @@
           [
             {
               "artifactsFrom": {
-                "sessionId": "sess_bench",
+                "sessionId": "sess_alpha",
                 "since": 1002
               },
               "at": 1003,
               "id": "row_n2",
               "kind": "speech",
-              "name": "Bench",
-              "speaker": "bench",
+              "name": "Alpha",
+              "speaker": "alpha",
               "text": "Fine."
             }
           ]
@@ -1658,7 +1765,7 @@
         [
           "decideTurn",
           {
-            "last": "bench",
+            "last": "alpha",
             "members": [
               {
                 "description": "tester",
@@ -1687,11 +1794,79 @@
             ],
             "turns": [
               {
-                "id": "bench",
+                "id": "alpha",
                 "result": "speech"
               }
             ]
           }
+        ],
+        [
+          "switchedOff",
+          "gh"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "gh"
+        ],
+        [
+          "switchedOff",
+          "gh"
+        ],
+        [
+          "submit",
+          "sess_gh",
+          1705,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_gh"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_gh",
+                "since": 1004
+              },
+              "at": 1005,
+              "id": "row_n4",
+              "kind": "speech",
+              "name": "Git Hub",
+              "speaker": "gh",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "post",
+          [
+            {
+              "at": 1006,
+              "id": "row_n5",
+              "kind": "cap",
+              "limit": "messages",
+              "messages": 2,
+              "rounds": 1,
+              "text": ""
+            }
+          ]
         ],
         [
           "untrack"
@@ -1711,7 +1886,8 @@
       "result": "ok",
       "room": {
         "cursors": {
-          "bench": "r1"
+          "alpha": "r1",
+          "gh": "r1"
         },
         "members": [
           "bench",
@@ -1725,15 +1901,15 @@
         "decisions": [
           {
             "action": "speak",
-            "member": "alpha"
+            "agentId": "alpha"
           },
           {
             "action": "speak",
-            "member": "gh"
+            "agentId": "gh"
           },
           {
             "action": "speak",
-            "member": "bench"
+            "agentId": "bench"
           }
         ],
         "maxMessages": 2,
@@ -1806,7 +1982,7 @@
         ],
         [
           "switchedOff",
-          "bench"
+          "alpha"
         ],
         [
           "rows"
@@ -1816,15 +1992,15 @@
         ],
         [
           "memberSession",
-          "bench"
+          "alpha"
         ],
         [
           "switchedOff",
-          "bench"
+          "alpha"
         ],
         [
           "submit",
-          "sess_bench",
+          "sess_alpha",
           1602,
           {
             "roomRow": "r1"
@@ -1836,7 +2012,7 @@
         ],
         [
           "readSnapshot",
-          "sess_bench"
+          "sess_alpha"
         ],
         [
           "persist"
@@ -1846,14 +2022,14 @@
           [
             {
               "artifactsFrom": {
-                "sessionId": "sess_bench",
+                "sessionId": "sess_alpha",
                 "since": 1002
               },
               "at": 1003,
               "id": "row_n2",
               "kind": "speech",
-              "name": "Bench",
-              "speaker": "bench",
+              "name": "Alpha",
+              "speaker": "alpha",
               "text": "Fine."
             }
           ]
@@ -1867,7 +2043,7 @@
         [
           "decideTurn",
           {
-            "last": "bench",
+            "last": "alpha",
             "members": [
               {
                 "description": "tester",
@@ -1896,11 +2072,181 @@
             ],
             "turns": [
               {
-                "id": "bench",
+                "id": "alpha",
                 "result": "speech"
               }
             ]
           }
+        ],
+        [
+          "switchedOff",
+          "gh"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "gh"
+        ],
+        [
+          "switchedOff",
+          "gh"
+        ],
+        [
+          "submit",
+          "sess_gh",
+          1705,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_gh"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_gh",
+                "since": 1004
+              },
+              "at": 1005,
+              "id": "row_n4",
+              "kind": "speech",
+              "name": "Git Hub",
+              "speaker": "gh",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "republish"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "decideTurn",
+          {
+            "last": "gh",
+            "members": [
+              {
+                "description": "tester",
+                "id": "bench",
+                "name": "Bench"
+              },
+              {
+                "description": "reviewer",
+                "id": "alpha",
+                "name": "Alpha"
+              },
+              {
+                "description": "",
+                "id": "gh",
+                "name": "Git Hub"
+              }
+            ],
+            "mustPick": false,
+            "remaining": {
+              "messages": 3,
+              "steps": 1
+            },
+            "roomName": "Release room",
+            "rows": [
+              "r1"
+            ],
+            "turns": [
+              {
+                "id": "alpha",
+                "result": "speech"
+              },
+              {
+                "id": "gh",
+                "result": "speech"
+              }
+            ]
+          }
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "rows"
+        ],
+        [
+          "republish"
+        ],
+        [
+          "memberSession",
+          "bench"
+        ],
+        [
+          "switchedOff",
+          "bench"
+        ],
+        [
+          "submit",
+          "sess_bench",
+          1705,
+          {
+            "roomRow": "r1"
+          }
+        ],
+        [
+          "sleep",
+          25
+        ],
+        [
+          "readSnapshot",
+          "sess_bench"
+        ],
+        [
+          "persist"
+        ],
+        [
+          "post",
+          [
+            {
+              "artifactsFrom": {
+                "sessionId": "sess_bench",
+                "since": 1006
+              },
+              "at": 1007,
+              "id": "row_n6",
+              "kind": "speech",
+              "name": "Bench",
+              "speaker": "bench",
+              "text": "Fine."
+            }
+          ]
+        ],
+        [
+          "post",
+          [
+            {
+              "at": 1008,
+              "id": "row_n7",
+              "kind": "cap",
+              "limit": "rounds",
+              "messages": 3,
+              "rounds": 1,
+              "text": ""
+            }
+          ]
         ],
         [
           "untrack"
@@ -1920,7 +2266,9 @@
       "result": "ok",
       "room": {
         "cursors": {
-          "bench": "r1"
+          "alpha": "r1",
+          "bench": "r1",
+          "gh": "r1"
         },
         "members": [
           "bench",
@@ -1934,15 +2282,15 @@
         "decisions": [
           {
             "action": "speak",
-            "member": "alpha"
+            "agentId": "alpha"
           },
           {
             "action": "speak",
-            "member": "gh"
+            "agentId": "gh"
           },
           {
             "action": "speak",
-            "member": "bench"
+            "agentId": "bench"
           }
         ],
         "maxRounds": 1,
@@ -4202,7 +4550,7 @@
         "decisions": [
           {
             "action": "speak",
-            "member": "alpha"
+            "agentId": "alpha"
           },
           {
             "action": "finish"
@@ -4996,7 +5344,7 @@
         ],
         [
           "switchedOff",
-          "bench"
+          "alpha"
         ],
         [
           "rows"
@@ -5006,15 +5354,15 @@
         ],
         [
           "memberSession",
-          "bench"
+          "alpha"
         ],
         [
           "switchedOff",
-          "bench"
+          "alpha"
         ],
         [
           "submit",
-          "sess_bench",
+          "sess_alpha",
           1602,
           {
             "roomRow": "r1"
@@ -5026,7 +5374,7 @@
         ],
         [
           "readSnapshot",
-          "sess_bench"
+          "sess_alpha"
         ],
         [
           "persist"
@@ -5036,14 +5384,14 @@
           [
             {
               "artifactsFrom": {
-                "sessionId": "sess_bench",
+                "sessionId": "sess_alpha",
                 "since": 1002
               },
               "at": 1003,
               "id": "row_n2",
               "kind": "speech",
-              "name": "Bench",
-              "speaker": "bench",
+              "name": "Alpha",
+              "speaker": "alpha",
               "text": "Fine."
             }
           ]
@@ -5057,7 +5405,7 @@
         [
           "decideTurn",
           {
-            "last": "bench",
+            "last": "alpha",
             "members": [
               {
                 "description": "tester",
@@ -5086,7 +5434,7 @@
             ],
             "turns": [
               {
-                "id": "bench",
+                "id": "alpha",
                 "result": "speech"
               }
             ]
@@ -5110,7 +5458,7 @@
       "result": "ok",
       "room": {
         "cursors": {
-          "bench": "r1"
+          "alpha": "r1"
         },
         "members": [
           "bench",
@@ -5124,7 +5472,7 @@
         "decisions": [
           {
             "action": "speak",
-            "member": "alpha"
+            "agentId": "alpha"
           },
           {
             "action": "finish"

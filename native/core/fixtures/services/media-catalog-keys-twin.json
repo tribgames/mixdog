@@ -1,0 +1,523 @@
+{
+  "domain": "media-catalog-keys-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-media-catalog-keys.mjs",
+  "clock": 1700000000000,
+  "scenarios": [
+    {
+      "name": "gemini-a",
+      "lane": "gemini",
+      "env": {
+        "GEMINI_API_KEY": "g-key-a"
+      },
+      "config": {},
+      "files": {},
+      "bound": {},
+      "keys": [
+        "gemini-5a04e386c8d85014335d7027"
+      ]
+    },
+    {
+      "name": "gemini-b",
+      "lane": "gemini",
+      "env": {
+        "GEMINI_API_KEY": "g-key-b"
+      },
+      "config": {},
+      "files": {},
+      "bound": {},
+      "keys": [
+        "gemini-3532640bb746ef6cead416fa"
+      ]
+    },
+    {
+      "name": "gemini-unicode-key",
+      "lane": "gemini",
+      "env": {
+        "GEMINI_API_KEY": "kéy-ü-日本"
+      },
+      "config": {},
+      "files": {},
+      "bound": {},
+      "keys": [
+        "gemini-76fd4b50677e816d8b66469b"
+      ]
+    },
+    {
+      "name": "gemini-missing",
+      "lane": "gemini",
+      "env": {},
+      "config": {},
+      "files": {},
+      "bound": {},
+      "keys": [],
+      "error": {
+        "message": "Gemini API key is not configured",
+        "code": "MEDIA_LANE_UNAUTHENTICATED"
+      }
+    },
+    {
+      "name": "xai-a",
+      "lane": "xai",
+      "env": {
+        "XAI_API_KEY": "x-key-a"
+      },
+      "config": {},
+      "files": {},
+      "bound": {},
+      "keys": [
+        "xai-e9fdf513243f9c7502766881"
+      ]
+    },
+    {
+      "name": "xai-alias",
+      "lane": "xai",
+      "env": {
+        "GROK_API_KEY": "x-key-a"
+      },
+      "config": {},
+      "files": {},
+      "bound": {},
+      "keys": [
+        "xai-e9fdf513243f9c7502766881"
+      ]
+    },
+    {
+      "name": "xai-missing",
+      "lane": "xai",
+      "env": {},
+      "config": {},
+      "files": {},
+      "bound": {},
+      "keys": [],
+      "error": {
+        "message": "xAI API key is not configured",
+        "code": "MEDIA_LANE_UNAUTHENTICATED"
+      }
+    },
+    {
+      "name": "openrouter-a",
+      "lane": "openrouter",
+      "env": {
+        "OPENROUTER_API_KEY": "or-key-a"
+      },
+      "config": {},
+      "files": {},
+      "bound": {},
+      "keys": [
+        "openrouter-f8b2f69e06311c6e93e29c0c"
+      ]
+    },
+    {
+      "name": "nano-gpt-a",
+      "lane": "nano-gpt",
+      "env": {},
+      "config": {
+        "agent": {
+          "providers": {
+            "custom-nano": {
+              "type": "custom",
+              "baseURL": "https://nano-gpt.com/api/v1",
+              "apiKey": "ng-key-a"
+            }
+          }
+        }
+      },
+      "files": {},
+      "bound": {},
+      "keys": [
+        "nano-gpt-5805ab4734c3f27e3984fcac"
+      ]
+    },
+    {
+      "name": "nano-gpt-b",
+      "lane": "nano-gpt",
+      "env": {},
+      "config": {
+        "agent": {
+          "providers": {
+            "custom-nano": {
+              "type": "custom",
+              "baseURL": "https://nano-gpt.com/api/v1",
+              "apiKey": "ng-key-b"
+            }
+          }
+        }
+      },
+      "files": {},
+      "bound": {},
+      "keys": [
+        "nano-gpt-8530224fd46fad6f9861516e"
+      ]
+    },
+    {
+      "name": "nano-gpt-missing",
+      "lane": "nano-gpt",
+      "env": {},
+      "config": {},
+      "files": {},
+      "bound": {},
+      "keys": [],
+      "error": {
+        "message": "nano-gpt API key is not configured",
+        "code": "MEDIA_LANE_UNAUTHENTICATED"
+      }
+    },
+    {
+      "name": "grok-oauth-user-1-token-1",
+      "lane": "grok-oauth",
+      "env": {},
+      "config": {},
+      "files": {
+        "g.json": "{\"access_token\":\"token-1\",\"refresh_token\":\"rt\",\"expires_at\":1700036000000,\"user_id\":\"user-1\"}"
+      },
+      "bound": {
+        "grok-oauth": "{s}/g.json"
+      },
+      "keys": [
+        "grok-oauth-c6c289e49e9c05b214586038"
+      ]
+    },
+    {
+      "name": "grok-oauth-user-1-token-2",
+      "lane": "grok-oauth",
+      "env": {},
+      "config": {},
+      "files": {
+        "g.json": "{\"access_token\":\"token-2\",\"refresh_token\":\"rt\",\"expires_at\":1700036000000,\"user_id\":\"user-1\"}"
+      },
+      "bound": {
+        "grok-oauth": "{s}/g.json"
+      },
+      "keys": [
+        "grok-oauth-c6c289e49e9c05b214586038"
+      ]
+    },
+    {
+      "name": "grok-oauth-user-2",
+      "lane": "grok-oauth",
+      "env": {},
+      "config": {},
+      "files": {
+        "g.json": "{\"access_token\":\"at\",\"refresh_token\":\"rt\",\"expires_at\":1700036000000,\"user_id\":\"user-2\"}"
+      },
+      "bound": {
+        "grok-oauth": "{s}/g.json"
+      },
+      "keys": [
+        "grok-oauth-d92b69cfb82cecab45c753f5"
+      ]
+    },
+    {
+      "name": "grok-oauth-no-user-token-1",
+      "lane": "grok-oauth",
+      "env": {},
+      "config": {},
+      "files": {
+        "g.json": "{\"access_token\":\"token-1\",\"refresh_token\":\"rt\",\"expires_at\":1700036000000}"
+      },
+      "bound": {
+        "grok-oauth": "{s}/g.json"
+      },
+      "keys": [
+        "grok-oauth-3f08aace122ee2368432c1ca"
+      ]
+    },
+    {
+      "name": "grok-oauth-no-user-token-2",
+      "lane": "grok-oauth",
+      "env": {},
+      "config": {},
+      "files": {
+        "g.json": "{\"access_token\":\"token-2\",\"refresh_token\":\"rt\",\"expires_at\":1700036000000}"
+      },
+      "bound": {
+        "grok-oauth": "{s}/g.json"
+      },
+      "keys": [
+        "grok-oauth-0f6bffa9661cb5dd2f3f7b29"
+      ]
+    },
+    {
+      "name": "grok-oauth-missing",
+      "lane": "grok-oauth",
+      "env": {},
+      "config": {},
+      "files": {},
+      "bound": {},
+      "keys": [],
+      "error": {
+        "message": "[grok-oauth] credentials not found — open /providers in mixdog to sign in first",
+        "code": null
+      }
+    },
+    {
+      "name": "antigravity-project-1-token-1",
+      "lane": "antigravity-oauth",
+      "env": {},
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "files": {
+        "a.json": "{\"access_token\":\"token-1\",\"refresh_token\":\"rt\",\"expires_at\":1700036000000,\"project_id\":\"proj-1\"}"
+      },
+      "bound": {
+        "antigravity-oauth": "{s}/a.json"
+      },
+      "keys": [
+        "antigravity-oauth-920581d82c9c3a08fc5cc38e"
+      ]
+    },
+    {
+      "name": "antigravity-project-1-token-2",
+      "lane": "antigravity-oauth",
+      "env": {},
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "files": {
+        "a.json": "{\"access_token\":\"token-2\",\"refresh_token\":\"rt\",\"expires_at\":1700036000000,\"project_id\":\"proj-1\"}"
+      },
+      "bound": {
+        "antigravity-oauth": "{s}/a.json"
+      },
+      "keys": [
+        "antigravity-oauth-920581d82c9c3a08fc5cc38e"
+      ]
+    },
+    {
+      "name": "antigravity-project-2",
+      "lane": "antigravity-oauth",
+      "env": {},
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "files": {
+        "a.json": "{\"access_token\":\"at\",\"refresh_token\":\"rt\",\"expires_at\":1700036000000,\"project_id\":\"proj-2\"}"
+      },
+      "bound": {
+        "antigravity-oauth": "{s}/a.json"
+      },
+      "keys": [
+        "antigravity-oauth-801fa2793c7a2b264c1d32e7"
+      ]
+    },
+    {
+      "name": "antigravity-missing",
+      "lane": "antigravity-oauth",
+      "env": {},
+      "config": {
+        "agent": {
+          "developer": {
+            "antigravityOAuth": true
+          }
+        }
+      },
+      "files": {},
+      "bound": {},
+      "keys": [],
+      "error": {
+        "message": "[antigravity-oauth] not signed in — run /login",
+        "code": null
+      }
+    }
+  ],
+  "openai": [
+    {
+      "step": {
+        "op": "script",
+        "results": [
+          {
+            "rows": [
+              {
+                "id": "gpt-5.5"
+              }
+            ]
+          },
+          {
+            "rows": [
+              {
+                "id": "gpt-5.5"
+              },
+              {
+                "id": "gpt-5.4"
+              }
+            ]
+          }
+        ]
+      },
+      "result": null,
+      "listCalls": 0,
+      "cacheAsked": []
+    },
+    {
+      "step": {
+        "op": "load"
+      },
+      "result": {
+        "rows": [
+          {
+            "id": "gpt-5.5"
+          }
+        ],
+        "warning": null
+      },
+      "listCalls": 1,
+      "cacheAsked": []
+    },
+    {
+      "step": {
+        "op": "load"
+      },
+      "result": {
+        "rows": [
+          {
+            "id": "gpt-5.5"
+          },
+          {
+            "id": "gpt-5.4"
+          }
+        ],
+        "warning": null
+      },
+      "listCalls": 2,
+      "cacheAsked": []
+    },
+    {
+      "step": {
+        "op": "script",
+        "results": [
+          {
+            "rows": [
+              {
+                "id": "one"
+              }
+            ]
+          }
+        ]
+      },
+      "result": null,
+      "listCalls": 2,
+      "cacheAsked": []
+    },
+    {
+      "step": {
+        "op": "load-many",
+        "count": 3
+      },
+      "result": [
+        {
+          "rows": [
+            {
+              "id": "one"
+            }
+          ],
+          "warning": null
+        },
+        {
+          "rows": [
+            {
+              "id": "one"
+            }
+          ],
+          "warning": null
+        },
+        {
+          "rows": [
+            {
+              "id": "one"
+            }
+          ],
+          "warning": null
+        }
+      ],
+      "listCalls": 3,
+      "cacheAsked": []
+    },
+    {
+      "step": {
+        "op": "script",
+        "results": [
+          {
+            "rows": []
+          }
+        ]
+      },
+      "result": null,
+      "listCalls": 3,
+      "cacheAsked": []
+    },
+    {
+      "step": {
+        "op": "load"
+      },
+      "result": {
+        "error": {
+          "message": "Codex catalog unavailable",
+          "code": null
+        }
+      },
+      "listCalls": 4,
+      "cacheAsked": []
+    },
+    {
+      "step": {
+        "op": "script",
+        "results": [
+          {
+            "error": "boom"
+          },
+          {
+            "rows": [
+              {
+                "id": "back"
+              }
+            ]
+          }
+        ]
+      },
+      "result": null,
+      "listCalls": 4,
+      "cacheAsked": []
+    },
+    {
+      "step": {
+        "op": "load"
+      },
+      "result": {
+        "error": {
+          "message": "boom",
+          "code": null
+        }
+      },
+      "listCalls": 5,
+      "cacheAsked": []
+    },
+    {
+      "step": {
+        "op": "load"
+      },
+      "result": {
+        "rows": [
+          {
+            "id": "back"
+          }
+        ],
+        "warning": null
+      },
+      "listCalls": 6,
+      "cacheAsked": []
+    }
+  ]
+}

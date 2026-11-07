@@ -23,17 +23,16 @@ use mixdog_core_base::support::OpScopes;
 use mixdog_core_base::support::decode;
 use mixdog_core_base::support::failed;
 use mixdog_core_base::support::wrong_method;
-use mixdog_js::js_trim;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
 use super::WorkflowConfig;
-use super::ids::DEFAULT_WORKFLOW_ID;
 use super::ids::ORCHESTRATION_MODES;
 use super::ids::truthy;
 use super::ids::wanted_workflow_id;
 use super::pack::load_pack;
+use super::pack::workflow_summary;
 use crate::config::output_style::OutputStyles;
 use mixdog_app_protocol::v2::params::ThreadSetOrchestrationModeParams;
 use mixdog_app_protocol::v2::params::ThreadSetOutputStyleParams;
@@ -77,18 +76,6 @@ pub struct ThreadSettings {
     pub ops: OpScopes,
 }
 
-/// `workflowSummary(pack)` of `runtime-core/workflow/context.mjs` with its default `hasAgents`.
-fn workflow_summary(id: &str, name: &str, description: &str, source: &str) -> Map<String, Value> {
-    let name = js_trim(name);
-    let mut summary = Map::new();
-    summary.insert("id".into(), json!(id));
-    summary.insert("name".into(), json!(if !name.is_empty() { name } else if id == DEFAULT_WORKFLOW_ID { "Default" } else { id }));
-    summary.insert("description".into(), json!(js_trim(description)));
-    summary.insert("source".into(), json!(js_trim(source)));
-    summary.insert("delegatesAgents".into(), json!(true));
-    summary
-}
-
 fn thread_of(thread: &Option<mixdog_core_api::ids::ThreadId>) -> String {
     thread.as_ref().map(|t| t.as_str().to_owned()).unwrap_or_default()
 }
@@ -128,7 +115,8 @@ impl ThreadSettings {
         section.insert("active".into(), json!(id));
         after.insert("workflow".into(), Value::Object(section));
         self.workflow.save(&before, &after).await?;
-        let mut summary = workflow_summary(&pack.id, &pack.name, &pack.description, pack.source);
+        // `workflowSummary(pack)`: its default `hasAgents`.
+        let mut summary = workflow_summary(Some(&pack), true);
         summary.insert("appliedToCurrentSession".into(), json!(self.switches.settings_reach(&thread).await));
         Ok(Value::Object(summary))
     }

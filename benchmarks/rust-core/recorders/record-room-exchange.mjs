@@ -44,7 +44,7 @@ const speechRow = (id, speaker, text) => ({ id, kind: 'speech', speaker, name: s
 
 /** One scripted room host. Speaking members answer from `script.answers[agent]` (a list, the last
  *  repeats; a string is the reply text; `{fail: detail}` a failed turn; `{usage: true}` a usage
- *  limit). `decisions` scripts the supervisor. `hooks` act at the n-th call of a named method. */
+ *  limit). `decisions` scripts the supervisor in the shape the host's `decideTurn` returns\n *  (`{ action: 'speak', agentId, scene, instruction? }`, `{ action: 'finish' }`). `hooks` act at the n-th call of a named method. */
 function world(script) {
   const calls = [];
   const counts = {};
@@ -164,9 +164,8 @@ function world(script) {
     },
     turn,
     decideTurn: async (input) => {
-      counts.decideTurn = (counts.decideTurn ?? 0) + 1;
       calls.push(['decideTurn', { roomName: input.roomName, members: input.members, rows: input.rows.map((row) => row.id), turns: input.turns, mustPick: input.mustPick, last: input.last, remaining: input.remaining }]);
-      fire('decideTurn');
+      fire('decideTurn'); // counts the call: decisionAt() reads the n-th decision at the n-th call
       const decision = decisionAt();
       if (decision === 'throws') throw new Error('model down');
       return decision;
@@ -214,15 +213,15 @@ const hooks = (...list) => list;
 const U1 = [user('r1', 'Ship it?')];
 const scenarios = [
   await scenario('the user is answered by the named member and the supervisor finishes', { rows: U1 }, { to: ['bench'] }),
-  await scenario('a free exchange: the supervisor picks, then finishes', { rows: U1, decisions: [{ action: 'speak', member: 'alpha', instruction: 'check it', scene: 'work' }, { action: 'finish', scene: 'work' }] }),
-  await scenario('named members speak first, the supervisor adds one', { rows: U1, decisions: [{ action: 'speak', member: 'gh', scene: 'casual' }, { action: 'finish' }] }, { to: ['bench', 'alpha'] }),
+  await scenario('a free exchange: the supervisor picks, then finishes', { rows: U1, decisions: [{ action: 'speak', agentId: 'alpha', instruction: 'check it', scene: 'work' }, { action: 'finish', scene: 'work' }] }),
+  await scenario('named members speak first, the supervisor adds one', { rows: U1, decisions: [{ action: 'speak', agentId: 'gh', scene: 'casual' }, { action: 'finish' }] }, { to: ['bench', 'alpha'] }),
   await scenario('a whole-room request after the named members', { rows: U1, decisions: [{ action: 'finish' }] }, { to: ['bench'], everyone: true }),
   await scenario('no model to moderate: everyone speaks once', { rows: U1, decisions: [{ action: 'unmanaged' }] }),
   await scenario('a supervisor that fails falls back', { rows: U1, decisions: ['throws'] }),
   await scenario('a supervisor with no usable answer falls back', { rows: U1, decisions: [null] }),
   await scenario('not waiting: the exchange may end with nobody speaking', { rows: [speechRow('r1', 'alpha', 'done')], decisions: [{ action: 'finish' }] }, { waiting: false }),
-  await scenario('the message cap posts a cap row and owes the rest', { rows: U1, maxMessages: 2, decisions: [{ action: 'speak', member: 'alpha' }, { action: 'speak', member: 'gh' }, { action: 'speak', member: 'bench' }] }),
-  await scenario('the round cap', { rows: U1, maxRounds: 1, decisions: [{ action: 'speak', member: 'alpha' }, { action: 'speak', member: 'gh' }, { action: 'speak', member: 'bench' }] }),
+  await scenario('the message cap posts a cap row and owes the rest', { rows: U1, maxMessages: 2, decisions: [{ action: 'speak', agentId: 'alpha' }, { action: 'speak', agentId: 'gh' }, { action: 'speak', agentId: 'bench' }] }),
+  await scenario('the round cap', { rows: U1, maxRounds: 1, decisions: [{ action: 'speak', agentId: 'alpha' }, { action: 'speak', agentId: 'gh' }, { action: 'speak', agentId: 'bench' }] }),
   await scenario('a usage limit posts one notice instead of a failure', { rows: U1, answers: { bench: [{ usage: true }] } }, { to: ['bench'] }),
   await scenario('a failed turn is posted as one failed pass', { rows: U1, answers: { bench: [{ fail: 'overloaded' }], alpha: [{ fail: 'overloaded' }], gh: [{ fail: 'boom' }] } }),
   await scenario('a stop posts the stopped row', { rows: U1, hooks: hooks({ on: 'submit', do: 'stop' }) }, { to: ['bench'] }),
@@ -235,12 +234,12 @@ const scenarios = [
   await scenario('a post that fails is logged and the exchange ends', { rows: U1, postFails: 'disk full' }, { to: ['bench'] }),
   await scenario('a speak that throws ends the exchange', { rows: U1, submitThrows: 'daemon down' }, { to: ['bench'] }),
   await scenario('a turn that throws ends the exchange: no failures, no notice, calls handed on', { rows: U1, throwWhenGone: true, hooks: hooks({ on: 'post', do: 'deleteRoom' }) }, { to: ['bench', 'alpha'], only: true }, [{ call: { id: 'c1' }, agentId: 'gh' }]),
-  await scenario('a switched-off bot never speaks', { rows: U1, disabled: ['alpha'], decisions: [{ action: 'speak', member: 'alpha' }, { action: 'finish' }] }),
+  await scenario('a switched-off bot never speaks', { rows: U1, disabled: ['alpha'], decisions: [{ action: 'speak', agentId: 'alpha' }, { action: 'finish' }] }),
   await scenario('calls ride the member turn and end done', { rows: U1 }, { to: ['bench'], only: true }, [{ call: { id: 'c1', relay: 'task output' }, agentId: 'bench' }]),
   await scenario('a call no turn took is cancelled when no exchange follows', { rows: U1, decisions: [{ action: 'finish' }] }, { to: ['bench'], only: true }, [{ call: { id: 'c1' }, agentId: 'bench' }, { call: { id: 'c2' }, agentId: 'gh' }]),
   await scenario('a call no turn took is handed to the next exchange', { rows: U1, hooks: hooks({ on: 'submit', do: 'pending', request: { to: ['alpha'], waiting: false } }) }, { to: ['bench'], only: true }, [{ call: { id: 'c1' }, agentId: 'gh' }]),
   await scenario('a stopped exchange cancels its calls', { rows: U1, hooks: hooks({ on: 'submit', do: 'stop' }) }, { to: ['bench'], only: true }, [{ call: { id: 'c1' }, agentId: 'gh' }]),
-  await scenario('the budget of a free exchange is drawn', { rows: U1, random: 0.99, decisions: [{ action: 'speak', member: 'alpha' }, { action: 'finish' }] }),
+  await scenario('the budget of a free exchange is drawn', { rows: U1, random: 0.99, decisions: [{ action: 'speak', agentId: 'alpha' }, { action: 'finish' }] }),
 ];
 
 const finalOut = join(FIXTURES_ROOT, 'room-exchange');

@@ -234,6 +234,12 @@ mod imp {
         pub(crate) fn kill(&self) {
             unsafe { TerminateJobObject(self.job, KILL_EXIT_CODE) };
         }
+
+        /// A job object has no gentle stop: the first stop is the forced one, so only the Unix path
+        /// of an escalating stop differs.
+        pub(crate) fn terminate(&self) {
+            self.kill();
+        }
     }
 
     impl Drop for Containment {
@@ -273,9 +279,18 @@ mod imp {
         }
 
         pub(crate) fn kill(&self) {
+            self.signal(libc::SIGKILL);
+        }
+
+        /// SIGTERM to the group: the gentle first stop of an escalating one (`kill` is the second).
+        pub(crate) fn terminate(&self) {
+            self.signal(libc::SIGTERM);
+        }
+
+        fn signal(&self, signal: libc::c_int) {
             let group = self.group.load(Ordering::Acquire);
             if group > 0 && !self.emptied.load(Ordering::Acquire) {
-                unsafe { libc::kill(-group, libc::SIGKILL) };
+                unsafe { libc::kill(-group, signal) };
             }
         }
 
@@ -437,6 +452,33 @@ mod imp {
 }
 
 pub(crate) use imp::Containment;
+
+#[cfg(all(test, unix))]
+mod tests {
+    use std::os::unix::process::CommandExt;
+    use std::os::unix::process::ExitStatusExt;
+    use std::time::Duration;
+
+    use super::Containment;
+
+    /// The gentle stop is SIGTERM and a child that ignores it lives; the forced one is SIGKILL.
+    #[test]
+    fn terminate_is_sigterm_and_kill_is_sigkill() {
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "trap '' TERM; while :; do sleep 1; done"])
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        let containment = Containment::create().unwrap();
+        containment.adopt(child.id());
+        std::thread::sleep(Duration::from_millis(300));
+        containment.terminate();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(child.try_wait().unwrap().is_none(), "a child that ignores SIGTERM is still there");
+        containment.kill();
+        assert_eq!(child.wait().unwrap().signal(), Some(libc::SIGKILL));
+    }
+}
 
 /// How a finished root process ended.
 pub(crate) fn exit_status(status: std::process::ExitStatus) -> ExitStatus {

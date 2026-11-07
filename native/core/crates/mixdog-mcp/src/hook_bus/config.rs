@@ -104,7 +104,8 @@ pub fn read_document(lane: &InLane<MaintenanceIo>, path: &Path, restore: bool) -
     } else {
         match mixdog_statefile::parse_json_text(&content) {
             Ok(value) => return Ok(Some(value)),
-            Err(error) => error.to_string(),
+            // The `SyntaxError` message of Node's `JSON.parse`, which `hook:error` reports.
+            Err(error) => mixdog_statefile::json_text_problem(&content).unwrap_or_else(|| unreachable!("the parser refused the text: {error}")),
         }
     };
     if restore {

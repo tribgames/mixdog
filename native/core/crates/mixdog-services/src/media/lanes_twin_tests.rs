@@ -52,7 +52,7 @@ struct Scenario {
 
 #[async_trait]
 impl LaneSources for Scenario {
-    fn authenticated(&self, lane: &str) -> bool {
+    async fn authenticated(&self, lane: &str) -> bool {
         self.authenticated.iter().any(|id| id == lane)
     }
 

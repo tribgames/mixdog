@@ -1,0 +1,407 @@
+{
+  "scenarios": [
+    {
+      "name": "gcloud login of a user, no project anywhere",
+      "mode": "gcloud",
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"authorized_user\",\"client_id\":\"cid\",\"client_secret\":\"cs\",\"refresh_token\":\"rt\",\"account\":\"ann@x.test\"}"
+      },
+      "env": {},
+      "override": "",
+      "described": {
+        "state": "ready",
+        "type": "authorized_user",
+        "account": "ann@x.test",
+        "projectId": null
+      }
+    },
+    {
+      "name": "user login with a quota project",
+      "mode": "gcloud",
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"authorized_user\",\"client_id\":\"cid\",\"client_secret\":\"cs\",\"refresh_token\":\"rt\",\"account\":\"ann@x.test\",\"quota_project_id\":\"quota-p\"}"
+      },
+      "env": {},
+      "override": "",
+      "described": {
+        "state": "ready",
+        "type": "authorized_user",
+        "account": "ann@x.test",
+        "projectId": "quota-p"
+      }
+    },
+    {
+      "name": "service account login names its project",
+      "mode": "gcloud",
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"service_account\",\"client_email\":\"sa@p.iam.gserviceaccount.com\",\"private_key\":\"k\",\"project_id\":\"sa-project\"}"
+      },
+      "env": {},
+      "override": "",
+      "described": {
+        "state": "ready",
+        "type": "service_account",
+        "account": "sa@p.iam.gserviceaccount.com",
+        "projectId": "sa-project"
+      }
+    },
+    {
+      "name": "quota project beats the key project",
+      "mode": "gcloud",
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"service_account\",\"client_email\":\"sa@p.iam.gserviceaccount.com\",\"private_key\":\"k\",\"project_id\":\"sa-project\",\"quota_project_id\":\"quota-p\"}"
+      },
+      "env": {},
+      "override": "",
+      "described": {
+        "state": "ready",
+        "type": "service_account",
+        "account": "sa@p.iam.gserviceaccount.com",
+        "projectId": "quota-p"
+      }
+    },
+    {
+      "name": "the environment beats the file",
+      "mode": "gcloud",
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"service_account\",\"client_email\":\"sa@p.iam.gserviceaccount.com\",\"private_key\":\"k\",\"project_id\":\"sa-project\"}"
+      },
+      "env": {
+        "GOOGLE_CLOUD_PROJECT": " env-p "
+      },
+      "override": "",
+      "described": {
+        "state": "ready",
+        "type": "service_account",
+        "account": "sa@p.iam.gserviceaccount.com",
+        "projectId": "env-p"
+      }
+    },
+    {
+      "name": "project variables in precedence order",
+      "mode": "gcloud",
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"authorized_user\",\"client_id\":\"cid\",\"client_secret\":\"cs\",\"refresh_token\":\"rt\",\"account\":\"ann@x.test\"}"
+      },
+      "env": {
+        "GCP_PROJECT": "third",
+        "GOOGLE_VERTEX_PROJECT": "first"
+      },
+      "override": "",
+      "described": {
+        "state": "ready",
+        "type": "authorized_user",
+        "account": "ann@x.test",
+        "projectId": "first"
+      }
+    },
+    {
+      "name": "an override beats everything",
+      "mode": "gcloud",
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"service_account\",\"client_email\":\"sa@p.iam.gserviceaccount.com\",\"private_key\":\"k\",\"project_id\":\"sa-project\"}"
+      },
+      "env": {
+        "GOOGLE_CLOUD_PROJECT": "env-p"
+      },
+      "override": "  override-p ",
+      "described": {
+        "state": "ready",
+        "type": "service_account",
+        "account": "sa@p.iam.gserviceaccount.com",
+        "projectId": "override-p"
+      }
+    },
+    {
+      "name": "gcloud configured project",
+      "mode": "gcloud",
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"authorized_user\",\"client_id\":\"cid\",\"client_secret\":\"cs\",\"refresh_token\":\"rt\",\"account\":\"ann@x.test\"}",
+        "active_config": "work\n",
+        "configurations/config_work": "[compute]\nproject = not-this\n[core]\naccount = a\n  project =  conf-p  \n"
+      },
+      "env": {},
+      "override": "",
+      "described": {
+        "state": "ready",
+        "type": "authorized_user",
+        "account": "ann@x.test",
+        "projectId": "conf-p"
+      }
+    },
+    {
+      "name": "gcloud default configuration",
+      "mode": "gcloud",
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"authorized_user\",\"client_id\":\"cid\",\"client_secret\":\"cs\",\"refresh_token\":\"rt\",\"account\":\"ann@x.test\"}",
+        "configurations/config_default": "[core]\nproject=default-p\r\n"
+      },
+      "env": {},
+      "override": "",
+      "described": {
+        "state": "ready",
+        "type": "authorized_user",
+        "account": "ann@x.test",
+        "projectId": "default-p"
+      }
+    },
+    {
+      "name": "gcloud active configuration by variable",
+      "mode": "gcloud",
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"authorized_user\",\"client_id\":\"cid\",\"client_secret\":\"cs\",\"refresh_token\":\"rt\",\"account\":\"ann@x.test\"}",
+        "configurations/config_named": "[core]\nproject = named-p\n"
+      },
+      "env": {
+        "CLOUDSDK_ACTIVE_CONFIG_NAME": "named"
+      },
+      "override": "",
+      "described": {
+        "state": "ready",
+        "type": "authorized_user",
+        "account": "ann@x.test",
+        "projectId": "named-p"
+      }
+    },
+    {
+      "name": "impersonated service account",
+      "mode": "gcloud",
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"impersonated_service_account\",\"service_account_impersonation_url\":\"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/target@p.iam.gserviceaccount.com:generateAccessToken\",\"source_credentials\":{\"type\":\"authorized_user\",\"client_id\":\"cid\",\"client_secret\":\"cs\",\"refresh_token\":\"rt\",\"account\":\"ann@x.test\"}}"
+      },
+      "env": {},
+      "override": "",
+      "described": {
+        "state": "ready",
+        "type": "impersonated_service_account",
+        "account": "target@p.iam.gserviceaccount.com",
+        "projectId": null
+      }
+    },
+    {
+      "name": "impersonation url without a target",
+      "mode": "gcloud",
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"impersonated_service_account\",\"service_account_impersonation_url\":\"https://x.test/nothing\",\"source_credentials\":{\"type\":\"authorized_user\",\"client_id\":\"cid\",\"client_secret\":\"cs\",\"refresh_token\":\"rt\",\"account\":\"ann@x.test\"}}"
+      },
+      "env": {},
+      "override": "",
+      "described": {
+        "state": "invalid",
+        "message": "The impersonated_service_account credentials in {dir}/application_default_credentials.json have no valid service_account_impersonation_url."
+      }
+    },
+    {
+      "name": "impersonation source that is unsupported",
+      "mode": "gcloud",
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"impersonated_service_account\",\"service_account_impersonation_url\":\"https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/target@p.iam.gserviceaccount.com:generateAccessToken\",\"source_credentials\":{\"type\":\"external_account\"}}"
+      },
+      "env": {},
+      "override": "",
+      "described": {
+        "state": "unsupported",
+        "type": "external_account",
+        "message": "Vertex AI does not support \"external_account\" credentials as an impersonation source ({dir}/application_default_credentials.json). Use a service-account key, or sign in with `gcloud auth application-default login`."
+      }
+    },
+    {
+      "name": "an unsupported credential type",
+      "mode": "gcloud",
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"external_account\"}"
+      },
+      "env": {},
+      "override": "",
+      "described": {
+        "state": "unsupported",
+        "type": "external_account",
+        "message": "Vertex AI does not support \"external_account\" credentials ({dir}/application_default_credentials.json). Use a service-account key, or sign in with `gcloud auth application-default login`."
+      }
+    },
+    {
+      "name": "a credential with no type",
+      "mode": "gcloud",
+      "files": {
+        "application_default_credentials.json": "{}"
+      },
+      "env": {},
+      "override": "",
+      "described": {
+        "state": "unsupported",
+        "type": "unknown",
+        "message": "Vertex AI does not support \"unknown\" credentials ({dir}/application_default_credentials.json). Use a service-account key, or sign in with `gcloud auth application-default login`."
+      }
+    },
+    {
+      "name": "a user login missing fields",
+      "mode": "gcloud",
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"authorized_user\",\"client_id\":\"cid\"}"
+      },
+      "env": {},
+      "override": "",
+      "described": {
+        "state": "invalid",
+        "message": "The authorized_user credentials in {dir}/application_default_credentials.json are missing client_secret, refresh_token."
+      }
+    },
+    {
+      "name": "a service account missing fields",
+      "mode": "gcloud",
+      "files": {
+        "application_default_credentials.json": "{\"type\":\"service_account\",\"client_email\":\"a@b\"}"
+      },
+      "env": {},
+      "override": "",
+      "described": {
+        "state": "invalid",
+        "message": "The service_account credentials in {dir}/application_default_credentials.json are missing private_key."
+      }
+    },
+    {
+      "name": "text that is not JSON",
+      "mode": "gcloud",
+      "files": {
+        "application_default_credentials.json": "not json"
+      },
+      "env": {},
+      "override": "",
+      "described": {
+        "state": "invalid",
+        "message": "The credentials file {dir}/application_default_credentials.json is not valid JSON."
+      }
+    },
+    {
+      "name": "a document that is an array",
+      "mode": "gcloud",
+      "files": {
+        "application_default_credentials.json": "[1]"
+      },
+      "env": {},
+      "override": "",
+      "described": {
+        "state": "invalid",
+        "message": "The credentials in {dir}/application_default_credentials.json are invalid."
+      }
+    },
+    {
+      "name": "no gcloud login",
+      "mode": "gcloud",
+      "files": {},
+      "env": {},
+      "override": "",
+      "described": {
+        "state": "missing",
+        "message": "No gcloud login found. Run `gcloud auth application-default login`."
+      }
+    },
+    {
+      "name": "no gcloud login, a metadata server found earlier",
+      "mode": "gcloud",
+      "files": {},
+      "env": {},
+      "override": "",
+      "metadata": "meta-project",
+      "described": {
+        "state": "ready",
+        "type": "metadata",
+        "account": null,
+        "projectId": "meta-project"
+      }
+    },
+    {
+      "name": "no gcloud login, metadata, environment project",
+      "mode": "gcloud",
+      "files": {},
+      "env": {
+        "GOOGLE_CLOUD_PROJECT": "env-p"
+      },
+      "override": "",
+      "metadata": "meta-project",
+      "described": {
+        "state": "ready",
+        "type": "metadata",
+        "account": null,
+        "projectId": "env-p"
+      }
+    },
+    {
+      "name": "no gcloud login, metadata, override",
+      "mode": "gcloud",
+      "files": {},
+      "env": {},
+      "override": "over-p",
+      "metadata": "meta-project",
+      "described": {
+        "state": "ready",
+        "type": "metadata",
+        "account": null,
+        "projectId": "over-p"
+      }
+    },
+    {
+      "name": "no gcloud login, a metadata probe that found nothing",
+      "mode": "gcloud",
+      "files": {},
+      "env": {},
+      "override": "",
+      "metadata": null,
+      "described": {
+        "state": "missing",
+        "message": "No gcloud login found. Run `gcloud auth application-default login`."
+      }
+    },
+    {
+      "name": "an explicit file",
+      "mode": "explicit",
+      "files": {
+        "creds/key.json": "{\"type\":\"service_account\",\"client_email\":\"sa@p.iam.gserviceaccount.com\",\"private_key\":\"k\",\"project_id\":\"sa-project\"}"
+      },
+      "env": {},
+      "override": "",
+      "described": {
+        "state": "ready",
+        "type": "service_account",
+        "account": "sa@p.iam.gserviceaccount.com",
+        "projectId": "sa-project"
+      }
+    },
+    {
+      "name": "an explicit file that does not exist",
+      "mode": "explicit",
+      "files": {},
+      "env": {},
+      "override": "",
+      "described": {
+        "state": "invalid",
+        "message": "GOOGLE_APPLICATION_CREDENTIALS points to {dir}/creds/key.json, which does not exist."
+      }
+    },
+    {
+      "name": "an explicit file, a metadata server never replaces it",
+      "mode": "explicit",
+      "files": {},
+      "env": {},
+      "override": "",
+      "metadata": "meta-project",
+      "described": {
+        "state": "invalid",
+        "message": "GOOGLE_APPLICATION_CREDENTIALS points to {dir}/creds/key.json, which does not exist."
+      }
+    },
+    {
+      "name": "an explicit file that is not JSON",
+      "mode": "explicit",
+      "files": {
+        "creds/key.json": "{"
+      },
+      "env": {},
+      "override": "",
+      "described": {
+        "state": "invalid",
+        "message": "The credentials file {dir}/creds/key.json is not valid JSON."
+      }
+    }
+  ]
+}

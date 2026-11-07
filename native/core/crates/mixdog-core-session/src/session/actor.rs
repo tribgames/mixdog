@@ -234,6 +234,11 @@ pub(crate) enum JobDone {
     },
     PromptSession { session: Vec<String>, publish: bool },
     PromptPersisted(Vec<String>),
+    /// A prompt-history append job ended: the list as the writer saw it, and the appends that did
+    /// not land (the write failed, or the lane refused or dropped the job).
+    PromptFlushed { list: Option<Vec<String>>, unwritten: Vec<String> },
+    /// A retry wait of the prompt-history appends ended.
+    PromptRetryDue(u64),
     ApprovalId {
         turn: TurnId,
         ask: ApprovalAsk,
@@ -440,6 +445,8 @@ pub(crate) struct SessionActor {
     goal_deferred: bool,
     /// The last Goal runtime call: each waits for the one before.
     goal_tail: Option<tokio::task::JoinHandle<()>>,
+    /// The prompt-history appends not on disk yet, and their retry (`prompt-history-store.mjs`).
+    prompt_appends: prompt_history::AppendQueue,
     /// Answered once the deleted thread's turn ended.
     delete_closed: Option<oneshot::Sender<Result<(), &'static str>>>,
     /// The delete's go for the mark, awaited once `delete_closed` answered.
@@ -558,6 +565,7 @@ impl SessionActor {
             idle_evict_at: None,
             goal_deferred: false,
             goal_tail: None,
+            prompt_appends: Default::default(),
             delete_closed: None,
             delete_mark: None,
             delete_marked: None,
@@ -939,6 +947,27 @@ impl SessionActor {
             }
             JobDone::PromptPersisted(persisted) => {
                 self.accept_view(Change::PromptPersisted(persisted), Vec::new())
+            }
+            JobDone::PromptFlushed { list, unwritten } => {
+                if let Some(list) = list {
+                    self.accept_view(Change::PromptPersisted(list), Vec::new());
+                }
+                match self.prompt_appends.flushed(unwritten) {
+                    prompt_history::Next::Idle => {}
+                    prompt_history::Next::Flush(batch) => self.flush_prompts(batch),
+                    prompt_history::Next::Wait { epoch, delay } => {
+                        let jobs = self.jobs_tx.clone();
+                        drop(tokio::spawn(async move {
+                            tokio::time::sleep(delay).await;
+                            let _ = jobs.send(JobDone::PromptRetryDue(epoch));
+                        }));
+                    }
+                }
+            }
+            JobDone::PromptRetryDue(epoch) => {
+                if let Some(batch) = self.prompt_appends.due(epoch) {
+                    self.flush_prompts(batch);
+                }
             }
             JobDone::ApprovalId {
                 turn,
@@ -1345,6 +1374,8 @@ impl SessionActor {
         {
             self.cell.header.store(Arc::new(self.acked.header.clone()));
             self.refresh_surface();
+            // `sessionRecords.onChange`: this session's stored record changed.
+            self.deps.agent_signals.session_record(self.id.as_str());
         }
         notes.extend(entry.notes);
         self.derived_notes(&entry.change, &title, queue_len, notes);
@@ -1603,10 +1634,16 @@ impl SessionActor {
             self.book.decidable().into_iter().map(|aid| aid.0).collect();
         if **self.cell.approvals.load() != approvals {
             self.cell.approvals.store(Arc::new(approvals));
+            // `onSessionApprovalWaitChange`: the wait this session's turn holds changed.
+            self.deps.agent_signals.approval_wait(self.id.as_str());
         }
         let takeover = super::secret_input::takeover_hold(self.book.open_asks());
         if **self.cell.takeover.load() != takeover {
             self.cell.takeover.store(Arc::new(takeover));
+        }
+        let shown = self.book.shown();
+        if self.cell.shown_approval.load().as_ref().map(|request| request.id) != shown.map(|request| request.id) {
+            self.cell.shown_approval.store(shown.cloned().map(Arc::new));
         }
     }
 
@@ -3702,12 +3739,36 @@ impl SessionActor {
         if prompt_history::key(&prompt).is_empty() {
             return;
         }
-        let prompts = self.deps.prompts.clone();
-        let jobs = self.jobs_tx.clone();
-        let cwd = self.cwd();
-        let _ = self.deps.lanes.durability.submit(&CancellationToken::new(), move |lane| {
-            let _ = jobs.send(JobDone::PromptPersisted(prompts.append(lane, &cwd, &prompt)));
-        });
+        if let Some(batch) = self.prompt_appends.push(prompt) {
+            self.flush_prompts(batch);
+        }
+    }
+
+    /// Appends `batch` (oldest first) to the persisted history, stopping at the first that does not
+    /// land. What did not land comes back to the queue, which retries it on Node's backoff: a prompt
+    /// is not lost because the lane refused the job or the write failed. A job that never ran
+    /// (`JobDropped`) wrote nothing, so retrying it duplicates nothing.
+    fn flush_prompts(&mut self, batch: Vec<String>) {
+        let (prompts, jobs, cwd, lanes) = (self.deps.prompts.clone(), self.jobs_tx.clone(), self.cwd(), self.deps.lanes);
+        drop(mixdog_rt::spawn("prompt-history-append", TaskClass::Work, async move {
+            let kept = batch.clone();
+            let submitted = lanes.durability.submit(&CancellationToken::new(), move |lane| {
+                let mut list = None;
+                for (at, text) in batch.iter().enumerate() {
+                    let done = prompts.append(lane, &cwd, text);
+                    list = Some(done.list);
+                    if !done.written {
+                        return (list, batch[at..].to_vec());
+                    }
+                }
+                (list, Vec::new())
+            });
+            let (list, unwritten) = match submitted {
+                Ok(job) => job.await.unwrap_or((None, kept)),
+                Err(_) => (None, kept),
+            };
+            let _ = jobs.send(JobDone::PromptFlushed { list, unwritten });
+        }));
     }
 
     /// The session part over the remaining lineage after a history mutation.

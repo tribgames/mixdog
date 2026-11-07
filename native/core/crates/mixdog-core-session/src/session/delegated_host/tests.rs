@@ -10,7 +10,9 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-use super::{Answer, ApprovalQueue, Delegated, DelegatedApprovalHost, QueueHandle, SessionOpener};
+use mixdog_services::bots::delivery::queue::Handoffs;
+
+use super::{Answer, ApprovalQueue, Delegated, DelegatedApprovalHost, HostHandoffs, QueueHandle, SessionOpener};
 
 struct FakeQueue {
     name: String,
@@ -176,4 +178,19 @@ async fn every_scripted_step_does_what_the_node_host_did() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The report-watch store keeps the host in step through `Handoffs`: a watch added notes its hand-off,
+/// a watch gone ends it for good (the host's scripted steps above are `noteHandoff` / `endHandoff`).
+#[tokio::test]
+async fn the_report_watch_store_notes_and_ends_hand_offs_through_the_adapter() {
+    let host = DelegatedApprovalHost::new();
+    let handoffs = HostHandoffs::new(host.clone());
+    let watch = json!({ "runId": "run1", "taskSessionId": "task", "homeSessionId": "chat", "title": "Bench" });
+    handoffs.note(&watch);
+    assert_eq!(host.handoff_chats_of("task"), vec![("chat".to_owned(), "Bench".to_owned())]);
+    handoffs.end("run1");
+    assert!(host.handoff_chats_of("task").is_empty());
+    handoffs.note(&watch);
+    assert!(host.handoff_chats_of("task").is_empty(), "an ended run is not noted again");
 }

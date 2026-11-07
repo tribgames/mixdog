@@ -1,0 +1,106 @@
+[
+ {
+  "input": "",
+  "out": ""
+ },
+ {
+  "input": "   ",
+  "out": ""
+ },
+ {
+  "input": "plain words",
+  "out": "plain words"
+ },
+ {
+  "input": "**bold** and __also bold__ and *it* and _it2_ and ~~gone~~",
+  "out": "bold and also bold and it and it2 and gone"
+ },
+ {
+  "input": "# Heading\n\nbody text\n## Two\n",
+  "out": "Heading body text Two"
+ },
+ {
+  "input": "> quoted\n> more\nafter",
+  "out": "quoted more after"
+ },
+ {
+  "input": "- one\n- two\n  - nested\n1. first\n2) second\n- [x] done\n- [ ] todo",
+  "out": "one two nested first second done todo"
+ },
+ {
+  "input": "```js\nconst a = 1;\n```\nafter fence",
+  "out": "const a = 1; after fence"
+ },
+ {
+  "input": "~~~\nfenced\n~~~",
+  "out": "fenced"
+ },
+ {
+  "input": "see [the docs](https://x.y/z) and ![alt text](img.png) end",
+  "out": "see the docs and alt text end"
+ },
+ {
+  "input": "inline `code` and ``double`` ticks",
+  "out": "inline code and double ticks"
+ },
+ {
+  "input": "<!-- hidden -->visible",
+  "out": "visible"
+ },
+ {
+  "input": "<!-- unterminated comment",
+  "out": ""
+ },
+ {
+  "input": "a\n---\nb\n***\nc\n___",
+  "out": "a b c"
+ },
+ {
+  "input": "snake_case_word and 2*3*4 and a * b",
+  "out": "snake_case_word and 2*3*4 and a * b"
+ },
+ {
+  "input": "Done. - next item",
+  "out": "Done. next item"
+ },
+ {
+  "input": "He said: * star list",
+  "out": "He said: star list"
+ },
+ {
+  "input": "x\n\n\n  y\t\tz  ",
+  "out": "x y z"
+ },
+ {
+  "input": "ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß",
+  "out": "ßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßßß"
+ },
+ {
+  "input": "한글 **굵게** `코드` [링크](http://a.b)",
+  "out": "한글 굵게 코드 링크"
+ },
+ {
+  "input": "*unclosed bold and **mixed* styles**",
+  "out": "unclosed bold and mixed styles"
+ },
+ {
+  "input": "  leading\n   # not heading (4 spaces)\n    # indented",
+  "out": "leading not heading (4 spaces) # indented"
+ },
+ {
+  "input": "__init__ and **a**b and *a*b",
+  "out": "init and ab and *a*b"
+ },
+ {
+  "input": "one.\n- two",
+  "out": "one. two"
+ },
+ {
+  "input": "tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀",
+  "out": "tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail 😀tail"
+ },
+ {
+  "input": "[](empty) [x]() ![]()",
+  "out": "[](empty) x"
+ }
+]

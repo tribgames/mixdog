@@ -251,9 +251,14 @@ impl Inner {
         Ok(json!({ "removed": removed, "entryId": id, "path": path }))
     }
 
-    /// Every managed worktree with who retains it.
+    /// Every managed branch worktree with who retains it: the workspace API's own
+    /// `listWorktrees()` (`worktree-maintenance.mjs`: no details, snapshots left out), over the
+    /// stored and live sessions as they are now.
     pub(super) async fn list_rows(&self, cancel: &CancellationToken) -> Result<Vec<JsonValue>, ScmFailure> {
-        self.ops.wt.list(None, &*self.retention, cancel).await
+        // Without details the list weighs no cleanup limit, so `now` is never read.
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+        let rows = self.ops.wt.list_with_retention(&self.sessions, &(self.live)(), false, now, cancel).await?;
+        Ok(mixdog_scm::worktree::listing::without_snapshots(rows))
     }
 
     /// The listed worktree matching `predicate` whose owner is gone and that the list reports

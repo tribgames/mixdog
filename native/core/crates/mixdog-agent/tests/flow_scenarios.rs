@@ -1089,6 +1089,7 @@ async fn a_foreground_run_ends_with_its_content_and_closes_its_session() {
 /// `Session "<id>" closed: closeSession (reason=agent-task-cancel)` text from that reason).
 #[tokio::test]
 async fn cancelling_an_agent_job_closes_its_worker_session_with_the_cancel_reason() {
+    backend();
     let rig = rig(&json!({}), None);
     let closes = Arc::new(RecordedCloses::default());
     let starter = JobStarter::new(rig.shared.board.clone(), closes.clone(), Arc::new(Sess(rig.shared.clone())), Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));

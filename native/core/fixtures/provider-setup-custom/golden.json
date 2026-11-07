@@ -1,0 +1,3036 @@
+{
+  "scenarios": [
+    {
+      "name": "no providers",
+      "providers": {},
+      "world": {
+        "stored": [],
+        "fallback": [],
+        "env": {},
+        "emptyEnv": [],
+        "keyIds": {}
+      },
+      "rows": {
+        "true": [],
+        "false": []
+      }
+    },
+    {
+      "name": "a keyed provider with a stored key",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "key",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          }
+        }
+      },
+      "world": {
+        "stored": [
+          "custom-11111111-1111-4111-8111-111111111111"
+        ],
+        "fallback": [],
+        "env": {},
+        "emptyEnv": [],
+        "keyIds": {
+          "custom-11111111-1111-4111-8111-111111111111": []
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": true,
+            "env": false,
+            "envName": null,
+            "status": "Set",
+            "detail": "stored in keychain",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "No Key",
+            "detail": "custom endpoint",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a stored key in the private file",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "key",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          }
+        }
+      },
+      "world": {
+        "stored": [
+          "custom-11111111-1111-4111-8111-111111111111"
+        ],
+        "fallback": [
+          "custom-11111111-1111-4111-8111-111111111111"
+        ],
+        "env": {},
+        "emptyEnv": [],
+        "keyIds": {
+          "custom-11111111-1111-4111-8111-111111111111": []
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": true,
+            "env": false,
+            "envName": null,
+            "status": "Set",
+            "detail": "stored in private file",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "No Key",
+            "detail": "custom endpoint",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a keyed provider with no key",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "key",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          }
+        }
+      },
+      "world": {
+        "stored": [],
+        "fallback": [],
+        "env": {},
+        "emptyEnv": [],
+        "keyIds": {
+          "custom-11111111-1111-4111-8111-111111111111": []
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": false,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "No Key",
+            "detail": "custom endpoint",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "No Key",
+            "detail": "custom endpoint",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a disabled provider with no key",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "key",
+          "enabled": false,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          }
+        }
+      },
+      "world": {
+        "stored": [],
+        "fallback": [],
+        "env": {},
+        "emptyEnv": [],
+        "keyIds": {
+          "custom-11111111-1111-4111-8111-111111111111": []
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": false,
+            "authenticated": false,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "Off",
+            "detail": "custom endpoint",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": false,
+            "authenticated": false,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "Off",
+            "detail": "custom endpoint",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a disabled provider with a stored key",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "key",
+          "enabled": false,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          }
+        }
+      },
+      "world": {
+        "stored": [
+          "custom-11111111-1111-4111-8111-111111111111"
+        ],
+        "fallback": [],
+        "env": {},
+        "emptyEnv": [],
+        "keyIds": {
+          "custom-11111111-1111-4111-8111-111111111111": []
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": false,
+            "authenticated": true,
+            "stored": true,
+            "env": false,
+            "envName": null,
+            "status": "Set",
+            "detail": "stored in keychain",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": false,
+            "authenticated": false,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "Off",
+            "detail": "custom endpoint",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a key from an environment variable that is set",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "key",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          },
+          "apiKeyEnv": "CP_SETUP_KEY"
+        }
+      },
+      "world": {
+        "stored": [],
+        "fallback": [],
+        "env": {
+          "CP_SETUP_KEY": "v"
+        },
+        "emptyEnv": [],
+        "keyIds": {
+          "custom-11111111-1111-4111-8111-111111111111": []
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": true,
+            "envName": "CP_SETUP_KEY",
+            "status": "Env",
+            "detail": "CP_SETUP_KEY",
+            "apiKeyEnv": "CP_SETUP_KEY",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": true,
+            "envName": "CP_SETUP_KEY",
+            "status": "Env",
+            "detail": "CP_SETUP_KEY",
+            "apiKeyEnv": "CP_SETUP_KEY",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a key from an environment variable that is unset",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "key",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          },
+          "apiKeyEnv": "CP_SETUP_KEY"
+        }
+      },
+      "world": {
+        "stored": [],
+        "fallback": [],
+        "env": {},
+        "emptyEnv": [],
+        "keyIds": {
+          "custom-11111111-1111-4111-8111-111111111111": []
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": false,
+            "stored": false,
+            "env": false,
+            "envName": "CP_SETUP_KEY",
+            "status": "No Key",
+            "detail": "CP_SETUP_KEY",
+            "apiKeyEnv": "CP_SETUP_KEY",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": false,
+            "stored": false,
+            "env": false,
+            "envName": "CP_SETUP_KEY",
+            "status": "No Key",
+            "detail": "CP_SETUP_KEY",
+            "apiKeyEnv": "CP_SETUP_KEY",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "an environment variable that is empty",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "key",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          },
+          "apiKeyEnv": "CP_SETUP_EMPTY"
+        }
+      },
+      "world": {
+        "stored": [],
+        "fallback": [],
+        "env": {},
+        "emptyEnv": [
+          "CP_SETUP_EMPTY"
+        ],
+        "keyIds": {
+          "custom-11111111-1111-4111-8111-111111111111": []
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": false,
+            "stored": false,
+            "env": false,
+            "envName": "CP_SETUP_EMPTY",
+            "status": "No Key",
+            "detail": "CP_SETUP_EMPTY",
+            "apiKeyEnv": "CP_SETUP_EMPTY",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": false,
+            "stored": false,
+            "env": false,
+            "envName": "CP_SETUP_EMPTY",
+            "status": "No Key",
+            "detail": "CP_SETUP_EMPTY",
+            "apiKeyEnv": "CP_SETUP_EMPTY",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a variable and a stored key",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "key",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          },
+          "apiKeyEnv": "CP_SETUP_KEY"
+        }
+      },
+      "world": {
+        "stored": [
+          "custom-11111111-1111-4111-8111-111111111111"
+        ],
+        "fallback": [],
+        "env": {
+          "CP_SETUP_KEY": "v"
+        },
+        "emptyEnv": [],
+        "keyIds": {
+          "custom-11111111-1111-4111-8111-111111111111": []
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": true,
+            "env": true,
+            "envName": "CP_SETUP_KEY",
+            "status": "Env",
+            "detail": "CP_SETUP_KEY",
+            "apiKeyEnv": "CP_SETUP_KEY",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": true,
+            "envName": "CP_SETUP_KEY",
+            "status": "Env",
+            "detail": "CP_SETUP_KEY",
+            "apiKeyEnv": "CP_SETUP_KEY",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a keyless provider",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "none",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          }
+        }
+      },
+      "world": {
+        "stored": [],
+        "fallback": [],
+        "env": {},
+        "emptyEnv": [],
+        "keyIds": {
+          "custom-11111111-1111-4111-8111-111111111111": []
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "Keyless",
+            "detail": "no API key required",
+            "schemaVersion": 2,
+            "auth": "none",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "Keyless",
+            "detail": "no API key required",
+            "schemaVersion": 2,
+            "auth": "none",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a disabled keyless provider",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "none",
+          "enabled": false,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          }
+        }
+      },
+      "world": {
+        "stored": [],
+        "fallback": [],
+        "env": {},
+        "emptyEnv": [],
+        "keyIds": {
+          "custom-11111111-1111-4111-8111-111111111111": []
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": false,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "Off",
+            "detail": "no API key required",
+            "schemaVersion": 2,
+            "auth": "none",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": false,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "Off",
+            "detail": "no API key required",
+            "schemaVersion": 2,
+            "auth": "none",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "a legacy entry with a model list",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "Old",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1/v1",
+          "models": [
+            {
+              "id": "a"
+            },
+            {
+              "id": "b",
+              "name": "Bee",
+              "contextWindow": 8000
+            }
+          ]
+        }
+      },
+      "world": {
+        "stored": [
+          "custom-11111111-1111-4111-8111-111111111111"
+        ],
+        "fallback": [],
+        "env": {},
+        "emptyEnv": [],
+        "keyIds": {
+          "custom-11111111-1111-4111-8111-111111111111": []
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Old",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1/v1",
+            "models": [
+              {
+                "id": "a",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "a",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              },
+              {
+                "id": "b",
+                "name": "Bee",
+                "contextWindow": 8000,
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "b",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": true,
+            "env": false,
+            "envName": null,
+            "status": "Set",
+            "detail": "stored in keychain",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": true
+            },
+            "modelOverrides": {
+              "a": {
+                "manual": true,
+                "hidden": false
+              },
+              "b": {
+                "manual": true,
+                "hidden": false,
+                "name": "Bee",
+                "contextWindow": 8000
+              }
+            }
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Old",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1/v1",
+            "models": [
+              {
+                "id": "a",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "a",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              },
+              {
+                "id": "b",
+                "name": "Bee",
+                "contextWindow": 8000,
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "b",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "No Key",
+            "detail": "custom endpoint",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": true
+            },
+            "modelOverrides": {
+              "a": {
+                "manual": true,
+                "hidden": false
+              },
+              "b": {
+                "manual": true,
+                "hidden": false,
+                "name": "Bee",
+                "contextWindow": 8000
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "an entry that does not normalize",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "Alpha",
+          "protocol": "bogus",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "key",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          }
+        }
+      },
+      "world": {
+        "stored": [
+          "custom-11111111-1111-4111-8111-111111111111"
+        ],
+        "fallback": [],
+        "env": {},
+        "emptyEnv": [],
+        "keyIds": {
+          "custom-11111111-1111-4111-8111-111111111111": []
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "bogus",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": false,
+            "stored": true,
+            "env": false,
+            "envName": null,
+            "status": "Invalid config",
+            "detail": "unsupported protocol: bogus",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "hidden": false,
+                "manual": true
+              }
+            },
+            "configError": "unsupported protocol: bogus",
+            "usable": false,
+            "ready": false
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "bogus",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": false,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "Invalid config",
+            "detail": "unsupported protocol: bogus",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "hidden": false,
+                "manual": true
+              }
+            },
+            "configError": "unsupported protocol: bogus",
+            "usable": false,
+            "ready": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "an entry without a base URL",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "NoUrl",
+          "protocol": "openai-chat"
+        }
+      },
+      "world": {
+        "stored": [],
+        "fallback": [],
+        "env": {},
+        "emptyEnv": [],
+        "keyIds": {
+          "custom-11111111-1111-4111-8111-111111111111": []
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "NoUrl",
+            "protocol": "openai-chat",
+            "models": [],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": false,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "Invalid config",
+            "detail": "baseURL is required",
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {},
+            "configError": "baseURL is required",
+            "usable": false,
+            "ready": false
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "NoUrl",
+            "protocol": "openai-chat",
+            "models": [],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": false,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "Invalid config",
+            "detail": "baseURL is required",
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {},
+            "configError": "baseURL is required",
+            "usable": false,
+            "ready": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "additional keys",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "key",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          }
+        }
+      },
+      "world": {
+        "stored": [
+          "custom-11111111-1111-4111-8111-111111111111"
+        ],
+        "fallback": [],
+        "env": {},
+        "emptyEnv": [],
+        "keyIds": {
+          "custom-11111111-1111-4111-8111-111111111111": [
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+          ]
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": true,
+            "env": false,
+            "envName": null,
+            "status": "Set",
+            "detail": "stored in keychain",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            },
+            "extraApiKeys": [
+              {
+                "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+              },
+              {
+                "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+              }
+            ]
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "No Key",
+            "detail": "custom endpoint",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            },
+            "extraApiKeys": [
+              {
+                "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+              },
+              {
+                "id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "additional keys on a keyless provider",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "none",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          }
+        }
+      },
+      "world": {
+        "stored": [],
+        "fallback": [],
+        "env": {},
+        "emptyEnv": [],
+        "keyIds": {
+          "custom-11111111-1111-4111-8111-111111111111": [
+            "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+          ]
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "Keyless",
+            "detail": "no API key required",
+            "schemaVersion": 2,
+            "auth": "none",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "Keyless",
+            "detail": "no API key required",
+            "schemaVersion": 2,
+            "auth": "none",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "headers, request body and wires",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "key",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          },
+          "headers": {
+            "X-A": "1"
+          },
+          "requestBody": {
+            "temperature": 0.2
+          },
+          "wires": [
+            "chat",
+            "responses"
+          ],
+          "modelWires": {
+            "m1": "chat"
+          }
+        }
+      },
+      "world": {
+        "stored": [],
+        "fallback": [],
+        "env": {},
+        "emptyEnv": [],
+        "keyIds": {
+          "custom-11111111-1111-4111-8111-111111111111": []
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": false,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "No Key",
+            "detail": "custom endpoint",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            },
+            "headers": {
+              "X-A": "1"
+            },
+            "requestBody": {
+              "temperature": 0.2
+            },
+            "wires": [
+              "chat",
+              "responses"
+            ],
+            "modelWires": {
+              "m1": "chat"
+            }
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "No Key",
+            "detail": "custom endpoint",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            },
+            "headers": {
+              "X-A": "1"
+            },
+            "requestBody": {
+              "temperature": 0.2
+            },
+            "wires": [
+              "chat",
+              "responses"
+            ],
+            "modelWires": {
+              "m1": "chat"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "manual models with overrides",
+      "providers": {
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "key",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": true
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true,
+              "name": "One",
+              "contextWindow": 32000,
+              "maxOutputTokens": 4096,
+              "supportsVision": true
+            },
+            "m2": {
+              "hidden": true,
+              "manual": true,
+              "reasoning": {
+                "levels": [
+                  "low",
+                  "high"
+                ]
+              },
+              "requestBody": {
+                "top_p": 0.5
+              },
+              "requestHeaders": {
+                "X-M": "2"
+              }
+            },
+            "m3": {
+              "manual": false,
+              "hidden": true
+            }
+          }
+        }
+      },
+      "world": {
+        "stored": [],
+        "fallback": [],
+        "env": {},
+        "emptyEnv": [],
+        "keyIds": {
+          "custom-11111111-1111-4111-8111-111111111111": []
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "name": "One",
+                "contextWindow": 32000,
+                "maxOutputTokens": 4096,
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsVision": true,
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              },
+              {
+                "id": "m2",
+                "hidden": true,
+                "manual": true,
+                "inherited": {
+                  "name": "m2",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": true,
+                "reasoningOptions": [
+                  {
+                    "type": "effort",
+                    "values": [
+                      "low",
+                      "high"
+                    ]
+                  }
+                ],
+                "reasoningLevels": [
+                  "low",
+                  "high"
+                ],
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": false,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "No Key",
+            "detail": "custom endpoint",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": true
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false,
+                "name": "One",
+                "contextWindow": 32000,
+                "maxOutputTokens": 4096,
+                "supportsVision": true
+              },
+              "m2": {
+                "manual": true,
+                "hidden": true,
+                "reasoning": {
+                  "levels": [
+                    "low",
+                    "high"
+                  ]
+                },
+                "requestBody": {
+                  "top_p": 0.5
+                },
+                "requestHeaders": {
+                  "X-M": "2"
+                }
+              },
+              "m3": {
+                "hidden": true
+              }
+            }
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "Alpha",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "name": "One",
+                "contextWindow": 32000,
+                "maxOutputTokens": 4096,
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsVision": true,
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              },
+              {
+                "id": "m2",
+                "hidden": true,
+                "manual": true,
+                "inherited": {
+                  "name": "m2",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": true,
+                "reasoningOptions": [
+                  {
+                    "type": "effort",
+                    "values": [
+                      "low",
+                      "high"
+                    ]
+                  }
+                ],
+                "reasoningLevels": [
+                  "low",
+                  "high"
+                ],
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "No Key",
+            "detail": "custom endpoint",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": true
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false,
+                "name": "One",
+                "contextWindow": 32000,
+                "maxOutputTokens": 4096,
+                "supportsVision": true
+              },
+              "m2": {
+                "manual": true,
+                "hidden": true,
+                "reasoning": {
+                  "levels": [
+                    "low",
+                    "high"
+                  ]
+                },
+                "requestBody": {
+                  "top_p": 0.5
+                },
+                "requestHeaders": {
+                  "X-M": "2"
+                }
+              },
+              "m3": {
+                "hidden": true
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "several providers keep their order",
+      "providers": {
+        "custom-22222222-2222-4222-8222-222222222222": {
+          "type": "custom",
+          "name": "Two",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "key",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          }
+        },
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "custom",
+          "name": "One",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "key",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          }
+        },
+        "custom-33333333-3333-4333-8333-333333333333": {
+          "type": "custom",
+          "name": "Three",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "none",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          }
+        }
+      },
+      "world": {
+        "stored": [
+          "custom-11111111-1111-4111-8111-111111111111"
+        ],
+        "fallback": [],
+        "env": {},
+        "emptyEnv": [],
+        "keyIds": {
+          "custom-22222222-2222-4222-8222-222222222222": [],
+          "custom-11111111-1111-4111-8111-111111111111": [],
+          "custom-33333333-3333-4333-8333-333333333333": []
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-22222222-2222-4222-8222-222222222222",
+            "name": "Two",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": false,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "No Key",
+            "detail": "custom endpoint",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          },
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "One",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": true,
+            "env": false,
+            "envName": null,
+            "status": "Set",
+            "detail": "stored in keychain",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          },
+          {
+            "id": "custom-33333333-3333-4333-8333-333333333333",
+            "name": "Three",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "Keyless",
+            "detail": "no API key required",
+            "schemaVersion": 2,
+            "auth": "none",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-22222222-2222-4222-8222-222222222222",
+            "name": "Two",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "No Key",
+            "detail": "custom endpoint",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          },
+          {
+            "id": "custom-11111111-1111-4111-8111-111111111111",
+            "name": "One",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "No Key",
+            "detail": "custom endpoint",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          },
+          {
+            "id": "custom-33333333-3333-4333-8333-333333333333",
+            "name": "Three",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "Keyless",
+            "detail": "no API key required",
+            "schemaVersion": 2,
+            "auth": "none",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "entries that are not custom providers",
+      "providers": {
+        "custom-bad-id": {
+          "type": "custom",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "key",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          }
+        },
+        "custom-11111111-1111-4111-8111-111111111111": {
+          "type": "openai",
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "key",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          }
+        },
+        "custom-22222222-2222-4222-8222-222222222222": null,
+        "custom-33333333-3333-4333-8333-333333333333": "text",
+        "openai": {
+          "enabled": true
+        },
+        "custom-44444444-4444-4444-8444-444444444444": {
+          "type": "custom",
+          "name": "Real",
+          "protocol": "openai-chat",
+          "baseURL": "http://localhost:1234/v1",
+          "schemaVersion": 2,
+          "auth": "key",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": false
+          },
+          "modelOverrides": {
+            "m1": {
+              "hidden": false,
+              "manual": true
+            }
+          }
+        }
+      },
+      "world": {
+        "stored": [],
+        "fallback": [],
+        "env": {},
+        "emptyEnv": [],
+        "keyIds": {
+          "custom-11111111-1111-4111-8111-111111111111": [],
+          "custom-22222222-2222-4222-8222-222222222222": [],
+          "custom-33333333-3333-4333-8333-333333333333": [],
+          "custom-44444444-4444-4444-8444-444444444444": []
+        }
+      },
+      "rows": {
+        "true": [
+          {
+            "id": "custom-44444444-4444-4444-8444-444444444444",
+            "name": "Real",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": false,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "No Key",
+            "detail": "custom endpoint",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ],
+        "false": [
+          {
+            "id": "custom-44444444-4444-4444-8444-444444444444",
+            "name": "Real",
+            "protocol": "openai-chat",
+            "baseURL": "http://localhost:1234/v1",
+            "models": [
+              {
+                "id": "m1",
+                "hidden": false,
+                "manual": true,
+                "inherited": {
+                  "name": "m1",
+                  "contextWindow": 0,
+                  "maxOutputTokens": null
+                },
+                "supportsReasoning": false,
+                "customReasoning": {
+                  "wireFormat": "standard",
+                  "wireValues": {},
+                  "replay": false
+                }
+              }
+            ],
+            "custom": true,
+            "group": "api",
+            "type": "api-key",
+            "enabled": true,
+            "authenticated": true,
+            "stored": false,
+            "env": false,
+            "envName": null,
+            "status": "No Key",
+            "detail": "custom endpoint",
+            "schemaVersion": 2,
+            "auth": "key",
+            "discovery": {
+              "newModelsHidden": false
+            },
+            "modelOverrides": {
+              "m1": {
+                "manual": true,
+                "hidden": false
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_js::js_trim;
 use serde_json::Value;
 
 use super::catalog::CatalogFailure;
@@ -58,8 +59,10 @@ pub fn provider_account_path(data_dir: &Path, provider: &str, id: &str) -> Resul
 }
 
 /// The account each provider has selected (`readProviderAccountPool(provider).selectedId`).
+/// Async: Node reads the roster fresh on every call, which is a read on the credential lane.
+#[async_trait]
 pub trait SelectedAccounts: Send + Sync {
-    fn selected(&self, provider: &str) -> Option<String>;
+    async fn selected(&self, provider: &str) -> Option<String>;
 }
 
 /// The accounts a run is bound to: `withProviderAccount` calls, innermost last (a nested call of
@@ -67,16 +70,30 @@ pub trait SelectedAccounts: Send + Sync {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AccountScope {
     bindings: Vec<(String, String)>,
+    /// `replaceProviderAuthBindings`: a credential file the host bound for a provider (the
+    /// pristine `mixdog exec` run binds the selected provider's file in process; its tools,
+    /// media among them, run with the full set). It outranks the account pool and, inside a
+    /// scope, is what the default account falls back to.
+    host: Vec<(String, PathBuf)>,
 }
 
 impl AccountScope {
+    /// A scope under the host's bindings; `with` adds the account scopes.
+    pub fn under_host(host: Vec<(String, PathBuf)>) -> Self {
+        Self { bindings: Vec::new(), host }
+    }
+
+    fn host_path(&self, provider: &str) -> Option<&Path> {
+        self.host.iter().find(|(bound, path)| bound == js_trim(provider) && !path.as_os_str().is_empty()).map(|(_, path)| path.as_path())
+    }
+
     /// `withProviderAccount(provider, id, …)` inside this scope. A provider that pools no accounts,
     /// or an id that is not one, is refused as Node refuses it.
     pub fn with(&self, data_dir: &Path, provider: &str, id: &str) -> Result<Self, String> {
         provider_account_path(data_dir, provider, id)?;
         let mut bindings: Vec<(String, String)> = self.bindings.iter().filter(|(bound, _)| bound != provider).cloned().collect();
         bindings.push((provider.to_owned(), id.to_owned()));
-        Ok(Self { bindings })
+        Ok(Self { bindings, host: self.host.clone() })
     }
 
     fn bound(&self, provider: &str) -> Option<&str> {
@@ -85,23 +102,30 @@ impl AccountScope {
 
     /// `currentProviderAccountId(provider)`: the bound account, else the provider's selected
     /// one, else `default`. (Node's host bindings of isolated runtimes are not modeled.)
-    pub fn account_id(&self, provider: &str, selected: &dyn SelectedAccounts) -> String {
+    pub async fn account_id(&self, provider: &str, selected: &dyn SelectedAccounts) -> String {
         if let Some(id) = self.bound(provider) {
             return id.to_owned();
         }
-        if !ACCOUNT_PROVIDERS.contains(&provider) {
+        // An explicit host binding names one credential file: its account is the default one.
+        if self.host_path(provider).is_some() || !ACCOUNT_PROVIDERS.contains(&provider) {
             return "default".to_owned();
         }
-        selected.selected(provider).filter(|id| !id.is_empty()).unwrap_or_else(|| "default".to_owned())
+        selected.selected(provider).await.filter(|id| !id.is_empty()).unwrap_or_else(|| "default".to_owned())
     }
 
     /// `boundProviderAuthPath(provider)`: where the credentials of the provider's account in this
     /// scope are; `None` for the default account and for a provider with no accounts.
-    pub fn auth_path(&self, data_dir: &Path, provider: &str, selected: &dyn SelectedAccounts) -> Option<PathBuf> {
+    pub async fn auth_path(&self, data_dir: &Path, provider: &str, selected: &dyn SelectedAccounts) -> Option<PathBuf> {
+        if let Some(id) = self.bound(provider) {
+            return provider_account_path(data_dir, provider, id).ok().flatten().or_else(|| self.host_path(provider).map(Path::to_owned));
+        }
+        if let Some(path) = self.host_path(provider) {
+            return Some(path.to_owned());
+        }
         if !ACCOUNT_PROVIDERS.contains(&provider) {
             return None;
         }
-        provider_account_path(data_dir, provider, &self.account_id(provider, selected)).ok().flatten()
+        provider_account_path(data_dir, provider, &self.account_id(provider, selected).await).ok().flatten()
     }
 }
 
@@ -111,7 +135,7 @@ impl AccountScope {
 pub trait AccountProbe: Send + Sync {
     /// Whether the lane has usable credentials. `account` is the credential file of the account the
     /// lane is bound to; `None` is the provider's default location.
-    fn authenticated(&self, lane_id: &str, account: Option<&Path>) -> bool;
+    async fn authenticated(&self, lane_id: &str, account: Option<&Path>) -> bool;
     async fn models(&self, lane_id: &str, account: Option<&Path>) -> Result<CatalogRows, CatalogFailure>;
 }
 
@@ -125,22 +149,24 @@ pub struct ScopedLaneSources {
 }
 
 impl ScopedLaneSources {
-    fn account_of(&self, lane_id: &str) -> Option<PathBuf> {
+    async fn account_of(&self, lane_id: &str) -> Option<PathBuf> {
         match media_lane_account_provider(lane_id) {
             "" => None,
-            provider => self.scope.auth_path(&self.data_dir, provider, self.selected.as_ref()),
+            provider => self.scope.auth_path(&self.data_dir, provider, self.selected.as_ref()).await,
         }
     }
 }
 
 #[async_trait]
 impl LaneSources for ScopedLaneSources {
-    fn authenticated(&self, lane: &str) -> bool {
-        self.probe.authenticated(lane, self.account_of(lane).as_deref())
+    async fn authenticated(&self, lane: &str) -> bool {
+        let account = self.account_of(lane).await;
+        self.probe.authenticated(lane, account.as_deref()).await
     }
 
     async fn models(&self, lane: &str) -> Result<CatalogRows, CatalogFailure> {
-        self.probe.models(lane, self.account_of(lane).as_deref()).await
+        let account = self.account_of(lane).await;
+        self.probe.models(lane, account.as_deref()).await
     }
 }
 
@@ -148,6 +174,8 @@ impl LaneSources for ScopedLaneSources {
 /// the pinned account sees it.
 pub struct StudioAccounts {
     pub data_dir: PathBuf,
+    /// The host's credential bindings (AccountScope::under_host); empty outside a pristine run.
+    pub host: Vec<(String, PathBuf)>,
     pub selected: Arc<dyn SelectedAccounts>,
     pub probe: Arc<dyn AccountProbe>,
 }
@@ -159,7 +187,7 @@ impl PinnedAccounts for StudioAccounts {
     }
 
     async fn lanes_as(&self, provider: &str, account: &str) -> Result<Vec<Value>, String> {
-        let scope = AccountScope::default().with(&self.data_dir, provider, account)?;
+        let scope = AccountScope::under_host(self.host.clone()).with(&self.data_dir, provider, account)?;
         let sources = ScopedLaneSources { data_dir: self.data_dir.clone(), scope, selected: self.selected.clone(), probe: self.probe.clone() };
         Ok(MediaLanes::new(Arc::new(sources)).list(None).await)
     }

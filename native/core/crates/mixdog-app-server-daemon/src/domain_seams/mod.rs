@@ -8,6 +8,7 @@ pub mod doctor;
 pub mod feature_effects;
 pub mod git;
 pub mod hook_status;
+pub mod media_status;
 pub mod notification_clicks;
 pub mod office_fonts;
 pub mod plugin_announce;

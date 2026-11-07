@@ -92,6 +92,36 @@ fn no_cache() -> (tempfile::TempDir, super::GraphCache) {
     (dir, cache)
 }
 
+struct NoTrust;
+
+#[async_trait::async_trait]
+impl super::TrustedRoots for NoTrust {
+    async fn registered(&self) -> Vec<std::path::PathBuf> {
+        Vec::new()
+    }
+
+    async fn selected(&self) -> Vec<std::path::PathBuf> {
+        Vec::new()
+    }
+}
+
+/// `prewarmCodeGraphIfProject`: a folder inside a project warms the project's graph into the cache; a
+/// folder that is no project (here a bare temp folder: the implicit walk stops at it) warms nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_prewarm_builds_the_graph_of_the_project_and_only_of_a_project() {
+    let (_tmp, root) = project_with_sentinel();
+    let (_dir, cache) = no_cache();
+    let cache = std::sync::Arc::new(cache);
+    let tool = super::CodeGraphTool::new(std::sync::Arc::new(NoTrust), cache.clone());
+    let tokens = mixdog_rt::testing::tokens();
+    let cancel = mixdog_rt::CancellationToken::new();
+    assert!(tool.prewarm_if_project(&root.join("src"), tokens.maintenance_io, &cancel).await);
+    cache.flush().unwrap();
+    assert_eq!(cache.load(&root).map(|files| files.len()), Some(2), "both source files are cached");
+    let bare = tempfile::tempdir().unwrap();
+    assert!(!tool.prewarm_if_project(bare.path(), tokens.maintenance_io, &cancel).await);
+}
+
 /// A trust snapshot that knows no registered, selected or cached root.
 fn no_roots() -> super::federation::TrustSnapshot {
     super::federation::TrustSnapshot::default()

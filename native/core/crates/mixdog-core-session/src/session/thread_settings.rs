@@ -126,6 +126,72 @@ pub trait ArchiveRetention: Send + Sync {
     async fn note_archived(&self, session_id: &str, archived: bool) -> Result<(), String>;
 }
 
+/// `positive(value)` of `session-auto-retention.ts`: a finite number above zero, else none.
+fn positive(value: Option<&Value>) -> Option<f64> {
+    value.and_then(Value::as_f64).filter(|at| at.is_finite() && *at > 0.0)
+}
+
+/// [`ArchiveRetention`] over the record Node kept in `session-auto-retention.json`, which the
+/// profile import moved to `desktop.retentionState` (`{ enabledAt, restored: { [id]: ms } }`).
+/// Each note is one config write, in the config's write transaction, as Node's
+/// `updateJsonAtomic` read-modify-write: the stored record is normalized (`normalizeRecord`:
+/// `enabledAt` defaults to now, non-positive stamps are dropped), changed, and written only when
+/// the change or a missing `enabledAt` asks for it.
+pub struct ConfigArchiveRetention {
+    config: mixdog_core_config::config::Config,
+    now: Arc<dyn Fn() -> i64 + Send + Sync>,
+}
+
+impl ConfigArchiveRetention {
+    pub fn new(config: mixdog_core_config::config::Config, now: Arc<dyn Fn() -> i64 + Send + Sync>) -> Self {
+        Self { config, now }
+    }
+}
+
+#[async_trait]
+impl ArchiveRetention for ConfigArchiveRetention {
+    async fn note_archived(&self, session_id: &str, archived: bool) -> Result<(), String> {
+        let (id, now) = (session_id.to_owned(), (self.now)());
+        self.config
+            .update(move |doc| {
+                let current = doc.get("desktop").and_then(|desktop| desktop.get("retentionState"));
+                let stored_restored = current.and_then(|record| record.get("restored")).and_then(Value::as_object);
+                let mut restored: Map<String, Value> = stored_restored
+                    .into_iter()
+                    .flatten()
+                    .filter(|(_, at)| positive(Some(at)).is_some())
+                    .map(|(id, at)| (id.clone(), at.clone()))
+                    .collect();
+                let stored_enabled =
+                    current.and_then(|record| record.get("enabledAt")).filter(|at| positive(Some(at)).is_some()).cloned();
+                // An archive clears a restore; a restore records it, which exempts the session
+                // from auto-archive until it is used again.
+                let changed = if archived {
+                    restored.remove(&id).is_some()
+                } else {
+                    restored.insert(id, json!(now));
+                    true
+                };
+                if !changed && stored_enabled.is_some() {
+                    return Ok(());
+                }
+                let record = json!({ "enabledAt": stored_enabled.unwrap_or_else(|| json!(now)), "restored": restored });
+                let desktop = doc.entry("desktop").or_insert_with(|| Value::Object(Map::new()));
+                let Some(desktop) = desktop.as_object_mut() else {
+                    return Err(mixdog_core_config::config::ConfigError::InvalidParams {
+                        path: "desktop".into(),
+                        expected: "an object".into(),
+                    });
+                };
+                desktop.insert("retentionState".into(), record);
+                Ok(())
+            })
+            .await
+            .map(drop)
+            .map_err(|error| error.to_string())
+    }
+}
+
 /// [`ProjectFolders`] over the Project catalog of the workspace service; `user_data` holds the
 /// task workspace (`workspace/unclassified`).
 pub struct WorkspaceFolders {

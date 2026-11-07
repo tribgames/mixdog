@@ -196,6 +196,12 @@ impl ApprovalBook {
             .collect()
     }
 
+    /// The request a surface shows now (Node's `state.toolApproval`, the head of its FIFO): the
+    /// first by order that still accepts a decision.
+    pub fn shown(&self) -> Option<&ApprovalRequest> {
+        self.open.values().filter(|open| !open.resolving).map(|open| &open.request).min_by_key(|request| request.order)
+    }
+
     /// What every request still held (pending or resolving, until its resolution is durable) asked.
     pub fn open_asks(&self) -> impl Iterator<Item = &ApprovalAsk> {
         self.open.values().map(|open| &open.request.ask)

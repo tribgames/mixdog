@@ -13,6 +13,7 @@
 //! calls run on the durability lane.
 
 mod fallback;
+mod status;
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
@@ -31,6 +32,10 @@ use mixdog_rt::LaneToken;
 use tokio_util::sync::CancellationToken;
 
 pub use fallback::Unsafe;
+pub use status::FailureCode;
+pub use status::Snapshot;
+pub use status::StatusTracker;
+pub use status::TrackedStore;
 pub use fallback::unsafe_store;
 
 /// The keychain service every item is stored under.
@@ -101,23 +106,34 @@ pub(crate) fn keychain_timeout() -> std::time::Duration {
 
 /// The store a daemon uses: the OS keychain, with the private secrets file behind it on Linux.
 pub fn default_store(io: DurabilityIo, plugin_data: &Path) -> Arc<dyn SecretStore> {
-    #[cfg(windows)]
-    return Arc::new(windows::DpapiStore::new(io, plugin_data));
-    #[cfg(target_os = "macos")]
-    {
-        // The macOS keychain is not under the plugin data dir.
-        let _ = plugin_data;
-        return Arc::new(macos::KeychainStore::new(io));
-    }
-    #[cfg(target_os = "linux")]
-    return Arc::new(fallback::FallbackStore::new(Arc::new(linux::SecretServiceStore::new()), plugin_data, io));
-    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-    {
-        let _ = (io, plugin_data);
-        Arc::new(MemoryStore::default())
-    }
+    default_store_with_status(io, plugin_data, Arc::new(|| {})).0
 }
 
+/// [`default_store`] and the health of its keychain (`keychainStatus()`): every call the keychain
+/// itself answers is noted (the private file behind it is not part of the keychain's health, as in
+/// Node). `notice` raises the desktop notice a failure that is not a "no provider / unreachable"
+/// report calls for.
+pub fn default_store_with_status(io: DurabilityIo, plugin_data: &Path, notice: Arc<dyn Fn() + Send + Sync>) -> (Arc<dyn SecretStore>, Arc<StatusTracker>) {
+    let tracker = StatusTracker::new(cfg!(target_os = "linux"), notice);
+    #[cfg(windows)]
+    let keychain: Arc<dyn SecretStore> = Arc::new(windows::DpapiStore::new(io, plugin_data));
+    #[cfg(target_os = "macos")]
+    // The macOS keychain is not under the plugin data dir.
+    let keychain: Arc<dyn SecretStore> = Arc::new(macos::KeychainStore::new(io));
+    #[cfg(target_os = "linux")]
+    let keychain: Arc<dyn SecretStore> = Arc::new(linux::SecretServiceStore::new());
+    #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+    let keychain: Arc<dyn SecretStore> = Arc::new(MemoryStore::default());
+    let tracked: Arc<dyn SecretStore> = Arc::new(TrackedStore::new(keychain, Arc::clone(&tracker)));
+    #[cfg(target_os = "linux")]
+    let store: Arc<dyn SecretStore> = Arc::new(fallback::FallbackStore::new(tracked, plugin_data, io));
+    #[cfg(not(target_os = "linux"))]
+    let store = {
+        let _ = (io, plugin_data);
+        tracked
+    };
+    (store, tracker)
+}
 /// An in-process store (tests, and hosts with no keychain that accept losing sign-ins on exit).
 #[derive(Default)]
 pub struct MemoryStore {
@@ -174,3 +190,6 @@ mod tests {
         assert_eq!(Reads(unrun.clone()).has("a").await, Err(unrun));
     }
 }
+
+#[cfg(test)]
+mod status_tests;

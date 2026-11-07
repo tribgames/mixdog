@@ -70,7 +70,10 @@ fn arm(service: Arc<CatalogService>, armed: Arc<Mutex<Option<TimerHandle>>>) {
     let handle = mixdog_rt::ticker().register(Instant::now() + REFRESH_AFTER, move || {
         let (service, armed) = next;
         mixdog_rt::spawn("catalog.refresh", TaskClass::Work, async move {
-            let _ = service.refresh().await;
+            // `registry.mjs:679-683`: each provider whose listing failed is written to stderr; its previous models stay.
+            for (provider, error) in service.refresh().await.failed {
+                tracing::warn!("[provider:{provider:?}] catalog refresh failed: {error:?}");
+            }
             arm(service, armed);
         });
     });

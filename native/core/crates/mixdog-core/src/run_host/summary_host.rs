@@ -91,7 +91,20 @@ impl SummaryServices {
         Arc::new(ProcessSummaryHost {
             deps: self.deps.clone(),
             thread: thread.clone(),
+            attributed: true,
             session: SessionRoute { provider: text("provider"), model: text("model"), context_window: window },
+        })
+    }
+
+    /// The host of a step that belongs to no session (the room supervisor, `decideRoomTurn`): no
+    /// route of its own, and its usage is recorded against no session, as Node's send carries no
+    /// `sessionId`. `label` only names the run for the tool-free send's identity.
+    pub fn sessionless_host(&self, label: &str) -> Arc<dyn SummaryHost> {
+        Arc::new(ProcessSummaryHost {
+            deps: self.deps.clone(),
+            thread: ThreadId::from(label),
+            attributed: false,
+            session: SessionRoute { provider: String::new(), model: String::new(), context_window: None },
         })
     }
 }
@@ -99,7 +112,14 @@ impl SummaryServices {
 struct ProcessSummaryHost {
     deps: Arc<SummaryDeps>,
     thread: ThreadId,
+    /// The summary's usage is the session's (`<thread>:compact`); false for a session-less step.
+    attributed: bool,
     session: SessionRoute,
+}
+
+/// The usage attribution of a summary request: the session's own `<thread>:compact`, or none.
+fn attributed_session(thread: &ThreadId, attributed: bool) -> Option<String> {
+    attributed.then(|| format!("{}:compact", thread.as_str()))
 }
 
 /// `String(value || '').trim()`.
@@ -165,7 +185,7 @@ impl SummaryHost for ProcessSummaryHost {
     }
 
     fn sender(&self, provider: &str) -> Arc<dyn SummarySender> {
-        Arc::new(RegistrySender { deps: self.deps.clone(), thread: self.thread.clone(), provider: provider.to_owned() })
+        Arc::new(RegistrySender { deps: self.deps.clone(), thread: self.thread.clone(), attributed: self.attributed, provider: provider.to_owned() })
     }
 
     /// `loadAnthropicCatalogCache()` / `loadSavedCodexCatalog()`: the provider's saved catalog
@@ -236,6 +256,13 @@ mod tests {
         assert_eq!(route(json!({ "agents": { "maintainer": ["x"] } })), None);
     }
 
+    #[test]
+    fn a_summary_is_attributed_to_its_session_and_a_sessionless_step_to_none() {
+        let thread = ThreadId::from("sess_a");
+        assert_eq!(attributed_session(&thread, true).as_deref(), Some("sess_a:compact"));
+        assert_eq!(attributed_session(&thread, false), None);
+    }
+
     /// `makeModelCache(...).loadSync({ allowStale })`, run in Node on these records: the version
     /// gate and a recorded `fetchedAt` always apply; the age only unless stale is allowed.
     #[test]
@@ -277,6 +304,7 @@ impl ApprovalGate for NoApprovals {
 struct RegistrySender {
     deps: Arc<SummaryDeps>,
     thread: ThreadId,
+    attributed: bool,
     provider: String,
 }
 
@@ -300,8 +328,9 @@ impl SummarySender for RegistrySender {
             deadline_of: None,
             notify: None,
         };
-        // Usage attribution: the summary is the session's, on a request of its own.
-        let options = RequestOptions { session_id: Some(format!("{}:compact", self.thread.as_str())), ..RequestOptions::default() };
+        // Usage attribution: the summary is the session's, on a request of its own, unless the
+        // step belongs to no session.
+        let options = RequestOptions { session_id: attributed_session(&self.thread, self.attributed), ..RequestOptions::default() };
         let one_shot = OneShot::standalone(
             deps.clock.clone(),
             Arc::new(RandomJitter),

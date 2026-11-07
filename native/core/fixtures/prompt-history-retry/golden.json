@@ -1,0 +1,36 @@
+{
+  "retryDelaysMs": {
+    "0": 250,
+    "1": 500,
+    "2": 1000,
+    "3": 2000,
+    "4": 4000,
+    "5": 8000,
+    "6": 16000,
+    "7": 30000,
+    "8": 30000,
+    "9": 30000,
+    "10": 30000,
+    "11": 30000,
+    "12": 30000
+  },
+  "windowMs": 250,
+  "scenarioA": {
+    "firstAttemptAtMs": 250,
+    "attempts": 7,
+    "gapsMs": [
+      500,
+      1000,
+      2000,
+      4000,
+      8000,
+      16000
+    ]
+  },
+  "scenarioB": {
+    "secondAttemptAtMs": 750,
+    "arrivedAfterSecondAttemptMs": 100,
+    "thirdAttemptAfterSecondAttemptMs": 350,
+    "backoffWouldHaveBeenMs": 1000
+  }
+}

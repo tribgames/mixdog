@@ -17,7 +17,7 @@ use super::RoomError;
 use super::home::{HomePlan, HomePorts, Presence};
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use super::records::{RoomStore, Rooms};
-use super::service::{KnownAgent, RoomHost, route_params};
+use super::service::{KnownAgent, RoomHost, RoomRunner, route_params};
 
 /// The agent definitions the rooms module needs (files owned by the agent service).
 #[async_trait]
@@ -63,6 +63,8 @@ pub struct SessionHomePorts<S: RoomStore> {
     sessions: Arc<dyn SessionOps>,
     rooms: Arc<Rooms<S>>,
     room_host: Arc<dyn RoomHost>,
+    /// What is owed to a member who left a room ends with it (`cancelOwedTo`).
+    runner: Arc<dyn RoomRunner>,
 }
 
 impl<S: RoomStore> SessionHomePorts<S> {
@@ -71,8 +73,9 @@ impl<S: RoomStore> SessionHomePorts<S> {
         sessions: Arc<dyn SessionOps>,
         rooms: Arc<Rooms<S>>,
         room_host: Arc<dyn RoomHost>,
+        runner: Arc<dyn RoomRunner>,
     ) -> Self {
-        Self { catalog, sessions, rooms, room_host }
+        Self { catalog, sessions, rooms, room_host, runner }
     }
 }
 
@@ -144,6 +147,10 @@ impl<S: RoomStore + 'static> HomePorts for SessionHomePorts<S> {
         let left = self.rooms.drop_members(&[agent_id.to_owned()]).await?;
         if left.is_empty() {
             return Ok(());
+        }
+        // `removeFromRoom` of `dropMembers`: the calls owed to the member end, room by room.
+        for gone in &left {
+            self.runner.cancel_owed_to(&gone.room_id, std::slice::from_ref(&gone.agent_id));
         }
         self.room_host.republish_catalog();
         let sessions: Vec<String> = left.iter().filter_map(|l| l.session_id()).collect();
@@ -338,9 +345,46 @@ mod tests {
         }
     }
 
+    /// A runner that runs nothing and records who it was told left which room.
+    #[derive(Default)]
+    struct NoRun(std::sync::Mutex<Vec<(String, Vec<String>)>>);
+    #[async_trait]
+    impl RoomRunner for NoRun {
+        fn is_running(&self, _: &str) -> bool {
+            false
+        }
+        fn stop(&self, _: &str) {}
+        async fn start(&self, _: &str, _: Vec<String>) -> Result<(), RoomError> {
+            Ok(())
+        }
+        fn cancel_owed_to(&self, room_id: &str, gone: &[String]) {
+            self.0.lock().unwrap().push((room_id.to_owned(), gone.to_vec()));
+        }
+    }
+
     fn ports(spy: Arc<Spy>) -> SessionHomePorts<Mem> {
         let rooms = Arc::new(Rooms::new(Mem(Default::default())));
-        SessionHomePorts::new(Arc::new(Catalog), spy, rooms, Arc::new(NoHost))
+        SessionHomePorts::new(Arc::new(Catalog), spy, rooms, Arc::new(NoHost), Arc::new(NoRun::default()))
+    }
+
+    /// A deleted bot leaves every room it was in, and what was owed to it ends in each.
+    #[tokio::test]
+    async fn a_member_forgotten_everywhere_has_what_is_owed_to_it_cancelled_room_by_room() {
+        use crate::rooms::config::RoomConfigInput;
+        let rooms = Arc::new(Rooms::new(Mem(Default::default())));
+        let input = |members: &[&str]| RoomConfigInput { name: "Plan".into(), members: members.iter().map(|m| (*m).into()).collect(), ..Default::default() };
+        rooms.create(&input(&["gh", "ops"]), "room01", 1).await.unwrap();
+        rooms.create(&input(&["ops", "bench"]), "room02", 2).await.unwrap();
+        rooms.create(&input(&["gh", "bench"]), "room03", 3).await.unwrap();
+        let runner = Arc::new(NoRun::default());
+        let ports = SessionHomePorts::new(Arc::new(Catalog), Arc::new(Spy::default()), rooms.clone(), Arc::new(NoHost), runner.clone());
+        ports.forget_room_member("gh").await.unwrap();
+        assert_eq!(
+            *runner.0.lock().unwrap(),
+            [("room01".to_owned(), vec!["gh".to_owned()]), ("room03".to_owned(), vec!["gh".to_owned()])]
+        );
+        ports.forget_room_member("gh").await.unwrap();
+        assert_eq!(runner.0.lock().unwrap().len(), 2, "a member in no room cancels nothing");
     }
 
     /// A task session's create params carry the task workspace as Node's `resolveTaskProject`

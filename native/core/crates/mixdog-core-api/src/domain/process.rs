@@ -206,5 +206,12 @@ pub trait ProcessManager: Send + Sync {
     fn resize_pty(&self, handle: &ProcessHandle, size: PtySize) -> Result<(), ProcessError>;
     /// Tree kill; returns once the kill is issued, the exit follows as an event.
     fn kill(&self, handle: &ProcessHandle) -> Result<(), ProcessError>;
+    /// The gentle first stop of the tree, for a caller that escalates to [`kill`](Self::kill) when
+    /// the exit does not come (Node's `child.kill()` and then `child.kill('SIGKILL')`): SIGTERM to
+    /// the process group on Unix. Where the platform has no gentle stop (a Windows job object) it
+    /// is the forced kill, and so is the default.
+    fn terminate(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+        self.kill(handle)
+    }
     fn list(&self) -> Vec<ProcessInfo>;
 }

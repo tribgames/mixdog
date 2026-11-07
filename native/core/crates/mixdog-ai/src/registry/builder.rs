@@ -22,6 +22,7 @@ use mixdog_rt::CpuBulk;
 use serde::Deserialize;
 use serde_json::Map;
 use serde_json::Value;
+use serde_json::json;
 
 use super::keys::ApiKeyStore;
 use super::keys::KeyConfig;
@@ -194,6 +195,21 @@ enum AdcRead {
 }
 
 const ADC_LOGIN_HINT: &str = "Run `gcloud auth application-default login`.";
+
+/// `credential.kind` of a parsed ADC file.
+fn credential_type(credential: &vertex::Credential) -> &'static str {
+    match &credential.kind {
+        vertex::Kind::Impersonated { .. } => "impersonated_service_account",
+        vertex::Kind::Grant(vertex::Grant::ServiceAccount { .. }) => "service_account",
+        vertex::Kind::Grant(vertex::Grant::AuthorizedUser { .. }) => "authorized_user",
+    }
+}
+
+/// The credential type a `Vertex AI does not support "<type>" credentials` refusal names.
+fn unsupported_type(message: &str) -> Option<String> {
+    let rest = message.strip_prefix("Vertex AI does not support \"")?;
+    rest.split_once('"').map(|(kind, _)| kind.to_owned())
+}
 
 fn text<'a>(cfg: &'a Value, key: &str) -> Option<&'a str> {
     cfg.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty())
@@ -649,6 +665,71 @@ impl DefaultProviderBuilder {
         }
     }
 
+    /// `describeVertexAdc({ projectId })` as the settings show the gcloud login: its type, account
+    /// and project, or why it cannot be used (`state` is `missing`, `invalid` or `unsupported`).
+    /// Never carries a token or key. Without a login file, the metadata server's default service
+    /// account: `probe_metadata` asks the server once (`probeVertexMetadata`, the outcome is kept),
+    /// otherwise only an earlier probe's finding counts.
+    pub async fn adc_describe(&self, project_override: &str, probe_metadata: bool) -> Value {
+        let over = project_override.trim().to_owned();
+        let env = self.env.env.clone();
+        let get = |name: &str| env.var(name);
+        match self.adc_text().await {
+            Ok(AdcRead::Found { raw, path }) => match vertex::parse_adc(&raw, &path) {
+                Ok(credential) => {
+                    let project = if over.is_empty() {
+                        match vertex::resolve_project(&credential, &get) {
+                            Some(project) => Some(project),
+                            None => self.gcloud_config_project().await,
+                        }
+                    } else {
+                        Some(over)
+                    };
+                    json!({
+                        "state": "ready",
+                        "type": credential_type(&credential),
+                        "account": Some(credential.account.clone()).filter(|a| !a.is_empty()),
+                        "projectId": project.filter(|p| !p.is_empty()),
+                    })
+                }
+                Err(error) => match unsupported_type(&error.message) {
+                    Some(kind) => json!({ "state": "unsupported", "type": kind, "message": error.message }),
+                    None => json!({ "state": "invalid", "message": error.message }),
+                },
+            },
+            Ok(AdcRead::NoLogin) => {
+                let served = if probe_metadata {
+                    self.metadata_project.get_or_init(|| async { vertex_metadata::probe_project(&self.env.http).await }).await.clone()
+                } else {
+                    self.metadata_project.get().cloned().flatten()
+                };
+                match served {
+                    Some(served) => {
+                        // `vertexAdcProject(metadata)`: the environment, then the server's own project.
+                        let project = if over.is_empty() {
+                            vertex::PROJECT_ENV.iter().find_map(|name| get(name).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())).unwrap_or(served)
+                        } else {
+                            over
+                        };
+                        json!({ "state": "ready", "type": "metadata", "account": Value::Null, "projectId": project })
+                    }
+                    None => json!({ "state": "missing", "message": format!("No gcloud login found. {ADC_LOGIN_HINT}") }),
+                }
+            }
+            Err(message) => json!({ "state": "invalid", "message": message }),
+        }
+    }
+
+    /// The check a gcloud-login save makes: the login must already be usable (the metadata server
+    /// is probed when there is no login file). `Ok(project)` is the project it names, `Err` the
+    /// message of why it is not usable.
+    pub async fn adc_login(&self, project_override: &str) -> Result<Option<String>, String> {
+        let described = self.adc_describe(project_override, true).await;
+        if described["state"] != "ready" {
+            return Err(described["message"].as_str().unwrap_or_default().to_owned());
+        }
+        Ok(described["projectId"].as_str().map(str::to_owned))
+    }
     async fn build_vertex(&self, name: &str, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
         let http = self.env.http.clone();
         let traits = self.env.google_traits.clone();

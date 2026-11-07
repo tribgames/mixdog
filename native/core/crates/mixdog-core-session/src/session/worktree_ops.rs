@@ -243,15 +243,28 @@ impl Ops {
         let record = created.record;
         let reference = created.changes.as_ref().and_then(|c| c["recoveryRef"].as_str()).map(str::to_owned);
         if let Err(failure) = self.claim(&record.id, session, cancel).await {
-            let _ = self.wt.remove(&record.id, true, Some(session), cancel).await;
-            // The carried changes go back to the project folder before the worktree is lost.
-            if let Some(reference) = &reference {
-                let subdir = project
-                    .project_path
-                    .strip_prefix(&project.top_level)
-                    .map(|rel| rel.to_string_lossy().replace('\\', "/"))
-                    .unwrap_or_default();
-                let _ = self.wt.restore_from_recovery_ref(&project.top_level, &subdir, reference, cancel).await;
+            // `transition-steps.mjs:294-300`: the undo restores the carried changes, then removes the
+            // worktree, then drops the recovery ref, in that order and stopping at the first that
+            // fails: a restore that is refused keeps the worktree and the ref. The claim's failure is
+            // the one surfaced; Node attaches the undo's own failure to it (`rollbackErrors`, :43-52).
+            let undone: Result<(), ScmFailure> = async {
+                if let Some(reference) = &reference {
+                    let subdir = project
+                        .project_path
+                        .strip_prefix(&project.top_level)
+                        .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+                        .unwrap_or_default();
+                    self.wt.restore_from_recovery_ref(&project.top_level, &subdir, reference, cancel).await?;
+                }
+                self.wt.remove(&record.id, true, Some(session), cancel).await?;
+                if let Some(reference) = &reference {
+                    self.wt.drop_recovery_ref(&project.top_level, reference, cancel).await?;
+                }
+                Ok(())
+            }
+            .await;
+            if let Err(error) = undone {
+                tracing::warn!(id = %record.id, "the undo of a worktree whose claim failed stopped: {error}");
             }
             return Err(failure);
         }

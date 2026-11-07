@@ -47,6 +47,15 @@
       "totalBytes": 1297860
     },
     {
+      "command": "node <repo>/benchmarks/rust-core/recorders/record-agent-status.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "agent-status/MANIFEST.json",
+      "manifestSha256": "f05c7c5339713dd847ad015b615b378cffd64d916369a6a93a140ccf20fa0e23",
+      "recorder": "benchmarks/rust-core/recorders/record-agent-status.mjs",
+      "set": "agent-status",
+      "totalBytes": 136269
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-ai-account.mjs --tree <tree>",
       "fileCount": 4,
       "manifest": "ai-account/MANIFEST.json",
@@ -326,6 +335,15 @@
       "totalBytes": 30423
     },
     {
+      "command": "node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-held-request-push.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "held-push/MANIFEST.json",
+      "manifestSha256": "8cfaef676e002801b026a1bbdcdfc6cb26d4e105fd5439eebd29cc72141f751f",
+      "recorder": "benchmarks/rust-core/recorders/record-held-request-push.mjs",
+      "set": "held-push",
+      "totalBytes": 39743
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-home-agent.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "home-agent/MANIFEST.json",
@@ -405,6 +423,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-lifecycle.mjs",
       "set": "lifecycle",
       "totalBytes": 3552
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-local-server-stop.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "local-server-stop/MANIFEST.json",
+      "manifestSha256": "4117c4b5c04ba0c48c4c65254464d1735ee41556d7b5640cc3f8c54326ca8c48",
+      "recorder": "benchmarks/rust-core/recorders/record-local-server-stop.mjs",
+      "set": "local-server-stop",
+      "totalBytes": 597
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-maintenance-jobs.mjs --tree <tree>",
@@ -567,6 +594,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-prompt.mjs",
       "set": "prompt",
       "totalBytes": 1119360
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-prompt-history-retry.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "prompt-history-retry/MANIFEST.json",
+      "manifestSha256": "c7071cadd3c66b7533a49d9c24d32c8384989f339ac3fe853e9f079724f2b8a9",
+      "recorder": "benchmarks/rust-core/recorders/record-prompt-history-retry.mjs",
+      "set": "prompt-history-retry",
+      "totalBytes": 585
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-prompt-reroot.mjs --tree <tree>",

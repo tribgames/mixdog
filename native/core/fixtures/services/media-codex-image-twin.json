@@ -1,0 +1,4444 @@
+{
+  "domain": "media-codex-image-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-media-codex-image.mjs",
+  "constants": {
+    "responsesUrl": "https://chatgpt.com/backend-api/codex/responses",
+    "originator": "codex_cli_rs",
+    "usageUrl": "https://chatgpt.com/backend-api/wham/usage",
+    "userAgent": "codex-test-ua/1",
+    "version": "0.200.0"
+  },
+  "scenarios": [
+    {
+      "name": "ok",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 200,
+          "text": "{\"data\":[{\"b64_json\":\"iVBORw0KGgoAAAANSUhEUg==\"}],\"usage\":{\"input_tokens\":10,\"output_tokens\":20,\"input_tokens_details\":{\"cached_tokens\":4},\"output_tokens_details\":{\"image_tokens\":15}}}",
+          "headers": {
+            "content-type": "application/json"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "actualModel": "gpt-image-2",
+        "usage": {
+          "inputTokens": 10,
+          "cachedTokens": 4,
+          "outputTokens": 20,
+          "outputImageTokens": 15
+        }
+      }
+    },
+    {
+      "name": "ok-no-account",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": null,
+      "reset": null,
+      "script": [
+        {
+          "status": 200,
+          "text": "{\"data\":[{\"b64_json\":\"iVBORw0KGgoAAAANSUhEUg==\"}]}",
+          "headers": {
+            "content-type": "application/json"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "actualModel": "gpt-image-2",
+        "usage": null
+      }
+    },
+    {
+      "name": "ok-no-image-tokens",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 200,
+          "text": "{\"data\":[{\"b64_json\":\"iVBORw0KGgoAAAANSUhEUg==\"}],\"usage\":{\"input_tokens\":3,\"output_tokens_details\":{\"image_tokens\":0}}}",
+          "headers": {
+            "content-type": "application/json"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "actualModel": "gpt-image-2",
+        "usage": {
+          "inputTokens": 3
+        }
+      }
+    },
+    {
+      "name": "ok-image-tokens-only",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 200,
+          "text": "{\"data\":[{\"b64_json\":\"iVBORw0KGgoAAAANSUhEUg==\"}],\"usage\":{\"output_tokens_details\":{\"image_tokens\":\"7\"}}}",
+          "headers": {
+            "content-type": "application/json"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "actualModel": "gpt-image-2",
+        "usage": {
+          "outputImageTokens": 7
+        }
+      }
+    },
+    {
+      "name": "edit-with-references",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [
+        {
+          "base64": "iVBORw0KGgoAAAANSUhEUg==",
+          "mime": "image/jpeg"
+        },
+        {
+          "base64": "AAAA"
+        }
+      ],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 200,
+          "text": "{\"data\":[{\"b64_json\":\"iVBORw0KGgoAAAANSUhEUg==\"}],\"usage\":{\"input_tokens\":10,\"output_tokens\":20,\"input_tokens_details\":{\"cached_tokens\":4},\"output_tokens_details\":{\"image_tokens\":15}}}",
+          "headers": {
+            "content-type": "application/json"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/edits",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"images\":[{\"image_url\":\"data:image/jpeg;base64,iVBORw0KGgoAAAANSUhEUg==\"},{\"image_url\":\"data:image/png;base64,AAAA\"}],\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "actualModel": "gpt-image-2",
+        "usage": {
+          "inputTokens": 10,
+          "cachedTokens": 4,
+          "outputTokens": 20,
+          "outputImageTokens": 15
+        }
+      }
+    },
+    {
+      "name": "background",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {
+        "background": "transparent"
+      },
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 200,
+          "text": "{\"data\":[{\"b64_json\":\"iVBORw0KGgoAAAANSUhEUg==\"}],\"usage\":{\"input_tokens\":10,\"output_tokens\":20,\"input_tokens_details\":{\"cached_tokens\":4},\"output_tokens_details\":{\"image_tokens\":15}}}",
+          "headers": {
+            "content-type": "application/json"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\",\"background\":\"transparent\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "actualModel": "gpt-image-2",
+        "usage": {
+          "inputTokens": 10,
+          "cachedTokens": 4,
+          "outputTokens": 20,
+          "outputImageTokens": 15
+        }
+      }
+    },
+    {
+      "name": "auto-options-pass",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {
+        "size": "auto",
+        "quality": "auto",
+        "aspectRatio": "auto",
+        "resolution": "auto",
+        "background": "auto"
+      },
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 200,
+          "text": "{\"data\":[{\"b64_json\":\"iVBORw0KGgoAAAANSUhEUg==\"}],\"usage\":{\"input_tokens\":10,\"output_tokens\":20,\"input_tokens_details\":{\"cached_tokens\":4},\"output_tokens_details\":{\"image_tokens\":15}}}",
+          "headers": {
+            "content-type": "application/json"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\",\"background\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "actualModel": "gpt-image-2",
+        "usage": {
+          "inputTokens": 10,
+          "cachedTokens": 4,
+          "outputTokens": 20,
+          "outputImageTokens": 15
+        }
+      }
+    },
+    {
+      "name": "size-refused",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {
+        "size": "1024x1024"
+      },
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [],
+      "sent": [],
+      "lookups": [],
+      "warmed": 0,
+      "error": {
+        "message": "ChatGPT selects image output settings; explicit size and quality are not supported on this connection.",
+        "code": "MEDIA_OPTION_UNSUPPORTED",
+        "status": 400,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "quality-refused",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {
+        "quality": "high"
+      },
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [],
+      "sent": [],
+      "lookups": [],
+      "warmed": 0,
+      "error": {
+        "message": "ChatGPT selects image output settings; explicit size and quality are not supported on this connection.",
+        "code": "MEDIA_OPTION_UNSUPPORTED",
+        "status": 400,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "aspect-refused",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {
+        "aspectRatio": "16:9"
+      },
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [],
+      "sent": [],
+      "lookups": [],
+      "warmed": 0,
+      "error": {
+        "message": "ChatGPT selects image output settings; explicit size and quality are not supported on this connection.",
+        "code": "MEDIA_OPTION_UNSUPPORTED",
+        "status": 400,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "resolution-number-refused",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {
+        "resolution": 2
+      },
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [],
+      "sent": [],
+      "lookups": [],
+      "warmed": 0,
+      "error": {
+        "message": "ChatGPT selects image output settings; explicit size and quality are not supported on this connection.",
+        "code": "MEDIA_OPTION_UNSUPPORTED",
+        "status": 400,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "background-bad",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {
+        "background": "blurry"
+      },
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [],
+      "sent": [],
+      "lookups": [],
+      "warmed": 0,
+      "error": {
+        "message": "background must be transparent, opaque or auto.",
+        "code": "MEDIA_OPTION_UNSUPPORTED",
+        "status": 400,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "empty-b64",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 200,
+          "text": "{\"data\":[{\"b64_json\":\"\"}],\"usage\":{\"input_tokens\":2}}",
+          "headers": {
+            "content-type": "application/json"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image: returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": {
+          "inputTokens": 2
+        },
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "b64-not-string",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 200,
+          "text": "{\"data\":[{\"b64_json\":5}]}",
+          "headers": {
+            "content-type": "application/json"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image: returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "body-not-json",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 200,
+          "text": "oops",
+          "headers": {}
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image: returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "bad-b64",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 200,
+          "text": "{\"data\":[{\"b64_json\":\"!!\"}]}",
+          "headers": {
+            "content-type": "application/json"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image exceeds the media size limit",
+        "code": "MEDIA_RESULT_TOO_LARGE",
+        "status": 502,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "fallback-404",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 404,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 200,
+          "text": "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"image_generation_call\",\"result\":\"iVBORw0KGgoAAAANSUhEUg==\",\"model\":\"gpt-image-2\",\"revised_prompt\":\"nicer cat\"}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":5,\"output_tokens\":9}}}\n\n",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": "nicer cat",
+        "actualModel": "gpt-image-2",
+        "usage": {
+          "inputTokens": 5,
+          "outputTokens": 9
+        }
+      }
+    },
+    {
+      "name": "fallback-405",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {
+        "background": "opaque"
+      },
+      "references": [
+        {
+          "base64": "iVBORw0KGgoAAAANSUhEUg=="
+        }
+      ],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 405,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 200,
+          "text": "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"image_generation_call\",\"result\":\"iVBORw0KGgoAAAANSUhEUg==\"}}\n\n",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/edits",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"images\":[{\"image_url\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==\"}],\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\",\"background\":\"opaque\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_image\",\"image_url\":\"data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==\"},{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\",\"background\":\"opaque\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "actualModel": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "fallback-501",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 501,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 200,
+          "text": "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"image_generation_call\",\"result\":\"iVBORw0KGgoAAAANSUhEUg==\"}}\n\n",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "actualModel": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "fallback-403-html",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 403,
+          "text": "<html>",
+          "headers": {
+            "content-type": "text/html"
+          }
+        },
+        {
+          "status": 200,
+          "text": "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"image_generation_call\",\"result\":\"iVBORw0KGgoAAAANSUhEUg==\"}}\n\n",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "actualModel": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "fallback-403-no-type",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 403,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 200,
+          "text": "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"image_generation_call\",\"result\":\"iVBORw0KGgoAAAANSUhEUg==\"}}\n\n",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "actualModel": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "http-403-json",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 403,
+          "text": "{\"error\":{\"message\":\"no\"}}",
+          "headers": {
+            "content-type": "application/json"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 403,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "http-401",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 401,
+          "text": "nope",
+          "headers": {}
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image: authentication rejected — sign in again in Settings → Providers",
+        "code": "MEDIA_AUTH_REJECTED",
+        "status": 401,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "http-402",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 402,
+          "text": "{\"error\":{\"message\":\"Insufficient credits\"}}",
+          "headers": {
+            "content-type": "application/json"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image: account has no usable balance — Insufficient credits",
+        "code": "MEDIA_BILLING_BLOCKED",
+        "status": 402,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "http-500",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 500,
+          "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "headers": {}
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image failed (500): xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "limit-with-reset",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 429,
+          "text": "{\"error\":{\"type\":\"usage_limit_reached\",\"resets_at\":1800000000}}",
+          "headers": {}
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image: usage limit reached — resets 2027-01-15 08:00 UTC",
+        "code": "MEDIA_USAGE_LIMIT",
+        "status": 429,
+        "usage": null,
+        "resetsAt": "2027-01-15T08:00:00.000Z"
+      }
+    },
+    {
+      "name": "limit-image-with-reset",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 429,
+          "text": "{\"error\":{\"type\":\"usage_limit_reached\",\"limit_id\":\"codex_image\",\"resets_at\":1800000000}}",
+          "headers": {}
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image: image generation usage limit reached — resets 2027-01-15 08:00 UTC",
+        "code": "MEDIA_USAGE_LIMIT",
+        "status": 429,
+        "usage": null,
+        "resetsAt": "2027-01-15T08:00:00.000Z"
+      }
+    },
+    {
+      "name": "limit-lookup-hit",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": 1800000500,
+      "script": [
+        {
+          "status": 429,
+          "text": "{\"error\":{\"type\":\"usage_limit_reached\"}}",
+          "headers": {
+            "x-codex-active-limit": "codex_image"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [
+        {
+          "token": "tok-1",
+          "limitId": "codex_image"
+        }
+      ],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image: image generation usage limit reached — resets 2027-01-15 08:08 UTC",
+        "code": "MEDIA_USAGE_LIMIT",
+        "status": 429,
+        "usage": null,
+        "resetsAt": "2027-01-15T08:08:20.000Z"
+      }
+    },
+    {
+      "name": "limit-lookup-miss",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 429,
+          "text": "{\"error\":{\"type\":\"usage_limit_reached\"}}",
+          "headers": {}
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [
+        {
+          "token": "tok-1",
+          "limitId": ""
+        }
+      ],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image: usage limit reached — try again after the usage window resets",
+        "code": "MEDIA_USAGE_LIMIT",
+        "status": 429,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "limit-from-headers",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 429,
+          "text": "{\"error\":{\"type\":\"usage_limit_reached\"}}",
+          "headers": {
+            "x-codex-primary-used-percent": "100",
+            "x-codex-primary-reset-at": "1800000200"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image: usage limit reached — resets 2027-01-15 08:03 UTC",
+        "code": "MEDIA_USAGE_LIMIT",
+        "status": 429,
+        "usage": null,
+        "resetsAt": "2027-01-15T08:03:20.000Z"
+      }
+    },
+    {
+      "name": "rate-limited",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 429,
+          "text": "{\"error\":{\"type\":\"rate_limit\"}}",
+          "headers": {
+            "content-type": "application/json"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image: rate limited — retry in a moment",
+        "code": "MEDIA_RATE_LIMITED",
+        "status": 429,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "fetch-fails",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "fail": "fetch failed"
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "fetch failed",
+        "code": null,
+        "status": null,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "fallback-fetch-fails",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 404,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "fail": "fetch failed"
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "fetch failed",
+        "code": null,
+        "status": null,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "fallback-http-500",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 404,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 500,
+          "text": "down",
+          "headers": {}
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image failed (500): down",
+        "code": "MEDIA_UPSTREAM_FAILED",
+        "status": 500,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "fallback-limit",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": 1800000900,
+      "script": [
+        {
+          "status": 404,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 429,
+          "text": "{\"error\":{\"type\":\"usage_limit_reached\"}}",
+          "headers": {}
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [
+        {
+          "token": "tok-1",
+          "limitId": ""
+        }
+      ],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image: usage limit reached — resets 2027-01-15 08:15 UTC",
+        "code": "MEDIA_USAGE_LIMIT",
+        "status": 429,
+        "usage": null,
+        "resetsAt": "2027-01-15T08:15:00.000Z"
+      }
+    },
+    {
+      "name": "stream-model-and-prompt",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 404,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 200,
+          "text": ": keepalive\nevent: x\ndata: {\"type\":\"response.image_generation_call.partial_image\",\"partial_image_b64\":\"AA\"}\n\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"image_generation_call\",\"result\":\"iVBORw0KGgoAAAANSUhEUg==\",\"model\":\"gpt-image-2\",\"revised_prompt\":\"p2\"}}\n\ndata: [DONE]\n\n",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": "p2",
+        "actualModel": "gpt-image-2",
+        "usage": null
+      }
+    },
+    {
+      "name": "stream-bad-lines",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 404,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 200,
+          "text": "data: {broken\n\ndata:\n\ndata: null\n\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"image_generation_call\",\"result\":\"iVBORw0KGgoAAAANSUhEUg==\"}}\n\n",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "actualModel": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "stream-last-result-wins",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 404,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 200,
+          "text": "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"image_generation_call\",\"result\":\"AAAA\"}}\n\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"image_generation_call\",\"result\":\"iVBORw0KGgoAAAANSUhEUg==\"}}\n\n",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "value": {
+        "bytes": "89504e470d0a1a0a0000000d49484452",
+        "mime": "image/png",
+        "revisedPrompt": null,
+        "actualModel": null,
+        "usage": null
+      }
+    },
+    {
+      "name": "stream-empty-result-ignored",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 404,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 200,
+          "text": "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"image_generation_call\",\"result\":\"\"}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":4}}}\n\n",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": {
+          "inputTokens": 4
+        },
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "stream-partial-only",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 404,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 200,
+          "text": "data: {\"type\":\"response.image_generation_call.partial_image\",\"partial_image_b64\":\"AAAA\"}\n\ndata: {\"type\":\"response.image_generation_call.partial_image\",\"partial_image_b64\":\"AA\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"output_tokens\":6}}}\n\n",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image: generation stopped after a partial preview; no final image was produced",
+        "code": "MEDIA_PARTIAL_ONLY",
+        "status": 502,
+        "usage": {
+          "outputTokens": 6
+        },
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "stream-partial-then-failed",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 404,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 200,
+          "text": "data: {\"type\":\"response.image_generation_call.partial_image\",\"partial_image_b64\":\"AAAA\"}\n\ndata: {\"type\":\"response.failed\",\"response\":{\"error\":{\"message\":\"content policy\"}}}\n\n",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image: generation stopped after a partial preview; no final image was produced (content policy)",
+        "code": "MEDIA_PARTIAL_ONLY",
+        "status": 502,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "stream-empty",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 404,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 200,
+          "text": "",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT returned no image data",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "stream-failed-message",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 404,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 200,
+          "text": "data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"message\":\"boom\"}},\"usage\":1}\n\n",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT returned no image data: boom",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "stream-failed-no-message",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 404,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 200,
+          "text": "data: {\"type\":\"response.failed\",\"response\":{\"error\":{}}}\n\n",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT returned no image data: stream failed",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "stream-error-event",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 404,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 200,
+          "text": "data: {\"type\":\"error\",\"message\":\"top level\"}\n\n",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT returned no image data: top level",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "stream-error-string",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 404,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 200,
+          "text": "data: {\"type\":\"error\",\"error\":\"plain text\"}\n\n",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT returned no image data: plain text",
+        "code": "MEDIA_EMPTY_RESULT",
+        "status": 502,
+        "usage": null,
+        "resetsAt": null
+      }
+    },
+    {
+      "name": "stream-limit-event",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 404,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 200,
+          "text": "data: {\"type\":\"response.completed\",\"response\":{\"usage\":{\"input_tokens\":8}}}\n\ndata: {\"type\":\"error\",\"code\":\"usage_limit_reached\",\"resets_at\":1800000000}\n\n",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image: usage limit reached — resets 2027-01-15 08:00 UTC",
+        "code": "MEDIA_USAGE_LIMIT",
+        "status": 429,
+        "usage": {
+          "inputTokens": 8
+        },
+        "resetsAt": "2027-01-15T08:00:00.000Z"
+      }
+    },
+    {
+      "name": "stream-limit-lookup",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": 1800000700,
+      "script": [
+        {
+          "status": 404,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 200,
+          "text": "data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"type\":\"usage_limit_reached\"}}}\n\n",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [
+        {
+          "token": "tok-1",
+          "limitId": ""
+        }
+      ],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image: usage limit reached — resets 2027-01-15 08:11 UTC",
+        "code": "MEDIA_USAGE_LIMIT",
+        "status": 429,
+        "usage": null,
+        "resetsAt": "2027-01-15T08:11:40.000Z"
+      }
+    },
+    {
+      "name": "stream-bad-final",
+      "model": "gpt-5.5",
+      "prompt": "a cat",
+      "options": {},
+      "references": [],
+      "accountId": "acct-1",
+      "reset": null,
+      "script": [
+        {
+          "status": 404,
+          "text": "",
+          "headers": {}
+        },
+        {
+          "status": 200,
+          "text": "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"image_generation_call\",\"result\":\"!!\"}}\n\n",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      ],
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/codex/images/generations",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "originator": "codex_cli_rs",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-ID": "acct-1"
+          },
+          "requestId": true,
+          "body": "{\"prompt\":\"a cat\",\"model\":\"gpt-image-2\",\"size\":\"auto\",\"quality\":\"auto\"}",
+          "redirect": "error",
+          "signal": true
+        },
+        {
+          "url": "https://chatgpt.com/backend-api/codex/responses",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "OpenAI-Beta": "responses=experimental",
+            "originator": "codex_cli_rs",
+            "chatgpt-account-id": "acct-1",
+            "version": "0.200.0",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "requestId": true,
+          "body": "{\"model\":\"gpt-5.5\",\"stream\":true,\"store\":false,\"instructions\":\"You generate images with the image_generation tool. Call the tool once for the user request; do not ask follow-up questions.\",\"input\":[{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"a cat\"}]}],\"tools\":[{\"type\":\"image_generation\"}],\"tool_choice\":{\"type\":\"image_generation\"}}",
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "lookups": [],
+      "warmed": 1,
+      "error": {
+        "message": "ChatGPT image exceeds the media size limit",
+        "code": "MEDIA_RESULT_TOO_LARGE",
+        "status": 502,
+        "usage": null,
+        "resetsAt": null
+      }
+    }
+  ],
+  "fromUsage": [
+    {
+      "payload": null,
+      "limitId": "",
+      "resetAt": null
+    },
+    {
+      "payload": null,
+      "limitId": "alpha",
+      "resetAt": null
+    },
+    {
+      "payload": null,
+      "limitId": "ALPHA",
+      "resetAt": null
+    },
+    {
+      "payload": null,
+      "limitId": "codex_image",
+      "resetAt": null
+    },
+    {
+      "payload": null,
+      "limitId": "missing",
+      "resetAt": null
+    },
+    {
+      "payload": null,
+      "limitId": 7,
+      "resetAt": null
+    },
+    {
+      "payload": "x",
+      "limitId": "",
+      "resetAt": null
+    },
+    {
+      "payload": "x",
+      "limitId": "alpha",
+      "resetAt": null
+    },
+    {
+      "payload": "x",
+      "limitId": "ALPHA",
+      "resetAt": null
+    },
+    {
+      "payload": "x",
+      "limitId": "codex_image",
+      "resetAt": null
+    },
+    {
+      "payload": "x",
+      "limitId": "missing",
+      "resetAt": null
+    },
+    {
+      "payload": "x",
+      "limitId": 7,
+      "resetAt": null
+    },
+    {
+      "payload": {},
+      "limitId": "",
+      "resetAt": null
+    },
+    {
+      "payload": {},
+      "limitId": "alpha",
+      "resetAt": null
+    },
+    {
+      "payload": {},
+      "limitId": "ALPHA",
+      "resetAt": null
+    },
+    {
+      "payload": {},
+      "limitId": "codex_image",
+      "resetAt": null
+    },
+    {
+      "payload": {},
+      "limitId": "missing",
+      "resetAt": null
+    },
+    {
+      "payload": {},
+      "limitId": 7,
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": null
+      },
+      "limitId": "",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": null
+      },
+      "limitId": "alpha",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": null
+      },
+      "limitId": "ALPHA",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": null
+      },
+      "limitId": "codex_image",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": null
+      },
+      "limitId": "missing",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": null
+      },
+      "limitId": 7,
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": "x"
+      },
+      "limitId": "",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": "x"
+      },
+      "limitId": "alpha",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": "x"
+      },
+      "limitId": "ALPHA",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": "x"
+      },
+      "limitId": "codex_image",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": "x"
+      },
+      "limitId": "missing",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": "x"
+      },
+      "limitId": 7,
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000900
+          }
+        }
+      },
+      "limitId": "",
+      "resetAt": 1800000900
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000900
+          }
+        }
+      },
+      "limitId": "alpha",
+      "resetAt": 1800000900
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000900
+          }
+        }
+      },
+      "limitId": "ALPHA",
+      "resetAt": 1800000900
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000900
+          }
+        }
+      },
+      "limitId": "codex_image",
+      "resetAt": 1800000900
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000900
+          }
+        }
+      },
+      "limitId": "missing",
+      "resetAt": 1800000900
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000900
+          }
+        }
+      },
+      "limitId": 7,
+      "resetAt": 1800000900
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 50,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000300
+          }
+        }
+      },
+      "limitId": "",
+      "resetAt": 1800000300
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 50,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000300
+          }
+        }
+      },
+      "limitId": "alpha",
+      "resetAt": 1800000300
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 50,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000300
+          }
+        }
+      },
+      "limitId": "ALPHA",
+      "resetAt": 1800000300
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 50,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000300
+          }
+        }
+      },
+      "limitId": "codex_image",
+      "resetAt": 1800000300
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 50,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000300
+          }
+        }
+      },
+      "limitId": "missing",
+      "resetAt": 1800000300
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 50,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000300
+          }
+        }
+      },
+      "limitId": 7,
+      "resetAt": 1800000300
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 50,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 60,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 50,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 60,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "alpha",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 50,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 60,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "ALPHA",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 50,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 60,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "codex_image",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 50,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 60,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "missing",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 50,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 60,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": 7,
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "limit_reached": true,
+          "primary_window": {
+            "used_percent": 50,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 60,
+            "reset_at": 1800000100.9
+          }
+        }
+      },
+      "limitId": "",
+      "resetAt": 1800000100
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "limit_reached": true,
+          "primary_window": {
+            "used_percent": 50,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 60,
+            "reset_at": 1800000100.9
+          }
+        }
+      },
+      "limitId": "alpha",
+      "resetAt": 1800000100
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "limit_reached": true,
+          "primary_window": {
+            "used_percent": 50,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 60,
+            "reset_at": 1800000100.9
+          }
+        }
+      },
+      "limitId": "ALPHA",
+      "resetAt": 1800000100
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "limit_reached": true,
+          "primary_window": {
+            "used_percent": 50,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 60,
+            "reset_at": 1800000100.9
+          }
+        }
+      },
+      "limitId": "codex_image",
+      "resetAt": 1800000100
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "limit_reached": true,
+          "primary_window": {
+            "used_percent": 50,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 60,
+            "reset_at": 1800000100.9
+          }
+        }
+      },
+      "limitId": "missing",
+      "resetAt": 1800000100
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "limit_reached": true,
+          "primary_window": {
+            "used_percent": 50,
+            "reset_at": 1800000000
+          },
+          "secondary_window": {
+            "used_percent": 60,
+            "reset_at": 1800000100.9
+          }
+        }
+      },
+      "limitId": 7,
+      "resetAt": 1800000100
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "limit_reached": true,
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 0
+          },
+          "secondary_window": {
+            "used_percent": 100,
+            "reset_at": "1800000050"
+          }
+        }
+      },
+      "limitId": "",
+      "resetAt": 1800000050
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "limit_reached": true,
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 0
+          },
+          "secondary_window": {
+            "used_percent": 100,
+            "reset_at": "1800000050"
+          }
+        }
+      },
+      "limitId": "alpha",
+      "resetAt": 1800000050
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "limit_reached": true,
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 0
+          },
+          "secondary_window": {
+            "used_percent": 100,
+            "reset_at": "1800000050"
+          }
+        }
+      },
+      "limitId": "ALPHA",
+      "resetAt": 1800000050
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "limit_reached": true,
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 0
+          },
+          "secondary_window": {
+            "used_percent": 100,
+            "reset_at": "1800000050"
+          }
+        }
+      },
+      "limitId": "codex_image",
+      "resetAt": 1800000050
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "limit_reached": true,
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 0
+          },
+          "secondary_window": {
+            "used_percent": 100,
+            "reset_at": "1800000050"
+          }
+        }
+      },
+      "limitId": "missing",
+      "resetAt": 1800000050
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "limit_reached": true,
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 0
+          },
+          "secondary_window": {
+            "used_percent": 100,
+            "reset_at": "1800000050"
+          }
+        }
+      },
+      "limitId": 7,
+      "resetAt": 1800000050
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": "x"
+          }
+        }
+      },
+      "limitId": "",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": "x"
+          }
+        }
+      },
+      "limitId": "alpha",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": "x"
+          }
+        }
+      },
+      "limitId": "ALPHA",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": "x"
+          }
+        }
+      },
+      "limitId": "codex_image",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": "x"
+          }
+        }
+      },
+      "limitId": "missing",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": "x"
+          }
+        }
+      },
+      "limitId": 7,
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": "100",
+            "reset_at": 1800000400
+          }
+        }
+      },
+      "limitId": "",
+      "resetAt": 1800000400
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": "100",
+            "reset_at": 1800000400
+          }
+        }
+      },
+      "limitId": "alpha",
+      "resetAt": 1800000400
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": "100",
+            "reset_at": 1800000400
+          }
+        }
+      },
+      "limitId": "ALPHA",
+      "resetAt": 1800000400
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": "100",
+            "reset_at": 1800000400
+          }
+        }
+      },
+      "limitId": "codex_image",
+      "resetAt": 1800000400
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": "100",
+            "reset_at": 1800000400
+          }
+        }
+      },
+      "limitId": "missing",
+      "resetAt": 1800000400
+    },
+    {
+      "payload": {
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": "100",
+            "reset_at": 1800000400
+          }
+        }
+      },
+      "limitId": 7,
+      "resetAt": 1800000400
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "metered_feature": "codex_image",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800001000
+              }
+            }
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "",
+      "resetAt": 1800001000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "metered_feature": "codex_image",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800001000
+              }
+            }
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "alpha",
+      "resetAt": 1800001000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "metered_feature": "codex_image",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800001000
+              }
+            }
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "ALPHA",
+      "resetAt": 1800001000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "metered_feature": "codex_image",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800001000
+              }
+            }
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "codex_image",
+      "resetAt": 1800001000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "metered_feature": "codex_image",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800001000
+              }
+            }
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "missing",
+      "resetAt": 1800001000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "metered_feature": "codex_image",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800001000
+              }
+            }
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": 7,
+      "resetAt": 1800001000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "limit_name": "Other",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800002000
+              }
+            }
+          },
+          {
+            "limit_name": "IMAGE_GEN",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800003000
+              }
+            }
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "",
+      "resetAt": 1800003000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "limit_name": "Other",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800002000
+              }
+            }
+          },
+          {
+            "limit_name": "IMAGE_GEN",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800003000
+              }
+            }
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "alpha",
+      "resetAt": 1800003000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "limit_name": "Other",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800002000
+              }
+            }
+          },
+          {
+            "limit_name": "IMAGE_GEN",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800003000
+              }
+            }
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "ALPHA",
+      "resetAt": 1800003000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "limit_name": "Other",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800002000
+              }
+            }
+          },
+          {
+            "limit_name": "IMAGE_GEN",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800003000
+              }
+            }
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "codex_image",
+      "resetAt": 1800003000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "limit_name": "Other",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800002000
+              }
+            }
+          },
+          {
+            "limit_name": "IMAGE_GEN",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800003000
+              }
+            }
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "missing",
+      "resetAt": 1800003000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "limit_name": "Other",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800002000
+              }
+            }
+          },
+          {
+            "limit_name": "IMAGE_GEN",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800003000
+              }
+            }
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": 7,
+      "resetAt": 1800003000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "metered_feature": "alpha",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800004000
+              }
+            }
+          },
+          {
+            "metered_feature": "codex_image",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800005000
+              }
+            }
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "",
+      "resetAt": 1800005000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "metered_feature": "alpha",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800004000
+              }
+            }
+          },
+          {
+            "metered_feature": "codex_image",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800005000
+              }
+            }
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "alpha",
+      "resetAt": 1800004000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "metered_feature": "alpha",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800004000
+              }
+            }
+          },
+          {
+            "metered_feature": "codex_image",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800005000
+              }
+            }
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "ALPHA",
+      "resetAt": 1800004000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "metered_feature": "alpha",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800004000
+              }
+            }
+          },
+          {
+            "metered_feature": "codex_image",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800005000
+              }
+            }
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "codex_image",
+      "resetAt": 1800005000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "metered_feature": "alpha",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800004000
+              }
+            }
+          },
+          {
+            "metered_feature": "codex_image",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800005000
+              }
+            }
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "missing",
+      "resetAt": 1800005000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "metered_feature": "alpha",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800004000
+              }
+            }
+          },
+          {
+            "metered_feature": "codex_image",
+            "rate_limit": {
+              "primary_window": {
+                "used_percent": 100,
+                "reset_at": 1800005000
+              }
+            }
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": 7,
+      "resetAt": 1800005000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "metered_feature": "alpha"
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "",
+      "resetAt": 1800000000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "metered_feature": "alpha"
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "alpha",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "metered_feature": "alpha"
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "ALPHA",
+      "resetAt": null
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "metered_feature": "alpha"
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "codex_image",
+      "resetAt": 1800000000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "metered_feature": "alpha"
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "missing",
+      "resetAt": 1800000000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          {
+            "metered_feature": "alpha"
+          }
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": 7,
+      "resetAt": 1800000000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": "x",
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "",
+      "resetAt": 1800000000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": "x",
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "alpha",
+      "resetAt": 1800000000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": "x",
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "ALPHA",
+      "resetAt": 1800000000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": "x",
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "codex_image",
+      "resetAt": 1800000000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": "x",
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "missing",
+      "resetAt": 1800000000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": "x",
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": 7,
+      "resetAt": 1800000000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          null,
+          {}
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "",
+      "resetAt": 1800000000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          null,
+          {}
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "alpha",
+      "resetAt": 1800000000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          null,
+          {}
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "ALPHA",
+      "resetAt": 1800000000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          null,
+          {}
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "codex_image",
+      "resetAt": 1800000000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          null,
+          {}
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": "missing",
+      "resetAt": 1800000000
+    },
+    {
+      "payload": {
+        "additional_rate_limits": [
+          null,
+          {}
+        ],
+        "rate_limit": {
+          "primary_window": {
+            "used_percent": 100,
+            "reset_at": 1800000000
+          }
+        }
+      },
+      "limitId": 7,
+      "resetAt": 1800000000
+    }
+  ],
+  "lookups": [
+    {
+      "name": "hit",
+      "auth": {
+        "access_token": "tok-1",
+        "account_id": "acct-1"
+      },
+      "limitId": "codex_image",
+      "reply": {
+        "status": 200,
+        "text": "{\"rate_limit\":{\"primary_window\":{\"used_percent\":100,\"reset_at\":1800000000}}}",
+        "headers": {
+          "content-type": "application/json"
+        }
+      },
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/wham/usage",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "User-Agent": "codex-test-ua/1",
+            "ChatGPT-Account-Id": "acct-1"
+          },
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "resetAt": 1800000000
+    },
+    {
+      "name": "no-account",
+      "auth": {
+        "access_token": "tok-2"
+      },
+      "limitId": "",
+      "reply": {
+        "status": 200,
+        "text": "{\"rate_limit\":{\"primary_window\":{\"used_percent\":100,\"reset_at\":1800000000}}}",
+        "headers": {
+          "content-type": "application/json"
+        }
+      },
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/wham/usage",
+          "headers": {
+            "Authorization": "Bearer tok-2",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "resetAt": 1800000000
+    },
+    {
+      "name": "not-ok",
+      "auth": {
+        "access_token": "tok-1"
+      },
+      "limitId": "",
+      "reply": {
+        "status": 500,
+        "text": "x",
+        "headers": {}
+      },
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/wham/usage",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "resetAt": null
+    },
+    {
+      "name": "not-json",
+      "auth": {
+        "access_token": "tok-1"
+      },
+      "limitId": "",
+      "reply": {
+        "status": 200,
+        "text": "x",
+        "headers": {}
+      },
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/wham/usage",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "resetAt": null
+    },
+    {
+      "name": "fetch-fails",
+      "auth": {
+        "access_token": "tok-1"
+      },
+      "limitId": "",
+      "reply": {
+        "fail": "fetch failed"
+      },
+      "sent": [
+        {
+          "url": "https://chatgpt.com/backend-api/wham/usage",
+          "headers": {
+            "Authorization": "Bearer tok-1",
+            "User-Agent": "codex-test-ua/1"
+          },
+          "redirect": "error",
+          "signal": true
+        }
+      ],
+      "resetAt": null
+    }
+  ]
+}

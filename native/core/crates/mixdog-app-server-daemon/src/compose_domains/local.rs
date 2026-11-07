@@ -12,6 +12,8 @@ use mixdog_core_config::config::ConfigVoiceEnabled;
 use mixdog_core_config::config::ConfigVoiceSettings;
 use mixdog_core_config::tool_modules::HostParts;
 use mixdog_core_config::tool_modules::ServicesToolModulesHost;
+use mixdog_core_agents::setup::SetupVoice;
+use crate::domain_seams::media_status::MediaStatus;
 use mixdog_exthost::ExtImageCodec;
 use mixdog_rt::TaskClass;
 use mixdog_services::effort_judge::install::Manifest;
@@ -33,6 +35,7 @@ use mixdog_services::local_provider::server_process::Timing;
 use mixdog_services::media::MediaAssetSource;
 use mixdog_services::media::MediaGenerator;
 use mixdog_services::media::MediaJobs;
+use mixdog_services::media::MediaUsageLedger;
 use mixdog_services::media::MediaService;
 use mixdog_services::media::MediaStore;
 use mixdog_services::media::StillRenditions;
@@ -46,6 +49,8 @@ use mixdog_services::voice::VoicePipeline;
 use mixdog_services::voice::VoiceService;
 use mixdog_services::voice::VoiceSetup;
 use mixdog_services::voice::WhisperServer;
+use mixdog_services::voice::setup_action::voice_toggle_answer;
+use mixdog_tools::orch::util::PortError;
 use mixdog_workspace::transfer::TransferSource;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
@@ -61,11 +66,28 @@ pub struct LocalSeams {
     pub import_sessions: Arc<dyn ImportSessions>,
     /// Media generation by lane: xai, codex, image-api, antigravity, gemini (WP-SVC-MISC).
     pub media_generator: Arc<dyn MediaGenerator>,
+    /// Where each generation is billed: one usage row per generation (WP-SVC-MISC QueuedLedger over the usage queue and the pricing catalog).
+    pub media_ledger: Arc<dyn MediaUsageLedger>,
     /// The voice runtime download: whisper, model, ffmpeg (WP-SVC-MISC).
     pub voice_installer: Arc<dyn VoiceInstaller>,
 }
 
+/// `rt.setVoiceEnabled` for the setup tool's `set_builtin_enabled` / `install_builtin` of `voice`: the
+/// toggle the Built-in card uses, answered as `{ status, error }` (the dispatcher judges the state).
+pub struct VoiceToggle(pub Arc<VoiceSetup>);
+
+#[async_trait::async_trait]
+impl SetupVoice for VoiceToggle {
+    async fn set_enabled(&self, enabled: bool) -> Result<Value, PortError> {
+        Ok(voice_toggle_answer(&self.0, enabled).await)
+    }
+}
+
 pub(super) struct Local {
+    /// The media domain of the setup tool's status: compose_domains registers it with the status readers.
+    pub media_status: Arc<MediaStatus>,
+    /// The voice toggle the setup tool drives: the root passes VoiceToggle(local.voice_setup) as its SetupVoice.
+    pub voice_setup: Arc<VoiceSetup>,
     pub services: Vec<Arc<dyn DomainService>>,
     pub transfer_sources: Vec<Arc<dyn TransferSource>>,
     pub tool_modules_host: Arc<ServicesToolModulesHost>,
@@ -197,8 +219,9 @@ pub(super) async fn build(inputs: &DomainInputs, config: &Config) -> Result<Loca
 
     let store = Arc::new(MediaStore::new(data_dir, tokens.durability_io));
     let renditions = StillRenditions::new(Arc::new(ExtImageCodec::new(inputs.ext_host.clone())), tokens.durability_io, store.renditions_dir());
-    let jobs = MediaJobs::with_renditions(store.clone(), seams.media_generator.clone(), media_max_active(&inputs.env), renditions.clone());
+    let jobs = MediaJobs::with_ledger(store.clone(), seams.media_generator.clone(), media_max_active(&inputs.env), Some(renditions.clone()), seams.media_ledger.clone());
     services.push(Arc::new(MediaService::new(store.clone(), jobs, processes.clone(), renditions)));
+    let media_status = Arc::new(MediaStatus::new(store.clone()));
     transfer_sources.push(Arc::new(MediaAssetSource::new(store)));
 
     let discovery = Discovery::new(Env::from_process(), tokens.maintenance_io);
@@ -215,7 +238,7 @@ pub(super) async fn build(inputs: &DomainInputs, config: &Config) -> Result<Loca
         tokens.durability_io,
     ));
     let setup = Arc::new(VoiceSetup::new(pipeline.clone(), Arc::new(ConfigVoiceEnabled::new(config.clone())), seams.voice_installer.clone()));
-    services.push(Arc::new(VoiceService::new(pipeline, setup)));
+    services.push(Arc::new(VoiceService::new(pipeline, setup.clone())));
 
-    Ok(Local { services, transfer_sources, tool_modules_host, service: local_service })
+    Ok(Local { media_status, voice_setup: setup, services, transfer_sources, tool_modules_host, service: local_service })
 }

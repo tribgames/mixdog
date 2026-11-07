@@ -107,7 +107,7 @@ fn base36(mut n: u64) -> String {
 }
 
 /// A room id: the time in base 36 and four random bytes, matching `^[a-z0-9]{6,32}$`.
-fn new_room_id(now_ms: i64) -> String {
+pub(crate) fn new_room_id(now_ms: i64) -> String {
     let tail: [u8; 4] = rand::thread_rng().r#gen();
     format!("{}{}", base36(now_ms.max(0) as u64), tail.iter().map(|b| format!("{b:02x}")).collect::<String>())
 }

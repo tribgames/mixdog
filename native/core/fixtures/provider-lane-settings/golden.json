@@ -1,0 +1,98 @@
+{
+  "adaptive": [
+    {
+      "provider": "anthropic",
+      "adaptive": true
+    },
+    {
+      "provider": "anthropic-oauth",
+      "adaptive": true
+    },
+    {
+      "provider": "Anthropic",
+      "adaptive": true
+    },
+    {
+      "provider": "ANTHROPIC-OAUTH",
+      "adaptive": true
+    },
+    {
+      "provider": "openai",
+      "adaptive": false
+    },
+    {
+      "provider": "openai-oauth",
+      "adaptive": false
+    },
+    {
+      "provider": "anthropic-vertex",
+      "adaptive": false
+    },
+    {
+      "provider": "xai",
+      "adaptive": false
+    },
+    {
+      "provider": "grok-oauth",
+      "adaptive": false
+    },
+    {
+      "provider": "custom-1",
+      "adaptive": false
+    },
+    {
+      "provider": "gemini",
+      "adaptive": false
+    },
+    {
+      "provider": "",
+      "adaptive": false
+    }
+  ],
+  "queue": [
+    {
+      "env": null,
+      "refusal": "provider admission queue full for p:default (maximum 1024)"
+    },
+    {
+      "env": "3",
+      "refusal": "provider admission queue full for p:default (maximum 3)"
+    },
+    {
+      "env": "0",
+      "refusal": "provider admission queue full for p:default (maximum 1024)"
+    },
+    {
+      "env": "-4",
+      "refusal": "provider admission queue full for p:default (maximum 1024)"
+    },
+    {
+      "env": "abc",
+      "refusal": "provider admission queue full for p:default (maximum 1024)"
+    },
+    {
+      "env": "2.9",
+      "refusal": "provider admission queue full for p:default (maximum 2)"
+    },
+    {
+      "env": " 7 ",
+      "refusal": "provider admission queue full for p:default (maximum 7)"
+    },
+    {
+      "env": "",
+      "refusal": "provider admission queue full for p:default (maximum 1024)"
+    },
+    {
+      "env": "1e1",
+      "refusal": "provider admission queue full for p:default (maximum 10)"
+    },
+    {
+      "env": "Infinity",
+      "refusal": "provider admission queue full for p:default (maximum 1024)"
+    },
+    {
+      "env": "5000",
+      "refusal": "provider admission queue full for p:default (maximum 5000)"
+    }
+  ]
+}

@@ -52,30 +52,61 @@ impl Table {
 
 #[async_trait]
 impl WorkflowSurface for Table {
-    async fn target(&self, _: &Header, workflow_id: &str, mode: Option<&str>) -> WorkflowTarget {
+    async fn target(&self, _: &Header, workflow_id: &str, mode: Option<&str>) -> Result<WorkflowTarget, SurfaceFailure> {
         let entry = self.workflows.get(workflow_id).unwrap_or(&self.workflows["alpha"]);
         let text = |key: &str| entry[key].as_str().unwrap_or_default().to_owned();
-        WorkflowTarget {
+        Ok(WorkflowTarget {
             summary: entry["summary"].clone(),
             orchestration_mode: mode.unwrap_or("balanced").to_owned(),
             pack_context: text("packContext"),
             orchestration_context: text("orchestrationContext"),
             agent_catalog_context: text("agentCatalogContext"),
-        }
+        })
     }
 
-    async fn live_denied_tools(&self, _: &Header, summary: &Value) -> Vec<String> {
+    async fn live_denied_tools(&self, _: &Header, summary: &Value) -> Result<Vec<String>, SurfaceFailure> {
         let id = summary["id"].as_str().unwrap_or_default();
-        self.workflows[id]["denied"].as_array().map(|list| list.iter().filter_map(|n| n.as_str().map(str::to_owned)).collect()).unwrap_or_default()
+        Ok(self.workflows[id]["denied"].as_array().map(|list| list.iter().filter_map(|n| n.as_str().map(str::to_owned)).collect()).unwrap_or_default())
     }
 
-    async fn standalone_tools(&self, _: &Header) -> Vec<Value> {
-        self.standalone.clone()
+    async fn standalone_tools(&self, _: &Header) -> Result<Vec<Value>, SurfaceFailure> {
+        Ok(self.standalone.clone())
     }
 
-    async fn orchestration_instructions(&self, mode: &str) -> String {
-        self.instructions[mode].as_str().unwrap_or_default().to_owned()
+    async fn orchestration_instructions(&self, mode: &str) -> Result<String, SurfaceFailure> {
+        Ok(self.instructions[mode].as_str().unwrap_or_default().to_owned())
     }
+}
+
+/// A surface whose reads cannot run.
+struct Refusing;
+
+#[async_trait]
+impl WorkflowSurface for Refusing {
+    async fn target(&self, _: &Header, _: &str, _: Option<&str>) -> Result<WorkflowTarget, SurfaceFailure> {
+        Err(SurfaceFailure("the pack read could not run".into()))
+    }
+    async fn live_denied_tools(&self, _: &Header, _: &Value) -> Result<Vec<String>, SurfaceFailure> {
+        Err(SurfaceFailure("the gate read could not run".into()))
+    }
+    async fn standalone_tools(&self, _: &Header) -> Result<Vec<Value>, SurfaceFailure> {
+        Err(SurfaceFailure("the gate read could not run".into()))
+    }
+    async fn orchestration_instructions(&self, _: &str) -> Result<String, SurfaceFailure> {
+        Err(SurfaceFailure("the mode text read could not run".into()))
+    }
+}
+
+/// A read that cannot run stops the switch with its own text: the pending workflow is not
+/// dropped as gone, and no mode reminder is written without its text.
+#[tokio::test]
+async fn a_surface_that_cannot_read_stops_the_switch() {
+    let mut pending_workflow = header_of(&json!({ "id": "sess_a", "pendingWorkflowId": "beta" }));
+    assert_eq!(apply_pending(&mut pending_workflow, &Refusing, 1).await.err(), Some(SurfaceFailure("the pack read could not run".into())));
+    let mut pending_mode = header_of(&json!({ "id": "sess_a", "pendingOrchestrationMode": "none" }));
+    assert_eq!(apply_pending(&mut pending_mode, &Refusing, 1).await.err(), Some(SurfaceFailure("the mode text read could not run".into())));
+    let mut idle = header_of(&json!({ "id": "sess_a" }));
+    assert!(matches!(apply_pending(&mut idle, &Refusing, 1).await, Ok(None)));
 }
 
 fn header_of(value: &Value) -> Header {
@@ -110,7 +141,7 @@ async fn the_switches_match_node() {
             let done = match op {
                 "workflow" => switch_workflow(&mut session, &facts, &surface, arg).await,
                 "mode" => switch_mode(&mut session, &facts, &surface, arg).await,
-                _ => Ok(apply_pending(&mut session, &surface, now).await),
+                _ => apply_pending(&mut session, &surface, now).await.map_err(String::from),
             };
             let label = format!("{name} #{i} {op} {arg}");
             match done {

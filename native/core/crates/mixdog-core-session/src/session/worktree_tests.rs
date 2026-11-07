@@ -10,6 +10,9 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 use mixdog_scm::engine::Scm;
+use mixdog_scm::worktree::maintenance::SessionActivity;
+use mixdog_scm::worktree::maintenance::ShellJob;
+use mixdog_scm::worktree::manager::Retention;
 use mixdog_scm::worktree::registry::WorktreeRecord;
 use mixdog_scm::worktree::settings::WorktreeSettings;
 use mixdog_spawn::LocalProcessManager;
@@ -136,6 +139,29 @@ impl Retention for KeepAll {
     }
 }
 
+/// The store keeps the Lead, so its worktrees are retained (never removable as orphans);
+/// nothing else is stored, a favorite, archived or running a job.
+struct StoresLead;
+
+#[async_trait]
+impl SessionSource for StoresLead {
+    async fn stored_session_ids(&self) -> Result<std::collections::HashSet<String>, ScmFailure> {
+        Ok(["lead".to_owned()].into())
+    }
+    async fn favorites(&self) -> Option<std::collections::HashSet<String>> {
+        None
+    }
+    async fn archived(&self) -> Option<std::collections::HashSet<String>> {
+        None
+    }
+    async fn activity(&self, _: &[String]) -> HashMap<String, SessionActivity> {
+        HashMap::new()
+    }
+    async fn running_jobs(&self) -> Result<Vec<ShellJob>, ScmFailure> {
+        Ok(Vec::new())
+    }
+}
+
 /// The default settings, with `autoCleanup` switchable by the test.
 struct Defaults(Arc<AtomicBool>);
 
@@ -175,7 +201,8 @@ pub(crate) fn rig() -> Rig {
     let auto_cleanup = Arc::new(AtomicBool::new(true));
     let ws = SessionWorkspaces::new(
         worktrees.clone(),
-        Arc::new(KeepAll),
+        Arc::new(StoresLead),
+        Arc::new(std::collections::HashSet::new),
         Arc::new(Defaults(auto_cleanup.clone())),
         Arc::new(FakeHost { state: state.clone() }),
         AdmissionGate::new(),

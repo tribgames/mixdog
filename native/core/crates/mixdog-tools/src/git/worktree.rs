@@ -8,6 +8,7 @@
 //! runtime, which implements [`SessionWorktrees`] at composition. A caller the session runtime
 //! does not claim as the Lead is no Lead.
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,9 +16,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_protocol::JsonValue;
 use mixdog_scm::error::ScmFailure;
+use mixdog_scm::worktree::maintenance::SessionSource;
 use mixdog_scm::worktree::manager::CreateRequest;
-use mixdog_scm::worktree::manager::Retention;
 use mixdog_scm::worktree::manager::Worktrees;
+use mixdog_scm::worktree::retention::SnapshotRetention;
 use mixdog_scm::worktree::manager::entry_json;
 use mixdog_scm::worktree::texts::failure_json;
 use serde_json::Map;
@@ -64,8 +66,27 @@ pub trait SessionWorktrees: Send + Sync {
 /// What the `git` tool needs to manage worktrees.
 pub struct WorktreeServices {
     pub worktrees: Arc<Worktrees>,
-    pub retention: Arc<dyn Retention>,
+    /// Who keeps a worktree, read again for every list and prune (Node's `maintenanceScope`):
+    /// the stored sessions, and (`live`) the ids of every session open in this process.
+    pub stored: Arc<dyn SessionSource>,
+    pub live: Arc<dyn Fn() -> HashSet<String> + Send + Sync>,
     pub sessions: Arc<dyn SessionWorktrees>,
+}
+
+impl WorktreeServices {
+    /// The workspace API's `listWorktrees({ includeSnapshots: true })` (`worktree-tool.mjs`):
+    /// every managed worktree, snapshots included, with who keeps it now.
+    async fn rows(&self, cancel: &CancellationToken) -> Result<Vec<JsonValue>, ScmFailure> {
+        // Without details the list weighs no cleanup limit, so `now` is never read.
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64);
+        self.worktrees.list_with_retention(&self.stored, &(self.live)(), false, now, cancel).await
+    }
+
+    /// Who keeps what now, for a prune.
+    async fn retention(&self, cancel: &CancellationToken) -> Result<SnapshotRetention, ScmFailure> {
+        let stored = self.stored.stored_session_ids().await?;
+        self.worktrees.retention((self.live)(), stored, cancel).await
+    }
 }
 
 /// A failed operation: a plain message from the tool or a failure from `mixdog-scm`.
@@ -367,7 +388,15 @@ async fn list_rows(env: &Env<'_>, cwd: &Path) -> Result<Vec<JsonValue>, Failure>
     let lead = env.is_lead().await;
     let repo = repository_at(env, cwd).await;
     let managed: Vec<JsonValue> = match env.services {
-        Some(s) => s.worktrees.list(repo.as_deref().map(Path::new), &*s.retention, env.cancel()).await?,
+        Some(s) => {
+            let scope = repo.as_deref().map(|repo| mixdog_scm::locks::path_key(Path::new(repo)));
+            let of_repo = |row: &JsonValue| {
+                scope.as_ref().is_none_or(|scope| {
+                    row["repoCommonDir"].as_str().is_some_and(|dir| mixdog_scm::locks::path_key(Path::new(dir)) == *scope)
+                })
+            };
+            s.rows(env.cancel()).await?.into_iter().filter(of_repo).collect()
+        }
         None => Vec::new(),
     };
     let ours: Vec<Object> = managed.into_iter().map(object).collect();
@@ -609,7 +638,7 @@ async fn raw_remove(plan: &Plan, env: &Env<'_>) -> Result<String, Failure> {
     let path = resolve(&plan.cwd, positional[0]);
     // A snapshot goes through its ledger, which refuses while a command still runs in it.
     let wanted = mixdog_scm::locks::path_key(&path);
-    let rows = lead.worktrees.list(None, &*lead.retention, env.cancel()).await?;
+    let rows = lead.rows(env.cancel()).await?;
     let snapshot = rows.iter().find(|row| {
         row["kind"] == "snapshot"
             && row["path"].as_str().is_some_and(|p| mixdog_scm::locks::path_key(Path::new(p)) == wanted)
@@ -664,10 +693,8 @@ async fn raw_prune(plan: &Plan, env: &Env<'_>) -> Result<String, Failure> {
         ])));
     }
     let repo = repository_at(env, &plan.cwd).await;
-    let result = lead
-        .worktrees
-        .prune(repo.as_deref().map(Path::new), &*lead.retention, false, env.cancel())
-        .await?;
+    let retention = lead.retention(env.cancel()).await?;
+    let result = lead.worktrees.prune(repo.as_deref().map(Path::new), &retention, false, env.cancel()).await?;
     let mut out = request(vec![("mapped", json!(plan.command))]);
     merge(&mut out, object(result));
     Ok(ok_json(out))
@@ -833,10 +860,8 @@ pub(super) async fn execute_worktree_action(input: &Object, work_dir: &Path, env
         let mut fields = request(vec![("worktree_action", json!(action))]);
         if action == "prune" {
             let repo = repository_at(env, work_dir).await;
-            let result = lead
-                .worktrees
-                .prune(repo.as_deref().map(Path::new), &*lead.retention, false, env.cancel())
-                .await?;
+            let retention = lead.retention(env.cancel()).await?;
+            let result = lead.worktrees.prune(repo.as_deref().map(Path::new), &retention, false, env.cancel()).await?;
             merge(&mut fields, object(result));
             return Ok(ok_json(fields));
         }

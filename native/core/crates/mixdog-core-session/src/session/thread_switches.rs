@@ -68,20 +68,38 @@ pub struct WorkflowTarget {
     pub agent_catalog_context: String,
 }
 
+/// A surface answer that could not be given: a lane read that could not run, or a session record
+/// Node's code would throw on. The switch stops with this text; nothing is switched on a guess.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SurfaceFailure(pub String);
+
+impl std::fmt::Display for SurfaceFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl From<SurfaceFailure> for String {
+    fn from(failure: SurfaceFailure) -> Self {
+        failure.0
+    }
+}
+
 /// What the prompt machinery answers a switch. The workflow packs and the mode texts are files
-/// and config (read on the lanes, so every method is async); the tool gates are the run-host's tool surface.
+/// and config (read on the lanes, so every method is async and typed); the tool gates are the
+/// run-host's tool surface.
 #[async_trait]
 pub trait WorkflowSurface: Send + Sync {
     /// The workflow `workflow_id` names for `session`, with orchestration mode `mode` (`None`:
     /// the configured one). A missing id falls back to the default pack, so a different
     /// `summary.id` is a gone workflow.
-    async fn target(&self, session: &Header, workflow_id: &str, mode: Option<&str>) -> WorkflowTarget;
+    async fn target(&self, session: &Header, workflow_id: &str, mode: Option<&str>) -> Result<WorkflowTarget, SurfaceFailure>;
     /// `liveDeniedTools(session, summary)`: the tools the workflow denies this session.
-    async fn live_denied_tools(&self, session: &Header, summary: &Value) -> Vec<String>;
+    async fn live_denied_tools(&self, session: &Header, summary: &Value) -> Result<Vec<String>, SurfaceFailure>;
     /// `modelStandaloneTools()` as the session's workflow gates them.
-    async fn standalone_tools(&self, session: &Header) -> Vec<Value>;
+    async fn standalone_tools(&self, session: &Header) -> Result<Vec<Value>, SurfaceFailure>;
     /// `orchestrationInstructions(mode)`: the user's file for the mode, else the shipped one.
-    async fn orchestration_instructions(&self, mode: &str) -> String;
+    async fn orchestration_instructions(&self, mode: &str) -> Result<String, SurfaceFailure>;
 }
 
 // ---- JS values ----------------------------------------------------------------------------------
@@ -245,7 +263,7 @@ fn workflow_overlay_content(prompt_name: &str, workflow_name: &str, instructions
 }
 
 /// `orchestrationModeNoticeContent({ mode, carried, loadableTools })`.
-async fn mode_notice_content(surface: &dyn WorkflowSurface, mode: &str, loadable: &[String]) -> String {
+async fn mode_notice_content(surface: &dyn WorkflowSurface, mode: &str, loadable: &[String]) -> Result<String, SurfaceFailure> {
     let name = mode_name(mode);
     let lead = format!("This conversation now uses the {name} orchestration mode. The system prompt's Orchestration Mode no longer applies; follow {name}'s below instead.");
     let mut lines = vec![
@@ -259,9 +277,9 @@ async fn mode_notice_content(surface: &dyn WorkflowSurface, mode: &str, loadable
     }
     lines.push(format!("Agents already started keep running with their own instructions; new delegation follows {name}."));
     lines.push(String::new());
-    lines.push(surface.orchestration_instructions(mode).await);
+    lines.push(surface.orchestration_instructions(mode).await?);
     lines.push("</system-reminder>".to_owned());
-    lines.join("\n")
+    Ok(lines.join("\n"))
 }
 
 // ---- the pending deferred-tool delta ------------------------------------------------------------
@@ -435,25 +453,37 @@ struct Resolved {
     target: WorkflowTarget,
 }
 
-async fn resolve_workflow(session: &Header, surface: &dyn WorkflowSurface, workflow_id: &str, mode: &str) -> Result<Resolved, String> {
-    let target = surface.target(session, workflow_id, Some(mode)).await;
+/// What `resolveWorkflow` found: the workflow, or the sentence Node throws for a gone one.
+enum Resolution {
+    Found(Resolved),
+    Gone(String),
+}
+
+async fn resolve_workflow(session: &Header, surface: &dyn WorkflowSurface, workflow_id: &str, mode: &str) -> Result<Resolution, SurfaceFailure> {
+    let target = surface.target(session, workflow_id, Some(mode)).await?;
     if js_string(target.summary.get("id")) != workflow_id {
-        return Err(format!("workflow \"{workflow_id}\" not found"));
+        return Ok(Resolution::Gone(format!("workflow \"{workflow_id}\" not found")));
     }
-    Ok(Resolved { target })
+    Ok(Resolution::Found(Resolved { target }))
 }
 
 /// `workflowOverlay`: what the reminder tells the Lead and which calls are refused.
-async fn workflow_overlay(session: &Header, surface: &dyn WorkflowSurface, resolved: &Resolved, prompt: &Value, prompt_orchestration_mode: &str) -> (Value, Vec<Value>, Vec<String>) {
+async fn workflow_overlay(
+    session: &Header,
+    surface: &dyn WorkflowSurface,
+    resolved: &Resolved,
+    prompt: &Value,
+    prompt_orchestration_mode: &str,
+) -> Result<(Value, Vec<Value>, Vec<String>), SurfaceFailure> {
     let target = &resolved.target;
-    let denied: HashSet<String> = surface.live_denied_tools(session, &target.summary).await.iter().map(|name| name.to_lowercase()).collect();
+    let denied: HashSet<String> = surface.live_denied_tools(session, &target.summary).await?.iter().map(|name| name.to_lowercase()).collect();
     let disallowed: HashSet<String> = strings(session.get("disallowedTools")).iter().map(|name| name.to_lowercase()).collect();
     let schema = schema_tools(session);
     let denied_tools = unique(schema.iter().map(tool_name).filter(|name| !name.is_empty() && denied.contains(&name.to_lowercase()) && !disallowed.contains(&name.to_lowercase())));
     let reopened: Vec<String> = unique(strings(session.get("disallowedTools")).into_iter().chain(strings(session.get("workflowOpenedTools")))).into_iter().filter(|name| !denied.contains(&name.to_lowercase())).collect();
     let mut known: HashSet<String> = schema.iter().map(tool_name).collect();
     let mut fresh = Vec::new();
-    for tool in surface.standalone_tools(session).await {
+    for tool in surface.standalone_tools(session).await? {
         let name = tool_name(&tool);
         if reopened.contains(&name) && !known.contains(&name) {
             fresh.push(tool);
@@ -492,7 +522,7 @@ async fn workflow_overlay(session: &Header, surface: &dyn WorkflowSurface, resol
         "unavailableTools": unavailable,
         "content": workflow_overlay_content(&prompt_name, &name, &instructions, &denied_tools, &loadable, &unavailable),
     });
-    (overlay, fresh, loadable)
+    Ok((overlay, fresh, loadable))
 }
 
 /// `openLoadableTools`: their definitions join the deferred catalog, the policy stops denying
@@ -516,20 +546,21 @@ fn open_loadable_tools(session: &mut Header, loadable: &[String], fresh: Vec<Val
 
 /// `closeReopenedTools`: back on the prompt's workflow, what an earlier switch opened that it
 /// denies is denied again (call-time refusal; the schema stays).
-async fn close_reopened_tools(session: &mut Header, surface: &dyn WorkflowSurface, resolved: &Resolved, now: i64) {
-    let denied = unique(surface.live_denied_tools(session, &resolved.target.summary).await);
+async fn close_reopened_tools(session: &mut Header, surface: &dyn WorkflowSurface, resolved: &Resolved, now: i64) -> Result<(), SurfaceFailure> {
+    let denied = unique(surface.live_denied_tools(session, &resolved.target.summary).await?);
     let disallowed = unique(strings(session.get("disallowedTools")));
     let known: HashSet<String> = schema_tools(session).iter().map(tool_name).collect();
     let closed: Vec<String> = denied.into_iter().filter(|name| known.contains(name) && !disallowed.contains(name)).collect();
     if closed.is_empty() {
-        return;
+        return Ok(());
     }
     session.insert("disallowedTools".into(), json!(disallowed.iter().chain(closed.iter()).collect::<Vec<_>>()));
     merge_deferred_delta(session, &[], &closed, now);
+    Ok(())
 }
 
 /// `applyWorkflowSwitch(session, resolved)`.
-async fn apply_workflow_switch(session: &mut Header, surface: &dyn WorkflowSurface, resolved: &Resolved, now: i64) -> Switched {
+async fn apply_workflow_switch(session: &mut Header, surface: &dyn WorkflowSurface, resolved: &Resolved, now: i64) -> Result<Switched, SurfaceFailure> {
     let before = session.get("workflow").cloned().unwrap_or(Value::Null);
     let from = if truthy(before.get("id")) { before } else { Value::Null };
     let prompt = prompt_workflow(session);
@@ -539,9 +570,9 @@ async fn apply_workflow_switch(session: &mut Header, surface: &dyn WorkflowSurfa
     session.insert("orchestrationMode".into(), json!(resolved.target.orchestration_mode));
     session.shift_remove("workflowOverlay");
     if meta.get("id") == prompt.get("id") && !prompt.is_null() {
-        close_reopened_tools(session, surface, resolved, now).await;
+        close_reopened_tools(session, surface, resolved, now).await?;
     } else {
-        let (overlay, fresh, loadable) = workflow_overlay(session, surface, resolved, &prompt, &prompt_orchestration_mode).await;
+        let (overlay, fresh, loadable) = workflow_overlay(session, surface, resolved, &prompt, &prompt_orchestration_mode).await?;
         open_loadable_tools(session, &loadable, fresh, now);
         session.insert("workflowOverlay".into(), overlay);
     }
@@ -560,7 +591,7 @@ async fn apply_workflow_switch(session: &mut Header, surface: &dyn WorkflowSurfa
         });
         boundaries.push(Boundary { field: "workflowSwitches", value: workflow_switch.clone() });
     }
-    Switched { result: json!({ "appliedToCurrentSession": true, "workflow": meta, "workflowSwitch": workflow_switch }), boundaries }
+    Ok(Switched { result: json!({ "appliedToCurrentSession": true, "workflow": meta, "workflowSwitch": workflow_switch }), boundaries })
 }
 
 /// `modeLoadableTools(session, mode)`: `agent` when the mode delegates and the session can run
@@ -580,14 +611,14 @@ fn mode_loadable_tools(session: &Header, mode: &str) -> Vec<String> {
 }
 
 /// `applyOrchestrationModeSwitch(session, mode)`.
-async fn apply_mode_switch(session: &mut Header, surface: &dyn WorkflowSurface, mode: &str, now: i64) -> Switched {
+async fn apply_mode_switch(session: &mut Header, surface: &dyn WorkflowSurface, mode: &str, now: i64) -> Result<Switched, SurfaceFailure> {
     let from = current_mode(session);
     let prompt = prompt_mode(session);
     session.insert("orchestrationMode".into(), json!(mode));
     session.shift_remove("orchestrationModeOverlay");
     if mode != prompt {
         let loadable = mode_loadable_tools(session, mode);
-        let overlay = json!({ "prompt": prompt, "mode": mode, "loadableTools": loadable, "content": mode_notice_content(surface, mode, &loadable).await });
+        let overlay = json!({ "prompt": prompt, "mode": mode, "loadableTools": loadable, "content": mode_notice_content(surface, mode, &loadable).await? });
         session.insert("orchestrationModeOverlay".into(), overlay);
     }
     session.insert("updatedAt".into(), json!(now));
@@ -598,7 +629,7 @@ async fn apply_mode_switch(session: &mut Header, surface: &dyn WorkflowSurface, 
         switch = json!({ "from": from, "to": mode, "at": now });
         boundaries.push(Boundary { field: "orchestrationModeSwitches", value: switch.clone() });
     }
-    Switched { result: json!({ "appliedToCurrentSession": true, "mode": mode, "orchestrationModeSwitch": switch }), boundaries }
+    Ok(Switched { result: json!({ "appliedToCurrentSession": true, "mode": mode, "orchestrationModeSwitch": switch }), boundaries })
 }
 
 /// What a switch reads of the live thread besides its header.
@@ -660,15 +691,18 @@ pub async fn switch_workflow(session: &mut Header, facts: &Facts, surface: &dyn 
         let current = js_string(session.get("workflow").and_then(|workflow| workflow.get("id")));
         stage_pending(session, "pendingWorkflowId", workflow_id, &current, facts.now);
         let shown = match session.get("pendingWorkflowId").filter(|id| truthy(Some(id))) {
-            Some(pending) => workflow_meta(&surface.target(session, &mixdog_js::value_to_string(pending), None).await.summary),
+            Some(pending) => workflow_meta(&surface.target(session, &mixdog_js::value_to_string(pending), None).await?.summary),
             None => session.get("workflow").cloned().unwrap_or(Value::Null),
         };
         let result = json!({ "appliedToCurrentSession": true, "deferred": true, "workflow": shown, "workflowSwitch": null });
         return Ok(Some(Switched { result, boundaries: Vec::new() }));
     }
-    let resolved = resolve_workflow(session, surface, workflow_id, &current_mode(session)).await?;
+    let resolved = match resolve_workflow(session, surface, workflow_id, &current_mode(session)).await? {
+        Resolution::Found(resolved) => resolved,
+        Resolution::Gone(reason) => return Err(reason),
+    };
     session.shift_remove("pendingWorkflowId");
-    Ok(Some(apply_workflow_switch(session, surface, &resolved, facts.now).await))
+    Ok(Some(apply_workflow_switch(session, surface, &resolved, facts.now).await?))
 }
 
 /// `switchSessionOrchestrationMode(mode)` over `session`: `None` without a conversation.
@@ -687,25 +721,26 @@ pub async fn switch_mode(session: &mut Header, facts: &Facts, surface: &dyn Work
         return Ok(Some(Switched { result, boundaries: Vec::new() }));
     }
     session.shift_remove("pendingOrchestrationMode");
-    Ok(Some(apply_mode_switch(session, surface, mode, facts.now).await))
+    Ok(Some(apply_mode_switch(session, surface, mode, facts.now).await?))
 }
 
 /// `applyPendingSessionSwitches()`: the choices made while a turn ran, at the next turn start
 /// (the mode first, so a workflow reminder carries it). A workflow that is gone is dropped alone
 /// with a transcript note. `None` when nothing switched.
-pub async fn apply_pending(session: &mut Header, surface: &dyn WorkflowSurface, now: i64) -> Option<Switched> {
+pub async fn apply_pending(session: &mut Header, surface: &dyn WorkflowSurface, now: i64) -> Result<Option<Switched>, SurfaceFailure> {
     let mode = session.get("pendingOrchestrationMode").map(mixdog_js::value_to_string);
     let workflow_id = session.get("pendingWorkflowId").map(mixdog_js::value_to_string);
     if mode.is_none() && workflow_id.is_none() {
-        return None;
+        return Ok(None);
     }
     let mut resolved = None;
     let mut unavailable = None;
     if let Some(id) = &workflow_id {
         let at_mode = mode.clone().unwrap_or_else(|| current_mode(session));
-        match resolve_workflow(session, surface, id, &at_mode).await {
-            Ok(found) => resolved = Some(found),
-            Err(reason) => {
+        // A workflow that is gone is dropped alone; a surface that cannot answer stops the whole apply.
+        match resolve_workflow(session, surface, id, &at_mode).await? {
+            Resolution::Found(found) => resolved = Some(found),
+            Resolution::Gone(reason) => {
                 let current = session.get("workflow").cloned().unwrap_or(Value::Null);
                 let named = |key: &str| js_string(current.get(key));
                 unavailable = Some(json!({
@@ -726,12 +761,12 @@ pub async fn apply_pending(session: &mut Header, surface: &dyn WorkflowSurface, 
         boundaries.push(Boundary { field: "workflowSwitches", value: unavailable.clone() });
     }
     if let Some(mode) = &mode {
-        let applied = apply_mode_switch(session, surface, mode, now).await;
+        let applied = apply_mode_switch(session, surface, mode, now).await?;
         switches.insert("orchestrationModeSwitch".into(), applied.result["orchestrationModeSwitch"].clone());
         boundaries.extend(applied.boundaries);
     }
     if let Some(resolved) = &resolved {
-        let applied = apply_workflow_switch(session, surface, resolved, now).await;
+        let applied = apply_workflow_switch(session, surface, resolved, now).await?;
         switches.insert("workflowSwitch".into(), applied.result["workflowSwitch"].clone());
         boundaries.extend(applied.boundaries);
     } else if let Some(unavailable) = unavailable {
@@ -740,7 +775,7 @@ pub async fn apply_pending(session: &mut Header, surface: &dyn WorkflowSurface, 
     session.shift_remove("pendingOrchestrationMode");
     session.shift_remove("pendingWorkflowId");
     let landed = |key: &str| truthy(switches.get(key));
-    (landed("orchestrationModeSwitch") || landed("workflowSwitch")).then(|| Switched { result: Value::Object(switches), boundaries })
+    Ok((landed("orchestrationModeSwitch") || landed("workflowSwitch")).then(|| Switched { result: Value::Object(switches), boundaries }))
 }
 
 // ---- the live thread ----------------------------------------------------------------------------
@@ -857,7 +892,7 @@ impl SessionSwitchAdapter {
             let switched = match op {
                 SwitchOp::Workflow(id) => switch_workflow(&mut session, &loaded.facts, &*self.surface, id).await?,
                 SwitchOp::Mode(mode) => switch_mode(&mut session, &loaded.facts, &*self.surface, mode).await?,
-                SwitchOp::Pending => apply_pending(&mut session, &*self.surface, loaded.facts.now).await,
+                SwitchOp::Pending => apply_pending(&mut session, &*self.surface, loaded.facts.now).await?,
             };
             let Some(switched) = switched else { return Ok(None) };
             let (set, unset, expect) = header_patch(&loaded.header, &session);

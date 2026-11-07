@@ -1,0 +1,918 @@
+{
+  "cases": [
+    {
+      "name": "user-text-replaces-shipped",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "5573657220746578740d0a6c696e652074776f20200a0a"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "text": "User text\nline two"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "User text\nline two"
+      }
+    },
+    {
+      "name": "user-missing-uses-shipped",
+      "mode": "focused",
+      "modeFile": "focused.md",
+      "user": null,
+      "shipped": {
+        "focused.md": {
+          "hex": "7368697070656420666f63757365640d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": null,
+      "readShipped": {
+        "text": "shipped focused\nsecond line"
+      },
+      "instructions": {
+        "text": "shipped focused\nsecond line"
+      }
+    },
+    {
+      "name": "both-missing",
+      "mode": "balanced",
+      "modeFile": "balanced.md",
+      "user": null,
+      "shipped": null,
+      "readUser": null,
+      "readShipped": null,
+      "instructions": {
+        "text": ""
+      }
+    },
+    {
+      "name": "user-zero-bytes",
+      "mode": "swarm",
+      "modeFile": "swarm.md",
+      "user": {
+        "swarm.md": {
+          "hex": ""
+        }
+      },
+      "shipped": {
+        "swarm.md": {
+          "hex": "7368697070656420737761726d0d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "problem": "empty"
+      },
+      "readShipped": {
+        "text": "shipped swarm\nsecond line"
+      },
+      "instructions": {
+        "text": "shipped swarm\nsecond line"
+      }
+    },
+    {
+      "name": "user-blank-only",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "20200a090d0a20"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "problem": "empty"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "shipped none\nsecond line"
+      }
+    },
+    {
+      "name": "user-nul-only",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "000000"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "problem": "empty"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "shipped none\nsecond line"
+      }
+    },
+    {
+      "name": "user-nul-and-blank",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "0020090a0d00"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "problem": "empty"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "shipped none\nsecond line"
+      }
+    },
+    {
+      "name": "user-nul-inside",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "61626300646566"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "problem": "not-text"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "shipped none\nsecond line"
+      }
+    },
+    {
+      "name": "user-invalid-utf8",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "6f6b20fffefd20656e64"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "problem": "not-text"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "shipped none\nsecond line"
+      }
+    },
+    {
+      "name": "user-latin1",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "636166e9"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "problem": "not-text"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "shipped none\nsecond line"
+      }
+    },
+    {
+      "name": "user-overlong-utf8",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "61c0af"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "problem": "not-text"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "shipped none\nsecond line"
+      }
+    },
+    {
+      "name": "user-encoded-surrogate",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "61eda080"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "problem": "not-text"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "shipped none\nsecond line"
+      }
+    },
+    {
+      "name": "user-truncated-sequence",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "61e282"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "problem": "not-text"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "shipped none\nsecond line"
+      }
+    },
+    {
+      "name": "user-utf16le",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "fffe4100"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "problem": "not-text"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "shipped none\nsecond line"
+      }
+    },
+    {
+      "name": "user-bom",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "efbbbf48656c6c6f0d0a"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "text": "Hello"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "Hello"
+      }
+    },
+    {
+      "name": "user-two-boms",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "efbbbfefbbbf48656c6c6f"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "text": "Hello"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "Hello"
+      }
+    },
+    {
+      "name": "user-three-boms",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "efbbbfefbbbfefbbbf48656c6c6f"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "text": "﻿Hello"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "﻿Hello"
+      }
+    },
+    {
+      "name": "user-bom-only",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "efbbbf"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "text": ""
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "shipped none\nsecond line"
+      }
+    },
+    {
+      "name": "user-bom-then-blank",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "efbbbf20200a"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "text": ""
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "shipped none\nsecond line"
+      }
+    },
+    {
+      "name": "user-no-break-space-only",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "c2a0"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "text": ""
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "shipped none\nsecond line"
+      }
+    },
+    {
+      "name": "user-trailing-js-whitespace",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "7820c2a0e280a8e280a9efbbbfe3808009200d0a"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "text": "x"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "x"
+      }
+    },
+    {
+      "name": "user-leading-and-lone-cr-kept",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "0a20206c6561640d610d0a620d0d0a"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "text": "\n  lead\ra\nb"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "\n  lead\ra\nb"
+      }
+    },
+    {
+      "name": "user-astral-and-interior-bom",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "61efbbbf6220f09f988020f48fbfbf"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "text": "a﻿b 😀 􏿿"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "a﻿b 😀 􏿿"
+      }
+    },
+    {
+      "name": "user-exactly-the-limit",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "fill": 97,
+          "len": 262144
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "len": 262144,
+        "sha256": "dd3dde87623d9a6b354c68c943d189c89c63652d945e7bbdf0986cae91a49521"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "len": 262144,
+        "sha256": "dd3dde87623d9a6b354c68c943d189c89c63652d945e7bbdf0986cae91a49521"
+      }
+    },
+    {
+      "name": "user-over-the-limit",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "fill": 97,
+          "len": 262145
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "problem": "too-large"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "shipped none\nsecond line"
+      }
+    },
+    {
+      "name": "user-blank-over-the-limit",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "fill": 32,
+          "len": 262145
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "problem": "too-large"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "shipped none\nsecond line"
+      }
+    },
+    {
+      "name": "user-is-a-folder",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "dir": true
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "problem": "unreadable"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "shipped none\nsecond line"
+      }
+    },
+    {
+      "name": "user-folder-is-a-file",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "parentIsFile": true
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": null,
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "shipped none\nsecond line"
+      }
+    },
+    {
+      "name": "shipped-zero-bytes",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": null,
+      "shipped": {
+        "none.md": {
+          "hex": ""
+        }
+      },
+      "readUser": null,
+      "readShipped": {
+        "problem": "empty"
+      },
+      "instructions": {
+        "text": ""
+      }
+    },
+    {
+      "name": "shipped-nul",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": null,
+      "shipped": {
+        "none.md": {
+          "hex": "6100"
+        }
+      },
+      "readUser": null,
+      "readShipped": {
+        "problem": "not-text"
+      },
+      "instructions": {
+        "text": ""
+      }
+    },
+    {
+      "name": "shipped-is-a-folder",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": null,
+      "shipped": {
+        "none.md": {
+          "dir": true
+        }
+      },
+      "readUser": null,
+      "readShipped": {
+        "problem": "unreadable"
+      },
+      "instructions": {
+        "text": ""
+      }
+    },
+    {
+      "name": "shipped-over-the-limit",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": null,
+      "shipped": {
+        "none.md": {
+          "fill": 98,
+          "len": 262145
+        }
+      },
+      "readUser": null,
+      "readShipped": {
+        "problem": "too-large"
+      },
+      "instructions": {
+        "text": ""
+      }
+    },
+    {
+      "name": "shipped-text-big",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": null,
+      "shipped": {
+        "none.md": {
+          "fill": 98,
+          "len": 262144
+        }
+      },
+      "readUser": null,
+      "readShipped": {
+        "len": 262144,
+        "sha256": "9e240eace59e902546b5c777cec8b8c20017915d2e0ec85580d5cc7b586da7dd"
+      },
+      "instructions": {
+        "len": 262144,
+        "sha256": "9e240eace59e902546b5c777cec8b8c20017915d2e0ec85580d5cc7b586da7dd"
+      }
+    },
+    {
+      "name": "user-problem-and-shipped-problem",
+      "mode": "none",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "00"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "2020"
+        }
+      },
+      "readUser": {
+        "problem": "empty"
+      },
+      "readShipped": {
+        "problem": "empty"
+      },
+      "instructions": {
+        "text": ""
+      }
+    },
+    {
+      "name": "unknown-mode-reads-none",
+      "mode": "bogus",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "746865206e6f6e652074657874"
+        },
+        "bogus.md": {
+          "hex": "6e657665722072656164"
+        }
+      },
+      "shipped": {
+        "none.md": {
+          "hex": "73686970706564206e6f6e650d0a7365636f6e64206c696e6520200d0a0d0a"
+        }
+      },
+      "readUser": {
+        "text": "the none text"
+      },
+      "readShipped": {
+        "text": "shipped none\nsecond line"
+      },
+      "instructions": {
+        "text": "the none text"
+      }
+    },
+    {
+      "name": "mode-is-case-sensitive",
+      "mode": "Balanced",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "746865206e6f6e652074657874"
+        },
+        "balanced.md": {
+          "hex": "6e657665722072656164"
+        }
+      },
+      "shipped": null,
+      "readUser": {
+        "text": "the none text"
+      },
+      "readShipped": null,
+      "instructions": {
+        "text": "the none text"
+      }
+    },
+    {
+      "name": "empty-mode-reads-none",
+      "mode": "",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "746865206e6f6e652074657874"
+        }
+      },
+      "shipped": null,
+      "readUser": {
+        "text": "the none text"
+      },
+      "readShipped": null,
+      "instructions": {
+        "text": "the none text"
+      }
+    },
+    {
+      "name": "mode-with-padding-reads-none",
+      "mode": " swarm",
+      "modeFile": "none.md",
+      "user": {
+        "none.md": {
+          "hex": "746865206e6f6e652074657874"
+        },
+        "swarm.md": {
+          "hex": "6e657665722072656164"
+        }
+      },
+      "shipped": null,
+      "readUser": {
+        "text": "the none text"
+      },
+      "readShipped": null,
+      "instructions": {
+        "text": "the none text"
+      }
+    },
+    {
+      "name": "each-mode-has-its-own-file",
+      "mode": "swarm",
+      "modeFile": "swarm.md",
+      "user": {
+        "none.md": {
+          "hex": "6e"
+        },
+        "focused.md": {
+          "hex": "66"
+        },
+        "balanced.md": {
+          "hex": "62"
+        },
+        "swarm.md": {
+          "hex": "73"
+        }
+      },
+      "shipped": null,
+      "readUser": {
+        "text": "s"
+      },
+      "readShipped": null,
+      "instructions": {
+        "text": "s"
+      }
+    },
+    {
+      "name": "balanced-mode",
+      "mode": "balanced",
+      "modeFile": "balanced.md",
+      "user": {
+        "none.md": {
+          "hex": "6e"
+        },
+        "focused.md": {
+          "hex": "66"
+        },
+        "balanced.md": {
+          "hex": "62"
+        },
+        "swarm.md": {
+          "hex": "73"
+        }
+      },
+      "shipped": null,
+      "readUser": {
+        "text": "b"
+      },
+      "readShipped": null,
+      "instructions": {
+        "text": "b"
+      }
+    }
+  ]
+}

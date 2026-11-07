@@ -319,6 +319,7 @@ mod tests {
                 raw_service_tier: None,
             },
             input_tokens_inclusive: false,
+            media: None,
             service_tier: None,
             request_service_tier: None,
             response_id: String::new(),

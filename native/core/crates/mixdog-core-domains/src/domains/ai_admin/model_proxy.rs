@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
-use mixdog_ai::admission::{AdmissionRequest, LaneKey, LaneSettings};
+use mixdog_ai::admission::{AdmissionRequest, LaneKey, process_lane_settings};
 use mixdog_ai::broker::{AttemptSink, ModelBroker, ModelProxyTransport, ProxyError, SendError, SendRequest};
 use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_ai::service::model_proxy::{redacted_text, without_attachment_references};
@@ -852,7 +852,8 @@ impl ProxyRunner {
             w::ProxyCall::Send { provider, request } => {
                 let adapter = self.adapter(&provider).await?;
                 let request = request_in(*request).map_err(|e| refusal("MODEL_PROXY_REQUEST_INVALID", e.0, p::ErrorKind::InvalidRequest))?;
-                let lane = self.broker.admission().lane(&LaneKey::new(provider.as_str().into(), "default"), LaneSettings::default());
+                let key = LaneKey::new(provider.as_str().into(), "default");
+                let lane = self.broker.admission().lane(&key, process_lane_settings()(&key));
                 let send = SendRequest { request: Arc::new(request), lane, admission: AdmissionRequest::default() };
                 let mut sink = EventSink(events);
                 match self.broker.send(adapter.as_ref(), send, &mut sink, cancel).await {

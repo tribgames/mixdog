@@ -34,6 +34,15 @@ pub trait ConfigSource: Send + Sync {
     fn config(&self) -> Value;
 }
 
+/// `rt.config` is `loadConfig()`: the flat agent config, built from the file's `agent` section,
+/// whose `profile` is the stored one, normalized (the recall normalizes it again, to the same
+/// title).
+impl ConfigSource for mixdog_core_config::config::Config {
+    fn config(&self) -> Value {
+        Value::Object(self.agent())
+    }
+}
+
 pub struct SessionRecallSource {
     threads: Arc<dyn ThreadState>,
     messages: Arc<dyn ThreadMessages>,

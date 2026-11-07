@@ -470,3 +470,46 @@ async fn a_project_move_of_an_unlisted_session_is_refused() {
     let refused = world.call(METADATA_UPDATE, json!({ "threadId": "sess_move", "projectPath": "" }), 1).await.unwrap_err();
     assert!(message(&refused).contains("Session is not available."), "{refused:?}");
 }
+
+/// `noteArchived` over `desktop.retentionState`: after every step of
+/// `fixtures/archive-retention/golden.json` the record holds what the real desktop
+/// `session-auto-retention.ts` left in `session-auto-retention.json` (the file the profile import
+/// moves to that key), from no record, a valid one with bad stamps, one with no `enabledAt` and one
+/// that is not an object.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_retention_record_follows_the_desktops_archive_notes() {
+    use std::sync::atomic::AtomicI64;
+
+    use mixdog_core_config::config::Config;
+    use mixdog_core_config::config::ConfigLanes;
+
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/archive-retention/golden.json")).expect("golden.json");
+    for case in golden["cases"].as_array().expect("cases") {
+        let dir = tempfile::tempdir().expect("dir");
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let publisher = Arc::new(mixdog_core_api::mock::MockStatePublisher::default());
+        let (config, _) = Config::open(dir.path().join("mixdog-config.json"), publisher, lanes).await.expect("config");
+        if !case["initial"].is_null() {
+            let initial = case["initial"].clone();
+            config
+                .update(move |doc| {
+                    doc.insert("desktop".into(), json!({ "retentionState": initial }));
+                    Ok(())
+                })
+                .await
+                .expect("initial record");
+        }
+        let now = Arc::new(AtomicI64::new(0));
+        let clock = now.clone();
+        let retention = ConfigArchiveRetention::new(config.clone(), Arc::new(move || clock.load(Ordering::SeqCst)));
+        let steps = case["steps"].as_array().expect("steps");
+        for (step, after) in steps.iter().zip(case["after"].as_array().expect("after")) {
+            now.store(step["at"].as_i64().expect("at"), Ordering::SeqCst);
+            let session = step["session"].as_str().expect("session");
+            retention.note_archived(session, step["archived"].as_bool().expect("archived")).await.expect("noted");
+            let stored = config.full().get("desktop").and_then(|desktop| desktop.get("retentionState")).cloned().unwrap_or(Value::Null);
+            assert_eq!(&stored, after, "{} at {}", case["name"], step["at"]);
+        }
+    }
+}

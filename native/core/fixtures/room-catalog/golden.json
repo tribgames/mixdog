@@ -1,0 +1,715 @@
+{
+  "note": "what the real 1.4.5 desktop agent-room-views.ts catalogWithRooms/roomSummary answer; every room of a case has its log row listed (the page-free synthetic row of an unlisted room is not recorded)",
+  "names": {
+    "lead": "Mixy",
+    "gh.bot": "Git Hub",
+    "alpha": "Alpha"
+  },
+  "cases": [
+    {
+      "name": "a row of no room passes as it is",
+      "rows": [
+        {
+          "id": "sess_desktop_a",
+          "preview": "preview of sess_desktop_a",
+          "title": "title of sess_desktop_a",
+          "updatedAt": 1000,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null,
+          "activityAt": 1200
+        }
+      ],
+      "rooms": [],
+      "running": [],
+      "out": [
+        {
+          "id": "sess_desktop_a",
+          "preview": "preview of sess_desktop_a",
+          "title": "title of sess_desktop_a",
+          "updatedAt": 1000,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null,
+          "activityAt": 1200
+        }
+      ]
+    },
+    {
+      "name": "a room log row takes the room name, its last message time and the summary",
+      "rows": [
+        {
+          "id": "sess_room_room01",
+          "preview": "preview of sess_room_room01",
+          "title": "title of sess_room_room01",
+          "updatedAt": 1400,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null,
+          "activityAt": 1500
+        }
+      ],
+      "rooms": [
+        {
+          "id": "room01",
+          "name": "Room room01",
+          "members": [
+            "lead",
+            "gh.bot"
+          ],
+          "maxRounds": 3,
+          "maxMessages": 6,
+          "shareTools": false,
+          "createdAt": 500,
+          "cursors": {},
+          "seen": {},
+          "running": null,
+          "submissions": [],
+          "lastAt": 2000,
+          "lastSpeaker": "gh.bot",
+          "lastPreview": "Done, see the PR."
+        }
+      ],
+      "running": [],
+      "out": [
+        {
+          "id": "sess_room_room01",
+          "preview": "preview of sess_room_room01",
+          "title": "Room room01",
+          "updatedAt": 2000,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null,
+          "activityAt": 2000,
+          "agentRoom": {
+            "id": "room01",
+            "name": "Room room01",
+            "members": [
+              "lead",
+              "gh.bot"
+            ],
+            "maxRounds": 3,
+            "maxMessages": 6,
+            "shareTools": false,
+            "lastSpeaker": "gh.bot",
+            "lastPreview": "Done, see the PR.",
+            "memberNames": {
+              "lead": "Mixy",
+              "gh.bot": "Git Hub"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "a room with no message yet keeps the later of the row times",
+      "rows": [
+        {
+          "id": "sess_room_room02",
+          "preview": "preview of sess_room_room02",
+          "title": "title of sess_room_room02",
+          "updatedAt": 1600,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null,
+          "activityAt": 1700
+        }
+      ],
+      "rooms": [
+        {
+          "id": "room02",
+          "name": "Room room02",
+          "members": [
+            "lead",
+            "gh.bot"
+          ],
+          "maxRounds": 3,
+          "maxMessages": 6,
+          "shareTools": false,
+          "createdAt": 500,
+          "cursors": {},
+          "seen": {},
+          "running": null,
+          "submissions": []
+        }
+      ],
+      "running": [],
+      "out": [
+        {
+          "id": "sess_room_room02",
+          "preview": "preview of sess_room_room02",
+          "title": "Room room02",
+          "updatedAt": 1700,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null,
+          "activityAt": 1700,
+          "agentRoom": {
+            "id": "room02",
+            "name": "Room room02",
+            "members": [
+              "lead",
+              "gh.bot"
+            ],
+            "maxRounds": 3,
+            "maxMessages": 6,
+            "shareTools": false,
+            "memberNames": {
+              "lead": "Mixy",
+              "gh.bot": "Git Hub"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "a row with no activity time falls back to its update time",
+      "rows": [
+        {
+          "id": "sess_room_room03",
+          "preview": "preview of sess_room_room03",
+          "title": "title of sess_room_room03",
+          "updatedAt": 1800,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null
+        }
+      ],
+      "rooms": [
+        {
+          "id": "room03",
+          "name": "Room room03",
+          "members": [
+            "lead",
+            "gh.bot"
+          ],
+          "maxRounds": 3,
+          "maxMessages": 6,
+          "shareTools": false,
+          "createdAt": 500,
+          "cursors": {},
+          "seen": {},
+          "running": null,
+          "submissions": []
+        }
+      ],
+      "running": [],
+      "out": [
+        {
+          "id": "sess_room_room03",
+          "preview": "preview of sess_room_room03",
+          "title": "Room room03",
+          "updatedAt": 1800,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null,
+          "activityAt": 1800,
+          "agentRoom": {
+            "id": "room03",
+            "name": "Room room03",
+            "members": [
+              "lead",
+              "gh.bot"
+            ],
+            "maxRounds": 3,
+            "maxMessages": 6,
+            "shareTools": false,
+            "memberNames": {
+              "lead": "Mixy",
+              "gh.bot": "Git Hub"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "a running room says so",
+      "rows": [
+        {
+          "id": "sess_room_room04",
+          "preview": "preview of sess_room_room04",
+          "title": "title of sess_room_room04",
+          "updatedAt": 1000,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null,
+          "activityAt": 900
+        }
+      ],
+      "rooms": [
+        {
+          "id": "room04",
+          "name": "Room room04",
+          "members": [
+            "lead",
+            "gh.bot"
+          ],
+          "maxRounds": 3,
+          "maxMessages": 6,
+          "shareTools": false,
+          "createdAt": 500,
+          "cursors": {},
+          "seen": {},
+          "running": null,
+          "submissions": [],
+          "lastAt": 950,
+          "lastSpeaker": "user",
+          "lastPreview": "go on"
+        }
+      ],
+      "running": [
+        "room04"
+      ],
+      "out": [
+        {
+          "id": "sess_room_room04",
+          "preview": "preview of sess_room_room04",
+          "title": "Room room04",
+          "updatedAt": 950,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null,
+          "activityAt": 950,
+          "agentRoom": {
+            "id": "room04",
+            "name": "Room room04",
+            "members": [
+              "lead",
+              "gh.bot"
+            ],
+            "maxRounds": 3,
+            "maxMessages": 6,
+            "shareTools": false,
+            "lastSpeaker": "user",
+            "lastPreview": "go on",
+            "memberNames": {
+              "lead": "Mixy",
+              "gh.bot": "Git Hub"
+            },
+            "running": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "a member name the catalog does not know is the member id",
+      "rows": [
+        {
+          "id": "sess_room_room05",
+          "preview": "preview of sess_room_room05",
+          "title": "title of sess_room_room05",
+          "updatedAt": 1000,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null
+        }
+      ],
+      "rooms": [
+        {
+          "id": "room05",
+          "name": "Room room05",
+          "members": [
+            "alpha",
+            "stranger"
+          ],
+          "maxRounds": 3,
+          "maxMessages": 6,
+          "shareTools": false,
+          "createdAt": 500,
+          "cursors": {},
+          "seen": {},
+          "running": null,
+          "submissions": [],
+          "lastAt": 1234
+        }
+      ],
+      "running": [],
+      "out": [
+        {
+          "id": "sess_room_room05",
+          "preview": "preview of sess_room_room05",
+          "title": "Room room05",
+          "updatedAt": 1234,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null,
+          "activityAt": 1234,
+          "agentRoom": {
+            "id": "room05",
+            "name": "Room room05",
+            "members": [
+              "alpha",
+              "stranger"
+            ],
+            "maxRounds": 3,
+            "maxMessages": 6,
+            "shareTools": false,
+            "memberNames": {
+              "alpha": "Alpha",
+              "stranger": "stranger"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "empty last speaker and preview are left out",
+      "rows": [
+        {
+          "id": "sess_room_room06",
+          "preview": "preview of sess_room_room06",
+          "title": "title of sess_room_room06",
+          "updatedAt": 1000,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null
+        }
+      ],
+      "rooms": [
+        {
+          "id": "room06",
+          "name": "Room room06",
+          "members": [
+            "lead",
+            "gh.bot"
+          ],
+          "maxRounds": 3,
+          "maxMessages": 6,
+          "shareTools": false,
+          "createdAt": 500,
+          "cursors": {},
+          "seen": {},
+          "running": null,
+          "submissions": [],
+          "lastSpeaker": "",
+          "lastPreview": "",
+          "lastAt": 1300
+        }
+      ],
+      "running": [],
+      "out": [
+        {
+          "id": "sess_room_room06",
+          "preview": "preview of sess_room_room06",
+          "title": "Room room06",
+          "updatedAt": 1300,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null,
+          "activityAt": 1300,
+          "agentRoom": {
+            "id": "room06",
+            "name": "Room room06",
+            "members": [
+              "lead",
+              "gh.bot"
+            ],
+            "maxRounds": 3,
+            "maxMessages": 6,
+            "shareTools": false,
+            "memberNames": {
+              "lead": "Mixy",
+              "gh.bot": "Git Hub"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "member sessions are left out",
+      "rows": [
+        {
+          "id": "sess_rmem_room01_gh_bot",
+          "preview": "preview of sess_rmem_room01_gh_bot",
+          "title": "title of sess_rmem_room01_gh_bot",
+          "updatedAt": 1000,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null
+        },
+        {
+          "id": "sess_rmem_room01_lead",
+          "preview": "preview of sess_rmem_room01_lead",
+          "title": "title of sess_rmem_room01_lead",
+          "updatedAt": 1000,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null
+        },
+        {
+          "id": "sess_room_room01",
+          "preview": "preview of sess_room_room01",
+          "title": "title of sess_room_room01",
+          "updatedAt": 1000,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null
+        },
+        {
+          "id": "sess_desktop_b",
+          "preview": "preview of sess_desktop_b",
+          "title": "title of sess_desktop_b",
+          "updatedAt": 1000,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null
+        }
+      ],
+      "rooms": [
+        {
+          "id": "room01",
+          "name": "Room room01",
+          "members": [
+            "lead",
+            "gh.bot"
+          ],
+          "maxRounds": 3,
+          "maxMessages": 6,
+          "shareTools": false,
+          "createdAt": 500,
+          "cursors": {},
+          "seen": {},
+          "running": null,
+          "submissions": [],
+          "lastAt": 1100
+        }
+      ],
+      "running": [],
+      "out": [
+        {
+          "id": "sess_room_room01",
+          "preview": "preview of sess_room_room01",
+          "title": "Room room01",
+          "updatedAt": 1100,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null,
+          "activityAt": 1100,
+          "agentRoom": {
+            "id": "room01",
+            "name": "Room room01",
+            "members": [
+              "lead",
+              "gh.bot"
+            ],
+            "maxRounds": 3,
+            "maxMessages": 6,
+            "shareTools": false,
+            "memberNames": {
+              "lead": "Mixy",
+              "gh.bot": "Git Hub"
+            }
+          }
+        },
+        {
+          "id": "sess_desktop_b",
+          "preview": "preview of sess_desktop_b",
+          "title": "title of sess_desktop_b",
+          "updatedAt": 1000,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null
+        }
+      ]
+    },
+    {
+      "name": "the log row of a room that is gone is left out",
+      "rows": [
+        {
+          "id": "sess_room_gone01",
+          "preview": "preview of sess_room_gone01",
+          "title": "title of sess_room_gone01",
+          "updatedAt": 1000,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null
+        },
+        {
+          "id": "sess_desktop_c",
+          "preview": "preview of sess_desktop_c",
+          "title": "title of sess_desktop_c",
+          "updatedAt": 1000,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null
+        }
+      ],
+      "rooms": [],
+      "running": [],
+      "out": [
+        {
+          "id": "sess_desktop_c",
+          "preview": "preview of sess_desktop_c",
+          "title": "title of sess_desktop_c",
+          "updatedAt": 1000,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null
+        }
+      ]
+    },
+    {
+      "name": "several rooms in one page keep the page order",
+      "rows": [
+        {
+          "id": "sess_room_room07",
+          "preview": "preview of sess_room_room07",
+          "title": "title of sess_room_room07",
+          "updatedAt": 1000,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null,
+          "activityAt": 3000
+        },
+        {
+          "id": "sess_desktop_d",
+          "preview": "preview of sess_desktop_d",
+          "title": "title of sess_desktop_d",
+          "updatedAt": 1000,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null,
+          "activityAt": 2500
+        },
+        {
+          "id": "sess_room_room08",
+          "preview": "preview of sess_room_room08",
+          "title": "title of sess_room_room08",
+          "updatedAt": 1000,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null,
+          "activityAt": 2000
+        }
+      ],
+      "rooms": [
+        {
+          "id": "room08",
+          "name": "Room room08",
+          "members": [
+            "lead"
+          ],
+          "maxRounds": 3,
+          "maxMessages": 6,
+          "shareTools": false,
+          "createdAt": 500,
+          "cursors": {},
+          "seen": {},
+          "running": null,
+          "submissions": [],
+          "lastAt": 4000
+        },
+        {
+          "id": "room07",
+          "name": "Room room07",
+          "members": [
+            "lead",
+            "gh.bot"
+          ],
+          "maxRounds": 1,
+          "maxMessages": 2,
+          "shareTools": true,
+          "createdAt": 500,
+          "cursors": {},
+          "seen": {},
+          "running": null,
+          "submissions": [],
+          "lastAt": 100
+        }
+      ],
+      "running": [
+        "room08"
+      ],
+      "out": [
+        {
+          "id": "sess_room_room07",
+          "preview": "preview of sess_room_room07",
+          "title": "Room room07",
+          "updatedAt": 100,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null,
+          "activityAt": 100,
+          "agentRoom": {
+            "id": "room07",
+            "name": "Room room07",
+            "members": [
+              "lead",
+              "gh.bot"
+            ],
+            "maxRounds": 1,
+            "maxMessages": 2,
+            "shareTools": true,
+            "memberNames": {
+              "lead": "Mixy",
+              "gh.bot": "Git Hub"
+            }
+          }
+        },
+        {
+          "id": "sess_desktop_d",
+          "preview": "preview of sess_desktop_d",
+          "title": "title of sess_desktop_d",
+          "updatedAt": 1000,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null,
+          "activityAt": 2500
+        },
+        {
+          "id": "sess_room_room08",
+          "preview": "preview of sess_room_room08",
+          "title": "Room room08",
+          "updatedAt": 4000,
+          "messageCount": 3,
+          "cwd": "C:\\Tasks",
+          "classification": "task",
+          "projectPath": null,
+          "activityAt": 4000,
+          "agentRoom": {
+            "id": "room08",
+            "name": "Room room08",
+            "members": [
+              "lead"
+            ],
+            "maxRounds": 3,
+            "maxMessages": 6,
+            "shareTools": false,
+            "memberNames": {
+              "lead": "Mixy"
+            },
+            "running": true
+          }
+        }
+      ]
+    }
+  ]
+}

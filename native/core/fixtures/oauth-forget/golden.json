@@ -1,0 +1,409 @@
+{
+  "scenarios": [
+    {
+      "provider": "openai-oauth",
+      "name": "signed in",
+      "before": {
+        "access_token": "a-1",
+        "refresh_token": "r-1",
+        "expires_at": 4000000000000,
+        "extra": "kept?"
+      },
+      "answer": {
+        "removed": true
+      },
+      "after": null
+    },
+    {
+      "provider": "openai-oauth",
+      "name": "no file",
+      "before": null,
+      "answer": {
+        "removed": false
+      },
+      "after": null
+    },
+    {
+      "provider": "openai-oauth",
+      "name": "an empty document",
+      "before": {},
+      "answer": {
+        "removed": true
+      },
+      "after": null
+    },
+    {
+      "provider": "anthropic-oauth",
+      "name": "signed in beside other keys",
+      "before": {
+        "claudeAiOauth": {
+          "accessToken": "a",
+          "refreshToken": "r",
+          "expiresAt": 4000000000000
+        },
+        "mcpOAuth": {
+          "s": 1
+        }
+      },
+      "answer": {
+        "removed": true
+      },
+      "after": {
+        "mcpOAuth": {
+          "s": 1
+        }
+      },
+      "cliFileBefore": {
+        "claudeAiOauth": {
+          "accessToken": "cli-token",
+          "refreshToken": "cli-refresh",
+          "expiresAt": 4000000000000
+        }
+      },
+      "cliFileAfter": {
+        "claudeAiOauth": {
+          "accessToken": "cli-token",
+          "refreshToken": "cli-refresh",
+          "expiresAt": 4000000000000
+        }
+      }
+    },
+    {
+      "provider": "anthropic-oauth",
+      "name": "signed in, nothing else",
+      "before": {
+        "claudeAiOauth": {
+          "accessToken": "a"
+        }
+      },
+      "answer": {
+        "removed": true
+      },
+      "after": {},
+      "cliFileBefore": {
+        "claudeAiOauth": {
+          "accessToken": "cli-token",
+          "refreshToken": "cli-refresh",
+          "expiresAt": 4000000000000
+        }
+      },
+      "cliFileAfter": {
+        "claudeAiOauth": {
+          "accessToken": "cli-token",
+          "refreshToken": "cli-refresh",
+          "expiresAt": 4000000000000
+        }
+      }
+    },
+    {
+      "provider": "anthropic-oauth",
+      "name": "no sign-in in the file",
+      "before": {
+        "mcpOAuth": {
+          "s": 1
+        }
+      },
+      "answer": {
+        "removed": false
+      },
+      "after": {
+        "mcpOAuth": {
+          "s": 1
+        }
+      },
+      "cliFileBefore": {
+        "claudeAiOauth": {
+          "accessToken": "cli-token",
+          "refreshToken": "cli-refresh",
+          "expiresAt": 4000000000000
+        }
+      },
+      "cliFileAfter": {
+        "claudeAiOauth": {
+          "accessToken": "cli-token",
+          "refreshToken": "cli-refresh",
+          "expiresAt": 4000000000000
+        }
+      }
+    },
+    {
+      "provider": "anthropic-oauth",
+      "name": "no file",
+      "before": null,
+      "answer": {
+        "removed": false
+      },
+      "after": null,
+      "cliFileBefore": {
+        "claudeAiOauth": {
+          "accessToken": "cli-token",
+          "refreshToken": "cli-refresh",
+          "expiresAt": 4000000000000
+        }
+      },
+      "cliFileAfter": {
+        "claudeAiOauth": {
+          "accessToken": "cli-token",
+          "refreshToken": "cli-refresh",
+          "expiresAt": 4000000000000
+        }
+      }
+    },
+    {
+      "provider": "grok-oauth",
+      "name": "signed in",
+      "before": {
+        "access_token": "a-1",
+        "refresh_token": "r-1",
+        "expires_at": 4000000000000,
+        "extra": "kept?"
+      },
+      "answer": {
+        "removed": true
+      },
+      "after": null
+    },
+    {
+      "provider": "grok-oauth",
+      "name": "no file",
+      "before": null,
+      "answer": {
+        "removed": false
+      },
+      "after": null
+    },
+    {
+      "provider": "grok-oauth",
+      "name": "an empty document",
+      "before": {},
+      "answer": {
+        "removed": true
+      },
+      "after": null
+    },
+    {
+      "provider": "muse-code-oauth",
+      "name": "signed in",
+      "before": {
+        "access_token": "a-1",
+        "refresh_token": "r-1",
+        "expires_at": 4000000000000,
+        "extra": "kept?"
+      },
+      "answer": {
+        "removed": true
+      },
+      "after": null
+    },
+    {
+      "provider": "muse-code-oauth",
+      "name": "no file",
+      "before": null,
+      "answer": {
+        "removed": false
+      },
+      "after": null
+    },
+    {
+      "provider": "muse-code-oauth",
+      "name": "an empty document",
+      "before": {},
+      "answer": {
+        "removed": true
+      },
+      "after": null
+    },
+    {
+      "provider": "command-code-oauth",
+      "name": "signed in",
+      "before": {
+        "access_token": "a-1",
+        "refresh_token": "r-1",
+        "expires_at": 4000000000000,
+        "extra": "kept?"
+      },
+      "answer": {
+        "removed": true
+      },
+      "after": null
+    },
+    {
+      "provider": "command-code-oauth",
+      "name": "no file",
+      "before": null,
+      "answer": {
+        "removed": false
+      },
+      "after": null
+    },
+    {
+      "provider": "command-code-oauth",
+      "name": "an empty document",
+      "before": {},
+      "answer": {
+        "removed": true
+      },
+      "after": null
+    },
+    {
+      "provider": "opencode-go-oauth",
+      "name": "signed in",
+      "before": {
+        "access_token": "a-1",
+        "refresh_token": "r-1",
+        "expires_at": 4000000000000,
+        "extra": "kept?"
+      },
+      "answer": {
+        "removed": true
+      },
+      "after": null
+    },
+    {
+      "provider": "opencode-go-oauth",
+      "name": "no file",
+      "before": null,
+      "answer": {
+        "removed": false
+      },
+      "after": null
+    },
+    {
+      "provider": "opencode-go-oauth",
+      "name": "an empty document",
+      "before": {},
+      "answer": {
+        "removed": true
+      },
+      "after": null
+    },
+    {
+      "provider": "mimo-oauth",
+      "name": "signed in",
+      "before": {
+        "access_token": "a-1",
+        "refresh_token": "r-1",
+        "expires_at": 4000000000000,
+        "extra": "kept?"
+      },
+      "answer": {
+        "removed": true
+      },
+      "after": null
+    },
+    {
+      "provider": "mimo-oauth",
+      "name": "no file",
+      "before": null,
+      "answer": {
+        "removed": false
+      },
+      "after": null
+    },
+    {
+      "provider": "mimo-oauth",
+      "name": "an empty document",
+      "before": {},
+      "answer": {
+        "removed": true
+      },
+      "after": null
+    },
+    {
+      "provider": "cursor-oauth",
+      "name": "signed in",
+      "before": {
+        "access_token": "a-1",
+        "refresh_token": "r-1",
+        "expires_at": 4000000000000,
+        "extra": "kept?"
+      },
+      "answer": {
+        "removed": true
+      },
+      "after": null
+    },
+    {
+      "provider": "cursor-oauth",
+      "name": "no file",
+      "before": null,
+      "answer": {
+        "removed": false
+      },
+      "after": null
+    },
+    {
+      "provider": "cursor-oauth",
+      "name": "an empty document",
+      "before": {},
+      "answer": {
+        "removed": true
+      },
+      "after": null
+    },
+    {
+      "provider": "devin-oauth",
+      "name": "signed in",
+      "before": {
+        "access_token": "a-1",
+        "refresh_token": "r-1",
+        "expires_at": 4000000000000,
+        "extra": "kept?"
+      },
+      "answer": {
+        "removed": true
+      },
+      "after": null
+    },
+    {
+      "provider": "devin-oauth",
+      "name": "no file",
+      "before": null,
+      "answer": {
+        "removed": false
+      },
+      "after": null
+    },
+    {
+      "provider": "devin-oauth",
+      "name": "an empty document",
+      "before": {},
+      "answer": {
+        "removed": true
+      },
+      "after": null
+    },
+    {
+      "provider": "antigravity-oauth",
+      "name": "signed in",
+      "before": {
+        "access_token": "a-1",
+        "refresh_token": "r-1",
+        "expires_at": 4000000000000,
+        "extra": "kept?"
+      },
+      "answer": {
+        "removed": true
+      },
+      "after": {}
+    },
+    {
+      "provider": "antigravity-oauth",
+      "name": "no file",
+      "before": null,
+      "answer": {
+        "removed": false
+      },
+      "after": null
+    },
+    {
+      "provider": "antigravity-oauth",
+      "name": "an empty document",
+      "before": {},
+      "answer": {
+        "removed": true
+      },
+      "after": {}
+    }
+  ]
+}

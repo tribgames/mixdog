@@ -37,6 +37,16 @@ pub trait AgentStatus: Send + Sync {
     async fn status(&self, thread: &ThreadId) -> ThreadAgents;
 }
 
+/// The two agent-status sources the session actor emits (`agent-tool.mjs` `stopStatusSources`):
+/// each may change what the agent tool's `getStatus` answers, and Node answers both with
+/// `statusMayHaveChanged()`, which re-reads every status scope (neither names an owner there).
+pub trait AgentSignals: Send + Sync {
+    /// `onSessionApprovalWaitChange`: the approvals `session`'s turn waits on changed.
+    fn approval_wait(&self, session: &str);
+    /// `sessionRecords.onChange`: `session`'s stored record changed.
+    fn session_record(&self, session: &str);
+}
+
 impl SessionDirectory {
     /// `JobBoard`'s `on_change(owner)`: a job of `owner` was added or finished. Only a loaded
     /// thread has a runtime to tell, as in Node; the signal never waits.

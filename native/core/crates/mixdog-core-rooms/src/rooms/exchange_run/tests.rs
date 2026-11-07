@@ -51,7 +51,8 @@ impl World {
         *count
     }
 
-    fn fire(&self, name: &str) {
+    /// Counts one call of `name` and runs the hooks scripted for that call; answers the count.
+    fn fire(&self, name: &str) -> u64 {
         let count = self.bump(name);
         let tracked = self.tracked.lock().unwrap().clone();
         for hook in self.script["hooks"].as_array().into_iter().flatten() {
@@ -71,6 +72,7 @@ impl World {
                 other => panic!("unknown hook {other}"),
             }
         }
+        count
     }
 
     fn fails(&self, key: &str) -> Result<(), String> {
@@ -229,7 +231,6 @@ impl RoomExchangeHost for World {
         }).collect())
     }
     async fn decide_turn(&self, step: &SupervisorStep) -> Result<Option<Decision>, String> {
-        let count = self.bump("decideTurn");
         let turns: Vec<Value> = step
             .decide
             .turns
@@ -251,7 +252,7 @@ impl RoomExchangeHost for World {
             "last": step.decide.last,
             "remaining": { "messages": step.decide.remaining.messages, "steps": step.decide.remaining.steps },
         }]));
-        self.fire("decideTurn");
+        let count = self.fire("decideTurn");
         let list = self.script.get("decisions").and_then(Value::as_array).cloned().unwrap_or_else(|| vec![json!({ "action": "finish", "scene": "work" })]);
         let decision = &list[usize::try_from(count - 1).unwrap().min(list.len() - 1)];
         if decision == "throws" {
@@ -266,7 +267,7 @@ impl RoomExchangeHost for World {
             _ => None,
         };
         let action = match decision["action"].as_str().unwrap() {
-            "speak" => Action::Speak { agent_id: decision["member"].as_str().unwrap().to_owned(), instruction: decision.get("instruction").and_then(Value::as_str).unwrap_or("").to_owned() },
+            "speak" => Action::Speak { agent_id: decision["agentId"].as_str().unwrap().to_owned(), instruction: decision.get("instruction").and_then(Value::as_str).unwrap_or("").to_owned() },
             "unmanaged" => Action::Unmanaged,
             _ => Action::Finish,
         };

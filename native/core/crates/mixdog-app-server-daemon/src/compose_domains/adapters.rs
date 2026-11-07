@@ -65,7 +65,10 @@ impl CatalogRefresh {
 #[async_trait]
 impl LocalCatalogRefresh for CatalogRefresh {
     async fn refresh(&self) {
-        let _ = self.0.refresh().await;
+        // `registry.mjs:679-683` (`refreshProviderCatalogsFor`): each provider that failed is written to stderr.
+        for (provider, error) in self.0.refresh().await.failed {
+            tracing::warn!("[provider:{provider:?}] catalog refresh failed: {error:?}");
+        }
     }
 }
 

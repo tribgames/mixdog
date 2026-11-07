@@ -828,6 +828,7 @@ impl DirInner {
             queued: Default::default(),
             queue: arc_swap::ArcSwap::from_pointee(state.queue.clone()),
             approvals: Default::default(),
+            shown_approval: Default::default(),
             takeover: Default::default(),
             view: arc_swap::ArcSwap::new(view),
             header: arc_swap::ArcSwap::from_pointee(state.header.clone()),

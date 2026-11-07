@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use mixdog_scm::engine::Scm;
 use mixdog_rt::LaneTokens;
 use mixdog_scm::git::RunOptions;
+use mixdog_scm::worktree::review_bases::CapturedBases;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
@@ -34,12 +35,13 @@ impl TurnReview {
     /// The process's turn review: the lane disk, the process's Git runner `scm`, and the shadow
     /// repositories under `<data>/turn-worktree-snapshots-v1`; `env` reads the process
     /// environment (`MIXDOG_TURN_SNAPSHOT`).
-    pub fn over_scm(scm: Arc<Scm>, tokens: LaneTokens, data_dir: &Path, env: impl Fn(&str) -> Option<String>) -> Self {
+    /// `bases` is the one `CapturedBases` the scm service reads review starts from.
+    pub fn over_scm(scm: Arc<Scm>, tokens: LaneTokens, data_dir: &Path, env: impl Fn(&str) -> Option<String>, bases: Arc<CapturedBases>) -> Self {
         let disk: Arc<dyn ReviewDisk> = Arc::new(LaneDisk::new(tokens));
         let git: Arc<dyn ReviewGit> = Arc::new(ScmGit::new(scm));
         let shadow = Arc::new(ShadowRepos::new(data_dir.join("turn-worktree-snapshots-v1"), git.clone(), disk.clone()));
         let worktrees = Arc::new(ScmWorktrees::new(shadow));
-        Self::new(Config::from_env(env), tokens.cpu_interactive, data_dir, disk, git, worktrees)
+        Self::new(Config::from_env(env), tokens.cpu_interactive, data_dir, disk, git, worktrees, bases)
     }
 }
 

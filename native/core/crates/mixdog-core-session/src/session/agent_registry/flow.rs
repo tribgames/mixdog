@@ -423,7 +423,11 @@ impl SessionTurns {
             Ok(Reply::Value(value)) => {
                 if let Some(queued) = value["queuedId"].as_str() {
                     let params = json!({ "threadId": thread, "opId": format!("{op}:unqueue"), "queuedId": queued, "restore": false });
-                    let _ = handle.request(CoreRequest { method: Method("thread/queue/delete"), params, op: Some(OpId::from(format!("{op}:unqueue"))), ctx }).await;
+                    // The refusal below stands whatever this answers, but a turn left queued would run
+                    // later with nobody waiting for it.
+                    if let Err(error) = handle.request(CoreRequest { method: Method("thread/queue/delete"), params, op: Some(OpId::from(format!("{op}:unqueue"))), ctx }).await {
+                        tracing::warn!(session = %request.session_id, "a refused turn was not taken off the queue: {error:?}");
+                    }
                 }
                 return Err(unstarted(format!("agent session {} is busy with another turn", request.session_id)));
             }

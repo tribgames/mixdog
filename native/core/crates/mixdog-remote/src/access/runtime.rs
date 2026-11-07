@@ -736,7 +736,8 @@ impl RemoteRuntime {
         if !is_credential_id(client_id) {
             return Err(RemoteError::Invalid("Invalid remote client id.".into()));
         }
-        let _ = self.start(true).await;
+        // `desktop-service.ts:683`: `await leg.start(true)` bare, so a leg that cannot start fails the unpair.
+        self.start(true).await?;
         let id = client_id.to_owned();
         if self.inner.state().live.is_none() {
             // Off: forget it now, tell the relay on the next enable.

@@ -12352,6 +12352,23 @@
       ],
       "type": "string"
     },
+    "SetupUiRequest": {
+      "description": "The setup tool's desktop request waiting for a window to claim it (Node's session store `setupUiRequest`): its id, and when the thread took it.",
+      "properties": {
+        "at": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "id"
+      ],
+      "type": "object"
+    },
     "SkillsAddSkillParams": {
       "description": "Params of `skills/addSkill`.",
       "properties": {
@@ -14901,6 +14918,17 @@
               "type": "null"
             }
           ]
+        },
+        "setupUiRequest": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SetupUiRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The setup tool's desktop request, from the notice until it is claimed or its claim window ends."
         },
         "shellJobs": true,
         "title": {
