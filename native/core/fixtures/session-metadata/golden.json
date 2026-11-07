@@ -1,0 +1,994 @@
+{
+  "note": "readStoredSessionTranscript(id, { metadataOnly: true }) over crafted log records, the keys usage consumes, and isLeadVisibleRow({ ...metadata, preview: \"x\" }); unreadable, foreign, unlinked and absent records are null",
+  "cases": [
+    {
+      "id": "s_lead",
+      "header": {
+        "id": "s_lead",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "title": "Fix the build",
+        "agent": "lead",
+        "sourceType": "lead"
+      },
+      "expected": {
+        "id": "s_lead",
+        "sessionId": "s_lead",
+        "owner": "user",
+        "agent": "lead",
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "ordinary",
+        "title": "Fix the build",
+        "sourceType": "lead",
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_plain",
+      "header": {
+        "id": "s_plain",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1
+      },
+      "expected": {
+        "id": "s_plain",
+        "sessionId": "s_plain",
+        "owner": "user",
+        "agent": null,
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": null,
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_empty",
+      "header": {
+        "id": "s_empty",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "title": "",
+        "agent": "",
+        "ownerSessionId": "",
+        "sourceType": ""
+      },
+      "expected": {
+        "id": "s_empty",
+        "sessionId": "s_empty",
+        "owner": "user",
+        "agent": null,
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": null,
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_raw_title",
+      "header": {
+        "id": "s_raw_title",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "title": "  Fix\nthe   build  "
+      },
+      "expected": {
+        "id": "s_raw_title",
+        "sessionId": "s_raw_title",
+        "owner": "user",
+        "agent": null,
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "ordinary",
+        "title": "  Fix\nthe   build  ",
+        "sourceType": null,
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_blank_title",
+      "header": {
+        "id": "s_blank_title",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "title": "   "
+      },
+      "expected": {
+        "id": "s_blank_title",
+        "sessionId": "s_blank_title",
+        "owner": "user",
+        "agent": null,
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "ordinary",
+        "title": "   ",
+        "sourceType": null,
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_agent",
+      "header": {
+        "id": "s_agent",
+        "owner": "agent",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "title": "worker run",
+        "agent": "worker",
+        "ownerSessionId": "s_lead",
+        "sourceType": "agent"
+      },
+      "expected": {
+        "id": "s_agent",
+        "sessionId": "s_agent",
+        "owner": "agent",
+        "agent": "worker",
+        "parentSessionId": null,
+        "ownerSessionId": "s_lead",
+        "visibility": "agent-only",
+        "title": "worker run",
+        "sourceType": "agent",
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_parent_only",
+      "header": {
+        "id": "s_parent_only",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "agent": "worker",
+        "parentSessionId": "s_lead"
+      },
+      "expected": {
+        "id": "s_parent_only",
+        "sessionId": "s_parent_only",
+        "owner": "user",
+        "agent": "worker",
+        "parentSessionId": "s_lead",
+        "ownerSessionId": "s_lead",
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": null,
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_both",
+      "header": {
+        "id": "s_both",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "agent": "worker",
+        "ownerSessionId": "s_owner",
+        "parentSessionId": "s_parent"
+      },
+      "expected": {
+        "id": "s_both",
+        "sessionId": "s_both",
+        "owner": "user",
+        "agent": "worker",
+        "parentSessionId": "s_parent",
+        "ownerSessionId": "s_owner",
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": null,
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_empty_owner",
+      "header": {
+        "id": "s_empty_owner",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "agent": "worker",
+        "ownerSessionId": "",
+        "parentSessionId": "s_parent"
+      },
+      "expected": {
+        "id": "s_empty_owner",
+        "sessionId": "s_empty_owner",
+        "owner": "user",
+        "agent": "worker",
+        "parentSessionId": "s_parent",
+        "ownerSessionId": "s_parent",
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": null,
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_memory",
+      "header": {
+        "id": "s_memory",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "sourceType": "memory-cycle",
+        "agent": "worker",
+        "ownerSessionId": "s_lead"
+      },
+      "expected": {
+        "id": "s_memory",
+        "sessionId": "s_memory",
+        "owner": "user",
+        "agent": "worker",
+        "parentSessionId": null,
+        "ownerSessionId": "s_lead",
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": "memory-cycle",
+        "sourceName": null
+      },
+      "leadVisible": false,
+      "openable": {
+        "unowned": false,
+        "owned": false
+      }
+    },
+    {
+      "id": "s_title_call",
+      "header": {
+        "id": "s_title_call",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "sourceType": "session-title"
+      },
+      "expected": {
+        "id": "s_title_call",
+        "sessionId": "s_title_call",
+        "owner": "user",
+        "agent": null,
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": "session-title",
+        "sourceName": null
+      },
+      "leadVisible": false,
+      "openable": {
+        "unowned": false,
+        "owned": false
+      }
+    },
+    {
+      "id": "s_exec",
+      "header": {
+        "id": "s_exec",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "sourceType": "exec",
+        "title": "exec run"
+      },
+      "expected": {
+        "id": "s_exec",
+        "sessionId": "s_exec",
+        "owner": "user",
+        "agent": null,
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "ordinary",
+        "title": "exec run",
+        "sourceType": "exec",
+        "sourceName": null
+      },
+      "leadVisible": false,
+      "openable": {
+        "unowned": false,
+        "owned": false
+      }
+    },
+    {
+      "id": "s_falsy",
+      "header": {
+        "id": "s_falsy",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "agent": 0,
+        "ownerSessionId": false,
+        "sourceType": null
+      },
+      "expected": {
+        "id": "s_falsy",
+        "sessionId": "s_falsy",
+        "owner": "user",
+        "agent": null,
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": null,
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_number_owner",
+      "header": {
+        "id": "s_number_owner",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "agent": "worker",
+        "ownerSessionId": 7
+      },
+      "expected": {
+        "id": "s_number_owner",
+        "sessionId": "s_number_owner",
+        "owner": "user",
+        "agent": "worker",
+        "parentSessionId": null,
+        "ownerSessionId": 7,
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": null,
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_foreign_owner",
+      "header": {
+        "id": "s_foreign_owner",
+        "owner": "importer",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "title": "foreign"
+      },
+      "expected": {
+        "id": "s_foreign_owner",
+        "sessionId": "s_foreign_owner",
+        "owner": "importer",
+        "agent": null,
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "ordinary",
+        "title": "foreign",
+        "sourceType": null,
+        "sourceName": null
+      },
+      "leadVisible": false,
+      "openable": {
+        "unowned": false,
+        "owned": false
+      }
+    },
+    {
+      "id": "s_owner_cased",
+      "header": {
+        "id": "s_owner_cased",
+        "owner": " User ",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "title": "cased"
+      },
+      "expected": {
+        "id": "s_owner_cased",
+        "sessionId": "s_owner_cased",
+        "owner": " User ",
+        "agent": null,
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "ordinary",
+        "title": "cased",
+        "sourceType": null,
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_owner_agent",
+      "header": {
+        "id": "s_owner_agent",
+        "owner": "agent",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "agent": "worker",
+        "parentSessionId": "s_lead"
+      },
+      "expected": {
+        "id": "s_owner_agent",
+        "sessionId": "s_owner_agent",
+        "owner": "agent",
+        "agent": "worker",
+        "parentSessionId": "s_lead",
+        "ownerSessionId": "s_lead",
+        "visibility": "agent-only",
+        "title": null,
+        "sourceType": null,
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_owner_agent_self",
+      "header": {
+        "id": "s_owner_agent_self",
+        "owner": "agent",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "agent": "worker",
+        "parentSessionId": "s_owner_agent_self"
+      },
+      "expected": {
+        "id": "s_owner_agent_self",
+        "sessionId": "s_owner_agent_self",
+        "owner": "agent",
+        "agent": "worker",
+        "parentSessionId": "s_owner_agent_self",
+        "ownerSessionId": "s_owner_agent_self",
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": null,
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_agent_only",
+      "header": {
+        "id": "s_agent_only",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "visibility": "agent-only",
+        "title": "declared"
+      },
+      "expected": {
+        "id": "s_agent_only",
+        "sessionId": "s_agent_only",
+        "owner": "user",
+        "agent": null,
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "agent-only",
+        "title": "declared",
+        "sourceType": null,
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_session_visibility",
+      "header": {
+        "id": "s_session_visibility",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "sessionVisibility": "agent-only"
+      },
+      "expected": {
+        "id": "s_session_visibility",
+        "sessionId": "s_session_visibility",
+        "owner": "user",
+        "agent": null,
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "agent-only",
+        "title": null,
+        "sourceType": null,
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_root_lead_agent_only",
+      "header": {
+        "id": "s_root_lead_agent_only",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "agent": "lead",
+        "visibility": "agent-only",
+        "ownerSessionId": "s_root_lead_agent_only"
+      },
+      "expected": {
+        "id": "s_root_lead_agent_only",
+        "sessionId": "s_root_lead_agent_only",
+        "owner": "user",
+        "agent": "lead",
+        "parentSessionId": null,
+        "ownerSessionId": "s_root_lead_agent_only",
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": null,
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_lead_cased",
+      "header": {
+        "id": "s_lead_cased",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "agent": " Lead ",
+        "sourceType": "bot"
+      },
+      "expected": {
+        "id": "s_lead_cased",
+        "sessionId": "s_lead_cased",
+        "owner": "user",
+        "agent": " Lead ",
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": "bot",
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_source_name_only",
+      "header": {
+        "id": "s_source_name_only",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "sourceName": "newsbot"
+      },
+      "expected": {
+        "id": "s_source_name_only",
+        "sessionId": "s_source_name_only",
+        "owner": "user",
+        "agent": null,
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": null,
+        "sourceName": "newsbot"
+      },
+      "leadVisible": false,
+      "openable": {
+        "unowned": false,
+        "owned": false
+      }
+    },
+    {
+      "id": "s_bot",
+      "header": {
+        "id": "s_bot",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "sourceType": "bot",
+        "sourceName": "newsbot",
+        "title": "by a bot"
+      },
+      "expected": {
+        "id": "s_bot",
+        "sessionId": "s_bot",
+        "owner": "user",
+        "agent": null,
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "ordinary",
+        "title": "by a bot",
+        "sourceType": "bot",
+        "sourceName": "newsbot"
+      },
+      "leadVisible": false,
+      "openable": {
+        "unowned": false,
+        "owned": false
+      }
+    },
+    {
+      "id": "s_cli",
+      "header": {
+        "id": "s_cli",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "sourceType": "cli"
+      },
+      "expected": {
+        "id": "s_cli",
+        "sessionId": "s_cli",
+        "owner": "user",
+        "agent": null,
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": "cli",
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_schedule",
+      "header": {
+        "id": "s_schedule",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "sourceType": "schedule"
+      },
+      "expected": {
+        "id": "s_schedule",
+        "sessionId": "s_schedule",
+        "owner": "user",
+        "agent": null,
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": "schedule",
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_webhook",
+      "header": {
+        "id": "s_webhook",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "sourceType": "webhook"
+      },
+      "expected": {
+        "id": "s_webhook",
+        "sessionId": "s_webhook",
+        "owner": "user",
+        "agent": null,
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": "webhook",
+        "sourceName": null
+      },
+      "leadVisible": true,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_cache_warm",
+      "header": {
+        "id": "s_cache_warm",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "sourceType": "cache-warm"
+      },
+      "expected": {
+        "id": "s_cache_warm",
+        "sessionId": "s_cache_warm",
+        "owner": "user",
+        "agent": null,
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": "cache-warm",
+        "sourceName": null
+      },
+      "leadVisible": false,
+      "openable": {
+        "unowned": false,
+        "owned": false
+      }
+    },
+    {
+      "id": "s_agent_foreign",
+      "header": {
+        "id": "s_agent_foreign",
+        "owner": "importer",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "agent": "worker",
+        "ownerSessionId": "s_lead"
+      },
+      "expected": {
+        "id": "s_agent_foreign",
+        "sessionId": "s_agent_foreign",
+        "owner": "importer",
+        "agent": "worker",
+        "parentSessionId": null,
+        "ownerSessionId": "s_lead",
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": null,
+        "sourceName": null
+      },
+      "leadVisible": false,
+      "openable": {
+        "unowned": true,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_agent_no_owner",
+      "header": {
+        "id": "s_agent_no_owner",
+        "owner": "importer",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "agent": "worker"
+      },
+      "expected": {
+        "id": "s_agent_no_owner",
+        "sessionId": "s_agent_no_owner",
+        "owner": "importer",
+        "agent": "worker",
+        "parentSessionId": null,
+        "ownerSessionId": null,
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": null,
+        "sourceName": null
+      },
+      "leadVisible": false,
+      "openable": {
+        "unowned": false,
+        "owned": true
+      }
+    },
+    {
+      "id": "s_native_search",
+      "header": {
+        "id": "s_native_search",
+        "owner": "user",
+        "closed": false,
+        "generation": 1,
+        "updatedAt": 1,
+        "sourceType": "native-web-search",
+        "agent": "worker",
+        "ownerSessionId": "s_lead"
+      },
+      "expected": {
+        "id": "s_native_search",
+        "sessionId": "s_native_search",
+        "owner": "user",
+        "agent": "worker",
+        "parentSessionId": null,
+        "ownerSessionId": "s_lead",
+        "visibility": "ordinary",
+        "title": null,
+        "sourceType": "native-web-search",
+        "sourceName": null
+      },
+      "leadVisible": false,
+      "openable": {
+        "unowned": false,
+        "owned": false
+      }
+    }
+  ],
+  "nulls": [
+    {
+      "id": "s_unlinked",
+      "how": "files unlinked, as deleteSession leaves a deleted session"
+    },
+    {
+      "id": "s_garbage",
+      "how": "log that does not parse"
+    },
+    {
+      "id": "s_foreign",
+      "how": "log of another session"
+    },
+    {
+      "id": "s_absent",
+      "how": "no file"
+    }
+  ],
+  "internalKinds": [
+    {
+      "source": "",
+      "kind": ""
+    },
+    {
+      "source": " ",
+      "kind": ""
+    },
+    {
+      "source": "lead",
+      "kind": ""
+    },
+    {
+      "source": "cli",
+      "kind": ""
+    },
+    {
+      "source": "schedule",
+      "kind": ""
+    },
+    {
+      "source": "webhook",
+      "kind": ""
+    },
+    {
+      "source": "exec",
+      "kind": "exec"
+    },
+    {
+      "source": " EXEC ",
+      "kind": "exec"
+    },
+    {
+      "source": "bot",
+      "kind": ""
+    },
+    {
+      "source": "agent",
+      "kind": ""
+    },
+    {
+      "source": "memory-cycle",
+      "kind": "memory-cycle"
+    },
+    {
+      "source": "session-title",
+      "kind": "session-title"
+    },
+    {
+      "source": "Session-Title",
+      "kind": "session-title"
+    },
+    {
+      "source": "cache-warm",
+      "kind": "cache-warm"
+    },
+    {
+      "source": "native-web-search",
+      "kind": "native-web-search"
+    },
+    {
+      "source": "judge",
+      "kind": ""
+    },
+    {
+      "source": "compaction",
+      "kind": ""
+    },
+    {
+      "source": "user",
+      "kind": ""
+    }
+  ]
+}

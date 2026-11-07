@@ -124,6 +124,23 @@ pub(super) async fn start_thread(directory: &SessionDirectory) -> Arc<SessionHan
     directory.handle(&id).expect("loaded")
 }
 
+/// The route a Node session always has (`createSessionRuntime` requires a provider and a model), which a quota
+/// stop names (`turnFailureRecord`: `quota.provider` is the error's own or the route's) and `scheduleQuotaResumeEntry`
+/// requires: a resume is queued only for a session that has one.
+pub(crate) const ROUTE_PROVIDER: &str = "anthropic-oauth";
+pub(crate) const ROUTE_MODEL: &str = "m";
+
+/// [`start_thread`] on that route, set before any turn.
+pub(super) async fn start_routed_thread(directory: &SessionDirectory) -> Arc<SessionHandle> {
+    let handle = start_thread(directory).await;
+    let params = json!({ "threadId": handle.id, "set": { "provider": ROUTE_PROVIDER, "model": ROUTE_MODEL }, "unset": [] });
+    handle
+        .request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") })
+        .await
+        .expect("route");
+    handle
+}
+
 pub(crate) async fn turn(handle: &SessionHandle, prompt: &str, op: &str) -> Value {
     let reply = handle
         .request(request(
@@ -1891,7 +1908,7 @@ async fn a_cancel_inside_the_quota_settling_window_keeps_the_suspension_unrecord
     rig.set_script(quota_failure());
 
     // Settled undisturbed: the resume waits and the suspended Goal is recorded.
-    let first = start_thread(&directory).await;
+    let first = start_routed_thread(&directory).await;
     let (goal_id, key) = failed_turn(&rig, first.clone()).await;
     eventually(|| rig.quota.entry(first.id.as_str()).filter(|entry| entry.turn_key == key)).await;
     assert_eq!(settled.load(Ordering::SeqCst), 0);
@@ -1899,7 +1916,7 @@ async fn a_cancel_inside_the_quota_settling_window_keeps_the_suspension_unrecord
     eventually(|| (rig.quota.suspended_goal(first.id.as_str(), &key) == goal_id).then_some(())).await;
 
     // A prompt while the failed turn settles: the resume goes, and the settlement records nothing.
-    let second = start_thread(&directory).await;
+    let second = start_routed_thread(&directory).await;
     let (_, key) = failed_turn(&rig, second.clone()).await;
     let id = second.id.as_str();
     eventually(|| rig.quota.entry(id).filter(|entry| entry.turn_key == key)).await;
@@ -1941,7 +1958,7 @@ async fn a_scheduler_fire_replays_the_failed_turn_once() {
     let rig = Rig::new();
     let directory = Arc::new(SessionDirectory::new(rig.deps()));
     rig.set_script(quota_failure());
-    let handle = start_thread(&directory).await;
+    let handle = start_routed_thread(&directory).await;
     let id = handle.id.as_str().to_owned();
     turn(&handle, "build the parser", "op-failed").await;
     let entry = eventually(|| rig.quota.entry(&id)).await;
@@ -2865,7 +2882,7 @@ async fn a_cancel_whose_store_write_fails_still_disarms_the_pending_resume() {
     let rig = Rig::new();
     let directory = Arc::new(SessionDirectory::new(rig.deps()));
     rig.set_script(quota_failure());
-    let handle = start_thread(&directory).await;
+    let handle = start_routed_thread(&directory).await;
     let id = handle.id.as_str().to_owned();
     turn(&handle, "build the parser", "op-failed").await;
     let entry = eventually(|| rig.quota.entry(&id)).await;

@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-session-metadata.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 23122,
+      "path": "golden.json",
+      "sha256": "6d88875a96666a7242376721c59645e01fd3f5564aed13a2ea78752e5373d037"
+    }
+  ],
+  "product": {
+    "appsSha256": "e40c9876cba0267c3153e03fa4acdbfc56db6575ac50caf00ab375175c8a1e53",
+    "commit": "a7a503dd0789c6b81500fc32585f0b74186f3d2a",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9249,
+    "refComparison": {
+      "closestCommit": "a7a503dd0789c6b81500fc32585f0b74186f3d2a",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-session-metadata.mjs",
+  "set": "session-metadata",
+  "totalBytes": 23122
+}

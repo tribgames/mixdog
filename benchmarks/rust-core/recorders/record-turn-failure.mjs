@@ -36,6 +36,7 @@ const { turnFailureRecord } = await importFrom(tree, 'src/runtime/agent/orchestr
 const { createSessionFlow } = await importFrom(tree, 'src/tui/session/session-flow.mjs');
 const { createRunTurn } = await importFrom(tree, 'src/tui/session/turn.mjs');
 const { createActiveToolTracker } = await importFrom(tree, 'src/tui/session/active-tool-summary.mjs');
+const { createTranscriptRouteMetadata } = await importFrom(tree, 'src/runtime/shared/transcript-metadata.mjs');
 
 const RESET = 1_900_000_000_000;
 const named = (message, fields) => Object.assign(new Error(message), fields);
@@ -77,19 +78,20 @@ async function drive(script, options) {
     if (step.reasoning) options.onReasoningDelta(step.reasoning);
     if (step.text) options.onTextDelta(step.text);
     if (step.usage !== undefined) options.onUsageDelta({ deltaOutput: step.usage });
-    if (step.tool) await options.onToolCall(1, [step.tool]);
+    if (step.tools) await options.onToolCall(1, step.tools);
   }
 }
 
-async function liveFailure(error, script = null) {
+async function liveFailure(error, script = null, skills = [], route = null) {
   const state = { busy: true, commandBusy: false, queued: [], items: [], toasts: [], promptHistoryList: [], stats: { turns: 0, inputTokens: 0, outputTokens: 0 } };
   const toasts = [];
   const events = [];
   let sequence = 0;
   const runtime = {
     id: 'live',
-    session: { id: 'live', messages: [], provider: 'anthropic-oauth', model: 'm' },
+    session: { id: 'live', messages: [], provider: 'anthropic-oauth', model: route ?? 'm' },
     toolMode: 'auto',
+    skillsStatus: () => ({ skills }),
     async ask(_text, options) {
       if (script) await drive(script, options);
       throw error;
@@ -99,6 +101,8 @@ async function liveFailure(error, script = null) {
   const bag = {
     runtime,
     flags: { leadTurnEpoch: 0 },
+    // The session's route is stamped into the turn's transcript meta, whose routeMeta the end row spreads (beginTurn).
+    ...(route ? { transcriptRouteMetadata: (at) => createTranscriptRouteMetadata(runtime.session, {}, at) } : {}),
     pending: [],
     pendingNotificationKeys: new Set(),
     getState: () => state,
@@ -136,7 +140,8 @@ async function liveFailure(error, script = null) {
   clock = null;
   const end = state.items.findLast((item) => item.kind === 'turndone');
   return {
-    ...(script ? { start: START, script } : {}),
+    ...(script ? { start: START, script, skills } : {}),
+    ...(route ? { route: { provider: runtime.session.provider, model: route } } : {}),
     kinds: state.items.map((item) => item.kind),
     turndone: end ? shape(end, volatileOf(script)) : null,
     turndoneKeys: end ? Object.keys(end) : null,
@@ -155,12 +160,38 @@ const live = {
     { at: 100, reasoning: 'plan the work' },
     { at: 400, text: 'Working on it. ' },
     { at: 500, usage: 9 },
-    { at: 600, tool: { id: 'call-1', name: 'read', arguments: { path: 'a.txt' } } },
+    { at: 600, tools: [{ id: 'call-1', name: 'read', arguments: { path: 'a.txt' } }] },
     { at: 700, usage: 4 },
     { at: 1000 },
   ]),
   // No usage: the estimate round((10 + 2) / 4) = 3 stands; the thinking segment is still open at the failure.
   estimated: await liveFailure(new Error('boom'), [{ at: 50, text: 'abcdefghij' }, { at: 60, reasoning: 'xy' }, { at: 200 }]),
+  // The session has a route: the end row spreads its routeMeta (modelId, the display model, provider).
+  routed: await liveFailure(named('Usage limit reached', { status: 429, code: 'usage_limit_reached', resetAt: RESET }), [{ at: 100, text: 'hi' }, { at: 300 }], [], 'claude-opus-4-1'),
+  // `visibleToolCalls` (turn-tool-cards.mjs:160): same-category reads merge into one aggregate card yet each call is
+  // counted; a task wait, a hidden control tool and a built-in skill load get no card unless the call has no id; a
+  // batch of hidden calls still ends the thinking segment; a user skill and a shell call are cards.
+  tools: await liveFailure(
+    new Error('boom'),
+    [
+      { at: 100, reasoning: 'look around' },
+      { at: 150, tools: [{ id: 'c1', name: 'read', arguments: { path: 'a.txt' } }, { id: 'c2', name: 'read', arguments: { path: 'b.txt' } }] },
+      { at: 200, reasoning: 'again' },
+      { at: 260, tools: [{ id: 'c3', name: 'task', arguments: { action: 'wait', task_id: 't1' } }, { id: 'c4', name: 'todo', arguments: { todos: [] } }] },
+      {
+        at: 300,
+        tools: [
+          { id: 'c5', name: 'skill', arguments: { name: 'Browser Use' } },
+          { id: 'c6', name: 'skill', arguments: { name: 'mine' } },
+          { name: 'tool_search', arguments: { query: 'x' } },
+          { id: 'c7', name: 'shell', arguments: { command: 'ls' } },
+          { id: 'c8', name: 'functions.task', arguments: '{"action":"WAIT"}' },
+        ],
+      },
+      { at: 400 },
+    ],
+    [{ name: 'Browser Use', source: 'builtin' }, { name: 'mine', source: 'user' }]
+  ),
 };
 
 writeJson(join(FIXTURES_ROOT, 'turn-failure', 'golden.json'), { resetAt: RESET, cases, live });

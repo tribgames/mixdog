@@ -1179,6 +1179,11 @@ mod tests {
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
+        // A session has the route it runs on (Node requires a provider and a model), which the quota stop names and
+        // the resume entry requires.
+        let route = case["route"].clone();
+        let patch = json!({ "threadId": id, "set": { "provider": route["provider"], "model": route["model"] }, "unset": [] });
+        handle.request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") }).await.expect("route");
         handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-1", "input": { "prompt": "go" } }), "op-1")).await.expect("turn/start");
         let entry = loop {
             let queued = woke.notified();

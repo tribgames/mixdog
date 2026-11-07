@@ -557,6 +557,8 @@ mod tests {
     /// Opens the listener of a transport over `Recording` and awaits its first `n` reports and the
     /// first `m` answers of the server: signals, not time.
     async fn listen(renewal: Renewal, n: usize, m: usize) -> (Vec<String>, Vec<u16>) {
+        // `initialized` spawns the listener through the runtime, which needs a backend installed.
+        let _runtime = mixdog_rt::testing::tokens();
         let (addr, mut answers) = refusing_server().await;
         let (events, mut reports) = unbounded_channel();
         let auth = Arc::new(Recording { token: Mutex::new("old".to_owned()), renewal, events });

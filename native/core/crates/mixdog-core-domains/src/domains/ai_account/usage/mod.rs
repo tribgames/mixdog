@@ -5,6 +5,8 @@
 pub mod dashboard;
 pub mod session_usage;
 pub mod sources;
+#[cfg(test)]
+mod openable_tests;
 
 use std::sync::Arc;
 
@@ -22,6 +24,8 @@ use mixdog_ledger::error::LedgerError;
 use mixdog_ledger::ledger::UsageLedger;
 use mixdog_ledger::stats::UsageRequestsOptions;
 use mixdog_ledger::stats::UsageStatsOptions;
+use mixdog_store::sqlite::lead::is_lead_visible_row;
+use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
@@ -47,8 +51,10 @@ impl LedgerAccess for Arc<UsageLedger> {
     }
 }
 
-/// Stored session metadata (`title`, `agent`, `ownerSessionId`, `sourceType`) by session id.
-/// WP-SESSION's directory has no such accessor yet.
+/// Stored session metadata by session id (`readStoredSessionMetadata`): the keys `describeRequestSessions`
+/// and `isLeadVisibleRow` read (`title`, `agent`, `owner`, `visibility`, `sourceType`, `sourceName`,
+/// `ownerSessionId`, `parentSessionId`, `id`). `None` for a session that cannot be read.
+/// `SessionDirectory` implements it (mixdog-core-session `usage_metadata`).
 #[async_trait]
 pub trait SessionMetadata: Send + Sync {
     async fn metadata(&self, session_id: &str) -> Option<Value>;
@@ -58,9 +64,12 @@ pub fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-/// `isLeadVisibleRow({ sourceType })`: rows of an internal run are hidden.
+/// `isLeadVisibleRow({ sourceType: source, preview: source })`: rows of an internal run are hidden.
 fn is_lead_visible(source: &str) -> bool {
-    !matches!(source, "memory-cycle" | "schedule" | "webhook" | "native-web-search" | "cache-warm" | "exec" | "session-title")
+    let mut row = Map::new();
+    row.insert("sourceType".into(), json!(source));
+    row.insert("preview".into(), json!(source));
+    is_lead_visible_row(&row)
 }
 
 /// `agentIdOfHomeSession`: the agent id a home session id names, else empty.
@@ -76,6 +85,17 @@ fn internal_kind(source: &str) -> String {
     }
     let hidden = !id.is_empty() && !is_lead_visible(&id);
     if hidden && (id == "exec" || !is_conversation_source(Some(&id))) { id } else { String::new() }
+}
+
+/// `openable` of `describeRequestSessions`: a stored session the user can open, given the request's
+/// own `ownerSessionId`. `isLeadVisibleRow({ ...own, preview: 'x' })` reads the whole metadata row.
+fn is_openable(own: &Value, request_owner: &str) -> bool {
+    let Some(own) = own.as_object() else { return false };
+    let source = own.get("sourceType").and_then(Value::as_str).unwrap_or("");
+    let mut row = own.clone();
+    row.insert("preview".into(), json!("x"));
+    internal_kind(source).is_empty()
+        && ((truthy(own.get("agent")) && (truthy(own.get("ownerSessionId")) || !request_owner.is_empty())) || is_lead_visible_row(&row))
 }
 
 pub struct UsageService {
@@ -146,13 +166,7 @@ impl UsageService {
                 None => agent_id_of_home_session(id),
             }
         };
-        let openable = own.as_ref().is_some_and(|o| {
-            let agent = truthy(o.get("agent"));
-            let own_owner = o.get("ownerSessionId").and_then(Value::as_str).unwrap_or("");
-            let own_source = o.get("sourceType").and_then(Value::as_str).unwrap_or("");
-            internal_kind(own_source).is_empty()
-                && ((agent && (!own_owner.is_empty() || !owner.is_empty())) || is_lead_visible(own_source))
-        });
+        let openable = own.as_ref().is_some_and(|o| is_openable(o, owner));
         if !kind.is_empty() && !openable {
             return json!({ "title": "", "role": "", "agent": false, "internalKind": kind });
         }

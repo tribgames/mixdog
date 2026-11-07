@@ -461,13 +461,15 @@
         },
         {
           "at": 600,
-          "tool": {
-            "id": "call-1",
-            "name": "read",
-            "arguments": {
-              "path": "a.txt"
+          "tools": [
+            {
+              "id": "call-1",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
             }
-          }
+          ]
         },
         {
           "at": 700,
@@ -477,6 +479,7 @@
           "at": 1000
         }
       ],
+      "skills": [],
       "kinds": [
         "user",
         "assistant",
@@ -587,6 +590,7 @@
           "at": 200
         }
       ],
+      "skills": [],
       "kinds": [
         "user",
         "assistant",
@@ -648,6 +652,293 @@
           "items": [
             "user",
             "assistant",
+            "turndone"
+          ]
+        }
+      ],
+      "busyAfter": false
+    },
+    "routed": {
+      "start": 1700000000000,
+      "script": [
+        {
+          "at": 100,
+          "text": "hi"
+        },
+        {
+          "at": 300
+        }
+      ],
+      "skills": [],
+      "route": {
+        "provider": "anthropic-oauth",
+        "model": "claude-opus-4-1"
+      },
+      "kinds": [
+        "user",
+        "assistant",
+        "turndone"
+      ],
+      "turndone": {
+        "kind": "turndone",
+        "id": "<string>",
+        "checkpointId": "<string>",
+        "elapsedMs": 300,
+        "status": "failed",
+        "outputTokens": 1,
+        "thinkingElapsedMs": 0,
+        "toolCount": 0,
+        "verb": "Mapped",
+        "at": 1700000000300,
+        "detail": "Provider usage limit reached.",
+        "errorDetails": "Usage limit reached",
+        "modelId": "claude-opus-4-1",
+        "model": "Claude Opus 4.1",
+        "provider": "anthropic-oauth",
+        "completionVerb": "Mapped",
+        "attemptId": "<string>",
+        "quota": {
+          "provider": "anthropic-oauth",
+          "model": "Claude Opus 4.1",
+          "resetAt": 1900000000000
+        },
+        "errorKind": {
+          "kind": "quota_exhausted",
+          "code": "usage_limit_reached",
+          "status": 429,
+          "retryAfterMs": null,
+          "resetAt": 1900000000000
+        }
+      },
+      "turndoneKeys": [
+        "kind",
+        "id",
+        "checkpointId",
+        "elapsedMs",
+        "status",
+        "outputTokens",
+        "thinkingElapsedMs",
+        "toolCount",
+        "verb",
+        "at",
+        "detail",
+        "errorDetails",
+        "modelId",
+        "model",
+        "provider",
+        "completionVerb",
+        "attemptId",
+        "quota",
+        "errorKind"
+      ],
+      "toasts": [
+        {
+          "text": "Provider usage limit reached.",
+          "tone": "error",
+          "options": {
+            "owner": "transcript"
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "beginQuotaSettlement",
+          "busy": false,
+          "items": [
+            "user",
+            "assistant",
+            "turndone"
+          ]
+        },
+        {
+          "event": "onGoalTurnSettled",
+          "busy": false,
+          "items": [
+            "user",
+            "assistant",
+            "turndone"
+          ]
+        },
+        {
+          "event": "finishQuotaSettlement",
+          "busy": false,
+          "items": [
+            "user",
+            "assistant",
+            "turndone"
+          ]
+        }
+      ],
+      "busyAfter": false
+    },
+    "tools": {
+      "start": 1700000000000,
+      "script": [
+        {
+          "at": 100,
+          "reasoning": "look around"
+        },
+        {
+          "at": 150,
+          "tools": [
+            {
+              "id": "c1",
+              "name": "read",
+              "arguments": {
+                "path": "a.txt"
+              }
+            },
+            {
+              "id": "c2",
+              "name": "read",
+              "arguments": {
+                "path": "b.txt"
+              }
+            }
+          ]
+        },
+        {
+          "at": 200,
+          "reasoning": "again"
+        },
+        {
+          "at": 260,
+          "tools": [
+            {
+              "id": "c3",
+              "name": "task",
+              "arguments": {
+                "action": "wait",
+                "task_id": "t1"
+              }
+            },
+            {
+              "id": "c4",
+              "name": "todo",
+              "arguments": {
+                "todos": []
+              }
+            }
+          ]
+        },
+        {
+          "at": 300,
+          "tools": [
+            {
+              "id": "c5",
+              "name": "skill",
+              "arguments": {
+                "name": "Browser Use"
+              }
+            },
+            {
+              "id": "c6",
+              "name": "skill",
+              "arguments": {
+                "name": "mine"
+              }
+            },
+            {
+              "name": "tool_search",
+              "arguments": {
+                "query": "x"
+              }
+            },
+            {
+              "id": "c7",
+              "name": "shell",
+              "arguments": {
+                "command": "ls"
+              }
+            },
+            {
+              "id": "c8",
+              "name": "functions.task",
+              "arguments": "{\"action\":\"WAIT\"}"
+            }
+          ]
+        },
+        {
+          "at": 400
+        }
+      ],
+      "skills": [
+        {
+          "name": "Browser Use",
+          "source": "builtin"
+        },
+        {
+          "name": "mine",
+          "source": "user"
+        }
+      ],
+      "kinds": [
+        "user",
+        "tool",
+        "tool",
+        "tool",
+        "tool",
+        "turndone"
+      ],
+      "turndone": {
+        "kind": "turndone",
+        "id": "<string>",
+        "checkpointId": "<string>",
+        "elapsedMs": 400,
+        "status": "failed",
+        "outputTokens": 4,
+        "thinkingElapsedMs": 110,
+        "toolCount": 5,
+        "verb": "Mapped",
+        "at": 1700000000400,
+        "detail": "boom",
+        "errorDetails": "boom",
+        "completionVerb": "Mapped",
+        "attemptId": "<string>",
+        "errorKind": {
+          "kind": "unknown",
+          "code": "",
+          "status": 0,
+          "retryAfterMs": null,
+          "resetAt": null
+        }
+      },
+      "turndoneKeys": [
+        "kind",
+        "id",
+        "checkpointId",
+        "elapsedMs",
+        "status",
+        "outputTokens",
+        "thinkingElapsedMs",
+        "toolCount",
+        "verb",
+        "at",
+        "detail",
+        "errorDetails",
+        "completionVerb",
+        "attemptId",
+        "errorKind"
+      ],
+      "toasts": [
+        {
+          "text": "boom",
+          "tone": "error",
+          "options": {
+            "owner": "transcript"
+          }
+        }
+      ],
+      "events": [
+        {
+          "event": "onGoalTurnSettled",
+          "busy": false,
+          "items": [
+            "user",
+            "tool",
+            "tool",
+            "tool",
+            "tool",
             "turndone"
           ]
         }
