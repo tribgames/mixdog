@@ -315,12 +315,13 @@ mod tests {
         }
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 
     #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
     async fn a_client_initializes_and_starts_a_thread_over_the_pair() {
         let _one = crate::compose_test_support::exclusive().await;
         let dir = tempfile::tempdir().unwrap();
+        crate::compose_test_support::seed_default_model(crate::compose_test_support::data_dir());
         let (core, outgoing) = core(dir.path()).await;
         let (connector, shutdown) = serve_in_process(core, outgoing).unwrap();
         let mut halves = connector.open(&Target { id: "in-process".into() }).await.unwrap();
