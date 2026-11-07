@@ -329,6 +329,9 @@ pub enum RunEvent {
     /// A [`StreamEvent::Progress`] of the provider stream: model progress that is no text or reasoning delta (a tool call's
     /// arguments or end, an item boundary), reported where Node's decoder calls `onStreamDelta(kind)`.
     ToolStream(ProgressKind),
+    /// A [`StreamEvent::ChunkProgress`]: the chunk reports this one kind (`None`: transport only) and the stream's
+    /// deltas report none of their own from here on.
+    Chunk(Option<ProgressKind>),
     /// The summary model's usage of a compaction pass (`accumulateCompactUsage`): one usage report of the turn,
     /// at the loop's next iteration index, with the reasoning figure `reasoningUsage(usage)` reads of it.
     CompactUsage { iteration: u32, usage: Usage, reasoning_tokens: Option<u64>, reasoning_tokens_complete: bool },

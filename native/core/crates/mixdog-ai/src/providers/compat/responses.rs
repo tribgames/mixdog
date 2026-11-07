@@ -386,7 +386,9 @@ impl WireCodec for CompatResponsesCodec {
         let framing = if self.is_socket() { Framing::WebSocket } else { Framing::Sse };
         let info = self.config.models.get(&request.model);
         let profile = self.responses_profile(request, info.as_deref());
-        Box::new(profile.decoder_for(request, framing, Arc::new(ClockOnly)))
+        let decoder = profile.decoder_for(request, framing, Arc::new(ClockOnly));
+        // Over HTTP/SSE a compatible route is folded by Node's compatible events collector; its socket by the WebSocket one.
+        Box::new(if self.is_socket() { decoder } else { decoder.compat_events() })
     }
 
     fn classify(&self, response: &ErrorResponse) -> ProviderError {

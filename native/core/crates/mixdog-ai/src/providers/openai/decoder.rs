@@ -39,6 +39,8 @@ use super::continuation::next_slot;
 use super::continuation::with_slot;
 use super::error::Failure;
 use super::error::classify;
+use super::tool_flight::Collector;
+use super::tool_flight::ToolFlight;
 
 /// How transport units become events.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -139,6 +141,12 @@ pub struct ResponsesDecoder {
     outcome: ResponseOutcome,
     /// Some semantic event arrived (`watchdogs.semanticSeen()`): from then on an item boundary is progress.
     semantic_seen: bool,
+    /// `toolInFlight` and what it is made of.
+    flight: ToolFlight,
+    /// The ids of the reasoning items collected with encrypted content (`replayItems.hasReasoning`).
+    reasoning_ids: HashSet<String>,
+    /// The stream is a compatible route's, folded by Node's compatible events collector.
+    compat: bool,
 }
 
 fn str_of<'a>(value: &'a Value, key: &str) -> &'a str {
@@ -297,6 +305,9 @@ impl ResponsesDecoder {
             refusals: Refusals::default(),
             outcome: ResponseOutcome::default(),
             semantic_seen: false,
+            flight: ToolFlight::default(),
+            reasoning_ids: HashSet::new(),
+            compat: false,
         }
     }
 
@@ -399,13 +410,19 @@ impl ResponsesDecoder {
                 if let Some(id) = event.get("response").map(|r| str_of(r, "id")).filter(|i| !i.is_empty()) {
                     self.outcome.response_id = Some(id.to_owned());
                 }
+                // The compatible collector reports the ack as a boundary once the stream has seen output.
+                if self.collector() == Collector::Compat && self.semantic_seen {
+                    out.push(StreamEvent::Progress(ProgressKind::Semantic));
+                }
             }
             "codex.rate_limits" => out.push(StreamEvent::ProviderKeepalive),
             "response.output_item.added" => {
-                self.item_added(event.get("item").unwrap_or(&Value::Null), out);
-                // `onItemAdded` (`openai-ws-stream/event-switch.mjs`): a call in flight, else a boundary after earlier
-                // output; the first boundary of a response is transport only.
-                let kind = if self.tools.values().any(|t| !t.done) {
+                let item = event.get("item").unwrap_or(&Value::Null);
+                self.item_added(item, out);
+                self.flight.item_added(self.collector(), item);
+                // `onItemAdded` (`openai-ws-stream/event-switch.mjs`, `onOutputItemAdded`): a call in flight, else a
+                // boundary after earlier output; the first boundary of a response is transport only.
+                let kind = if self.flight.in_flight() {
                     Some(ProgressKind::Tool)
                 } else if self.semantic_seen {
                     Some(ProgressKind::Semantic)
@@ -456,6 +473,7 @@ impl ResponsesDecoder {
                 let delta = str_of(event, "delta");
                 let item_id = str_of(event, "item_id");
                 // `onToolInputDelta` reports every delta, an empty one included.
+                self.flight.input_delta(item_id);
                 self.semantic_seen = true;
                 out.push(StreamEvent::Progress(ProgressKind::Tool));
                 if !delta.is_empty() {
@@ -473,26 +491,19 @@ impl ResponsesDecoder {
             }
             "response.function_call_arguments.done" => {
                 self.arguments_done(event, out);
+                self.flight.arguments_done(self.collector(), str_of(event, "item_id"));
                 self.semantic_seen = true;
                 out.push(StreamEvent::Progress(ProgressKind::Tool));
             }
             "response.output_item.done" => {
                 let item = event.get("item").unwrap_or(&Value::Null);
                 self.item_done(item, out);
-                // `completeOutputItem`'s kind: any finished item is model output.
-                let kind = if is_incomplete_tool_item(item) {
-                    ProgressKind::Tool
-                } else if str_of(item, "type") == "reasoning" {
-                    ProgressKind::Reasoning
-                } else if self.tools.values().any(|t| !t.done) || str_of(item, "type").contains("tool") || str_of(item, "type").contains("function_call") {
-                    ProgressKind::Tool
-                } else {
-                    ProgressKind::Semantic
-                };
+                self.settle_flight(item);
+                // Any finished item is model output.
                 self.semantic_seen = true;
-                out.push(StreamEvent::Progress(kind));
+                out.push(StreamEvent::Progress(self.done_kind(item)));
             }
-            "response.completed" => return self.completed(event, out),
+            "response.completed" => return self.completed(event, out, true),
             "response.done" => return self.response_done(event, out),
             "response.incomplete" => return self.incomplete(event, out),
             "response.failed" => {
@@ -517,6 +528,129 @@ impl ResponsesDecoder {
         Ok(())
     }
 
+    /// Which of Node's three Responses collectors this stream is.
+    fn collector(&self) -> Collector {
+        if self.framing == Framing::WebSocket {
+            Collector::WebSocket
+        } else if self.compat {
+            Collector::Compat
+        } else {
+            Collector::HttpSse
+        }
+    }
+
+    /// The stream of a compatible route over HTTP/SSE, which Node folds in `openai-compat-responses-events`.
+    pub fn compat_events(mut self) -> Self {
+        self.compat = true;
+        self
+    }
+
+    /// What a finished item does to the tool-in-flight state and the collected reasoning ids.
+    fn settle_flight(&mut self, item: &Value) {
+        let collector = self.collector();
+        // A server-truncated call stays in flight and is never collected; the compatible collector has no such case.
+        if is_incomplete_tool_item(item) && collector != Collector::Compat {
+            self.flight.started(item);
+            return;
+        }
+        self.flight.item_done(collector, item);
+        if str_of(item, "type") == "reasoning" && !str_of(item, "encrypted_content").is_empty() {
+            self.reasoning_ids.insert(str_of(item, "id").to_owned());
+        }
+    }
+
+    /// The kind a finished item reports: the WebSocket collector (`completeOutputItem`) also reads the in-flight
+    /// flag, the HTTP/SSE one (`outputItemKind`) only the item type, the compatible one also counts a web search.
+    fn done_kind(&self, item: &Value) -> ProgressKind {
+        let collector = self.collector();
+        let kind = str_of(item, "type");
+        if is_incomplete_tool_item(item) && collector != Collector::Compat {
+            ProgressKind::Tool
+        } else if kind == "reasoning" {
+            ProgressKind::Reasoning
+        } else if (collector == Collector::WebSocket && self.flight.in_flight())
+            || kind.contains("tool")
+            || kind.contains("function_call")
+            || (collector == Collector::Compat && kind.contains("web_search_call"))
+        {
+            ProgressKind::Tool
+        } else {
+            ProgressKind::Semantic
+        }
+    }
+
+    /// The progress of the terminal output bundle (`noteCompleted`, `absorbCompletedOutput`, `onCompleted` of the
+    /// compatible events): every item is collected as `output_item.done` does, and what it amounted to is reported once.
+    fn salvage_bundle(&mut self, output: &[Value], out: &mut Vec<StreamEvent>) -> bool {
+        if self.collector() != Collector::Compat {
+            let mut reported = false;
+            for item in output {
+                reported |= self.salvage(item, out);
+            }
+            return reported;
+        }
+        // The compatible fold adopts the bundle's text first, then sweeps the other items; none is skipped as seen.
+        let start = out.len();
+        for item in output.iter().filter(|item| str_of(item, "type") == "message") {
+            self.item_done(item, out);
+        }
+        let mut reported = out[start..].iter().any(|event| matches!(event, StreamEvent::TextDelta(_)));
+        for item in output.iter().filter(|item| str_of(item, "type") != "message") {
+            self.item_done(item, out);
+            match str_of(item, "type") {
+                "function_call" | "tool_search_call" | "custom_tool_call" | "web_search_call" => {
+                    out.push(StreamEvent::Progress(ProgressKind::Tool));
+                    reported = true;
+                }
+                "reasoning" => {
+                    out.push(StreamEvent::Progress(ProgressKind::Reasoning));
+                    reported = true;
+                }
+                _ => {}
+            }
+        }
+        reported
+    }
+
+    /// One item of the terminal output bundle (`salvageCompletedItem`, `absorbCompletedOutput`) of the WebSocket and
+    /// HTTP/SSE collectors. Returns whether it reported.
+    fn salvage(&mut self, item: &Value, out: &mut Vec<StreamEvent>) -> bool {
+        let kind = str_of(item, "type");
+        // The WebSocket collector skips a reasoning item whose copy was already collected; HTTP/SSE reports every one.
+        let collected = self.collector() == Collector::WebSocket && self.reasoning_ids.contains(str_of(item, "id"));
+        let start = out.len();
+        self.item_done(item, out);
+        if is_incomplete_tool_item(item) {
+            self.flight.started(item);
+            out.push(StreamEvent::Progress(ProgressKind::Tool));
+            return true;
+        }
+        if kind == "reasoning" && !str_of(item, "encrypted_content").is_empty() {
+            self.reasoning_ids.insert(str_of(item, "id").to_owned());
+        }
+        match kind {
+            "message" => {
+                let mut reported = out[start..].iter().any(|event| matches!(event, StreamEvent::TextDelta(_)));
+                let refusal = item.get("content").and_then(Value::as_array).is_some_and(|parts| {
+                    parts.iter().any(|part| str_of(part, "type") == "refusal" && part.get("refusal").is_some_and(Value::is_string))
+                });
+                if refusal {
+                    out.push(StreamEvent::Progress(ProgressKind::Semantic));
+                    reported = true;
+                }
+                reported
+            }
+            "web_search_call" | "tool_search_call" | "custom_tool_call" | "function_call" => {
+                out.push(StreamEvent::Progress(ProgressKind::Tool));
+                true
+            }
+            "reasoning" if !collected => {
+                out.push(StreamEvent::Progress(ProgressKind::Reasoning));
+                true
+            }
+            _ => false,
+        }
+    }
     fn item_added(&mut self, item: &Value, out: &mut Vec<StreamEvent>) {
         let item_id = str_of(item, "id").to_owned();
         match str_of(item, "type") {
@@ -718,12 +852,24 @@ impl ResponsesDecoder {
             .any(|t| t.deferred_args.is_some() && (t.call_id.is_empty() || t.name.is_empty()) && !t.done)
     }
 
-    fn completed(&mut self, event: &Value, out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
+    fn completed(&mut self, event: &Value, out: &mut Vec<StreamEvent>, report: bool) -> Result<(), ProviderError> {
         let response = event.get("response").unwrap_or(&Value::Null);
+        // The bundle's progress is reported once; a bundle that reported nothing is a `semantic` boundary.
+        let mut reported = false;
         if let Some(output) = response.get("output").and_then(Value::as_array) {
-            for item in output {
-                self.item_done(item, out);
+            if report {
+                reported = self.salvage_bundle(output, out);
+            } else {
+                for item in output {
+                    self.item_done(item, out);
+                }
             }
+        }
+        if report {
+            if !reported {
+                out.push(StreamEvent::Progress(ProgressKind::Semantic));
+            }
+            self.semantic_seen = true;
         }
         if self.unresolved_call() {
             self.terminal = true;
@@ -797,7 +943,8 @@ impl ResponsesDecoder {
                 Err(self.wire_error(event, error, "response.done failed"))
             }
             "incomplete" => self.incomplete(event, out),
-            "" | "completed" => self.completed(event, out),
+            // The compatible collector settles a success-shaped `response.done` without folding its bundle's progress.
+            "" | "completed" => self.completed(event, out, self.collector() != Collector::Compat),
             other => {
                 self.terminal = true;
                 let mut err = ProviderError::new(ErrorKind::Unknown, DeliveryState::Accepted);
@@ -937,15 +1084,28 @@ mod progress_tests {
         }
     }
 
-    /// Node's Responses event switch reported these kinds for each event (`golden/stream_progress.json`): item
-    /// boundaries after earlier output are `semantic`, a call's item, arguments and end are `tool`, a finished
-    /// reasoning item is `reasoning`.
+    /// Node's three Responses collectors reported these kinds for each event of each scenario
+    /// (`golden/stream_progress.json`): item boundaries after earlier output are `semantic`, a call's item, arguments and
+    /// end are `tool`, the tool-in-flight flag is latched, and the terminal bundle reports what it salvaged.
     #[test]
-    fn the_decoder_reports_the_progress_kinds_node_s_event_switch_does() {
-        let mut decoder = ResponsesDecoder::new(Framing::WebSocket, Arc::new(Ctx), ProviderId::from("openai"));
-        for step in golden()["decoders"]["responses"].as_array().expect("responses") {
-            let events = decoder.feed(step["wire"].to_string().as_bytes()).expect("feed");
-            assert_eq!(rust_names(&events), node_names(&step["kinds"]), "{}", step["wire"]);
+    fn the_decoder_reports_the_progress_kinds_node_s_collectors_do() {
+        for scenario in golden()["decoders"]["responses"].as_array().expect("responses") {
+            let framing = match scenario["framing"].as_str().expect("framing") {
+                "ws" => Framing::WebSocket,
+                _ => Framing::Sse,
+            };
+            let mut decoder = ResponsesDecoder::new(framing, Arc::new(Ctx), ProviderId::from("openai"));
+            if scenario["framing"] == "compat" {
+                decoder = decoder.compat_events();
+            }
+            for step in scenario["steps"].as_array().expect("steps") {
+                let unit = match framing {
+                    Framing::WebSocket => step["wire"].to_string(),
+                    Framing::Sse => format!("data: {}\n\n", step["wire"]),
+                };
+                let events = decoder.feed(unit.as_bytes()).expect("feed");
+                assert_eq!(rust_names(&events), node_names(&step["kinds"]), "{} / {}: {}", scenario["framing"], scenario["name"], step["wire"]);
+            }
         }
     }
 }

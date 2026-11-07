@@ -562,6 +562,7 @@ pub enum ProgressKind {
     /// Any other semantic event (an item boundary): the default kind.
     Semantic,
     Reasoning,
+    Text,
     Tool,
 }
 
@@ -571,6 +572,7 @@ impl ProgressKind {
         match self {
             Self::Semantic => "semantic",
             Self::Reasoning => "reasoning",
+            Self::Text => "text",
             Self::Tool => "tool",
         }
     }
@@ -609,6 +611,10 @@ pub enum StreamEvent {
     /// delta event of its own (a tool call's arguments or its end, an item boundary). Text and reasoning deltas
     /// are their own events and report their own kinds. Folds into nothing.
     Progress(ProgressKind),
+    /// A wire chunk that reports one progress kind for everything it carries (Gemini's `geminiChunkProgressKind`;
+    /// `None`: transport only). Emitted before the chunk's own events: the text and reasoning deltas that follow do not
+    /// report a kind of their own. Folds into nothing.
+    ChunkProgress(Option<ProgressKind>),
     /// The session's provider state changed during the request (Node writes
     /// `opts.providerState` back); the whole new state, to be persisted.
     ProviderState(ProviderState),
@@ -639,8 +645,24 @@ impl StreamEvent {
             Self::TextDelta(_) => Some("text"),
             Self::ReasoningDelta(_) => Some("reasoning"),
             Self::Progress(kind) => Some(kind.name()),
+            Self::ChunkProgress(kind) => kind.map(ProgressKind::name),
             _ => None,
         }
+    }
+
+    /// The kinds a run of events reports, in order: as [`StreamEvent::progress_kind`], except that once a stream has
+    /// announced its chunks ([`StreamEvent::ChunkProgress`]) its deltas report nothing of their own.
+    pub fn progress_kinds(events: &[StreamEvent]) -> Vec<&'static str> {
+        let mut chunked = false;
+        let mut kinds = Vec::new();
+        for event in events {
+            chunked |= matches!(event, Self::ChunkProgress(_));
+            if chunked && matches!(event, Self::TextDelta(_) | Self::ReasoningDelta(_)) {
+                continue;
+            }
+            kinds.extend(event.progress_kind());
+        }
+        kinds
     }
 }
 

@@ -99,7 +99,8 @@ impl ResponseBuilder {
             | StreamEvent::Refusal(_)
             | StreamEvent::Citation(_)
             | StreamEvent::ProviderKeepalive
-            | StreamEvent::Progress(_) => {}
+            | StreamEvent::Progress(_)
+            | StreamEvent::ChunkProgress(_) => {}
         }
     }
 

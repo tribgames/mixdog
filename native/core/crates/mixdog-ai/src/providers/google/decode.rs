@@ -169,6 +169,21 @@ pub struct GeminiDecoder {
     done: bool,
 }
 
+/// `geminiChunkProgressKind(chunk)`: the one kind a chunk reports for all its parts, `None` for transport only.
+fn chunk_progress(chunk: &Value) -> Option<ProgressKind> {
+    let parts = chunk.pointer("/candidates/0/content/parts").and_then(Value::as_array)?;
+    let has_text = |part: &Value| part.get("text").and_then(Value::as_str).is_some_and(|text| !text.is_empty());
+    let thought = |part: &Value| part.get("thought") == Some(&Value::Bool(true));
+    if parts.iter().any(|part| part.get("functionCall").is_some_and(|call| !call.is_null())) {
+        Some(ProgressKind::Tool)
+    } else if parts.iter().any(|part| thought(part) && has_text(part)) {
+        Some(ProgressKind::Reasoning)
+    } else if parts.iter().any(|part| !thought(part) && has_text(part)) {
+        Some(ProgressKind::Text)
+    } else {
+        None
+    }
+}
 impl GeminiDecoder {
     pub fn new(dialect: DecodeDialect) -> Self {
         Self {
@@ -228,6 +243,7 @@ impl GeminiDecoder {
             return Err(err);
         }
         self.saw_chunk = true;
+        out.push(StreamEvent::ChunkProgress(chunk_progress(&chunk)));
         if let Some(reason) = chunk.pointer("/promptFeedback/blockReason").and_then(Value::as_str)
             && finish_kind(reason) != FinishKind::Unfinished
         {
@@ -275,7 +291,6 @@ impl GeminiDecoder {
                 .unwrap_or_else(|| synthesized_call_id(index, &name, &args));
             self.open_item(ItemKind::Tool, out);
             out.push(StreamEvent::ToolCallStart { id: id.clone(), name: name.clone() });
-            out.push(StreamEvent::Progress(ProgressKind::Tool));
             out.push(StreamEvent::ToolCallArgsDelta { id: id.clone(), delta: args.to_string() });
             out.push(StreamEvent::ToolCallDone(ToolCall { id, name, arguments: args, native_type: None  }));
             self.open = None;

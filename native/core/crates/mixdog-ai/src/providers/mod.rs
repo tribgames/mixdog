@@ -28,7 +28,7 @@ pub(crate) mod progress_golden {
 
     /// The progress kinds a decoder reported, consecutive repeats folded (Node reports some wire events twice).
     pub(crate) fn rust_names(events: &[StreamEvent]) -> Vec<String> {
-        let mut names: Vec<String> = events.iter().filter_map(StreamEvent::progress_kind).map(str::to_owned).collect();
+        let mut names: Vec<String> = StreamEvent::progress_kinds(events).into_iter().map(str::to_owned).collect();
         names.dedup();
         names
     }
