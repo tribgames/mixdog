@@ -3574,7 +3574,7 @@ async fn a_rename_is_refused_and_leaves_the_session_as_nodes_runtime_does() {
         if shown.is_empty() || shown.encode_utf16().count() > 1_024 || shown.chars().any(|c| c <= '\u{1f}' || c == '\u{7f}') {
             refused += 1;
             let Err(CoreError::DomainError { message: Some(message), code: None, .. }) = &answer else { panic!("{label}: got {answer:?}") };
-            assert_eq!(message.as_str(), "title is invalid.", "{label}");
+            assert_eq!(&**message, "title is invalid.", "{label}");
             assert_eq!(after, before, "{label}: a refused rename writes nothing");
             continue;
         }
