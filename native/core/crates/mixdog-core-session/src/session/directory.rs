@@ -1217,13 +1217,31 @@ impl ThreadDirectory for SessionDirectory {
                 let mut header = Header::new();
                 header.insert("createdAt".into(), json!(now));
                 header.insert("updatedAt".into(), json!(now));
-                if let Some(path) = &params.project_path {
+                // The project the request names: its own path, else the new task's draft (`submitNewTask(prompt, options, draft)`).
+                let project = params
+                    .project_path
+                    .clone()
+                    .or_else(|| params.draft.as_ref().and_then(|draft| draft.project_path.clone()))
+                    .filter(|path| !path.trim().is_empty());
+                if let Some(path) = &project {
                     header.insert("cwd".into(), json!(path));
                 } else if params.kind == ThreadStartKind::Task {
                     // A task runs in the task workspace, resolved by the core as Node's host resolves it (`TaskWorkspace`);
                     // the tools below are composed for that folder.
                     let folder = self.inner.deps.task_workspace.path().await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
                     header.insert("cwd".into(), json!(folder));
+                }
+                // A session the desktop creates for a new task or a project is classified by the project it names, as the host
+                // writes it (`resolveSessionWorkspace`, session-host.ts:535-553, passed to `session.create`, stored by
+                // `lifecycle.mjs:61`): `{classification:'project', projectPath}` or `{classification:'task', projectPath:null}`.
+                // A start with no draft and no project is the control session, which Node creates with `desktopSession: null`
+                // (`ensureControlSession`): no classification is written.
+                if project.is_some() || params.draft.is_some() {
+                    let classified = match &project {
+                        Some(path) => json!({ "classification": "project", "projectPath": path }),
+                        None => json!({ "classification": "task", "projectPath": null }),
+                    };
+                    header.insert("desktopSession".into(), classified);
                 }
                 // Node's `sessionOptions` always applies: with no options a Lead is `full`, denied the goal tools.
                 super::session_options::write_header(&params.session.clone().unwrap_or_default(), &mut header);

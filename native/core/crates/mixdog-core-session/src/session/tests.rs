@@ -1077,6 +1077,36 @@ async fn a_task_thread_begins_in_the_task_workspace() {
     assert_eq!(cwd_of(project), None);
 }
 
+/// A new task or project thread carries Node's `desktopSession` classification in its header (the host's
+/// `resolveSessionWorkspace`); the control session (no draft, no project) carries none (`desktopSession: null`).
+#[tokio::test(start_paused = true)]
+async fn a_started_thread_is_classified_as_the_desktop_host_classifies_a_session() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(Arc::new(rig.deps_parts(rig.store.clone())));
+    let header_of = |reply: Reply| {
+        let Reply::Subscribe(started) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id"));
+        directory.handle(&id).expect("loaded").cell.header.load_full()
+    };
+    let start = |op: &'static str, params: Value| {
+        let directory = &directory;
+        async move { directory.request(request("thread/start", params, op)).await.expect("thread/start") }
+    };
+    let task = header_of(start("op-task", json!({ "opId": "op-task", "kind": "task", "draft": {} })).await);
+    assert_eq!(task["desktopSession"], json!({ "classification": "task", "projectPath": null }));
+    assert_eq!(task["cwd"], "/tasks");
+    let drafted = header_of(start("op-draft", json!({ "opId": "op-draft", "kind": "task", "draft": { "projectPath": "/repo" } })).await);
+    assert_eq!(drafted["desktopSession"], json!({ "classification": "project", "projectPath": "/repo" }));
+    assert_eq!(drafted["cwd"], "/repo");
+    let project = header_of(start("op-proj", json!({ "opId": "op-proj", "kind": "project", "projectPath": "/repo" })).await);
+    assert_eq!(project["desktopSession"], json!({ "classification": "project", "projectPath": "/repo" }));
+    let blank = header_of(start("op-blank", json!({ "opId": "op-blank", "kind": "task", "draft": { "projectPath": "  " } })).await);
+    assert_eq!(blank["desktopSession"], json!({ "classification": "task", "projectPath": null }));
+    let control = header_of(start("op-control", json!({ "opId": "op-control", "kind": "task" })).await);
+    assert!(control.get("desktopSession").is_none());
+    assert_eq!(control["cwd"], "/tasks");
+}
+
 /// `notification-bus.test.mjs` "a queued completion wakes its owner session" and
 /// `ask-queue.mjs:87-101`: the completion is the woken turn's input, a task-notification row.
 #[tokio::test(start_paused = true)]

@@ -549,6 +549,35 @@ mod tests {
         assert!(service.summary(&ThreadId::from(id.to_owned())).await.expect("summary").is_some());
     }
 
+    /// A stored `desktopSession` classifies the listed row as `_desktopSessionSummary` does, in the page and in the row the
+    /// app feed publishes (`summary`): a task has no project path, a project names its own.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_stored_desktop_session_classifies_the_listed_thread() {
+        let golden = golden();
+        let data = tempfile::tempdir().expect("data dir");
+        let service = service(data.path(), &golden).await;
+        let rows = [
+            ("sess_class_task", json!({ "classification": "task", "projectPath": null }), "C:\\Tasks"),
+            ("sess_class_project", json!({ "classification": "project", "projectPath": "C:\\Repo" }), "C:\\Repo"),
+        ];
+        for (id, desktop, cwd) in &rows {
+            let header = json!({ "id": id, "title": "Classified", "cwd": cwd, "desktopSession": desktop, "createdAt": 9_000_000_000_000_i64, "updatedAt": 9_000_000_000_000_i64 });
+            let head = CatalogHead { session: (*id).into(), log_id: "L".into(), base_session: None, header: header.as_object().expect("object").clone() };
+            service.store.upsert(head, DirtyMark::Clear).await.expect("upsert");
+        }
+        let answer = value(&service, request(LIST, json!({ "limit": 1000 }), None)).await.expect("list");
+        let row_of = |id: &str| answer["data"].as_array().expect("data").iter().find(|row| row["id"] == id).cloned().expect("listed");
+        for (id, desktop, _) in &rows {
+            let listed = row_of(id);
+            assert_eq!(listed["classification"], desktop["classification"], "{id}");
+            assert_eq!(listed["projectPath"], desktop["projectPath"], "{id}");
+            let published = service.summary(&ThreadId::from((*id).to_owned())).await.expect("summary").expect("row");
+            let published = serde_json::to_value(published).expect("summary json");
+            assert_eq!(published["classification"], desktop["classification"], "{id}");
+            assert_eq!(published["projectPath"], desktop["projectPath"], "{id}");
+        }
+    }
+
     /// A cursor that does not decode is Node's `EINVALIDCURSOR` failure; a text search or another
     /// ordering is not served by this listing.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
