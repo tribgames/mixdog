@@ -1169,8 +1169,10 @@ async fn a_seeded_thread_that_is_not_created_is_abandoned_once() {
 /// A request cancelled after the thread is published and before its first record is acknowledged
 /// (`create`'s wait on the actor) does not release the scope of the thread that then gets created:
 /// the actor owns the seed from the publication. When that first record fails instead, the actor
-/// abandons it, whoever is still waiting.
-#[tokio::test(start_paused = true)]
+/// abandons it, whoever is still waiting. The store's gate blocks the thread that runs the first
+/// record's lane job (the test backend runs lane jobs inline on the polling thread), so the test
+/// runs on a multi-thread runtime: its own thread is free to cancel the request and release the gate.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_start_cancelled_after_the_thread_is_published_leaves_its_scope_to_the_actor() {
     use mixdog_store::schema::record::Header;
     struct Tools(Mutex<Vec<ThreadId>>);
@@ -1335,8 +1337,12 @@ async fn a_fork_is_placed_where_the_desktop_places_an_heir() {
         header.insert("createdAt".into(), json!(1));
         header.insert("updatedAt".into(), json!(1));
         header.insert("cwd".into(), json!(cwd));
+        // Only a project session can sit in a managed worktree: a task session has no `workspace` record.
+        let in_project = desktop.get("classification") == Some(&json!("project"));
         if !desktop.is_null() {
             header.insert("desktopSession".into(), desktop);
+        }
+        if in_project {
             header.insert("workspace".into(), json!({ "worktreeId": "w1", "cwd": cwd, "projectPath": "/repo" }));
         }
         header

@@ -1354,8 +1354,9 @@ impl ThreadDirectory for SessionDirectory {
                         .await?;
                 }
                 // The draft's worktree, entered before the first prompt (Node: after the draft's route, workflow and mode).
-                // `cwd` becomes the managed worktree; the classification keeps the project.
-                if let Some(worktree) = params.draft.as_ref().and_then(|draft| draft.worktree.as_ref()) {
+                // `cwd` becomes the managed worktree; the classification keeps the project. The control session has
+                // no draft (`ensureControlSession`, not `createNewTask`): whatever draft a control start names enters nothing.
+                if let Some(worktree) = params.draft.as_ref().and_then(|draft| draft.worktree.as_ref()).filter(|_| !control) {
                     let input = params.initial_input.as_ref().and_then(|input| serde_json::to_value(input).ok());
                     self.inner.deps.new_place.enter_worktree(&handle.id, worktree, input.as_ref(), &req.ctx.cancel).await?;
                 }
