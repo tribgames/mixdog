@@ -411,6 +411,50 @@ syncCase('sync-without-a-section-leaves-the-session-alone', newSession('s-sync-n
   writeFileSync(join(here, 'golden', 'heartbeat.json'), `${JSON.stringify({ start: started, events }, null, 2)}\n`);
 }
 
+// ---- the stream decoder's own progress kinds, into the same heartbeat ----------------------------------------------------------
+// Node's Anthropic SSE decoder (`createAnthropicSseTurn`) fed a tool_use block, a thinking block and a text block, its
+// `onStreamDelta` wired to the real `markSessionStreamDelta`: per decoder event the progress kinds it reported and the
+// session's `lastHeartbeatAt` afterwards. `rust` names the Rust `StreamEvent` that is the same wire event.
+{
+  const live = await load(`${sessionDir}/manager/runtime-liveness.mjs`);
+  const { runtimeState } = await load(`${sessionDir}/manager/runtime-state.mjs`);
+  const { createAnthropicSseTurn } = await load('src/runtime/agent/orchestrator/providers/anthropic-sse-turn.mjs');
+  let saves = 0;
+  live.configureRuntimeLiveness({ saveSessionAsync: async () => { saves += 1; } });
+  const session = { id: 's-decoder', generation: 0 };
+  runtimeState.set(session.id, { stage: 'streaming', session, controller: { signal: { aborted: false } }, updatedAt: clock });
+  let kinds = [];
+  const pending = [];
+  const turn = createAnthropicSseTurn({
+    state: null,
+    knownToolNames: ['read'],
+    onStreamDelta: (kind = 'semantic') => {
+      kinds.push(kind);
+      pending.push(live.markSessionStreamDelta(session.id, kind));
+    },
+    onToolCall: () => {},
+    onTextDelta: () => {},
+  });
+  const steps = [
+    ['tool_use block opens', 'ToolCallStart', 0, () => turn.onContentBlockStart(0, { type: 'tool_use', id: 'c1', name: 'read' })],
+    ['arguments stream (first)', 'ToolCallArgsDelta', 70_000, () => turn.onContentBlockDelta(0, { type: 'input_json_delta', partial_json: '{"path":' })],
+    ['arguments stream (second)', 'ToolCallArgsDelta', 1_000, () => turn.onContentBlockDelta(0, { type: 'input_json_delta', partial_json: '"a.txt"}' })],
+    ['tool_use block closes', 'ToolCallDone', 61_000, () => turn.onContentBlockStop(0)],
+    ['thinking streams', 'ReasoningDelta', 1_000, () => { turn.onContentBlockStart(1, { type: 'thinking', thinking: '' }); turn.onContentBlockDelta(1, { type: 'thinking_delta', thinking: 'hm' }); }],
+    ['text streams', 'TextDelta', 61_000, () => { turn.onContentBlockStart(2, { type: 'text', text: '' }); turn.onContentBlockDelta(2, { type: 'text_delta', text: 'Done.' }); }],
+  ];
+  const events = [];
+  const started = clock;
+  for (const [label, rust, advance, drive] of steps) {
+    clock += advance;
+    kinds = [];
+    drive();
+    await Promise.all(pending.splice(0));
+    events.push({ label, rust, at: clock, kinds, after: session.lastHeartbeatAt ?? null, saves });
+  }
+  writeFileSync(join(here, 'golden', 'stream_progress.json'), `${JSON.stringify({ start: started, events }, null, 2)}\n`);
+}
+
 writeFileSync(join(here, 'golden', 'usage.json'), `${JSON.stringify({ cases }, null, 2)}\n`);
 refreshSetManifest(agentDir, nodeRoot);
 process.exit(0);

@@ -1,0 +1,64 @@
+{
+  "start": 1700000287103,
+  "events": [
+    {
+      "label": "tool_use block opens",
+      "rust": "ToolCallStart",
+      "at": 1700000287103,
+      "kinds": [],
+      "after": null,
+      "saves": 0
+    },
+    {
+      "label": "arguments stream (first)",
+      "rust": "ToolCallArgsDelta",
+      "at": 1700000357103,
+      "kinds": [
+        "tool"
+      ],
+      "after": 1700000357103,
+      "saves": 1
+    },
+    {
+      "label": "arguments stream (second)",
+      "rust": "ToolCallArgsDelta",
+      "at": 1700000358103,
+      "kinds": [
+        "tool"
+      ],
+      "after": 1700000357103,
+      "saves": 1
+    },
+    {
+      "label": "tool_use block closes",
+      "rust": "ToolCallDone",
+      "at": 1700000419103,
+      "kinds": [
+        "tool"
+      ],
+      "after": 1700000419103,
+      "saves": 2
+    },
+    {
+      "label": "thinking streams",
+      "rust": "ReasoningDelta",
+      "at": 1700000420103,
+      "kinds": [
+        "reasoning",
+        "reasoning"
+      ],
+      "after": 1700000419103,
+      "saves": 2
+    },
+    {
+      "label": "text streams",
+      "rust": "TextDelta",
+      "at": 1700000481103,
+      "kinds": [
+        "text"
+      ],
+      "after": 1700000481103,
+      "saves": 3
+    }
+  ]
+}
