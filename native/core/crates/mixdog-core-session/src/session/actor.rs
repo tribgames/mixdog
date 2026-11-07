@@ -2075,6 +2075,12 @@ impl SessionActor {
         // `settleTurn`'s `releaseWorkspace()`: every settled turn, whatever its outcome, starts
         // the removal of the snapshots it made, without waiting for it.
         self.deps.snapshots.turn_settled(&self.id);
+        // `completeTurn`'s `setSession(mgr.getSession(...))` (`turn-settle.mjs:38`) re-installs the session through
+        // `adoptSession`, whose `syncSessionCompaction` drops the resolved buffer the pre-send checks wrote and
+        // follows the saved settings: a completed turn only.
+        if matches!(outcome, RunOutcome::Completed(_)) {
+            self.sync_compaction();
+        }
         {
             let provider = slot.provider.as_str();
             match &outcome {
@@ -2618,8 +2624,9 @@ impl SessionActor {
         self.run.as_ref().is_some_and(|run| &run.turn == turn)
     }
 
-    /// `syncSessionCompaction(session, config)` (`session-compaction-sync.mjs`) at the session's installation: the
-    /// header's `compaction` follows the saved compaction settings. The later syncs (config reload, settings save) are
+    /// `syncSessionCompaction(session, config)` (`session-compaction-sync.mjs`) at every installation of the session
+    /// (`adoptSession`): when it is created or resumed, and when a turn completes (`run_ended`). The header's
+    /// `compaction` follows the saved compaction settings. The later syncs (config reload, settings save) are
     /// header updates the config-change follower sends (`run_host::compaction_follow`).
     fn sync_compaction(&mut self) {
         if let Some(synced) = self.deps.compaction.synced_compaction(&self.projected.header, true) {

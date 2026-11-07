@@ -2010,11 +2010,12 @@ async fn a_web_searchs_spend_is_heard_by_the_feed_and_not_by_the_headers_books()
 }
 
 
-/// A turn does not re-sync the session's compaction with the saved settings (that is the install and the config-change
-/// events' work), the first streamed text stamps the disk-side heartbeat (`markSessionStreamDelta`) once and not again within a minute, and a report that
+/// A turn's start does not re-sync the session's compaction with the saved settings, its completion does
+/// (`completeTurn`'s `setSession`, `turn-settle.mjs:38`, runs `syncSessionCompaction`), the first streamed text stamps the
+/// disk-side heartbeat (`markSessionStreamDelta`) once and not again within a minute, and a report that
 /// prices the transcript has the meters prepared first (`MediaMeter::prepare`).
 #[tokio::test(start_paused = true)]
-async fn a_turn_stamps_its_heartbeat_and_prepares_its_meters_without_a_compaction_sync() {
+async fn a_turn_stamps_its_heartbeat_and_prepares_its_meters_and_syncs_the_compaction_when_it_completes() {
     let rig = Rig::new();
     let gate: Arc<tokio::sync::Notify> = Arc::default();
     let release = gate.clone();
@@ -2038,11 +2039,12 @@ async fn a_turn_stamps_its_heartbeat_and_prepares_its_meters_without_a_compactio
     turn(&handle, "go", "op-1").await;
     eventually(|| handle.live_header().header().get("lastHeartbeatAt").filter(|at| at.as_f64().is_some_and(|at| at > 0.0)).map(|_| ())).await;
     let stamped = handle.live_header().header().get("lastHeartbeatAt").cloned();
+    assert_eq!(*lock(&rig.compaction.sync_calls), vec![true], "the installation syncs; a turn start and its checks do not");
     gate.notify_one();
     eventually(|| idle(&handle).then_some(())).await;
     let live = handle.live_header();
     let header = live.header();
-    assert_eq!(*lock(&rig.compaction.sync_calls), vec![true], "only the installation syncs; a turn start does not");
+    assert_eq!(*lock(&rig.compaction.sync_calls), vec![true, true], "the completed turn syncs again");
     assert_eq!(header.get("lastHeartbeatAt"), stamped.as_ref(), "the second delta is inside the minute");
     let provider = header.get("provider").and_then(Value::as_str).unwrap_or_default().to_owned();
     assert_eq!(*lock(&rig.compaction.prepared), vec![(provider, 0usize)]);
