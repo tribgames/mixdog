@@ -333,8 +333,12 @@ const CUSTOM_REPLY: Readonly<Record<string, Reply>> = {
   githubCliLoginStart: (reply, { call }) => call('github/login/status', { flowId: record(reply).flowId }),
   // Node answered the boolean the UI reads as "the browser was opened by gh".
   githubCliLoginOpenBrowser: (reply) => reply === true,
-  // The tab id is the client's own; Node answered {id, replay, sizeOwner?}.
-  termEnsure: (reply, { params }) => ({ id: params.tabId, ...record(reply) }),
+  // The tab id is the client's own; Node answered {id, replay, sizeOwner?} and left `sizeOwner` out when no phone owns
+  // the size, where the core writes null.
+  termEnsure: (reply, { params }) => {
+    const { sizeOwner, ...rest } = record(reply);
+    return { id: params.tabId, ...rest, ...(sizeOwner == null ? {} : { sizeOwner }) };
+  },
   // Node answered the bytes received so far: a chunk is acknowledged only when written, at offset + its length.
   serverUploadChunk: (_reply, { args }) => ({
     received: Number(args[1]) + Buffer.from(String(args[2]), 'base64').length,
