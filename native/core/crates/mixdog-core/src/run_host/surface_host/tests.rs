@@ -726,15 +726,52 @@ fn the_mcp_fold_follows_node() {
     let mut turns = 0;
     for case in fold["cases"].as_array().expect("cases").iter().filter(|case| case["suite"] == "turn") {
         let label = case["name"].as_str().expect("name");
+        let thread = ThreadId::from(label);
         let mut header = header_of(&case["before"]);
         for (n, step) in case["steps"].as_array().expect("steps").iter().enumerate() {
             let live = step["live"].as_array().expect("live").clone();
-            header = host.folded_surface(&header, &live).expect(label);
+            // Another writer's change between two calls (an acknowledged delta, a gate).
+            for (key, value) in step["set"].as_object().into_iter().flatten() {
+                header.insert(key.clone(), value.clone());
+            }
+            // `turn`: the turn start; `refresh`: `refreshDeferredMcpToolCatalog` over the (empty) registry.
+            let (next, state) = match step["call"].as_str().expect("call") {
+                "turn" => host.folded_surface(&thread, &header, &live, true),
+                "refresh" => host.folded_surface(&thread, &header, &[], false),
+                other => panic!("{label} step {n}: unknown call {other}"),
+            }
+            .expect(label);
+            host.note_mcp_state(&thread, state);
+            header = next;
             assert_eq!(header, header_of(&step["after"]), "{label} step {n}");
             turns += 1;
         }
     }
     assert!(turns > 0);
+}
+
+/// The loop's refresh (request boundary, tool call, `load_tool`) writes what Node's
+/// `refreshDeferredMcpToolCatalog` leaves, once: the same registry again is skipped by the state cache. A thread with
+/// no deferred mode is not touched.
+#[tokio::test]
+async fn the_loops_mcp_refresh_follows_nodes() {
+    let golden = golden();
+    let fold = fold_golden();
+    let case = |name: &str| fold["cases"].as_array().expect("cases").iter().find(|case| case["name"] == name).expect("case").clone();
+    let thread = ThreadId::from("t1");
+    let moving = case("refresh: a session with a deferred mode follows the registry");
+    let rig_moving = rig(&golden, Setup { header: header_of(&moving["before"]), ..setup("full") });
+    rig_moving.host.refresh_mcp(&thread).await.expect("refresh");
+    assert_eq!(*rig_moving.threads.header.lock().unwrap(), header_of(&moving["steps"][0]["after"]));
+    assert_eq!(rig_moving.threads.patches.lock().unwrap().len(), 1);
+    rig_moving.host.refresh_mcp(&thread).await.expect("again");
+    assert_eq!(*rig_moving.threads.header.lock().unwrap(), header_of(&moving["steps"][1]["after"]));
+    assert_eq!(rig_moving.threads.patches.lock().unwrap().len(), 1, "an unchanged registry writes nothing");
+    let bare = case("refresh: a session with no deferred mode is left alone");
+    let rig_bare = rig(&golden, Setup { header: header_of(&bare["before"]), ..setup("full") });
+    rig_bare.host.refresh_mcp(&thread).await.expect("refresh");
+    assert_eq!(*rig_bare.threads.header.lock().unwrap(), header_of(&bare["steps"][0]["after"]));
+    assert!(rig_bare.threads.patches.lock().unwrap().is_empty());
 }
 
 /// The first turn clears its one-shot flag and writes the fold once: the header afterwards is Node's, and a second

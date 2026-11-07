@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 422442,
+      "bytes": 525629,
       "path": "golden.json",
-      "sha256": "e705462100111354c6057a1437f218fe6f645a1cdf0613318cb0619a81bc040a"
+      "sha256": "ca800d555f10085b456273b9a297b944079a6c7bc623c128ec375bf405492249"
     }
   ],
   "product": {
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-mcp-fold.mjs",
   "set": "mcp-fold",
-  "totalBytes": 422442
+  "totalBytes": 525629
 }

@@ -262,6 +262,11 @@ impl Run {
     /// transcript stops changing (a changed transcript ends the request
     /// attempt: repair the new history and take one fresh snapshot).
     pub(crate) async fn prepare_request_boundary(&mut self) -> Result<(), AgentError> {
+        // `refreshDeferredMcpToolCatalog(sessionRef)` of `prepareProviderRequest`: once per request, before
+        // the transcript is repaired and the request's tools are taken.
+        if let Some(mcp) = self.env.mcp.clone() {
+            mcp.refresh().await;
+        }
         // A soft compact target may remain above an explicit trigger: never
         // compact the same input twice before a provider attempt.
         let mut compact_attempted = false;

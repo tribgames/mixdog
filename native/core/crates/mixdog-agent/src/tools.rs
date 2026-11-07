@@ -497,6 +497,8 @@ pub(crate) struct CallEnv {
     pub(crate) cancel: CancellationToken,
     /// The run's clock, for a call's `toolTiming`.
     pub(crate) clock: Arc<dyn crate::env::Clock>,
+    /// The session's MCP catalog, refreshed around the call (`prepareToolCall`, `executeTool`).
+    pub(crate) mcp: Option<Arc<dyn crate::env::McpCatalog>>,
 }
 
 fn render_output(parts: Vec<ToolPart>) -> Content {
@@ -634,6 +636,8 @@ pub struct Pipeline {
     pub hooks: Option<Arc<dyn crate::env::ToolHooks>>,
     pub observer: Arc<dyn crate::env::RunObserver>,
     pub guards: Arc<dyn TurnGuards>,
+    /// The calling thread's MCP catalog, refreshed once a nested MCP call has passed its gate.
+    pub mcp: Option<Arc<dyn crate::env::McpCatalog>>,
 }
 
 /// One call made from inside a running tool, through the ordinary pipeline: the gate and
@@ -659,6 +663,12 @@ pub async fn run_nested(
     )
     .await
     .map_err(refused)?;
+    // A `call_tool` is projected onto its target, which Node runs as a direct call (`tool-exec.mjs:114`).
+    if target.name.starts_with("mcp__")
+        && let Some(mcp) = &pipeline.mcp
+    {
+        mcp.refresh().await;
+    }
     let Some(tool) = tools.resolve(&target.name) else {
         return Err(refused(crate::text::unknown_tool_message(&target.name, &[])));
     };
@@ -753,6 +763,10 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
     let dispatch_started_at = env.clock.now_ms();
     let call = call.clone();
     let name = call.name.clone();
+    // `prepareToolCall` (`tool-exec/call-prep.mjs:70`): every call starts from the live registry.
+    if let Some(mcp) = &env.mcp {
+        mcp.refresh().await;
+    }
     let target = match authorize(
         &call.id,
         &name,
@@ -767,6 +781,13 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
         Ok(target) => target,
         Err(text) => return Executed::error(&call.id, text),
     };
+    // `tool-exec.mjs:114`: an MCP call, once its hooks, approval and denial are behind it (the wait for an
+    // approval can outlast a server's connect), is judged against the registry as it stands now.
+    if target.name.starts_with("mcp__")
+        && let Some(mcp) = &env.mcp
+    {
+        mcp.refresh().await;
+    }
     let Some(tool) = env.tools.get(&target.name).cloned() else {
         let names = env.tools.builtin_names();
         return Executed::error(&call.id, crate::text::unknown_tool_message(&target.name, &names));
@@ -1118,6 +1139,7 @@ mod tests {
             hooks: None,
             observer: Arc::new(crate::env::NullObserver),
             guards: Arc::new(crate::env::NoGuards),
+            mcp: None,
             clock: Arc::new(NoClock),
             tool_env: ToolEnv {
                 thread_id: ThreadId::from("t"),

@@ -218,6 +218,7 @@ impl Run {
             tool_env: self.tool_env.clone(),
             cancel: self.cancel.clone(),
             clock: Arc::clone(&self.env.clock),
+            mcp: self.env.mcp.clone(),
         })
     }
 

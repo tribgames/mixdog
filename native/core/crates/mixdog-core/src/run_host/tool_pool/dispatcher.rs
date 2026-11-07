@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_agent::env::McpCatalog;
 use mixdog_agent::env::NoGuards;
 use mixdog_agent::env::NullObserver;
 use mixdog_agent::env::PolicyGate;
@@ -33,6 +34,8 @@ use tokio::sync::watch;
 
 use crate::run_host::hooks::PostToolDispatch;
 use crate::run_host::hooks::SessionToolHooks;
+use crate::run_host::turn_settings::SettingsMcp;
+use crate::run_host::turn_settings::TurnSettings;
 
 /// What the policy reads of a running session.
 pub struct LiveSession {
@@ -61,9 +64,18 @@ pub struct PipelineDispatcher {
     tools: Arc<dyn ToolResolver>,
     gate_env: Arc<dyn GateEnv>,
     post_tool: Arc<dyn PostToolDispatch>,
+    /// The turn settings whose MCP catalog a bridged MCP call refreshes before it is judged.
+    mcp: Option<Arc<dyn TurnSettings>>,
 }
 
 impl PipelineDispatcher {
+    /// A bridged MCP call refreshes the thread's MCP catalog through `settings`, as a direct call does.
+    #[must_use]
+    pub fn with_mcp(mut self, settings: Arc<dyn TurnSettings>) -> Self {
+        self.mcp = Some(settings);
+        self
+    }
+
     /// `policy`, `connectors`, `tools` and `gate_env` are the very values the turn's own gate is
     /// built from (`TurnPath`'s `policy`, `connectors`, `resolver` and `HostGateEnv`).
     pub fn new(
@@ -74,7 +86,7 @@ impl PipelineDispatcher {
         gate_env: Arc<dyn GateEnv>,
         post_tool: Arc<dyn PostToolDispatch>,
     ) -> Self {
-        Self { sessions, policy, connectors, tools, gate_env, post_tool }
+        Self { sessions, policy, connectors, tools, gate_env, post_tool, mcp: None }
     }
 }
 
@@ -105,7 +117,8 @@ impl ToolDispatcher for PipelineDispatcher {
         });
         let hooks = SessionToolHooks::new(ctx.thread_id.as_str(), ctx.cwd.as_path(), self.post_tool.clone());
         let hooks: Arc<dyn ToolHooks> = Arc::new(hooks);
-        let pipeline = Pipeline { gate: Arc::new(gate), hooks: Some(hooks), observer, guards };
+        let mcp = self.mcp.clone().map(|settings| Arc::new(SettingsMcp { settings, thread: ctx.thread_id.clone() }) as Arc<dyn McpCatalog>);
+        let pipeline = Pipeline { gate: Arc::new(gate), hooks: Some(hooks), observer, guards, mcp };
         run_nested(&pipeline, self.tools.as_ref(), ctx, name, arguments).await
     }
 }

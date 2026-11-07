@@ -43,6 +43,7 @@ use super::tool_surface::permitted_by_session_policy;
 use super::tool_surface::readonly_selectable;
 use super::tool_surface::sorted_catalog_by_measured_usage;
 use super::tool_surface::tool_name;
+use super::turn_settings::TurnSettings;
 
 /// `MCP_INSTRUCTION_MAX_CHARS` of `context/deferred-tools.mjs`.
 const MCP_INSTRUCTION_MAX_CHARS: usize = 600;
@@ -64,9 +65,19 @@ pub struct SessionCatalog {
     surfaces: HeaderToolSurfaces,
     host: Arc<dyn SurfaceHost>,
     clock: Arc<dyn Clock>,
+    /// The turn settings that refresh a thread's MCP catalog before `load_tool` reads it.
+    mcp: Option<Arc<dyn TurnSettings>>,
 }
 
 impl SessionCatalog {
+    /// `load_tool` refreshes the thread's MCP catalog through `settings` first (`toolSearch` of
+    /// `internal-tool-executor/knowledge-tools.mjs`).
+    #[must_use]
+    pub fn with_refresh(mut self, settings: Arc<dyn TurnSettings>) -> Self {
+        self.mcp = Some(settings);
+        self
+    }
+
     /// `exclusions` is the one `RouteExclusions` the session surfaces are built from.
     pub fn new(
         sessions: Arc<dyn RunningHeaders>,
@@ -75,7 +86,7 @@ impl SessionCatalog {
         host: Arc<dyn SurfaceHost>,
         clock: Arc<dyn Clock>,
     ) -> Self {
-        Self { sessions, threads, surfaces: HeaderToolSurfaces::new(exclusions), host, clock }
+        Self { sessions, threads, surfaces: HeaderToolSurfaces::new(exclusions), host, clock, mcp: None }
     }
 
     fn running(&self, thread: &ThreadId) -> Option<(Arc<Header>, Value)> {
@@ -310,6 +321,14 @@ impl CatalogView for SessionCatalog {
             }
         }
     }
+    async fn refresh(&self, thread: &ThreadId) {
+        if let Some(settings) = &self.mcp
+            && let Err(error) = settings.refresh_mcp(thread).await
+        {
+            tracing::warn!("[mcp] catalog refresh failed: {error}");
+        }
+    }
+
     /// `resolveBridgeTarget` after the argument checks.
     fn resolve_call(&self, thread: &ThreadId, name: &str) -> CallResolution {
         let Some((header, session)) = self.running(thread) else { return CallResolution::NotFound };

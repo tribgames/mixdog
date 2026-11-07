@@ -121,6 +121,9 @@ pub trait CatalogView: Send + Sync {
     /// a page that carried instruction text.
     async fn announce(&self, thread: &ThreadId, names: &[String]);
     fn resolve_call(&self, thread: &ThreadId, name: &str) -> CallResolution;
+    /// `refreshDeferredMcpToolCatalog(session)` before `load_tool` reads the catalog: the connected names and the
+    /// late pool follow the live registry. A catalog that is not fed by one has nothing to refresh.
+    async fn refresh(&self, _thread: &ThreadId) {}
 }
 
 /// The ordinary execution pipeline (policy, hooks, approval, deadline) for a named tool.
@@ -264,6 +267,7 @@ fn fits(page: &Page<'_>) -> bool {
 /// `load_tool` as the session runs it: the page, and when the page carried MCP instruction text,
 /// the record that the session was told it (only the servers of the entries that made the page).
 pub async fn load(catalog: &dyn CatalogView, thread: &ThreadId, args: &Value) -> Result<String, ToolError> {
+    catalog.refresh(thread).await;
     let page = describe(catalog, thread, args)?;
     let parsed: Value = serde_json::from_str(&page).expect("a described page is JSON");
     if parsed.get("mcpInstructions").and_then(Value::as_str).is_some_and(|text| !text.is_empty()) {

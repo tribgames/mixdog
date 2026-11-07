@@ -613,6 +613,7 @@ struct Harness {
     side: Option<Arc<dyn mixdog_agent::env::SendTap>>,
     reuse: Option<Arc<dyn ResultReuse>>,
     route: Option<Arc<dyn RouteFallback>>,
+    mcp: Option<Arc<dyn mixdog_agent::env::McpCatalog>>,
     cancel: CancellationToken,
     clock: Arc<FixedClock>,
 }
@@ -632,6 +633,7 @@ impl Harness {
             side: None,
             reuse: None,
             route: None,
+            mcp: None,
             cancel: CancellationToken::new(),
             clock: Arc::new(FixedClock(AtomicI64::new(1_000))),
         }
@@ -665,6 +667,7 @@ impl Harness {
             reuse: self.reuse.clone(),
             reactions: None,
             tail: self.tail.clone(),
+            mcp: self.mcp.clone(),
             side: self.side.clone(),
             step_judge: None,
             artifacts: None,
@@ -2356,4 +2359,29 @@ async fn each_send_is_captured_with_its_request_and_settled_with_its_reply() {
     h.steer.push(DrainStage::Terminal, "one more thing");
     finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
     assert_eq!(*log.0.lock().unwrap(), ["begin:1", "settle:first", "begin:3", "settle:second"]);
+}
+struct CountMcp(AtomicU64);
+
+#[async_trait::async_trait]
+impl mixdog_agent::env::McpCatalog for CountMcp {
+    async fn refresh(&self) {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Node refreshes the session's MCP catalog once per request (`request-boundary.mjs:77`), at the start of
+/// every tool call (`call-prep.mjs:70`) and, for an MCP call, again once its gate has passed (`tool-exec.mjs:114`):
+/// two requests, one plain and one MCP call make 1 + (1) + (1 + 1) + 1.
+#[tokio::test]
+async fn the_mcp_catalog_is_refreshed_where_node_refreshes_it() {
+    let mut h = Harness::new(vec![
+        turn(vec![call("c1", "echo", json!({})), call("c2", "mcp__srv__ping", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("done"), done(StopReason::EndTurn)]),
+    ]);
+    let counter = Arc::new(CountMcp(AtomicU64::new(0)));
+    h.mcp = Some(counter.clone());
+    let echo = Echo::tool();
+    let ping: Arc<dyn Tool> = Arc::new(Echo(ToolSpec { name: "mcp__srv__ping".into(), ..echo.spec().clone() }));
+    finish(h.run(config(), vec![echo, ping], vec![AgentMessage::user("go")])).await;
+    assert_eq!(counter.0.load(std::sync::atomic::Ordering::SeqCst), 5);
 }
