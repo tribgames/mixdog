@@ -91,6 +91,59 @@ async fn call(env: &Env, method: &'static str, params: Value) -> Result<Value, C
     }
 }
 
+struct NoneGone;
+
+#[async_trait::async_trait]
+impl mixdog_workspace::grants::SessionCatalog for NoneGone {
+    async fn has(&self, _: &str) -> mixdog_workspace::error::WsResult<bool> {
+        Ok(true)
+    }
+}
+
+/// The paired device's side of the spec's `transfer/*` (SPEC.md R44): a path outside every project is described
+/// with a one-file grant (`transfer/grant/mint`), which `transfer/beginRead` redeems for exactly that file; the
+/// request is a relay connection (origin Relay), paired as "phone-1".
+#[tokio::test(flavor = "multi_thread")]
+async fn a_paired_device_reads_one_granted_file_outside_its_projects_and_nothing_else() {
+    let env = env();
+    env.service.set_phone_grants(
+        Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(NoneGone))),
+        Arc::new(|connection: ConnectionId| (connection.0 == 1).then(|| "phone-1".to_owned())),
+    );
+    let outside = env.root.parent().unwrap().join("granted-outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("note.txt"), "hi\n").unwrap();
+    std::fs::write(outside.join("other.txt"), "secret\n").unwrap();
+
+    // Outside every project: the row Node's `resolveLocalPaths` answers, with a grant.
+    let minted = call(&env, "transfer/grant/mint", json!({ "path": outside.join("note.txt").to_string_lossy() })).await.unwrap();
+    assert_eq!(minted["relPath"], "note.txt");
+    assert_eq!(minted["projectPath"], outside.to_string_lossy().as_ref());
+    assert_eq!((minted["name"].clone(), minted["size"].clone(), minted["dir"].clone()), (json!("note.txt"), json!(3), json!(false)));
+    let token = minted["accessToken"].as_str().unwrap().to_owned();
+    // Inside a registered project: the project and path, no grant.
+    let inside = call(&env, "transfer/grant/mint", json!({ "path": env.root.join("a.txt").to_string_lossy() })).await.unwrap();
+    assert_eq!((inside["projectPath"].clone(), inside["relPath"].clone()), (json!(env.root.to_string_lossy()), json!("a.txt")));
+    assert!(inside.get("accessToken").is_none());
+    // A conversation's attachment is always granted.
+    let attachment = call(&env, "transfer/grant/mint", json!({ "path": env.root.join("a.txt").to_string_lossy(), "sessionId": "s1" })).await.unwrap();
+    assert!(attachment["accessToken"].is_string());
+
+    let source = |rel: &str, token: &str| json!({ "source": { "kind": "granted", "accessToken": token, "projectPath": outside.to_string_lossy(), "relPath": rel } });
+    let began = call(&env, "transfer/beginRead", source("note.txt", &token)).await.unwrap();
+    assert_eq!(began["size"], 3);
+    let range = call(&env, "transfer/readRange", json!({ "transferId": began["transferId"], "offset": 0, "length": 3 })).await.unwrap();
+    assert_eq!(range["data"], "aGkK");
+    // The grant names one exact file, and a token that was never issued opens nothing.
+    let other = call(&env, "transfer/beginRead", source("other.txt", &token)).await;
+    assert!(format!("{other:?}").contains("The selected-file permission does not match this path."), "{other:?}");
+    let unknown = call(&env, "transfer/beginRead", source("note.txt", "not-a-token")).await;
+    assert!(format!("{unknown:?}").contains("SELECTED_FILE_GRANT_UNAVAILABLE"), "{unknown:?}");
+    // Without a grant a relay connection reads no absolute path.
+    let plain = call(&env, "transfer/beginRead", json!({ "source": { "kind": "localFile", "path": outside.join("other.txt").to_string_lossy() } })).await;
+    assert!(matches!(plain, Err(CoreError::PermissionDenied { .. })), "{plain:?}");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_local_connection_reads_any_absolute_folder_while_a_relay_is_held_to_the_projects() {
     let env = env();

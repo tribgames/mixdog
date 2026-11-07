@@ -197,7 +197,8 @@ pub trait IdleClock: Send + Sync {
     fn now(&self) -> Instant;
 }
 
-struct SystemClock;
+/// The daemon's clock: the monotonic one.
+pub struct SystemClock;
 
 impl IdleClock for SystemClock {
     fn now(&self) -> Instant {

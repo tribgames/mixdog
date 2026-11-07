@@ -16152,6 +16152,24 @@
       ],
       "type": "object"
     },
+    "TransferGrantMintParams": {
+      "description": "Params of `transfer/grant/mint`.",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
     "TransferReadRangeParams": {
       "description": "Params of `transfer/readRange`.",
       "properties": {
@@ -16289,6 +16307,33 @@
           "required": [
             "input",
             "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A one-file grant minted for this paired device (`transfer/grant/mint`), redeemed with the path Node's file calls name (`projectPath` + `relPath`).",
+          "properties": {
+            "accessToken": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "granted"
+              ],
+              "type": "string"
+            },
+            "projectPath": {
+              "type": "string"
+            },
+            "relPath": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "accessToken",
+            "kind",
+            "projectPath",
+            "relPath"
           ],
           "type": "object"
         }
@@ -20379,6 +20424,12 @@
       "result": {
         "$ref": "#/definitions/EmptyResult"
       }
+    },
+    "transfer/grant/mint": {
+      "params": {
+        "$ref": "#/definitions/TransferGrantMintParams"
+      },
+      "result": true
     },
     "transfer/readRange": {
       "params": {

@@ -13,6 +13,7 @@ pub mod search;
 pub mod service;
 pub mod servertrash;
 pub mod glob;
+pub mod grants;
 pub mod ident;
 pub mod localfs;
 pub mod textsearch;

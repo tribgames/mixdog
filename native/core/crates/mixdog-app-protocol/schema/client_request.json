@@ -10566,6 +10566,24 @@
       ],
       "type": "object"
     },
+    "TransferGrantMintParams": {
+      "description": "Params of `transfer/grant/mint`.",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
     "TransferReadRangeParams": {
       "description": "Params of `transfer/readRange`.",
       "properties": {
@@ -10703,6 +10721,33 @@
           "required": [
             "input",
             "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A one-file grant minted for this paired device (`transfer/grant/mint`), redeemed with the path Node's file calls name (`projectPath` + `relPath`).",
+          "properties": {
+            "accessToken": {
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "granted"
+              ],
+              "type": "string"
+            },
+            "projectPath": {
+              "type": "string"
+            },
+            "relPath": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "accessToken",
+            "kind",
+            "projectPath",
+            "relPath"
           ],
           "type": "object"
         }
@@ -19933,6 +19978,29 @@
         },
         "params": {
           "$ref": "#/definitions/TransferTrashEntryParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Mint a one-file grant for a paired device's path outside every project.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "transfer/grant/mint"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/TransferGrantMintParams"
         }
       },
       "required": [

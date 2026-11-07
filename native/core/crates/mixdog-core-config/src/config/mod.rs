@@ -526,6 +526,16 @@ impl Shared {
         };
         let key = schema::lookup(&self.keys, path)
             .ok_or_else(|| invalid("a known config key".into()))?;
+        // Node's store, on its first load with no file, writes the document with `migratedAt: now`
+        // (`notification-preferences.ts:228`): devices paired before it keep the plain default, later ones
+        // start from bot chats. The first write into an unwritten subtree is that load.
+        if parts_of(path).first() == Some(&"notifications")
+            && path != "notifications"
+            && path != "notifications.migratedAt"
+            && get_in(doc, &["notifications"]).is_none()
+        {
+            set_in(doc, &["notifications", "migratedAt"], Value::from(epoch_ms()));
+        }
         let wants = |kind: schema::Kind| std::mem::discriminant(&kind) == std::mem::discriminant(&key.kind);
         let parts: Vec<&str> = path.split('.').collect();
         if matches!(edit.mode, ConfigWriteMode::MergePatch | ConfigWriteMode::MergePatchBots) {
@@ -545,11 +555,7 @@ impl Shared {
             if !wants(schema::Kind::NotificationOverrides) {
                 return Err(invalid("the notifications.overrides path".into()));
             }
-            // `Date.now()`: milliseconds from the epoch, negative for a clock set before it.
-            let now = match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
-                Ok(since) => since.as_millis() as i64,
-                Err(before) => -(before.duration().as_millis() as i64),
-            };
+            let now = epoch_ms();
             let next = notifications::set_conversation(get_in(doc, &parts), &edit.value, now).map_err(invalid)?;
             set_in(doc, &parts, next);
             return Ok(());
@@ -602,6 +608,18 @@ impl Shared {
         }
         Ok(())
     }
+}
+
+/// `Date.now()`: milliseconds from the epoch, negative for a clock set before it.
+fn epoch_ms() -> i64 {
+    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        Ok(since) => since.as_millis() as i64,
+        Err(before) => -(before.duration().as_millis() as i64),
+    }
+}
+
+fn parts_of(path: &str) -> Vec<&str> {
+    path.split('.').collect()
 }
 
 /// `DesktopSettingsStore.update('autoCompact')`: before `auto` is stored, the retired compaction

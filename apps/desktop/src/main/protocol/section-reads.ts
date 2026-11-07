@@ -93,6 +93,15 @@ function pairedClients(remote: Record<string, unknown>): DesktopRemoteClientInfo
     }));
 }
 
+/** The store's `migratedAt`. With no document at all Node's store writes one stamped `now` on its first load
+ *  (`notification-preferences.ts:228`): a device paired before this moment gets the plain default. A document
+ *  without a valid stamp reads 0 (`:120`). */
+export function migratedAtOf(subtree: unknown, now = Date.now()): number {
+  if (subtree === undefined) return now;
+  const stamp = record(subtree).migratedAt;
+  return Number.isSafeInteger(stamp) ? (stamp as number) : 0;
+}
+
 /** `notificationPreferencesState(currentDeviceId, pcCanNotify | null)`: this PC, then the paired devices (the
  *  Connection tab's list, `remote.clients`), each with its stored preferences or the default its kind and pairing
  *  time give it. A paired device can be notified when the core holds a native push registration for it
@@ -128,7 +137,7 @@ export async function notificationPreferencesState(
     ...paired.map((client) => [client.id, pairedDeviceInfo(client)] as const),
   ]);
   const stored = {
-    migratedAt: Number.isSafeInteger(notifications.migratedAt) ? (notifications.migratedAt as number) : 0,
+    migratedAt: migratedAtOf(held(snapshot, 'config', 'notifications')),
     devices: Object.fromEntries(
       Object.entries(record(notifications.devices)).map(([id, preferences]) => [id, storedPreferences(preferences)])
     ),

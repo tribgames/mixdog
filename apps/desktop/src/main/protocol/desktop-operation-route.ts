@@ -14,6 +14,7 @@ import {
   visualizeRemoteViewing,
   DEFAULT_OPERATION_HOST,
   listConversationNotifications,
+  migratedAtOf,
   notificationPreferencesState,
   type OperationHost,
   readActivityRailPins,
@@ -358,7 +359,8 @@ const PREPARERS: Readonly<Record<string, Prepare>> = {
   // the mode names which default the core merges the patch onto. A device that is not paired is refused, as Node does.
   // The paired device is a row of the `remote` section's `clients` (mixdog-remote `ClientInfo`: id, name, platform,
   // browser, createdAt, lastSeenAt, online, and pendingRemoval while an unpair is queued); `migratedAt` is the one of
-  // `config.notifications`, 0 while that subtree has not been written, as the notification state reads it.
+  // `config.notifications`: an unwritten subtree is a store Node would stamp `now` on first load, a written one without
+  // the stamp reads 0 (`migratedAtOf`, notification-preferences.ts:228 and :120), as the notification state reads it.
   setNotificationPreferences: async (args, { entries }) => {
     const deviceId = String(args[2] ?? '');
     if (deviceId === 'pc') return [...args, 'mergePatch'];
@@ -367,8 +369,7 @@ const PREPARERS: Readonly<Record<string, Prepare>> = {
       .map(record)
       .find((candidate) => candidate.id === deviceId && candidate.pendingRemoval !== true);
     if (!client) throw new TypeError('That device is not paired with this PC.');
-    const stored = record(entries().find((entry) => entry.section === 'config' && entry.key === 'notifications')?.value).migratedAt;
-    const migratedAt = Number.isSafeInteger(stored) ? (stored as number) : 0;
+    const migratedAt = migratedAtOf(entries().find((entry) => entry.section === 'config' && entry.key === 'notifications')?.value);
     const info = pairedDeviceInfo({
       id: deviceId,
       name: '',

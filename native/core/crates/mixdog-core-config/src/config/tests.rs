@@ -161,6 +161,25 @@ fn a_device_patch_merges_onto_its_stored_or_default_record() {
     assert!(config.write("desktop.keepAwake", json!({}), ConfigWriteMode::MergePatch).is_err());
 }
 
+/// Node's store stamps `migratedAt: now` when it first loads with no document (`notification-preferences.ts:228`); an
+/// existing document keeps the stamp it has (`:120` reads a missing or invalid one as 0).
+#[test]
+fn the_first_notification_write_stamps_migrated_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, None);
+    assert!(on_disk(&dir).get("notifications").is_none());
+    config.write("notifications.devices.cred1", json!({ "scope": "off" }), ConfigWriteMode::MergePatch).unwrap();
+    let stamped = on_disk(&dir)["notifications"]["migratedAt"].as_i64().unwrap();
+    assert!(stamped > 0);
+    config.write("notifications.devices.cred2", json!({ "scope": "off" }), ConfigWriteMode::MergePatch).unwrap();
+    assert_eq!(on_disk(&dir)["notifications"]["migratedAt"].as_i64(), Some(stamped), "the stamp is written once");
+    // A document that already exists, with no stamp, is left as it is: that reads as 0.
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, Some(json!({ "notifications": { "devices": {} } })));
+    config.write("notifications.devices.cred1", json!({ "scope": "off" }), ConfigWriteMode::MergePatch).unwrap();
+    assert!(on_disk(&dir)["notifications"].get("migratedAt").is_none());
+}
+
 #[test]
 fn a_conversation_setting_replaces_the_targets_entry_and_inherit_removes_it() {
     let dir = tempfile::tempdir().unwrap();

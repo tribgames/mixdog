@@ -202,6 +202,12 @@ struct Owned {
     publisher: Arc<Publisher>,
 }
 
+/// The paired devices' grants: the store and how a connection maps to its paired device.
+struct PhoneGrants {
+    store: Arc<crate::grants::GrantStore>,
+    credential_of: Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync>,
+}
+
 pub struct WorkspaceService {
     me: OnceLock<Weak<WorkspaceService>>,
     feeds: Arc<dyn ScopedFeeds>,
@@ -226,6 +232,7 @@ pub struct WorkspaceService {
     state: mixdog_store::state::CoreState,
     /// The desktop host's channel, for the methods only an Electron window can answer.
     host: OnceLock<Arc<dyn HostChannel>>,
+    phone_grants: OnceLock<PhoneGrants>,
 }
 
 fn s<'a>(params: &'a Value, key: &str) -> WsResult<&'a str> {
@@ -286,6 +293,7 @@ impl WorkspaceService {
             user_data: deps.user_data_dir,
             state: deps.state,
             host: OnceLock::new(),
+            phone_grants: OnceLock::new(),
         });
         let _ = service.me.set(Arc::downgrade(&service));
         Ok(service)
@@ -317,6 +325,30 @@ impl WorkspaceService {
     /// through; without one they answer `capabilityUnavailable`. Set once.
     pub fn set_host(&self, host: Arc<dyn HostChannel>) {
         let _ = self.host.set(host);
+    }
+
+    /// Connects the paired devices' one-file grants (`transfer/grant/mint` and the `granted` read source): the
+    /// store, and the credential a relay connection is paired as. Without it both answer `unsupported`. Set once.
+    pub fn set_phone_grants(
+        &self,
+        store: Arc<crate::grants::GrantStore>,
+        credential_of: Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync>,
+    ) {
+        let _ = self.phone_grants.set(PhoneGrants { store, credential_of });
+    }
+
+    /// The grant store and the paired device the request comes from.
+    fn phone_grants_for(&self, req: &CoreRequest) -> WsResult<(Arc<crate::grants::GrantStore>, String)> {
+        let grants = self
+            .phone_grants
+            .get()
+            .ok_or_else(|| WsError::new(Reason::Unsupported, "Paired-device file grants are not available."))?;
+        let credential = match &req.ctx.caller {
+            mixdog_core_api::call::Caller::Connection(id) => (grants.credential_of)(*id),
+            mixdog_core_api::call::Caller::Internal(_) => None,
+        };
+        let credential = credential.filter(|id| !id.is_empty()).ok_or_else(|| WsError::denied("This connection is not a paired device."))?;
+        Ok((grants.store.clone(), credential))
     }
 
     /// One `host/*` request to the desktop's file capability, its failure mapped to the coded
@@ -729,7 +761,20 @@ impl WorkspaceService {
                         let rel = s(source, "rel")?.to_owned();
                         run_fallible(self.lanes.interactive, &cancel, move || t.begin_project_read(&owner, &root, &rel)).await?
                     }
+                    Some("granted") => {
+                        let (grants, credential) = self.phone_grants_for(req)?;
+                        let granted = grants
+                            .redeem(&credential, s(source, "accessToken")?, s(source, "projectPath")?, s(source, "relPath")?)
+                            .await?;
+                        let (root, rel) = (granted.root, granted.rel);
+                        run_fallible(self.lanes.interactive, &cancel, move || t.begin_project_read(&owner, &root, &rel)).await?
+                    }
                     Some("localFile") => {
+                        // An absolute path is the desktop's and an SSH window's; a paired device reads outside its
+                        // projects only through a grant (`granted`).
+                        if matches!(req.ctx.origin, mixdog_protocol::Origin::Relay) {
+                            return Err(WsError::denied("A paired device reads local files through a granted-file permission."));
+                        }
                         let path = s(source, "path")?.to_owned();
                         run_fallible(self.lanes.interactive, &cancel, move || t.begin_local_read(&owner, &path)).await?
                     }
@@ -822,6 +867,32 @@ impl WorkspaceService {
             "transfer/trash/info" => {
                 let root = crate::pathguard::absolute_local_path(s(params, "path")?)?;
                 value(run_fallible(self.lanes.interactive, &cancel, move || Ok(crate::servertrash::info(&root))).await?)
+            }
+            "transfer/grant/mint" => {
+                // `resolveLocalPaths` / `attachmentOpen` of a paired device: the described path, with a one-file
+                // grant when it lies outside every project (a conversation's attachment always gets one).
+                let (grants, credential) = self.phone_grants_for(req)?;
+                let path = s(params, "path")?.to_owned();
+                let session = params.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
+                let entry = run_fallible(self.lanes.interactive, &cancel, move || fsops::stat_local(&path)).await?;
+                let mut row = json!(entry);
+                if !entry.dir {
+                    let absolute = PathBuf::from(&entry.absolute_path);
+                    let projects: Vec<String> = self.catalog.list().await?.into_iter().map(|project| project.path).collect();
+                    let owner = if session.is_empty() { crate::grants::owning_project(&projects, &absolute) } else { None };
+                    match owner {
+                        Some((project, relative)) => {
+                            row["projectPath"] = json!(project);
+                            row["relPath"] = json!(relative);
+                        }
+                        None => {
+                            row["projectPath"] = json!(absolute.parent().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default());
+                            row["relPath"] = json!(absolute.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default());
+                            row["accessToken"] = json!(grants.mint(&credential, &absolute, &session).await?);
+                        }
+                    }
+                }
+                value(row)
             }
             "transfer/trash/entry" => {
                 // Root and entry as `server-file-operations.ts` takes them; `path` is the root.
@@ -1114,6 +1185,7 @@ impl DomainService for WorkspaceService {
             "transfer/abort",
             "transfer/trash/info",
             "transfer/trash/entry",
+            "transfer/grant/mint",
             "lsp/subscribe",
             "lsp/unsubscribe",
             "lsp/document",
