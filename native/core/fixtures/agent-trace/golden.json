@@ -1,0 +1,229 @@
+{
+ "note": "recorded by benchmarks/rust-core/recorders/record-agent-trace.mjs against Node; fake clock: ts-less rows use 1700000000000",
+ "now": 1700000000000,
+ "keep": 2,
+ "bigBlobLen": 10485770,
+ "cases": [
+  {
+   "op": "append",
+   "record": {
+    "sessionId": "s1",
+    "kind": "loop",
+    "iteration": 2,
+    "payload": {
+     "a": 1
+    }
+   }
+  },
+  {
+   "op": "append",
+   "record": {
+    "kind": "x",
+    "ts": "2024-01-02T03:04:05.678Z",
+    "session_id": "given",
+    "payload": null
+   }
+  },
+  {
+   "op": "append",
+   "record": {
+    "kind": "y"
+   }
+  },
+  {
+   "op": "append",
+   "record": {
+    "2": 3,
+    "10": 2,
+    "kind": "z",
+    "ts": 0,
+    "sessionId": 42,
+    "n": 1.5,
+    "big": 1e+21,
+    "small": 1e-7,
+    "k2": 1,
+    "text": "é \ud800\"\n\t\u0001 日本 😀",
+    "nested": {
+     "b": [
+      1,
+      null,
+      "two",
+      {
+       "c": true
+      }
+     ],
+     "a": 0
+    }
+   }
+  },
+  {
+   "op": "append",
+   "record": {
+    "kind": "bad-ts",
+    "ts": "garbage",
+    "sessionId": "g"
+   }
+  },
+  {
+   "op": "append",
+   "record": {
+    "kind": "num-ts",
+    "ts": 1700000000123,
+    "sessionId": "n",
+    "sessionId2": null
+   }
+  },
+  {
+   "op": "append",
+   "record": {
+    "kind": "false-session",
+    "sessionId": "",
+    "session_id": null
+   }
+  },
+  {
+   "op": "compact",
+   "input": {
+    "sessionId": "c1",
+    "iteration": 3,
+    "stage": "pre-send",
+    "trigger": "auto",
+    "compact_changed": 1,
+    "input_prefix_hash": "abc123",
+    "before_count": 40,
+    "after_count": 12,
+    "before_bytes": 90000,
+    "after_bytes": 30000,
+    "context_window": 200000,
+    "budget_tokens": 150000,
+    "boundary_tokens": 0,
+    "duration_ms": 12.5,
+    "provider": "anthropic",
+    "model": "m-1",
+    "error": "",
+    "recovered_error": {
+     "code": "E_X",
+     "message": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀tail"
+    },
+    "details": {
+     "why": "size",
+     "list": [
+      1,
+      2
+     ]
+    }
+   }
+  },
+  {
+   "op": "compact",
+   "input": {
+    "sessionId": "c-lone",
+    "recovered_error": {
+     "code": 1,
+     "message": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀tail"
+    }
+   }
+  },
+  {
+   "op": "compact",
+   "input": {
+    "sessionId": "c2",
+    "recovered_error": {
+     "message": 7
+    },
+    "details": "not-an-object"
+   }
+  },
+  {
+   "op": "compact",
+   "input": {
+    "stage": 0,
+    "compact_changed": 0,
+    "recovered_error": [],
+    "details": [
+     1
+    ]
+   }
+  },
+  {
+   "op": "usage",
+   "maintenance": false,
+   "entry": {
+    "ts": "2025-03-04T05:06:07.000Z",
+    "sourceType": "lead",
+    "sourceName": null,
+    "preset": "p",
+    "model": "m-1",
+    "provider": "anthropic",
+    "mode": "side-question",
+    "duration": 1234,
+    "profileId": null,
+    "sessionId": "u1",
+    "inputTokens": 10,
+    "outputTokens": 5,
+    "cacheReadTokens": 0,
+    "cacheWriteTokens": 3,
+    "promptTokens": 13,
+    "prefixHash": "deadbeef",
+    "costUsd": 0.000123,
+    "transportTiming": null
+   }
+  },
+  {
+   "op": "usage",
+   "maintenance": true,
+   "entry": {
+    "model": "m-2",
+    "provider": "openai",
+    "payload": null,
+    "sessionId": "u2"
+   }
+  },
+  {
+   "op": "usage",
+   "maintenance": false,
+   "entry": {
+    "model": "m-3",
+    "provider": "x",
+    "payload": {
+     "k": 1
+    },
+    "kind": "override",
+    "ts": 5
+   }
+  }
+ ],
+ "jsonl": "{\"kind\":\"loop\",\"iteration\":2,\"payload\":{\"a\":1},\"ts\":1700000000000,\"session_id\":\"s1\"}\n{\"kind\":\"x\",\"ts\":1704164645678,\"session_id\":\"given\",\"payload\":{}}\n{\"kind\":\"y\",\"ts\":1700000000000,\"session_id\":\"no-session\",\"payload\":{}}\n{\"2\":3,\"10\":2,\"kind\":\"z\",\"ts\":1700000000000,\"n\":1.5,\"big\":1e+21,\"small\":1e-7,\"k2\":1,\"text\":\"é \\ud800\\\"\\n\\t\\u0001 日本 😀\",\"nested\":{\"b\":[1,null,\"two\",{\"c\":true}],\"a\":0},\"session_id\":\"42\",\"payload\":{}}\n{\"kind\":\"bad-ts\",\"ts\":1700000000000,\"session_id\":\"g\",\"payload\":{}}\n{\"kind\":\"num-ts\",\"ts\":1700000000123,\"sessionId2\":null,\"session_id\":\"n\",\"payload\":{}}\n{\"kind\":\"false-session\",\"session_id\":\"no-session\",\"ts\":1700000000000,\"payload\":{}}\n{\"iteration\":3,\"kind\":\"compact_meta\",\"stage\":\"pre-send\",\"trigger\":\"auto\",\"compact_changed\":true,\"input_prefix_hash\":\"abc123\",\"before_count\":40,\"after_count\":12,\"before_bytes\":90000,\"after_bytes\":30000,\"context_window\":200000,\"budget_tokens\":150000,\"boundary_tokens\":0,\"target_budget_tokens\":null,\"reserve_tokens\":null,\"pressure_tokens\":null,\"trigger_tokens\":null,\"message_tokens_est\":null,\"duration_ms\":12.5,\"provider\":\"anthropic\",\"model\":\"m-1\",\"error\":null,\"error_code\":null,\"recovered_error\":{\"code\":\"E_X\",\"message\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa😀…\"},\"details\":{\"why\":\"size\",\"list\":[1,2]},\"ts\":1700000000000,\"session_id\":\"c1\",\"payload\":{}}\n{\"kind\":\"compact_meta\",\"stage\":null,\"trigger\":null,\"compact_changed\":false,\"input_prefix_hash\":null,\"before_count\":null,\"after_count\":null,\"before_bytes\":null,\"after_bytes\":null,\"context_window\":null,\"budget_tokens\":null,\"boundary_tokens\":null,\"target_budget_tokens\":null,\"reserve_tokens\":null,\"pressure_tokens\":null,\"trigger_tokens\":null,\"message_tokens_est\":null,\"duration_ms\":null,\"provider\":null,\"model\":null,\"error\":null,\"error_code\":null,\"recovered_error\":{\"code\":1,\"message\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\\ud83d…\"},\"details\":null,\"ts\":1700000000000,\"session_id\":\"c-lone\",\"payload\":{}}\n{\"kind\":\"compact_meta\",\"stage\":null,\"trigger\":null,\"compact_changed\":false,\"input_prefix_hash\":null,\"before_count\":null,\"after_count\":null,\"before_bytes\":null,\"after_bytes\":null,\"context_window\":null,\"budget_tokens\":null,\"boundary_tokens\":null,\"target_budget_tokens\":null,\"reserve_tokens\":null,\"pressure_tokens\":null,\"trigger_tokens\":null,\"message_tokens_est\":null,\"duration_ms\":null,\"provider\":null,\"model\":null,\"error\":null,\"error_code\":null,\"recovered_error\":{\"code\":null,\"message\":\"7\"},\"details\":null,\"ts\":1700000000000,\"session_id\":\"c2\",\"payload\":{}}\n{\"kind\":\"compact_meta\",\"stage\":null,\"trigger\":null,\"compact_changed\":false,\"input_prefix_hash\":null,\"before_count\":null,\"after_count\":null,\"before_bytes\":null,\"after_bytes\":null,\"context_window\":null,\"budget_tokens\":null,\"boundary_tokens\":null,\"target_budget_tokens\":null,\"reserve_tokens\":null,\"pressure_tokens\":null,\"trigger_tokens\":null,\"message_tokens_est\":null,\"duration_ms\":null,\"provider\":null,\"model\":null,\"error\":null,\"error_code\":null,\"recovered_error\":{\"code\":null,\"message\":null},\"details\":[1],\"ts\":1700000000000,\"session_id\":\"no-session\",\"payload\":{}}\n{\"ts\":1741064767000,\"kind\":\"usage\",\"sourceType\":\"lead\",\"sourceName\":null,\"preset\":\"p\",\"model\":\"m-1\",\"provider\":\"anthropic\",\"mode\":\"side-question\",\"duration\":1234,\"profileId\":null,\"inputTokens\":10,\"outputTokens\":5,\"cacheReadTokens\":0,\"cacheWriteTokens\":3,\"promptTokens\":13,\"prefixHash\":\"deadbeef\",\"costUsd\":0.000123,\"transportTiming\":null,\"payload\":{},\"session_id\":\"u1\"}\n{\"ts\":1700000000000,\"kind\":\"usage\",\"model\":\"m-2\",\"provider\":\"openai\",\"payload\":{},\"maintenanceLog\":true,\"session_id\":\"u2\"}\n{\"ts\":5,\"kind\":\"override\",\"model\":\"m-3\",\"provider\":\"x\",\"payload\":{\"k\":1},\"session_id\":\"no-session\"}\n",
+ "failureRows": [
+  {
+   "ts": 1700000000000,
+   "session_id": "s1",
+   "tool": "edit",
+   "category": "x",
+   "first_line": "é\"\n"
+  },
+  {
+   "ts": 1700000000001,
+   "tool": "shell",
+   "exit": 1
+  }
+ ],
+ "failuresJsonl": "{\"ts\":1700000000000,\"session_id\":\"s1\",\"tool\":\"edit\",\"category\":\"x\",\"first_line\":\"é\\\"\\n\"}\n{\"ts\":1700000000001,\"tool\":\"shell\",\"exit\":1}\n",
+ "rotation": [
+  {
+   "name": "agent-trace.jsonl",
+   "bytes": 73,
+   "sha256": "25fc464015212930853446e4765663b2f5b15ce5dfa003e2c23db949bf702507"
+  },
+  {
+   "name": "agent-trace.jsonl.1",
+   "bytes": 10485924,
+   "sha256": "15fddc946cd28cc71d9593995326f968d3aa73d7e169e327af5428bc8b413789"
+  },
+  {
+   "name": "agent-trace.jsonl.2",
+   "bytes": 10485924,
+   "sha256": "6c6422402b5938cea5fedb8f072b7633e1e8486c8909a071d3b60b79bab1116c"
+  }
+ ]
+}

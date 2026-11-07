@@ -71,6 +71,14 @@ pub enum AccountError {
     Io(#[from] io::Error),
 }
 
+impl AccountError {
+    /// The roster call never ran (its lane refused or dropped the job): an unread roster is not
+    /// an empty one.
+    pub fn unrun(&self) -> bool {
+        matches!(self, AccountError::Io(error) if crate::oauth::is_lane_unrun(error))
+    }
+}
+
 fn invalid<T>(message: &str) -> Result<T, AccountError> {
     Err(AccountError::Invalid(message.into()))
 }

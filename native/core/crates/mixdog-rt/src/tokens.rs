@@ -20,6 +20,7 @@ use tokio_util::sync::CancellationToken;
 use crate::lanes::JobHandle;
 use crate::lanes::LaneFull;
 use crate::lanes::LaneKind;
+use crate::lanes::LaneWedged;
 use crate::lanes::QueuedJob;
 use crate::lanes::SubmitWaitError;
 use crate::lanes::ThreadKind;
@@ -58,7 +59,8 @@ impl<T> OnThread<T> {
 pub trait LaneToken: sealed::Sealed + Copy + Send + Sync + 'static {
     const KIND: LaneKind;
 
-    /// Enqueues `job`. Never blocks: a full queue answers [`LaneFull`] at once. A job whose
+    /// Enqueues `job`. Never blocks: a full queue, or a wedged lane, answers [`LaneFull`] at
+    /// once. A job whose
     /// `cancel` token is cancelled before dequeue is dropped and its handle resolves
     /// `Err(JobDropped)`.
     fn submit<R, F>(self, cancel: &CancellationToken, job: F) -> Result<JobHandle<R>, LaneFull>
@@ -84,6 +86,11 @@ pub trait LaneToken: sealed::Sealed + Copy + Send + Sync + 'static {
     /// `Ok`, the job is queued exactly as after `submit`. Waiters retry on a wake-up with no
     /// FIFO guarantee among themselves; `rejected` in the lane snapshot also counts the
     /// refused attempts of waiters.
+    ///
+    /// Bounded even with a token that is never cancelled: a wedged lane (no healthy worker, F1)
+    /// resolves `Err(Wedged)` at once and wakes parked waiters, and a queued job that no
+    /// worker will ever run resolves its handle `Err(JobDropped)` (it never ran). A job that is
+    /// running when its lane lease lapses is not abandoned: its handle resolves when it ends.
     fn submit_wait<'a, R, F>(
         self,
         cancel: &'a CancellationToken,
@@ -112,6 +119,9 @@ pub trait LaneToken: sealed::Sealed + Copy + Send + Sync + 'static {
                 notified.as_mut().enable();
                 if cancel.is_cancelled() {
                     return Err(SubmitWaitError::Cancelled);
+                }
+                if backend.lane_wedged(Self::KIND) {
+                    return Err(SubmitWaitError::Wedged(LaneWedged { lane: Self::KIND }));
                 }
                 if backend.submit(queued(cancel, &slot)).is_ok() {
                     return Ok(JobHandle::new(rx));

@@ -27,15 +27,33 @@ pub trait SecretVault: Send + Sync {
     async fn delete(&self, account: &str) -> Result<(), VaultError>;
 
     /// `isFallbackSecret`: whether the account's secret lives in the private fallback file
-    /// (a host with no keychain provider) rather than the keychain. Setup views label it.
-    async fn is_fallback(&self, _account: &str) -> bool {
-        false
+    /// (a host with no keychain provider) rather than the keychain. Setup views label it. `Err`
+    /// only for an `unrun` check.
+    async fn is_fallback(&self, _account: &str) -> Result<bool, VaultError> {
+        Ok(false)
     }
 }
 
+/// A vault call failed. `unrun` says the call never ran (the lane that makes it refused or
+/// dropped the job): that tells nothing about the secret, so a reader must report it and never
+/// take it for "no key stored". A call that ran and failed keeps Node's behaviour.
 #[derive(Clone, PartialEq, Eq, Debug, thiserror::Error)]
-#[error("{0}")]
-pub struct VaultError(pub String);
+#[error("{message}")]
+pub struct VaultError {
+    pub message: String,
+    pub unrun: bool,
+}
+
+impl VaultError {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self { message: message.into(), unrun: false }
+    }
+
+    /// A call whose job never ran.
+    pub fn unrun(message: impl Into<String>) -> Self {
+        Self { message: message.into(), unrun: true }
+    }
+}
 
 /// Process environment, injectable.
 pub trait Environment: Send + Sync {
@@ -144,61 +162,70 @@ impl ApiKeyStore {
         self.environment_key_name(provider.trim())
     }
 
-    /// Presence-only probe.
-    pub async fn has(&self, provider: &str) -> bool {
-        self.get(provider).await.is_some()
+    /// A vault read. A read that RAN and failed is "nothing stored" (Node's `catch`); `Err` only
+    /// when it never ran.
+    async fn stored(&self, account: &str) -> Result<Option<String>, VaultError> {
+        match self.vault.get(account).await {
+            Ok(value) => Ok(value),
+            Err(error) if error.unrun => Err(error),
+            Err(_) => Ok(None),
+        }
     }
 
-    /// The environment key, else the stored one.
-    pub async fn get(&self, provider: &str) -> Option<String> {
+    /// Presence-only probe.
+    pub async fn has(&self, provider: &str) -> Result<bool, VaultError> {
+        Ok(self.get(provider).await?.is_some())
+    }
+
+    /// The environment key, else the stored one. `Err` when the keychain read never ran.
+    pub async fn get(&self, provider: &str) -> Result<Option<String>, VaultError> {
         if self.remote_client {
-            return None;
+            return Ok(None);
         }
         let id = provider.trim();
         if id.is_empty() {
-            return None;
+            return Ok(None);
         }
         if let Some(name) = self.environment_key_name(id) {
-            return self.set_env(&name);
+            return Ok(self.set_env(&name));
         }
-        self.vault
-            .get(&api_key_account(id))
-            .await
-            .ok()
-            .flatten()
-            .filter(|v| !v.is_empty())
+        Ok(self.stored(&api_key_account(id)).await?.filter(|v| !v.is_empty()))
     }
 
     /// `resolveProviderApiKey`: the config's env variable alone when it names
     /// one, else an explicit config key, else [`Self::get`]. Empty when none.
-    pub async fn resolve(&self, provider: &str, config: &KeyConfig) -> String {
+    /// `Err` when the keychain read never ran: an empty key would read as "not configured".
+    pub async fn resolve(&self, provider: &str, config: &KeyConfig) -> Result<String, VaultError> {
         if let Some(env) = config.api_key_env.as_deref().filter(|e| !e.is_empty()) {
-            return self.env.var(env).unwrap_or_default();
+            return Ok(self.env.var(env).unwrap_or_default());
         }
         if let Some(key) = config.api_key.as_deref().filter(|k| !k.is_empty()) {
-            return key.to_owned();
+            return Ok(key.to_owned());
         }
-        self.get(provider).await.unwrap_or_default()
+        Ok(self.get(provider).await?.unwrap_or_default())
     }
 
     /// `hasProviderApiKey`: [`Self::resolve`]'s precedence without reading a value.
-    pub async fn has_resolved(&self, provider: &str, config: &KeyConfig) -> bool {
+    pub async fn has_resolved(&self, provider: &str, config: &KeyConfig) -> Result<bool, VaultError> {
         if let Some(env) = config.api_key_env.as_deref().filter(|e| !e.is_empty()) {
-            return self.set_env(env).is_some();
+            return Ok(self.set_env(env).is_some());
         }
-        config.api_key.as_deref().is_some_and(|k| !k.is_empty()) || self.has(provider).await
+        if config.api_key.as_deref().is_some_and(|k| !k.is_empty()) {
+            return Ok(true);
+        }
+        self.has(provider).await
     }
 
     /// `reloadProviderApiKey`: after an auth rejection the stored or
     /// environment key is read first, so a rotated key beats the stale one in config.
-    pub async fn reload(&self, provider: &str, config: &KeyConfig) -> String {
+    pub async fn reload(&self, provider: &str, config: &KeyConfig) -> Result<String, VaultError> {
         if let Some(env) = config.api_key_env.as_deref().filter(|e| !e.is_empty()) {
-            return self.env.var(env).unwrap_or_default();
+            return Ok(self.env.var(env).unwrap_or_default());
         }
-        if let Some(key) = self.get(provider).await {
-            return key;
+        if let Some(key) = self.get(provider).await? {
+            return Ok(key);
         }
-        config.api_key.clone().unwrap_or_default()
+        Ok(config.api_key.clone().unwrap_or_default())
     }
 
     /// Stores `provider`'s key in the keychain (`setSecret`).
@@ -211,14 +238,10 @@ impl ApiKeyStore {
         self.vault.delete(&api_key_account(provider.trim())).await
     }
 
-    /// A custom provider's additional key, or empty when it is not readable.
-    pub async fn read_custom(&self, provider: &str, key_id: &str) -> String {
-        self.vault
-            .get(&custom_key_account(provider, key_id))
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or_default()
+    /// A custom provider's additional key, or empty when it is not readable. `Err` when the read
+    /// never ran.
+    pub async fn read_custom(&self, provider: &str, key_id: &str) -> Result<String, VaultError> {
+        Ok(self.stored(&custom_key_account(provider, key_id)).await?.unwrap_or_default())
     }
 
     pub async fn save_custom(&self, provider: &str, key_id: &str, key: &str) -> Result<(), VaultError> {
@@ -228,6 +251,13 @@ impl ApiKeyStore {
     pub async fn forget_custom(&self, provider: &str, key_id: &str) -> Result<(), VaultError> {
         self.vault.delete(&custom_key_account(provider, key_id)).await
     }
+}
+
+/// A key read that never ran: transient, and not the statement that no key is configured.
+fn unread_key(provider: &str, error: &VaultError) -> ProviderError {
+    let mut err = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
+    err.message = format!("The API key for {provider} could not be read: {error}.");
+    err
 }
 
 fn missing_key(provider: &str) -> ProviderError {
@@ -288,7 +318,8 @@ impl ProviderKey {
                 self.store.resolve(provider, &config).await
             }
             Origin::Custom { provider, key_id } => self.store.read_custom(provider, key_id).await,
-        };
+        }
+        .map_err(|error| unread_key(self.name(), &error))?;
         if key.is_empty() { Err(missing_key(self.name())) } else { Ok(key) }
     }
 
@@ -296,7 +327,8 @@ impl ProviderKey {
         let key = match &self.origin {
             Origin::Provider { provider, config } => self.store.reload(provider, config).await,
             Origin::Custom { provider, key_id } => self.store.read_custom(provider, key_id).await,
-        };
+        }
+        .map_err(|error| unread_key(self.name(), &error))?;
         if key.is_empty() {
             return Err(missing_key(self.name()));
         }
@@ -361,24 +393,24 @@ mod tests {
     async fn environment_beats_the_keychain_in_node_order() {
         let (s, vault) = store(&[("XAI_API_KEY", "std"), ("GROK_API_KEY", "alias"), ("MIXDOG_AGENT_XAI_APIKEY", "own")], false);
         vault.set("agent.xai.apiKey", "stored").await.unwrap();
-        assert_eq!(s.get("xai").await.as_deref(), Some("std"));
+        assert_eq!(s.get("xai").await.unwrap().as_deref(), Some("std"));
         assert_eq!(s.env_name("xai").as_deref(), Some("XAI_API_KEY"));
         let (s, vault) = store(&[("GROK_API_KEY", "alias")], false);
         vault.set("agent.xai.apiKey", "stored").await.unwrap();
-        assert_eq!(s.get("xai").await.as_deref(), Some("alias"));
+        assert_eq!(s.get("xai").await.unwrap().as_deref(), Some("alias"));
         let (s, vault) = store(&[], false);
-        assert_eq!(s.get("xai").await, None);
+        assert_eq!(s.get("xai").await.unwrap(), None);
         vault.set("agent.xai.apiKey", "stored").await.unwrap();
-        assert_eq!(s.get("xai").await.as_deref(), Some("stored"));
-        assert!(s.has("xai").await);
+        assert_eq!(s.get("xai").await.unwrap().as_deref(), Some("stored"));
+        assert!(s.has("xai").await.unwrap());
     }
 
     #[tokio::test]
     async fn remote_clients_hold_no_keys() {
         let (s, vault) = store(&[("OPENAI_API_KEY", "k")], true);
         vault.set("agent.openai.apiKey", "stored").await.unwrap();
-        assert_eq!(s.get("openai").await, None);
-        assert!(!s.has("openai").await);
+        assert_eq!(s.get("openai").await.unwrap(), None);
+        assert!(!s.has("openai").await.unwrap());
         assert_eq!(s.env_name("openai"), None);
     }
 
@@ -390,13 +422,13 @@ mod tests {
             api_key: key.map(str::to_owned),
             api_key_env: env.map(str::to_owned),
         };
-        assert_eq!(s.resolve("p", &cfg(Some("cfg"), Some("MY_KEY"))).await, "from-env");
-        assert_eq!(s.resolve("p", &cfg(Some("cfg"), Some("UNSET"))).await, "");
-        assert_eq!(s.resolve("p", &cfg(Some("cfg"), None)).await, "cfg");
-        assert_eq!(s.resolve("p", &cfg(None, None)).await, "stored");
+        assert_eq!(s.resolve("p", &cfg(Some("cfg"), Some("MY_KEY"))).await.unwrap(), "from-env");
+        assert_eq!(s.resolve("p", &cfg(Some("cfg"), Some("UNSET"))).await.unwrap(), "");
+        assert_eq!(s.resolve("p", &cfg(Some("cfg"), None)).await.unwrap(), "cfg");
+        assert_eq!(s.resolve("p", &cfg(None, None)).await.unwrap(), "stored");
         // A reload prefers the stored key to the one captured in config.
-        assert_eq!(s.reload("p", &cfg(Some("cfg"), None)).await, "stored");
-        assert!(s.has_resolved("p", &cfg(Some("cfg"), Some("UNSET"))).await == false);
+        assert_eq!(s.reload("p", &cfg(Some("cfg"), None)).await.unwrap(), "stored");
+        assert!(s.has_resolved("p", &cfg(Some("cfg"), Some("UNSET"))).await.unwrap() == false);
     }
 
     #[tokio::test]
@@ -409,5 +441,56 @@ mod tests {
         assert_eq!(source.reloaded().await.unwrap(), "rotated");
         let gone = ProviderKey::additional(s, "custom-1", "k2");
         assert_eq!(gone.current().await.unwrap_err().kind, ErrorKind::Auth);
+    }
+
+    /// A vault whose reads fail the way the test says.
+    struct Reads(VaultError);
+
+    #[async_trait]
+    impl SecretVault for Reads {
+        async fn get(&self, _: &str) -> Result<Option<String>, VaultError> {
+            Err(self.0.clone())
+        }
+        async fn set(&self, _: &str, _: &str) -> Result<(), VaultError> {
+            Ok(())
+        }
+        async fn delete(&self, _: &str) -> Result<(), VaultError> {
+            Ok(())
+        }
+    }
+
+    fn over(vault: VaultError) -> ApiKeyStore {
+        ApiKeyStore::new(Arc::new(Reads(vault)), Arc::new(Env(HashMap::new())), false)
+    }
+
+    /// A keychain read that ran and failed is "no key", as in Node; one that never ran is an
+    /// error, so a provider is never reported unconfigured because a lane was busy.
+    #[tokio::test]
+    async fn a_key_read_that_never_ran_is_an_error_not_no_key() {
+        let failed = over(VaultError::new("[keychain] locked"));
+        assert_eq!(failed.get("openai").await, Ok(None));
+        assert_eq!(failed.has("openai").await, Ok(false));
+        assert_eq!(failed.read_custom("p", "k").await, Ok(String::new()));
+        let unrun = VaultError::unrun("the keychain could not be reached");
+        let s = over(unrun.clone());
+        assert_eq!(s.get("openai").await, Err(unrun.clone()));
+        assert_eq!(s.has("openai").await, Err(unrun.clone()));
+        let cfg = KeyConfig::default();
+        assert_eq!(s.resolve("openai", &cfg).await, Err(unrun.clone()));
+        assert_eq!(s.reload("openai", &cfg).await, Err(unrun.clone()));
+        assert_eq!(s.has_resolved("openai", &cfg).await, Err(unrun.clone()));
+        assert_eq!(s.read_custom("p", "k").await, Err(unrun));
+        // The environment and the config key are answered without the vault.
+        let with_env = ApiKeyStore::new(Arc::new(Reads(VaultError::unrun("x"))), Arc::new(Env([("OPENAI_API_KEY", "e")].into_iter().collect())), false);
+        assert_eq!(with_env.resolve("openai", &cfg).await.unwrap(), "e");
+    }
+
+    #[tokio::test]
+    async fn the_request_key_of_an_unread_vault_is_a_transient_error_not_missing() {
+        let key = ProviderKey::primary(over(VaultError::unrun("the keychain could not be reached")), "openai", KeyConfig::default());
+        let error = key.current().await.unwrap_err();
+        assert_eq!(error.kind, ErrorKind::Transient);
+        assert!(error.message.contains("could not be read"), "{}", error.message);
+        assert_eq!(key.reloaded().await.unwrap_err().kind, ErrorKind::Transient);
     }
 }

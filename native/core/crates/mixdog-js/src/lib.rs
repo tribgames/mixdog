@@ -44,6 +44,7 @@ pub use regex_error::js_regex_error;
 pub use text::Utf16Cut;
 pub use text::cut_utf16;
 pub use text::is_js_space;
+pub use text::js_to_lowercase;
 pub use text::js_trim;
 pub use text::js_trim_end;
 pub use text::js_trim_start;

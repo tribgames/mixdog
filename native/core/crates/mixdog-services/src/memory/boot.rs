@@ -4,16 +4,24 @@
 //! per-turn search copy, the process's `SensitiveStore`), built once over them.
 //!
 //! The embedding model stays off the boot path, as in Node: the schema opens from the
-//! model's profile dimensions and the model loads on demand (`MemoryRuntime`).
+//! model's dimensions (saved measurement, else its profile; an unprofiled model is measured by a
+//! cold warm-up at the first start) and the model otherwise loads on demand (`MemoryRuntime`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
-use mixdog_rt::{DurabilityIo, MaintenanceIo, TaskClass};
+use mixdog_js::to_number;
+use mixdog_rt::{DurabilityIo, LaneToken, MaintenanceIo, TaskClass};
+use mixdog_statefile::{Opts, write_json};
+use serde_json::Value;
 use mixdog_workspace::watcher::FolderWatcher;
 
+use crate::memory::cycles::embeddings::FlushEmbeddings;
+use crate::memory::cycles::requests::wait;
+use crate::memory::cycles::scheduler::SchedulerDeps;
+use crate::memory::cycles::{Cycle1Llm, CycleConfig, CycleScheduler};
 use crate::memory::embed::config::{self, DEFAULT_MODEL_ID};
 use crate::memory::embed::provider::EmbeddingProvider;
 use crate::memory::error::{MemoryError, Result};
@@ -29,11 +37,11 @@ use crate::memory::schema::ensure_memory_schema;
 use crate::memory::sensitive::SensitiveStore;
 use crate::memory::service::{LocalMemory, MemoryModule, MemoryService, SessionSource};
 use crate::memory::session_search::db::SessionSearchDb;
-use crate::memory::session_search::ingest::SessionSearchIngest;
+use crate::memory::session_search::ingest::{SessionSearchIngest, StoredSessions};
 use crate::memory::transcript::watcher::{TranscriptSink, TranscriptWatcher, start_transcript_watcher};
 use crate::memory::transcript::{TranscriptIngest, TranscriptIo};
 use crate::bots::delivery::env::RetryTimer;
-use crate::model_install::ProgressSink;
+use crate::model_install::{ProgressSink, fsio};
 use crate::tidy::process::Processes;
 use tokio_util::sync::CancellationToken;
 
@@ -58,10 +66,33 @@ pub struct MemoryBoot {
     pub maintenance: MaintenanceIo,
     /// The transcript watcher's change source and clock; `None` runs without a watcher.
     pub transcripts: Option<TranscriptWatch>,
+    /// The cycles' host seams; `None` runs without cycles.
+    pub cycles: Option<CycleBoot>,
+    /// The stored sessions the one-time session-search backfill reads; `None` skips it.
+    pub backfill: Option<BackfillBoot>,
     /// The one process manager `initdb` and `pg_ctl` run under.
     pub processes: Processes,
     /// Ends an `initdb` in progress (Node's init `signal`).
     pub cancel: CancellationToken,
+}
+
+/// The session-search backfill (`daemon.mjs`): once per run, a minute after start, low priority.
+/// `stored` reads the session store (WP-SESSION); `timer` is the daemon's.
+pub struct BackfillBoot {
+    pub stored: Arc<dyn StoredSessions>,
+    pub timer: Arc<dyn RetryTimer>,
+}
+
+/// `setTimeout(.., 60_000)` of the daemon's backfill.
+const BACKFILL_DELAY: Duration = Duration::from_secs(60);
+
+/// What the cycle scheduler needs from the composition root: the memory configuration section
+/// and recap switch, the `cycle1-agent` dispatch, and the timer for the tick and retries. The
+/// embedding work comes from the stack's own flusher.
+pub struct CycleBoot {
+    pub config: Arc<dyn CycleConfig>,
+    pub llm: Arc<dyn Cycle1Llm>,
+    pub timer: Arc<dyn RetryTimer>,
 }
 
 /// What the transcript watcher needs from the composition root (`initTranscriptWatcher`): the
@@ -73,6 +104,49 @@ pub struct TranscriptWatch {
     pub folders: Arc<FolderWatcher>,
     pub sink: TranscriptSink,
     pub timer: Arc<dyn RetryTimer>,
+}
+
+/// `<data>/embedding-meta.json`: the dimensions measured for one model identity, so a later start
+/// opens the vector schema without loading the model.
+const EMBEDDING_META: &str = "embedding-meta.json";
+
+/// `_initStore`'s dimensions: the saved measurement of this identity, else the profile's, else a
+/// cold warm-up that measures them (and saves the result). A model the profiles do not list
+/// therefore needs the embedding model installed and loadable at the first start.
+pub(crate) async fn resolve_dims(data_dir: &Path, lane: DurabilityIo, identity: &Value, model_id: &str, runtime: Option<&MemoryRuntime>) -> Result<usize> {
+    let path = data_dir.join(EMBEDDING_META);
+    let saved = fsio::read(lane, &path).await.ok().and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok());
+    if let Some(saved) = saved.filter(|saved| ["provider", "model", "dtype"].iter().all(|key| saved[key] == identity[key])) {
+        let dims = to_number(&saved["dims"]);
+        if dims.is_finite() && dims > 0.0 {
+            return Ok(dims as usize);
+        }
+    }
+    if let Some(known) = config::known_dims(model_id) {
+        return Ok(known);
+    }
+    let unavailable = |why: &str| MemoryError::Embedding(format!("memory-service: embedding dims unavailable {why}"));
+    let runtime = runtime.ok_or_else(|| unavailable("without an embedding model"))?;
+    if !runtime.flags().warmup_can_start() {
+        return Err(unavailable("while warmup is disabled"));
+    }
+    runtime.cold_warmup().await.map_err(MemoryError::Embedding)?;
+    let loaded = runtime.embedder().warmup().await.map_err(MemoryError::Embedding)?;
+    let dims = loaded.ok_or_else(|| unavailable("because the model is not installed"))?.dims();
+    let mut meta = identity.clone();
+    meta["dims"] = Value::from(dims);
+    let written = lane
+        .submit_wait(&mixdog_rt::CancellationToken::new(), move |proof| write_json(proof, &path, &meta, &Opts { lock: true, ..Opts::default() }))
+        .await;
+    match written {
+        Ok(job) => {
+            if let Ok(Err(error)) = job.await {
+                tracing::warn!(%error, "[memory-service] could not persist embedding-meta");
+            }
+        }
+        Err(error) => tracing::warn!(?error, "[memory-service] could not persist embedding-meta"),
+    }
+    Ok(dims)
 }
 
 /// A started memory runtime.
@@ -89,20 +163,21 @@ pub struct MemoryStack {
     reindex: Arc<Reindex>,
     transcripts: Arc<TranscriptIngest>,
     watcher: Option<TranscriptWatcher>,
+    cycles: Option<CycleScheduler>,
+    backfill: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
+    backfill_cancel: CancellationToken,
 }
 
 impl MemoryStack {
     pub async fn start(boot: MemoryBoot) -> Result<Self> {
-        let MemoryBoot { data_dir, pg_runtime, embedder, embedding_provider, flags, progress, sensitive, lane, maintenance, transcripts: watch, processes, cancel } = boot;
+        let MemoryBoot { data_dir, pg_runtime, embedder, embedding_provider, flags, progress, sensitive, lane, maintenance, transcripts: watch, cycles, backfill, processes, cancel } = boot;
         let (model_id, dtype) = match &embedder {
             Some(provider) => (provider.model_id().to_owned(), provider.dtype().map(str::to_owned)),
             None => (DEFAULT_MODEL_ID.to_owned(), None),
         };
-        // Node measures an unprofiled model's dimensions by loading it; the engine here only
-        // loads profiled models, so their dimensions are the profile's.
-        let dims = config::known_dims(&model_id)
-            .ok_or_else(|| MemoryError::Embedding(format!("no dimensions known for model {model_id}")))?;
         let identity = config::identity(embedding_provider.as_deref(), &model_id, dtype.as_deref());
+        let runtime = embedder.clone().map(|provider| MemoryRuntime::new(provider, flags, progress));
+        let dims = resolve_dims(&data_dir, lane, &identity, &model_id, runtime.as_deref()).await?;
 
         let cluster = PgCluster::ensure(PgRuntime::new(pg_runtime), data_dir.join("pgdata"), DEFAULT_PORT, lane, processes, &cancel).await?;
         let memory_db = Db::open(&cluster, Schema::Memory).await?;
@@ -127,7 +202,7 @@ impl MemoryStack {
         // per db handle: session ingest, the reindex and the memory cycles share it.
         let embed_flush = Arc::new(RawEmbedFlush::new(memory_db.clone(), embedder.clone()));
         let ingest = SessionIngest::new(memory_db.clone(), embed_flush.clone(), None, system_now(), lane);
-        let memory = Arc::new(LocalMemory::new(memory_db.clone(), data_dir, recall, ingest, lane));
+        let memory = Arc::new(LocalMemory::new(memory_db.clone(), data_dir.clone(), recall, ingest, lane));
 
         // First boot migrates existing core data; later boots reconcile a crash between a
         // committed mutation and its file refresh. Not part of readiness.
@@ -147,13 +222,51 @@ impl MemoryStack {
             }
             _ => None,
         };
+        // The 60 s cycle tick starts unless this is a secondary process or the host left the
+        // cycles out (`MIXDOG_MEMORY_DISABLE_CYCLES`); the tick itself re-reads `cycles_enabled`
+        // (the recap switch), so recap can be turned on later.
+        let cycles = match cycles {
+            Some(cycles) if !flags.secondary => {
+                let scheduler = CycleScheduler::new(SchedulerDeps {
+                    db: memory_db.clone(),
+                    llm: cycles.llm,
+                    embeddings: Arc::new(FlushEmbeddings(embed_flush.clone())),
+                    config: cycles.config,
+                    state_file: data_dir.join("memory-cycle-state.json"),
+                    lane: maintenance,
+                    now: system_now(),
+                    timer: cycles.timer,
+                });
+                scheduler.start_cycles().await;
+                Some(scheduler)
+            }
+            _ => None,
+        };
+        let backfill_cancel = CancellationToken::new();
+        let backfill = backfill.map(|backfill| {
+            let (search, stop) = (search.clone(), backfill_cancel.clone());
+            mixdog_rt::spawn("services.memory.session-search-backfill", TaskClass::Work, async move {
+                tokio::select! {
+                    () = stop.cancelled() => return,
+                    () = wait(backfill.timer.as_ref(), BACKFILL_DELAY) => {}
+                }
+                if let Err(error) = search.backfill(backfill.stored.as_ref()).await {
+                    tracing::warn!("session-search backfill failed: {}", error.message());
+                }
+            })
+        });
         let reindex = Reindex::new();
         if embedder.is_some() {
             reindex.start(embed_flush.clone(), flags.secondary);
         }
 
-        let runtime = embedder.map(|provider| MemoryRuntime::new(provider, flags, progress));
-        Ok(Self { cluster, flags, memory_db, search_db, memory, search, sensitive, runtime, embed_flush, reindex, transcripts, watcher })
+        Ok(Self { cluster, flags, memory_db, search_db, memory, search, sensitive, runtime, embed_flush, reindex, transcripts, watcher, cycles, backfill: std::sync::Mutex::new(backfill), backfill_cancel })
+    }
+
+    /// The cycle scheduler (`awaitCycle1Run`, `startCycle1Run`, the health ledger); `None` in a
+    /// secondary process or when the host runs without cycles.
+    pub fn cycles(&self) -> Option<CycleScheduler> {
+        self.cycles.clone()
     }
 
     /// Transcript ingest and its persisted offsets (`forgetTranscripts` for a deleted session).
@@ -209,6 +322,17 @@ impl MemoryStack {
     pub async fn stop(&self) -> Result<()> {
         // `_stopBackgroundWork`: the watcher stops arming, the reindex ends, then the ingests
         // still running finish and the offsets are written before the pools drain.
+        // The backfill is a low-priority one-shot: it ends with the stack.
+        self.backfill_cancel.cancel();
+        let backfill = self.backfill.lock().expect("backfill").take();
+        if let Some(backfill) = backfill {
+            // Derived rows: the next run's backfill restores whatever this one did not reach.
+            backfill.abort();
+            let _ = backfill.await;
+        }
+        if let Some(cycles) = &self.cycles {
+            cycles.shutdown().await;
+        }
         if let Some(watcher) = &self.watcher {
             watcher.stop();
         }
@@ -221,6 +345,9 @@ impl MemoryStack {
         }
         if let Some(runtime) = &self.runtime {
             runtime.shutdown();
+        }
+        if let Some(cycles) = &self.cycles {
+            cycles.reset_in_flight();
         }
         self.memory_db.close();
         self.search_db.close();

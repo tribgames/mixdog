@@ -26,7 +26,8 @@ use crate::tidy::process::{ProcessResult, Processes, RunOptions};
 pub const DEFAULT_PORT: u16 = 55432;
 const PORT_SPAN: u16 = 200;
 const START_DEADLINE: Duration = Duration::from_secs(30);
-const READY_POLL: Duration = Duration::from_millis(100);
+/// `await delay(250)` of Node's `startAndWaitReady`.
+const READY_POLL: Duration = Duration::from_millis(250);
 /// `pg_ctl status` (`timeoutMs: 3_000`).
 const STATUS_LIMIT: Duration = Duration::from_secs(3);
 /// `pg_ctl reload` (`timeoutMs: 5_000`).

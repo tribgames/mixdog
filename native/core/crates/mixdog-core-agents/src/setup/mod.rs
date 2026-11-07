@@ -9,6 +9,7 @@
 //! `Unavailable`. The desktop-hosted features (browser, computer) and the desktop's own
 //! preparation of git and office go through [`SetupDesktop`].
 
+mod agent_settings;
 mod definitions;
 mod mcp;
 mod requests;
@@ -16,6 +17,12 @@ mod requests;
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 mod tests;
 
+pub use agent_settings::AgentSettingsSetup;
+pub use agent_settings::CardAnswer;
+pub use agent_settings::CardOutcome;
+pub use agent_settings::ProjectSwitches;
+pub use agent_settings::WidenCard;
+pub use agent_settings::WidenCards;
 pub use definitions::DefinitionSetup;
 pub use mcp::McpSetup;
 pub use requests::SetupRequests;

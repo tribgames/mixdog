@@ -54,7 +54,7 @@ pub(crate) fn acct(error: AccountError) -> Failure {
 }
 
 fn vault_failure(error: mixdog_ai::registry::keys::VaultError) -> Failure {
-    Failure::error(error.0)
+    Failure::error(error.message)
 }
 
 fn text(value: Option<&Value>) -> String {
@@ -182,15 +182,13 @@ impl ProviderAdmin {
             .map_err(|e| Failure::error(e.to_string()))
     }
 
-    /// `currentProviderAccountId`.
-    pub(crate) async fn current_account_id(&self, provider: &str) -> String {
+    /// `currentProviderAccountId`. `Err` when the roster read never ran: "default" would stand for
+    /// a different account, and a login, a forget or a credit redemption would act on it.
+    pub(crate) async fn current_account_id(&self, provider: &str) -> Result<String, Failure> {
         if !ACCOUNT_PROVIDERS.contains(&provider) {
-            return "default".into();
+            return Ok("default".into());
         }
-        match self.accounts.pool(provider).await {
-            Ok(pool) => pool.selected_id.filter(|id| !id.is_empty()).unwrap_or_else(|| "default".into()),
-            Err(_) => "default".into(),
-        }
+        selected_of(self.accounts.pool(provider).await).map_err(acct)
     }
 
     fn authenticated(auth: &Value) -> bool {
@@ -221,7 +219,7 @@ impl ProviderAdmin {
         Self::require_local()?;
         let id = mixdog_js::js_trim(provider);
         let oauth = self.oauth(id).ok_or_else(|| Failure::error(format!("unknown OAuth provider \"{id}\"")))?;
-        let account = self.current_account_id(id).await;
+        let account = self.current_account_id(id).await?;
         let flow = oauth
             .login_flow(&account)
             .ok_or_else(|| Failure::error(format!("{id} login did not complete")))?;
@@ -236,13 +234,13 @@ impl ProviderAdmin {
         if !done {
             return Err(Failure::error(format!("{id} login did not complete")));
         }
-        let auth = oauth.describe(&self.current_account_id(id).await);
+        let auth = oauth.describe(&self.current_account_id(id).await?);
         // Only a SUCCESSFUL login states `enabled`: a failed one is not a decision to turn the
         // provider off, and disabling is `forgetProviderAuth`'s job alone.
         if Self::authenticated(&auth) {
             self.update_provider(id, patch([("enabled", json!(true))])).await?;
             if ACCOUNT_PROVIDERS.contains(&id) {
-                let current = self.current_account_id(id).await;
+                let current = self.current_account_id(id).await?;
                 self.accounts.clear_quota_state(id, &current).await.map_err(acct)?;
             }
         }
@@ -274,7 +272,7 @@ impl ProviderAdmin {
             return Err(Failure::error(format!("{id} does not support interactive code login")));
         }
         assert_login_options(options)?;
-        let id_before = self.current_account_id(&id).await;
+        let id_before = self.current_account_id(&id).await?;
         let add_account = options.get("addAccount") == Some(&Value::Bool(true));
         let requested = options.get("accountId");
         if let Some(requested) = requested {
@@ -442,7 +440,7 @@ impl ProviderAdmin {
     pub async fn update_provider_accounts(&self, provider: &str, change: &Value) -> Result<Value, Failure> {
         // `{ refreshUsage: true }` re-measures every account now and changes nothing else.
         if change.get("refreshUsage") == Some(&Value::Bool(true)) && change.as_object().is_some_and(|c| c.len() == 1) {
-            if self.registry.get(provider).await.is_some() {
+            if self.registry.try_get(provider).await.map_err(|e| Failure::error(e.message))?.is_some() {
                 let materialized = self.materialize_provider_accounts(provider).await?;
                 let ids: Vec<String> = materialized["accounts"]
                     .as_array()
@@ -542,8 +540,11 @@ impl ProviderAdmin {
                 }
                 // The login replaces a key saved earlier rather than sitting beside it.
                 let account = api_key_account(&id);
-                if matches!(self.vault.get(&account).await, Ok(Some(v)) if !v.is_empty()) {
-                    self.vault.delete(&account).await.map_err(vault_failure)?;
+                match self.vault.get(&account).await {
+                    Ok(Some(v)) if !v.is_empty() => self.vault.delete(&account).await.map_err(vault_failure)?,
+                    // A read that never ran leaves the old key in place under the new login.
+                    Err(error) if error.unrun => return Err(vault_failure(error)),
+                    _ => {}
                 }
                 let mut entries = patch([("enabled", json!(true))]);
                 if location_patch {
@@ -591,7 +592,7 @@ impl ProviderAdmin {
         if let Some(oauth) = self.oauth(&id) {
             let account = match requested {
                 Some(requested) => requested.to_owned(),
-                None => self.current_account_id(&id).await,
+                None => self.current_account_id(&id).await?,
             };
             if requested.is_some() {
                 let listed = self.list_provider_accounts(&id).await?;
@@ -640,10 +641,10 @@ impl ProviderAdmin {
         dashboards: &super::dashboards::Dashboards,
         sources: &dyn super::usage::dashboard::UsageSources,
     ) -> Result<Value, Failure> {
-        if self.registry.get("openai-oauth").await.is_none() {
+        if self.registry.try_get("openai-oauth").await.map_err(|e| Failure::error(e.message))?.is_none() {
             return Err(Failure::error("Codex is not signed in"));
         }
-        let account = self.current_account_id("openai-oauth").await;
+        let account = self.current_account_id("openai-oauth").await?;
         let result = self
             .oauth_usage
             .consume_codex_reset_credit(&account, &clean(options.get("expectedOfferRevision")), &clean(options.get("idempotencyKey")))
@@ -657,6 +658,16 @@ impl ProviderAdmin {
             out.insert("dashboard".into(), dashboard);
         }
         Ok(Value::Object(out))
+    }
+}
+
+/// The selected account of a roster read: "default" when none is selected, or when the roster could
+/// be read and is unusable (Node); an `Err` only when the read never ran.
+pub(crate) fn selected_of(pool: Result<mixdog_ai::accounts::Pool, AccountError>) -> Result<String, AccountError> {
+    match pool {
+        Ok(pool) => Ok(pool.selected_id.filter(|id| !id.is_empty()).unwrap_or_else(|| "default".into())),
+        Err(error) if error.unrun() => Err(error),
+        Err(_) => Ok("default".into()),
     }
 }
 

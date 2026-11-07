@@ -442,6 +442,7 @@ impl ReviewDisk for LaneDisk {
         // maxRetries: 5, retryDelay: 100.
         self.durable(move |lane| {
             for attempt in 0..6 {
+                mixdog_rt::job_progress();
                 match rm_recursive(lane, &dir) {
                     Ok(()) => return Ok(()),
                     Err(e) if missing(&e) => return Ok(()),

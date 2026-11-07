@@ -43,6 +43,11 @@ pub(crate) const HEADERS_TIMEOUT: Duration = Duration::from_secs(60);
 /// Node's default `requestTimeout`: the body must arrive within five minutes.
 pub(crate) const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 
+/// How long a connection may keep finishing its request after the listener is stopped. Codex bounds
+/// its connection workers' shutdown at 5 s (`app-server-transport/.../remote_control/websocket.rs:86`,
+/// `app-server/src/in_process.rs:106`); Node's `server.close()` waits without limit.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+
 pub struct WebhookListener {
     port: u16,
     stop: CancellationToken,
@@ -120,7 +125,7 @@ async fn serve(stream: TcpStream, service: Arc<WebhookService>, stop: Cancellati
         _ = connection.as_mut() => return,
         () = stop.cancelled() => connection.as_mut().graceful_shutdown(),
     }
-    let _ = connection.await;
+    let _ = tokio::time::timeout(SHUTDOWN_GRACE, connection.as_mut()).await;
 }
 
 /// How long a closed connection keeps reading and discarding what the peer still sends.

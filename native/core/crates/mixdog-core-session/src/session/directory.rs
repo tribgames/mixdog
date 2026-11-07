@@ -261,14 +261,12 @@ impl SessionDirectory {
         handle.inbox.send(Inbox::CompletionCard { content, meta }).await.is_ok()
     }
 
-    /// `notifySessionUi(id, content, meta)`: a UI-only notice for the surfaces attached to the
-    /// thread now, and whether there is one. A thread nobody is attached to gets nothing: the
-    /// notice is not kept for a later attach.
+    /// `notifySessionUi(id, content, meta)`: a UI-only notice on the thread's feed, and whether
+    /// the thread took it. Node's taker is the session runtime's own store, bound when the runtime
+    /// is created whoever views it (`local-session-runtime.mjs:487`), so a thread loaded here
+    /// takes it with or without subscribers; one not loaded has no runtime and does not.
     pub async fn notify_ui(&self, id: &ThreadId, content: String, meta: Value) -> bool {
         let Some(handle) = self.inner.loaded(id) else { return false };
-        if handle.cell.attached() == 0 {
-            return false;
-        }
         handle.inbox.send(Inbox::UiNotice { content, meta }).await.is_ok()
     }
 
@@ -319,6 +317,13 @@ impl SessionDirectory {
     /// lane. `None` when the session is unknown or deleted.
     pub async fn stored_header(&self, id: &ThreadId) -> Option<mixdog_store::schema::record::Header> {
         self.inner.stored_header(id).await
+    }
+
+    /// [`stored_header`](Self::stored_header) for a decision that must tell "no such session"
+    /// (`Ok(None)`) from "the read never ran" (`Err`): a session whose record could not be read
+    /// is not a deleted one.
+    pub async fn try_stored_header(&self, id: &ThreadId) -> Result<Option<mixdog_store::schema::record::Header>, CoreError> {
+        self.inner.try_stored_header(id).await
     }
 
     /// `deleteSession(id, { isSessionLive: treeChanged })` for a session not open in this
@@ -494,11 +499,18 @@ impl DirInner {
     /// A session's header: the live one of a loaded thread, else the stored record read on the io
     /// lane. `None` when the session is unknown or deleted.
     async fn stored_header(&self, id: &ThreadId) -> Option<mixdog_store::schema::record::Header> {
+        // For read-only views, where an unrun read can only read as unknown.
+        self.try_stored_header(id).await.ok().flatten()
+    }
+
+    /// As [`stored_header`](Self::stored_header), but `Err` when the read job never ran.
+    async fn try_stored_header(&self, id: &ThreadId) -> Result<Option<mixdog_store::schema::record::Header>, CoreError> {
         if let Some(handle) = self.loaded(id) {
-            return Some(handle.cell.header.load_full().as_ref().clone());
+            return Ok(Some(handle.cell.header.load_full().as_ref().clone()));
         }
         let (store, thread) = (self.deps.store.clone(), id.clone());
-        self.deps.lanes.io.submit(&CancellationToken::new(), move |lane| store.read_header(lane, &thread)).ok()?.await.ok()?.ok()
+        let read = mixdog_core_base::support::on_lane(self.deps.lanes.io, &CancellationToken::new(), move |lane| store.read_header(lane, &thread)).await?;
+        Ok(read.ok())
     }
 
     /// `treeChanged` for a delete, in the thread's own admission: a peer is open (or opening),
@@ -516,7 +528,10 @@ impl DirInner {
             if lock(self.shard(peer)).contains_key(peer) {
                 return true;
             }
-            let stored = self.stored_header(peer).await.map(|header| super::sub_agent_retention::activity_at(&header));
+            let stored = match self.try_stored_header(peer).await {
+                Ok(stored) => stored.map(|header| super::sub_agent_retention::activity_at(&header)),
+                Err(_) => return true,
+            };
             if stored != Some(*read) {
                 return true;
             }

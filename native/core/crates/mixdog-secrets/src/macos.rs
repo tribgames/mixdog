@@ -62,7 +62,7 @@ impl SecretStore for KeychainStore {
         .await?
     }
 
-    async fn is_fallback(&self, _account: &str) -> bool {
-        false
+    async fn is_fallback(&self, _account: &str) -> Result<bool, SecretError> {
+        Ok(false)
     }
 }

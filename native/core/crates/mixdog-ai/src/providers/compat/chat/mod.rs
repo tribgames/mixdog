@@ -22,24 +22,13 @@ pub use super::profile::CostField;
 use super::error;
 use super::models::ModelTable;
 use super::profile::CompatProfile;
-use super::schema::{Rule, SchemaMemo, ToolExclusion};
-
-/// Receives each tool a request had to leave out (the agent loop records it
-/// for the session).
-#[derive(Clone)]
-pub struct ExclusionSink(pub Arc<dyn Fn(ToolExclusion) + Send + Sync>);
-
-impl std::fmt::Debug for ExclusionSink {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("ExclusionSink")
-    }
-}
+use super::schema::{Rule, SchemaMemo, report_exclusion};
+use crate::providers::google::tool_accept::gemini_accepted_tools;
+use crate::providers::google::traits::is_gemini_family_model;
 
 /// What differs between two instances of one profile.
 #[derive(Clone, Debug)]
 pub struct CompatConfig {
-    /// Without a sink an excluded tool is logged.
-    pub on_tool_excluded: Option<ExclusionSink>,
     /// The server hosts tool search (xAI opt-in): one `tool_search` tool
     /// replaces the client loader on the Responses wire.
     pub server_tool_search: bool,
@@ -69,7 +58,6 @@ impl Default for CompatConfig {
     fn default() -> Self {
         Self {
             environment: None,
-            on_tool_excluded: None,
             server_tool_search: false,
             base_url: None,
             client_version: String::new(),
@@ -172,15 +160,18 @@ impl WireCodec for CompatChatCodec {
 
     fn encode(&self, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
         let info = self.config.models.get(&request.model);
-        // Every `parameters` must be a valid 2020-12 object schema; a draft-07
-        // one is lowered, a broken one left out and reported.
-        let source = format!("[{}] tool", self.profile.id);
-        let tools = self.schemas.accepted_wire_tools(&request.tools, Rule::OpenAi, &source, &mut |e| {
-            match &self.config.on_tool_excluded {
-                Some(sink) => (sink.0)(e),
-                None => tracing::warn!("{}", e.message),
-            }
-        });
+        // A Gemini-family model behind this route (google/gemini-* on OpenRouter) fails the whole
+        // request on one schema Google rejects; such a tool is left out and reported like on the
+        // native Gemini routes. Every other model's `parameters` must be a valid 2020-12 object
+        // schema; a draft-07 one is lowered, a broken one left out and reported.
+        let tools = if is_gemini_family_model(&request.model) {
+            gemini_accepted_tools(&request.tools, &mut |e| report_exclusion(&request.options, e))
+        } else {
+            let source = format!("[{}] tool", self.profile.id);
+            self.schemas.accepted_wire_tools(&request.tools, Rule::OpenAi, &source, &mut |e| {
+                report_exclusion(&request.options, e)
+            })
+        };
         let body = encode::build_body(&self.profile, &self.provider, request, info.as_deref(), &tools)?;
         Ok(WireRequest {
             transport: TransportKind::Http1,

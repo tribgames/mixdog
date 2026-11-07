@@ -4123,6 +4123,7 @@ dependencies = [
  "mixdog-protocol",
  "mixdog-rt",
  "mixdog-scm",
+ "mixdog-secrets",
  "mixdog-services",
  "mixdog-statefile",
  "mixdog-workspace",
@@ -4157,6 +4158,8 @@ dependencies = [
  "mixdog-protocol",
  "mixdog-remote",
  "mixdog-rt",
+ "mixdog-secrets",
+ "mixdog-statefile",
  "mixdog-store",
  "mixdog-tools",
  "mixdog-workspace",
@@ -4696,6 +4699,7 @@ dependencies = [
  "mixdog-statefile",
  "mixdog-store",
  "mixdog-tools",
+ "mixdog-trace",
  "mixdog-workspace",
  "ort",
  "regex",
@@ -4825,6 +4829,16 @@ dependencies = [
  "uuid",
  "windows-sys 0.61.2",
  "wiremock",
+]
+
+[[package]]
+name = "mixdog-trace"
+version = "1.4.5"
+dependencies = [
+ "mixdog-js",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
 ]
 
 [[package]]

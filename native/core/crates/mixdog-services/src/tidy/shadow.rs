@@ -98,14 +98,18 @@ async fn probe_binary_version(processes: &Processes, bin: String) -> String {
 
 /// Same-named binaries that are not the engine tidy uses. Missing engines still report shadows:
 /// "nothing tidy runs" is exactly when a stray binary of that name gets mistaken for the engine.
-pub async fn detect_engine_shadows(processes: &Processes, engines: &[Resolved], env: &HashMap<String, String>) -> Vec<Value> {
+///
+/// `Err` when the scan never ran: no rows there would read as "nothing shadows an engine".
+pub async fn detect_engine_shadows(processes: &Processes, engines: &[Resolved], env: &HashMap<String, String>) -> Result<Vec<Value>, String> {
     // The directory listing and file probes are one lane job; the version spawns stay async.
     let (owned_engines, owned_env) = (engines.to_vec(), env.clone());
-    let mut found = on_lane(processes.durability(), move || gather_candidates(&owned_engines, &owned_env)).await.unwrap_or_default();
+    let mut found = on_lane(processes.durability(), move || gather_candidates(&owned_engines, &owned_env))
+        .await
+        .map_err(|_| "shadow check unavailable: the PATH and npx-cache scan could not be run (its lane did not run it), so this report does not say whether a same-named binary shadows an engine".to_owned())?;
     found.truncate(SHADOW_CAP);
     let paths: Vec<String> = found.iter().map(|f| f.3.clone()).collect();
     let versions = map_limit(paths, SHADOW_CAP, |p| probe_binary_version(processes, p)).await;
-    shadow_rows(engines, &found, versions)
+    Ok(shadow_rows(engines, &found, versions))
 }
 
 /// The report rows for `found`, each with the version its binary answered.
@@ -183,6 +187,16 @@ mod tests {
         // A missing engine still reports the stray binary.
         let missing = detect_engine_shadows(&[Resolved { id: "biome".into(), source: "missing".into(), missing: true, ..Default::default() }], &env, probe);
         assert!(shadow_note(&missing[0]).contains("tidy has no biome (missing)"));
+    }
+
+    /// A scan that never ran is an error, not "no shadows".
+    #[tokio::test]
+    async fn a_shadow_scan_that_never_ran_is_an_error_not_an_empty_report() {
+        let env = HashMap::new();
+        let engines = [engine("biome", "managed", "/m/biome")];
+        let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
+        let why = super::detect_engine_shadows(&Processes::for_tests(), &engines, &env).await.unwrap_err();
+        assert!(why.contains("does not say whether"), "{why}");
     }
 
     #[test]

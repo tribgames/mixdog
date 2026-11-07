@@ -43,11 +43,20 @@ pub struct SecretError {
     pub message: String,
     /// The host positively has no keychain provider (not a locked or failing keychain).
     pub no_provider: bool,
+    /// The job that would have made the keychain call never ran (the durability lane was full or
+    /// dropped it). It says nothing about the secret: a presence check must report it as an
+    /// error, never as "not stored".
+    pub unrun: bool,
 }
 
 impl SecretError {
     pub fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into(), no_provider: false }
+        Self { message: message.into(), no_provider: false, unrun: false }
+    }
+
+    /// A call whose lane job never ran.
+    pub fn unrun(message: impl Into<String>) -> Self {
+        Self { message: message.into(), no_provider: false, unrun: true }
     }
 }
 
@@ -59,12 +68,18 @@ pub trait SecretStore: Send + Sync {
     /// Removes the account; nothing stored is not an error.
     async fn delete(&self, account: &str) -> Result<(), SecretError>;
     /// Whether the account holds a value (`hasSecret`): on Windows only the file's existence is
-    /// checked, elsewhere a failed read counts as "no".
-    async fn has(&self, account: &str) -> bool {
-        matches!(self.get(account).await, Ok(Some(_)))
+    /// checked, elsewhere a read that FAILED counts as "no" (Node's `catch`). `Err` only when the
+    /// check never ran ([`SecretError::unrun`]), which must not read as "not signed in".
+    async fn has(&self, account: &str) -> Result<bool, SecretError> {
+        match self.get(account).await {
+            Ok(value) => Ok(value.is_some()),
+            Err(error) if error.unrun => Err(error),
+            Err(_) => Ok(false),
+        }
     }
-    async fn is_fallback(&self, _account: &str) -> bool {
-        false
+    /// `Err` only for an [`unrun`](SecretError::unrun) check: it must not read as "the keychain".
+    async fn is_fallback(&self, _account: &str) -> Result<bool, SecretError> {
+        Ok(false)
     }
 }
 
@@ -73,8 +88,8 @@ pub(crate) async fn on_lane<T: Send + 'static>(
     io: DurabilityIo,
     work: impl FnOnce() -> T + Send + 'static,
 ) -> Result<T, SecretError> {
-    let job = io.submit(&CancellationToken::new(), move |_lane| work()).map_err(|_| SecretError::new("the durability lane is full"))?;
-    job.await.map_err(|e| SecretError::new(format!("{e:?}")))
+    let job = io.submit(&CancellationToken::new(), move |_lane| work()).map_err(|_| SecretError::unrun("the durability lane is full"))?;
+    job.await.map_err(|e| SecretError::unrun(format!("{e:?}")))
 }
 
 /// `MIXDOG_KEYCHAIN_TIMEOUT_MS` (default 15 s): the bound on every keychain provider call.
@@ -123,5 +138,39 @@ impl SecretStore for MemoryStore {
     async fn delete(&self, account: &str) -> Result<(), SecretError> {
         self.entries.lock().unwrap_or_else(|e| e.into_inner()).remove(account);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A store whose `get` fails the way the test says.
+    struct Reads(SecretError);
+
+    #[async_trait]
+    impl SecretStore for Reads {
+        async fn get(&self, _: &str) -> Result<Option<String>, SecretError> {
+            Err(self.0.clone())
+        }
+        async fn set(&self, _: &str, _: &str) -> Result<(), SecretError> {
+            Ok(())
+        }
+        async fn delete(&self, _: &str) -> Result<(), SecretError> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn presence_is_a_value_when_the_check_ran_and_an_error_when_it_never_ran() {
+        let store = MemoryStore::default();
+        assert_eq!(store.has("a").await, Ok(false));
+        store.set("a", "v").await.unwrap();
+        assert_eq!(store.has("a").await, Ok(true));
+        // A keychain read that failed is "no", as Node's `hasSecret` catch has it.
+        assert_eq!(Reads(SecretError::new("[keychain] locked")).has("a").await, Ok(false));
+        // A check whose lane job never ran is neither: it must not read as "not signed in".
+        let unrun = SecretError::unrun("the durability lane is full");
+        assert_eq!(Reads(unrun.clone()).has("a").await, Err(unrun));
     }
 }

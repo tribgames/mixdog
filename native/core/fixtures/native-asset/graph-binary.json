@@ -1,0 +1,459 @@
+{
+  "recordedOn": "win32-x64",
+  "node": "v22.20.0",
+  "version": "1.2.3",
+  "sha256": "db2e1d473a8134a1ebb3ae40214fb0dbe0fc636163f8c6f149c6978723c3b41b",
+  "bytes": "graph-binary-stub\n",
+  "install": [
+    {
+      "name": "install",
+      "manifest": {
+        "version": "1.2.3",
+        "assets": {
+          "<PKEY>": {
+            "url": "<URL>",
+            "sha256": "db2e1d473a8134a1ebb3ae40214fb0dbe0fc636163f8c6f149c6978723c3b41b"
+          }
+        }
+      },
+      "seed": [],
+      "served": null,
+      "fail": null,
+      "runs": 1,
+      "findBefore": null,
+      "outcomes": [
+        {
+          "ok": "mixdog-graph-1.2.3<SUFFIX>"
+        }
+      ],
+      "calls": [
+        {
+          "url": "<URL>",
+          "tmpName": true
+        }
+      ],
+      "findAfter": "mixdog-graph-1.2.3<SUFFIX>",
+      "files": [
+        "mixdog-graph-1.2.3<SUFFIX>"
+      ]
+    },
+    {
+      "name": "cache-hit",
+      "manifest": {
+        "version": "1.2.3",
+        "assets": {
+          "<PKEY>": {
+            "url": "<URL>",
+            "sha256": "db2e1d473a8134a1ebb3ae40214fb0dbe0fc636163f8c6f149c6978723c3b41b"
+          }
+        }
+      },
+      "seed": [],
+      "served": null,
+      "fail": null,
+      "runs": 2,
+      "findBefore": null,
+      "outcomes": [
+        {
+          "ok": "mixdog-graph-1.2.3<SUFFIX>"
+        },
+        {
+          "ok": "mixdog-graph-1.2.3<SUFFIX>"
+        }
+      ],
+      "calls": [
+        {
+          "url": "<URL>",
+          "tmpName": true
+        }
+      ],
+      "findAfter": "mixdog-graph-1.2.3<SUFFIX>",
+      "files": [
+        "mixdog-graph-1.2.3<SUFFIX>"
+      ]
+    },
+    {
+      "name": "damaged-copy",
+      "manifest": {
+        "version": "1.2.3",
+        "assets": {
+          "<PKEY>": {
+            "url": "<URL>",
+            "sha256": "db2e1d473a8134a1ebb3ae40214fb0dbe0fc636163f8c6f149c6978723c3b41b"
+          }
+        }
+      },
+      "seed": [
+        {
+          "name": "mixdog-graph-1.2.3<SUFFIX>",
+          "content": "not the binary"
+        }
+      ],
+      "served": null,
+      "fail": null,
+      "runs": 1,
+      "findBefore": null,
+      "outcomes": [
+        {
+          "ok": "mixdog-graph-1.2.3<SUFFIX>"
+        }
+      ],
+      "calls": [
+        {
+          "url": "<URL>",
+          "tmpName": true
+        }
+      ],
+      "findAfter": "mixdog-graph-1.2.3<SUFFIX>",
+      "files": [
+        "mixdog-graph-1.2.3<SUFFIX>"
+      ]
+    },
+    {
+      "name": "intact-copy",
+      "manifest": {
+        "version": "1.2.3",
+        "assets": {
+          "<PKEY>": {
+            "url": "<URL>",
+            "sha256": "db2e1d473a8134a1ebb3ae40214fb0dbe0fc636163f8c6f149c6978723c3b41b"
+          }
+        }
+      },
+      "seed": [
+        {
+          "name": "mixdog-graph-1.2.3<SUFFIX>",
+          "content": "graph-binary-stub\n"
+        }
+      ],
+      "served": null,
+      "fail": null,
+      "runs": 1,
+      "findBefore": "mixdog-graph-1.2.3<SUFFIX>",
+      "outcomes": [
+        {
+          "ok": "mixdog-graph-1.2.3<SUFFIX>"
+        }
+      ],
+      "calls": [],
+      "findAfter": "mixdog-graph-1.2.3<SUFFIX>",
+      "files": [
+        "mixdog-graph-1.2.3<SUFFIX>"
+      ]
+    },
+    {
+      "name": "uppercase-sha",
+      "manifest": {
+        "version": "1.2.3",
+        "assets": {
+          "<PKEY>": {
+            "url": "<URL>",
+            "sha256": "DB2E1D473A8134A1EBB3AE40214FB0DBE0FC636163F8C6F149C6978723C3B41B"
+          }
+        }
+      },
+      "seed": [],
+      "served": null,
+      "fail": null,
+      "runs": 1,
+      "findBefore": null,
+      "outcomes": [
+        {
+          "ok": "mixdog-graph-1.2.3<SUFFIX>"
+        }
+      ],
+      "calls": [
+        {
+          "url": "<URL>",
+          "tmpName": true
+        }
+      ],
+      "findAfter": "mixdog-graph-1.2.3<SUFFIX>",
+      "files": [
+        "mixdog-graph-1.2.3<SUFFIX>"
+      ]
+    },
+    {
+      "name": "bad-checksum",
+      "manifest": {
+        "version": "1.2.3",
+        "assets": {
+          "<PKEY>": {
+            "url": "<URL>",
+            "sha256": "db2e1d473a8134a1ebb3ae40214fb0dbe0fc636163f8c6f149c6978723c3b41b"
+          }
+        }
+      },
+      "seed": [],
+      "served": "other bytes\n",
+      "fail": null,
+      "runs": 1,
+      "findBefore": null,
+      "outcomes": [
+        {
+          "error": "[graph-fetcher] sha256 mismatch for <PKEY>: expected db2e1d473a8134a1ebb3ae40214fb0dbe0fc636163f8c6f149c6978723c3b41b, got 671bf4eed8c3b3a2f75a9c40ccbfe5f2e078e894fb85d63bfd98dc5ab232933c"
+        }
+      ],
+      "calls": [
+        {
+          "url": "<URL>",
+          "tmpName": true
+        }
+      ],
+      "findAfter": null,
+      "files": []
+    },
+    {
+      "name": "download-fails",
+      "manifest": {
+        "version": "1.2.3",
+        "assets": {
+          "<PKEY>": {
+            "url": "<URL>",
+            "sha256": "db2e1d473a8134a1ebb3ae40214fb0dbe0fc636163f8c6f149c6978723c3b41b"
+          }
+        }
+      },
+      "seed": [],
+      "served": null,
+      "fail": "boom",
+      "runs": 1,
+      "findBefore": null,
+      "outcomes": [
+        {
+          "error": "boom"
+        }
+      ],
+      "calls": [
+        {
+          "url": "<URL>",
+          "tmpName": true
+        }
+      ],
+      "findAfter": null,
+      "files": []
+    },
+    {
+      "name": "unsupported-platform",
+      "manifest": {
+        "version": "1.2.3",
+        "assets": {
+          "sunos-x64": {
+            "url": "https://github.com/tribgames/mixdog/releases/download/graph-v1.2.3/mixdog-graph-sunos-x64<SUFFIX>",
+            "sha256": "db2e1d473a8134a1ebb3ae40214fb0dbe0fc636163f8c6f149c6978723c3b41b"
+          },
+          "plan9-arm64": {
+            "url": "<URL>",
+            "sha256": "db2e1d473a8134a1ebb3ae40214fb0dbe0fc636163f8c6f149c6978723c3b41b"
+          }
+        }
+      },
+      "seed": [],
+      "served": null,
+      "fail": null,
+      "runs": 1,
+      "findBefore": null,
+      "outcomes": [
+        {
+          "error": "[graph-fetcher] no prebuilt mixdog-graph binary for platform <PKEY> (unsupported platform/arch — there is no JS parsing fallback). Supported platforms: sunos-x64, plan9-arm64. Build it locally: cargo build --release in native/mixdog-graph."
+        }
+      ],
+      "calls": [],
+      "findAfter": null,
+      "files": []
+    },
+    {
+      "name": "no-assets",
+      "manifest": {
+        "version": "1.2.3"
+      },
+      "seed": [],
+      "served": null,
+      "fail": null,
+      "runs": 1,
+      "findBefore": null,
+      "outcomes": [
+        {
+          "error": "[graph-fetcher] no prebuilt mixdog-graph binary for platform <PKEY> (unsupported platform/arch — there is no JS parsing fallback). Supported platforms: (none). Build it locally: cargo build --release in native/mixdog-graph."
+        }
+      ],
+      "calls": [],
+      "findAfter": null,
+      "files": []
+    },
+    {
+      "name": "untrusted-url",
+      "manifest": {
+        "version": "1.2.3",
+        "assets": {
+          "<PKEY>": {
+            "url": "https://example.com/mixdog-graph",
+            "sha256": "db2e1d473a8134a1ebb3ae40214fb0dbe0fc636163f8c6f149c6978723c3b41b"
+          }
+        }
+      },
+      "seed": [],
+      "served": null,
+      "fail": null,
+      "runs": 1,
+      "findBefore": null,
+      "outcomes": [
+        {
+          "error": "[graph-fetcher] no prebuilt mixdog-graph binary for platform <PKEY> (unsupported platform/arch — there is no JS parsing fallback). Supported platforms: <PKEY>. Build it locally: cargo build --release in native/mixdog-graph."
+        }
+      ],
+      "calls": [],
+      "findAfter": null,
+      "files": []
+    },
+    {
+      "name": "bad-version",
+      "manifest": {
+        "version": "1.2",
+        "assets": {
+          "<PKEY>": {
+            "url": "<URL>",
+            "sha256": "db2e1d473a8134a1ebb3ae40214fb0dbe0fc636163f8c6f149c6978723c3b41b"
+          }
+        }
+      },
+      "seed": [],
+      "served": null,
+      "fail": null,
+      "runs": 1,
+      "findBefore": null,
+      "outcomes": [
+        {
+          "error": "[graph-fetcher] no prebuilt mixdog-graph binary for platform <PKEY> (unsupported platform/arch — there is no JS parsing fallback). Supported platforms: <PKEY>. Build it locally: cargo build --release in native/mixdog-graph."
+        }
+      ],
+      "calls": [],
+      "findAfter": null,
+      "files": []
+    },
+    {
+      "name": "leading-zero-version",
+      "manifest": {
+        "version": "01.2.3",
+        "assets": {
+          "<PKEY>": {
+            "url": "https://github.com/tribgames/mixdog/releases/download/graph-v01.2.3/mixdog-graph-<PKEY><SUFFIX>",
+            "sha256": "db2e1d473a8134a1ebb3ae40214fb0dbe0fc636163f8c6f149c6978723c3b41b"
+          }
+        }
+      },
+      "seed": [],
+      "served": null,
+      "fail": null,
+      "runs": 1,
+      "findBefore": null,
+      "outcomes": [
+        {
+          "error": "[graph-fetcher] no prebuilt mixdog-graph binary for platform <PKEY> (unsupported platform/arch — there is no JS parsing fallback). Supported platforms: <PKEY>. Build it locally: cargo build --release in native/mixdog-graph."
+        }
+      ],
+      "calls": [],
+      "findAfter": null,
+      "files": []
+    },
+    {
+      "name": "bad-sha",
+      "manifest": {
+        "version": "1.2.3",
+        "assets": {
+          "<PKEY>": {
+            "url": "<URL>",
+            "sha256": "zz"
+          }
+        }
+      },
+      "seed": [],
+      "served": null,
+      "fail": null,
+      "runs": 1,
+      "findBefore": null,
+      "outcomes": [
+        {
+          "error": "[graph-fetcher] no prebuilt mixdog-graph binary for platform <PKEY> (unsupported platform/arch — there is no JS parsing fallback). Supported platforms: <PKEY>. Build it locally: cargo build --release in native/mixdog-graph."
+        }
+      ],
+      "calls": [],
+      "findAfter": null,
+      "files": []
+    },
+    {
+      "name": "stale-files-collected",
+      "manifest": {
+        "version": "1.2.3",
+        "assets": {
+          "<PKEY>": {
+            "url": "<URL>",
+            "sha256": "db2e1d473a8134a1ebb3ae40214fb0dbe0fc636163f8c6f149c6978723c3b41b"
+          }
+        }
+      },
+      "seed": [
+        {
+          "name": "mixdog-graph-0.0.1<SUFFIX>",
+          "content": "old"
+        },
+        {
+          "name": "mixdog-graph-0.0.1<SUFFIX>.tmp-1-1",
+          "content": "tmp"
+        },
+        {
+          "name": "manifest.json",
+          "content": "{}"
+        },
+        {
+          "name": "unrelated.txt",
+          "content": "keep"
+        }
+      ],
+      "served": null,
+      "fail": null,
+      "runs": 1,
+      "findBefore": null,
+      "outcomes": [
+        {
+          "ok": "mixdog-graph-1.2.3<SUFFIX>"
+        }
+      ],
+      "calls": [
+        {
+          "url": "<URL>",
+          "tmpName": true
+        }
+      ],
+      "findAfter": "mixdog-graph-1.2.3<SUFFIX>",
+      "files": [
+        "manifest.json",
+        "mixdog-graph-1.2.3<SUFFIX>",
+        "unrelated.txt"
+      ]
+    }
+  ],
+  "downloads": [
+    {
+      "route": "/ok",
+      "outcome": {
+        "ok": "db2e1d473a8134a1ebb3ae40214fb0dbe0fc636163f8c6f149c6978723c3b41b"
+      },
+      "requests": 1
+    },
+    {
+      "route": "/missing",
+      "outcome": {
+        "error": "[graph-fetcher] asset HTTP 404 (terminal) — <BASE>/missing"
+      },
+      "requests": 1
+    },
+    {
+      "route": "/flaky",
+      "outcome": {
+        "ok": "db2e1d473a8134a1ebb3ae40214fb0dbe0fc636163f8c6f149c6978723c3b41b"
+      },
+      "requests": 2
+    }
+  ]
+}

@@ -407,6 +407,14 @@ pub fn route_prompt(header: &Header, blocks: &SystemBlocks, route_changed: bool)
     patch_of(blocks, rewrite)
 }
 
+/// `presentedWorkspace(session)` (`prompt-utils.mjs:323`) of a session header: the workspace its
+/// system prompt presents, `{cwd, environmentContext, coreMemoryContext, instructionFilesContext}`.
+/// A pure read of the `tier3` and `env` blocks and `bp3EnvironmentContext`/`bp3CoreContext`.
+pub fn presented_workspace_of(header: &Header) -> Value {
+    let blocks = SystemBlocks::from_header(header);
+    mixdog_core_session::session::worktree::presented_workspace(&PromptView { header, tier3: blocks.core.as_deref(), env: blocks.env.as_deref() })
+}
+
 /// `resetSessionBp3Environment(session)` for a cleared conversation: a staged re-root is applied
 /// now (core, environment tail and cwd slices), then the `env` block is the environment tail
 /// alone (no `# Session` block) and `sessionStartMetaInjected` is false, so the next ask adds the

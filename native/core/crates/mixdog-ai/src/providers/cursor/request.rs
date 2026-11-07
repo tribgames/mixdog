@@ -4,6 +4,7 @@
 //! becomes the request context.
 
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
@@ -21,6 +22,14 @@ use serde_json::Map;
 use serde_json::Value;
 use sha2::Digest;
 use sha2::Sha256;
+
+use crate::providers::compat::schema::Rule;
+use crate::providers::compat::schema::SchemaMemo;
+use crate::providers::compat::schema::report_exclusion;
+use crate::providers::flat_schema::merge_flat_schema_property;
+use crate::providers::js_value::entries;
+use crate::providers::js_value::js_ordered_map;
+use crate::providers::js_value::truthy;
 
 use super::schema::Action;
 use super::schema::McpToolDefinition;
@@ -366,37 +375,16 @@ fn flatten_top_level_compound(schema: Value) -> Value {
         _ => Map::new(),
     };
     for branch in branches {
-        if let Some(Value::Object(props)) = branch.get("properties") {
-            for (name, property) in props {
-                match properties.get_mut(name) {
-                    Some(existing) => merge_property(existing, property),
-                    None => {
-                        properties.insert(name.clone(), property.clone());
-                    }
-                }
-            }
+        for (name, property) in entries(branch.get("properties").filter(|p| truthy(p)).unwrap_or(&Value::Null)) {
+            // `mergeFlatSchemaProperty`: enums union, nested properties merge, only properties
+            // required by both sides stay required.
+            let merged = merge_flat_schema_property(properties.get(&name), &property);
+            properties.insert(name, merged);
         }
     }
     root.insert("type".to_owned(), Value::String("object".to_owned()));
-    root.insert("properties".to_owned(), Value::Object(properties));
+    root.insert("properties".to_owned(), Value::Object(js_ordered_map(properties)));
     Value::Object(root)
-}
-
-/// Two branches describing one property: enums union, anything else keeps
-/// the first description.
-fn merge_property(into: &mut Value, other: &Value) {
-    if let (Some(a), Some(b)) = (
-        into.get("enum").and_then(Value::as_array).cloned(),
-        other.get("enum").and_then(Value::as_array),
-    ) {
-        let mut merged = a;
-        for v in b {
-            if !merged.contains(v) {
-                merged.push(v.clone());
-            }
-        }
-        into["enum"] = Value::Array(merged);
-    }
 }
 
 pub fn prepare_tool(tool: &ToolDefinition) -> McpToolDefinition {
@@ -413,14 +401,27 @@ pub fn prepare_tool(tool: &ToolDefinition) -> McpToolDefinition {
     }
 }
 
-/// The tools a request offers: none for `tool_choice: none`.
+/// The tools a request offers: none for `tool_choice: none`. Every `parameters` must first be a
+/// valid 2020-12 object schema, as on any OpenAI-rule route (`cursor.mjs`: `acceptedWireTools(..,
+/// 'openai', onToolExcluded, '[cursor] tool')`): a draft-07 one is lowered, a broken one left out and
+/// reported. The check runs whatever the tool choice, as in Node.
 pub fn selected_tools(request: &ModelRequest) -> Vec<McpToolDefinition> {
-    if request.options.tool_choice.as_deref() == Some("none") {
-        return Vec::new();
-    }
-    request
-        .tools
+    static SCHEMAS: LazyLock<SchemaMemo> = LazyLock::new(SchemaMemo::default);
+    let accepted = SCHEMAS.accepted_wire_tools(&request.tools, Rule::OpenAi, "[cursor] tool", &mut |excluded| {
+        report_exclusion(&request.options, excluded)
+    });
+    // `selectToolsForChoice`: `none` offers nothing; a named tool (Node's object form
+    // `{ name }` / `{ type: 'function', function: { name } }`, which `RequestOptions.tool_choice`
+    // carries as the bare name) narrows the offer to the tools of that name, none when there is no
+    // such tool; the keyword choices leave it whole.
+    let named = match request.options.tool_choice.as_deref() {
+        Some("none") => return Vec::new(),
+        Some("" | "auto" | "required" | "any") | None => None,
+        Some(name) => Some(name),
+    };
+    accepted
         .iter()
+        .filter(|t| named.is_none_or(|name| t.name == name))
         .filter(|t| !t.name.is_empty())
         .map(prepare_tool)
         .collect()
@@ -540,5 +541,103 @@ mod tests {
             0,
         );
         assert_eq!(slim, serde_json::json!({"type":"object","properties":{"a":{"type":"string"}}}));
+    }
+
+    /// Which tools a run offers for a tool choice against `fixtures/providers/cursor-tool-choice/cases.json`
+    /// (recorded by `record-cursor-tool-choice.mjs` from the real `toCursorToolChoice`,
+    /// `selectToolsForChoice` and `buildToolDefinitions`). `RequestOptions.tool_choice` carries the
+    /// choice as one string: the keyword, or the tool name of Node's object form, which is read
+    /// from the `tool_choice` Node itself puts in the body.
+    #[test]
+    fn a_named_tool_choice_narrows_the_offer_as_node_does() {
+        use mixdog_core_api::domain::provider::RequestOptions;
+
+        let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/providers/cursor-tool-choice/cases.json")).expect("recorded cases");
+        for case in golden["cases"].as_array().expect("cases") {
+            let id = case["id"].as_str().expect("id");
+            let body = &case["bodyToolChoice"];
+            let choice = body.as_str().or_else(|| body["function"]["name"].as_str()).map(str::to_owned);
+            let request = ModelRequest {
+                model: "auto".into(),
+                messages: Vec::new(),
+                tools: case["tools"]
+                    .as_array()
+                    .expect("tools")
+                    .iter()
+                    .map(|name| ToolDefinition {
+                        name: name.as_str().expect("name").into(),
+                        description: String::new(),
+                        input_schema: serde_json::json!({"type": "object", "properties": {"key": {"type": "string"}}}),
+                        defer_loading: false,
+                    })
+                    .collect(),
+                options: RequestOptions { tool_choice: choice, ..RequestOptions::default() },
+            };
+            let offered: Vec<String> = selected_tools(&request).into_iter().map(|t| t.name).collect();
+            let want: Vec<String> = case["offered"].as_array().expect("offered").iter().map(|n| n.as_str().expect("name").to_owned()).collect();
+            assert_eq!(offered, want, "{id}");
+        }
+    }
+
+    /// The tools a run offers against `fixtures/providers/cursor-tools/cases.json` (recorded by
+    /// `record-cursor-tools.mjs` from the real `acceptedWireTools`, `toOpenAITools`,
+    /// `selectToolsForChoice` and `buildToolDefinitions`): the OpenAI rule first (a broken schema
+    /// is left out and reported whatever the tool choice, a draft-07 one lowered), then slimming and
+    /// the flat form of a compound root. The schema text is compared whole, key order included.
+    #[test]
+    fn the_tools_a_run_offers_are_the_ones_node_offers() {
+        use std::sync::Arc;
+        use std::sync::Mutex;
+
+        use mixdog_core_api::domain::provider::RequestOptions;
+        use mixdog_core_api::domain::provider::ToolExclusionReport;
+        use mixdog_core_api::domain::provider::ToolExclusionSink;
+
+        let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/providers/cursor-tools/cases.json")).expect("recorded cases");
+        for case in golden["cases"].as_array().expect("cases") {
+            let id = case["id"].as_str().expect("id");
+            let seen = Arc::new(Mutex::new(Vec::<ToolExclusionReport>::new()));
+            let into = Arc::clone(&seen);
+            let request = ModelRequest {
+                model: "auto".into(),
+                messages: Vec::new(),
+                tools: case["tools"]
+                    .as_array()
+                    .expect("tools")
+                    .iter()
+                    .map(|t| ToolDefinition {
+                        name: t["name"].as_str().expect("name").into(),
+                        description: t["description"].as_str().expect("description").into(),
+                        input_schema: t["inputSchema"].clone(),
+                        defer_loading: false,
+                    })
+                    .collect(),
+                options: RequestOptions {
+                    tool_choice: case["toolChoice"].as_str().map(str::to_owned),
+                    on_tool_excluded: Some(ToolExclusionSink(Arc::new(move |report: ToolExclusionReport| {
+                        into.lock().unwrap().push(report);
+                    }))),
+                    ..RequestOptions::default()
+                },
+            };
+            let offered = selected_tools(&request);
+            let want = case["offered"].as_array().expect("offered");
+            assert_eq!(offered.len(), want.len(), "{id}: {:?}", offered.iter().map(|t| &t.name).collect::<Vec<_>>());
+            for (got, want) in offered.iter().zip(want) {
+                assert_eq!(got.name, want["name"].as_str().unwrap(), "{id}");
+                assert_eq!(got.description, want["description"].as_str().unwrap(), "{id}: {}", got.name);
+                assert_eq!(got.input_schema.to_string(), want["inputSchemaJson"].as_str().unwrap(), "{id}: {}", got.name);
+            }
+            let reports = seen.lock().unwrap();
+            let want = case["excluded"].as_array().expect("excluded");
+            assert_eq!(reports.len(), want.len(), "{id}: {reports:?}");
+            for (got, want) in reports.iter().zip(want) {
+                assert_eq!(got.name, want["name"].as_str().unwrap(), "{id}");
+                assert_eq!(got.index as u64, want["index"].as_u64().unwrap(), "{id}");
+                assert_eq!(got.pointer, want["pointer"].as_str().unwrap(), "{id}");
+                assert_eq!(got.reason, want["reason"].as_str().unwrap(), "{id}");
+                assert_eq!(got.message, want["message"].as_str().unwrap(), "{id}");
+            }
+        }
     }
 }

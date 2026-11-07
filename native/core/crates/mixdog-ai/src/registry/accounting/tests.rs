@@ -343,14 +343,14 @@ mod through_the_registry {
                 script: Mutex::new(std::mem::take(&mut *self.0.lock().unwrap()).into()),
             }))
         }
-        async fn custom_key_ids(&self, _: &str) -> Vec<String> {
-            Vec::new()
+        async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
         }
         fn available(&self, _: &str) -> bool {
             true
         }
-        async fn oauth_credentials_usable(&self, _: &str) -> bool {
-            false
+        async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+            Ok(false)
         }
     }
 

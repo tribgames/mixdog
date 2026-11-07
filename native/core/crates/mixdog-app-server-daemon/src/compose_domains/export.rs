@@ -28,7 +28,8 @@ const HOST_VISUALIZE_COMMAND: &str = "host/visualize/command";
 /// The project folder of a session: the `cwd` that `HostVisualizeCommandParams` carries.
 #[async_trait]
 pub trait SessionCwds: Send + Sync {
-    async fn cwd(&self, session_id: &str) -> Option<String>;
+    /// `Ok(None)`: no such session. `Err`: the record read never ran.
+    async fn cwd(&self, session_id: &str) -> Result<Option<String>, mixdog_core_api::CoreError>;
 }
 
 /// The sessions' stored headers as the cwd source: a header's `cwd` text.
@@ -36,9 +37,9 @@ pub struct HeaderCwds(pub Arc<dyn mixdog_core::run_host::config_hosts::ThreadHea
 
 #[async_trait]
 impl SessionCwds for HeaderCwds {
-    async fn cwd(&self, session_id: &str) -> Option<String> {
-        let header = self.0.header(&session_id.into()).await?;
-        header.get("cwd").and_then(Value::as_str).map(str::to_owned)
+    async fn cwd(&self, session_id: &str) -> Result<Option<String>, mixdog_core_api::CoreError> {
+        let Some(header) = self.0.header(&session_id.into()).await? else { return Ok(None) };
+        Ok(header.get("cwd").and_then(Value::as_str).map(str::to_owned))
     }
 }
 
@@ -69,16 +70,18 @@ impl ExportRenderer for HostExportRenderer {
         input.insert("forDevice".into(), Value::Bool(true));
         let session_id = input.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
         // The session is gone: the desktop answers the same for a tab it no longer has.
-        let Some(cwd) = self.cwds.cwd(&session_id).await else {
-            return Err(WsError::new(Reason::Io, "This visualize tab is closed."));
+        let cwd = match self.cwds.cwd(&session_id).await {
+            Ok(Some(cwd)) => cwd,
+            Ok(None) => return Err(WsError::new(Reason::Io, "This visualize tab is closed.")),
+            // The record was not read: the tab is not known to be closed.
+            Err(_) => return Err(WsError::new(Reason::Io, "This visualize tab's session could not be read: its lane did not run the read.")),
         };
         let sent = json!({ "sessionId": session_id, "cwd": cwd, "action": "export", "input": input });
-        let answer = self.host.request_scoped(HostCapability::Visualize, Method(HOST_VISUALIZE_COMMAND), sent, cancel).await;
-        // A cancel wins over whatever the abandoned request answers.
-        if cancel.is_cancelled() {
-            return Err(WsError::new(Reason::Cancelled, "The export was cancelled."));
-        }
-        let result = answer.map_err(unavailable)?;
+        let request = self.host.request(HostCapability::Visualize, Method(HOST_VISUALIZE_COMMAND), sent);
+        let result = tokio::select! {
+            () = cancel.cancelled() => return Err(WsError::new(Reason::Cancelled, "The export was cancelled.")),
+            result = request => result.map_err(unavailable)?,
+        };
         match result.get("path").and_then(Value::as_str) {
             Some(path) if !path.is_empty() => Ok(RenderedExport { path: PathBuf::from(path) }),
             _ => Err(WsError::new(Reason::Io, "The export did not produce a file.")),
@@ -96,8 +99,8 @@ mod tests {
 
     #[async_trait]
     impl SessionCwds for Cwds {
-        async fn cwd(&self, _: &str) -> Option<String> {
-            self.0.map(str::to_owned)
+        async fn cwd(&self, _: &str) -> Result<Option<String>, mixdog_core_api::CoreError> {
+            Ok(self.0.map(str::to_owned))
         }
     }
 
@@ -140,16 +143,38 @@ mod tests {
 
     #[async_trait]
     impl mixdog_core::run_host::config_hosts::ThreadHeaders for Headers {
-        async fn header(&self, thread: &mixdog_core_api::ids::ThreadId) -> Option<mixdog_store::schema::record::Header> {
-            (thread.as_str() == "s").then(|| json!({ "cwd": "/work", "title": "x" }).as_object().unwrap().clone())
+        async fn header(&self, thread: &mixdog_core_api::ids::ThreadId) -> Result<Option<mixdog_store::schema::record::Header>, mixdog_core_api::CoreError> {
+            Ok((thread.as_str() == "s").then(|| json!({ "cwd": "/work", "title": "x" }).as_object().unwrap().clone()))
         }
     }
 
     #[tokio::test]
     async fn a_sessions_cwd_is_its_stored_headers_cwd() {
         let cwds = HeaderCwds(Arc::new(Headers));
-        assert_eq!(cwds.cwd("s").await.as_deref(), Some("/work"));
-        assert_eq!(cwds.cwd("other").await, None);
+        assert_eq!(cwds.cwd("s").await.unwrap().as_deref(), Some("/work"));
+        assert_eq!(cwds.cwd("other").await.unwrap(), None);
+    }
+
+    struct UnreadableCwds;
+
+    #[async_trait]
+    impl SessionCwds for UnreadableCwds {
+        async fn cwd(&self, _: &str) -> Result<Option<String>, mixdog_core_api::CoreError> {
+            Err(mixdog_core_api::CoreError::QueueFull { queue: "interactive".into() })
+        }
+    }
+
+    #[tokio::test]
+    async fn a_session_record_that_was_not_read_is_not_a_closed_tab() {
+        let host = Arc::new(MockHostChannel::default());
+        host.claim(HostCapability::Visualize);
+        let error = HostExportRenderer::new(host.clone(), Arc::new(UnreadableCwds))
+            .render(&command(), &CancellationToken::new())
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(error.message, "This visualize tab's session could not be read: its lane did not run the read.");
+        assert!(host.sent().is_empty());
     }
 
     #[tokio::test]

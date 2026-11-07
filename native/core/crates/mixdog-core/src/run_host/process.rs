@@ -182,24 +182,31 @@ pub async fn resolve_installation_id(env: &dyn Environment, lanes: &LaneTokens, 
         return explicit;
     }
     let file = plugin_data.join("installation_id");
+    let generated = mixdog_ai::accounts::new_account_id();
+    // `None`: the read never ran, which says nothing about the file. Only a read that ran and found
+    // no uuid may lead to replacing the file; otherwise a valid id would be overwritten.
     let read = |file: PathBuf| {
         let job = lanes.interactive_io.submit(&CancellationToken::new(), move |_lane| read_id(&file));
-        async move { job.ok()?.await.ok()?.ok().map(|t| mixdog_js::js_trim(&t).to_lowercase()).filter(|t| is_uuid(t)) }
+        async move { Some(job.ok()?.await.ok()?.ok().map(|t| mixdog_js::js_trim(&t).to_lowercase()).filter(|t| is_uuid(t))) }
     };
-    if let Some(existing) = read(file.clone()).await {
-        return existing;
+    match read(file.clone()).await {
+        Some(Some(existing)) => return existing,
+        Some(None) => {}
+        None => return generated,
     }
-    let generated = mixdog_ai::accounts::new_account_id();
     let publish = |create_only: bool| {
         let (path, id) = (file.clone(), generated.clone());
         let job = lanes.durability_io.submit(&CancellationToken::new(), move |lane| publish_id(lane, &path, &id, create_only));
         async move { job.ok()?.await.ok()?.ok() }
     };
     if publish(true).await == Some(mixdog_statefile::Published::Exists) {
-        if let Some(winner) = read(file.clone()).await {
-            return winner;
+        match read(file.clone()).await {
+            Some(Some(winner)) => return winner,
+            Some(None) => {
+                publish(false).await;
+            }
+            None => {}
         }
-        publish(false).await;
     }
     generated
 }

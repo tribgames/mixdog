@@ -314,8 +314,8 @@ mod tests {
         async fn rebuild_tool_surface(&self, _: &ThreadId, _: &str) -> Result<(), PortError> {
             Ok(())
         }
-        async fn owner_fallbacks(&self, _: &ThreadId, _: &Header, _: &str, _: &str) -> Option<Vec<Value>> {
-            None
+        async fn owner_fallbacks(&self, _: &ThreadId, _: &Header, _: &str, _: &str) -> Result<Option<Vec<Value>>, PortError> {
+            Ok(None)
         }
         fn write_statusline(&self, _: &ThreadId, _: &Route) {}
         fn invalidate_context_status(&self, _: &ThreadId) {}

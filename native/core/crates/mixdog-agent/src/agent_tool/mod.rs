@@ -3,6 +3,7 @@
 //! and cleanup. [`AgentRuntime`] implements the tools crate's `AgentPort`; everything it
 //! reads or changes outside those decisions is a trait in [`host`].
 
+pub mod assembly;
 pub mod board;
 pub mod dispatch;
 pub mod error_text;
@@ -16,5 +17,8 @@ pub mod stamp;
 pub mod views;
 pub mod watchdog;
 
+pub use assembly::AgentParts;
+pub use assembly::Assembled;
+pub use assembly::assemble;
 pub use dispatch::AgentDeps;
 pub use dispatch::AgentRuntime;

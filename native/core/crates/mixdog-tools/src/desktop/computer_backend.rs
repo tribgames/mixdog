@@ -11,6 +11,7 @@
 //! those actions report `Unavailable`.
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -39,6 +40,7 @@ use mixdog_core_api::domain::process::CommandSpec;
 use mixdog_core_api::domain::process::EnvSpec;
 use mixdog_core_api::domain::process::OutputMode;
 use mixdog_core_api::domain::process::OutputStream;
+use mixdog_core_api::domain::process::ProcessError;
 use mixdog_core_api::domain::process::ProcessEvent;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::process::ProcessOwner;
@@ -61,6 +63,29 @@ use super::computer_screen::Screen;
 use crate::state::secrets::ComputerSecretHost;
 
 const RESPONSE_MARKER: &str = "@@MIXCU@@";
+/// What the model reads when the helper cannot be started, in Node's words. The error rides the
+/// bridge reply as is, so the text is Node's: `child_process.spawn` reports ENOENT, EACCES,
+/// EAGAIN, EMFILE and ENFILE asynchronously, which `watchHostWorker` words as
+/// `computer host failed to start: spawn <path> <CODE>`; any other code is thrown synchronously
+/// and reaches the caller as the bare `spawn <CODE>` (no path). `None` for a refusal that is not
+/// an OS spawn failure (a full queue, the process limit).
+///
+/// Codes: a missing program is ENOENT and a refused one EACCES (the spawn manager's own
+/// classification); Windows error 193 (a file that is not an executable) is libuv's EFTYPE; any
+/// other OS code libuv has no name for here is UNKNOWN.
+fn node_spawn_message(binary: &Path, error: &ProcessError) -> Option<String> {
+    let path = binary.display();
+    match error {
+        ProcessError::ProgramNotFound { .. } => Some(format!("computer host failed to start: spawn {path} ENOENT")),
+        ProcessError::PermissionDenied => Some(format!("computer host failed to start: spawn {path} EACCES")),
+        ProcessError::Io { os_code } => {
+            let code = if cfg!(windows) && *os_code == Some(193) { "EFTYPE" } else { "UNKNOWN" };
+            Some(format!("spawn {code}"))
+        }
+        _ => None,
+    }
+}
+
 /// Per-command ceiling for one helper round trip (Node `COMMAND_TIMEOUT_MS`).
 const COMMAND_TIMEOUT: Duration = Duration::from_millis(45_000);
 const MAX_REQUEST_BYTES: usize = 256 * 1024;
@@ -349,7 +374,10 @@ impl ProcessComputerBackend {
         };
         let request = self.request(Vec::new(), true)?;
         let handle = request.handle.clone();
-        self.manager.spawn(request).await.map_err(|error| unavailable(format!("{error:?}")))?;
+        self.manager.spawn(request).await.map_err(|error| match node_spawn_message(&self.config.binary, &error) {
+            Some(text) => ComputerError::Unavailable { reason: text },
+            None => unavailable(format!("{error:?}")),
+        })?;
         let events = match self.manager.subscribe(&handle, Some(0)) {
             Ok(events) => events,
             Err(error) => {
@@ -1018,6 +1046,35 @@ impl ComputerBackend for ProcessComputerBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The text the model reads for a helper that cannot start is Node's, recorded from the real
+    /// `child_process.spawn` (`record-computer-spawn-error.mjs`): a missing file and a missing
+    /// directory are asynchronous ENOENT with the path; a file that is not an executable is
+    /// Windows' EFTYPE, thrown without one (the recording is Windows').
+    #[test]
+    fn a_helper_that_cannot_start_is_worded_as_nodes_spawn_error() {
+        let golden: Value = serde_json::from_str(include_str!("golden/computer_spawn_error.json")).unwrap();
+        let mut checked = 0;
+        for case in golden["cases"].as_array().unwrap() {
+            let error = match case["code"].as_str().unwrap() {
+                "ENOENT" => ProcessError::ProgramNotFound { program: String::new() },
+                "EFTYPE" if cfg!(windows) => ProcessError::Io { os_code: Some(193) },
+                _ => continue,
+            };
+            let binary = PathBuf::from(case["binary"].as_str().unwrap().replace("<DIR>", "C:\\tmp"));
+            let want = case["text"].as_str().unwrap().replace("<DIR>", "C:\\tmp");
+            assert_eq!(node_spawn_message(&binary, &error), Some(want), "{}", case["name"]);
+            checked += 1;
+        }
+        assert!(checked >= 2);
+        // Node words an EACCES start like ENOENT (also asynchronous, with the path); a refusal
+        // that is not an OS failure keeps the backend's own wording.
+        assert_eq!(
+            node_spawn_message(Path::new("/x/h"), &ProcessError::PermissionDenied).as_deref(),
+            Some("computer host failed to start: spawn /x/h EACCES")
+        );
+        assert_eq!(node_spawn_message(Path::new("/x/h"), &ProcessError::LimitReached { limit: 1 }), None);
+    }
 
     fn input(value: Value) -> Map<String, Value> {
         value.as_object().cloned().unwrap_or_default()

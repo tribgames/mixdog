@@ -205,6 +205,24 @@ async fn a_native_push_is_bound_encrypted_for_the_phone_and_unbound() {
     assert_eq!(unbound["token"], token.as_str());
 }
 
+/// A lane that refuses the job is an error for that call and leaves the native store in place:
+/// the next call on a working lane still has its subscriptions (it used to find "unavailable").
+#[tokio::test(flavor = "current_thread")]
+async fn a_refused_native_push_job_leaves_the_store_usable() {
+    let mut rig = rig(&[]).await;
+    let phone = generate_claim_key_pair();
+    let input = |token: &str| json!({ "platform": "apns", "token": token, "publicKey": phone.public_key });
+    {
+        let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
+        rig.runtime.register_native_push("phone1", &input(&"ab".repeat(32))).await.unwrap_err();
+        rig.runtime.remove_native_push("phone1", None).await.unwrap_err();
+    }
+    let token = "cd".repeat(32);
+    assert!(rig.runtime.register_native_push("phone1", &input(&token)).await.unwrap());
+    let bound = frame_of(&mut rig.frames, "native-push-bind").await;
+    assert_eq!(bound["token"], token.as_str());
+}
+
 #[test]
 fn the_legacy_store_registers_replaces_and_removes() {
     let dir = tempfile::tempdir().unwrap();

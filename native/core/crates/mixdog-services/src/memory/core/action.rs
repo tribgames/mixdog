@@ -65,13 +65,13 @@ fn parse_op(value: Option<&Value>) -> Option<Op> {
 
 /// An explicit `project_id` wins ("common" is COMMON); otherwise the pool is
 /// inferred from the active cwd, falling back to COMMON.
-async fn project_of(args: &Value, ctx: &CoreContext<'_>) -> Option<String> {
+async fn project_of(args: &Value, ctx: &CoreContext<'_>) -> Result<Option<String>> {
     let given = args.get("project_id");
     let text = given.and_then(Value::as_str).map(str::trim).unwrap_or_default();
     if given.is_none() || text.is_empty() {
-        return resolve_project_scope(ctx.lane, args.get("cwd").and_then(Value::as_str), ctx.session_cwd).await;
+        return Ok(resolve_project_scope(ctx.lane, args.get("cwd").and_then(Value::as_str), ctx.session_cwd).await?);
     }
-    (text.to_lowercase() != "common").then(|| text.to_owned())
+    Ok((text.to_lowercase() != "common").then(|| text.to_owned()))
 }
 
 /// `agent_id` selects an agent's own pool: "self" is the caller's, another id
@@ -92,15 +92,15 @@ fn agent_of(args: &Value, caller: &MemoryCaller) -> Result<Option<String>> {
         .ok_or_else(|| MemoryError::rejected(format!("agent_id \"{raw}\" is not an agent id")))
 }
 
-async fn edit_target(args: &Value, project: Option<&str>, ctx: &CoreContext<'_>) -> Option<String> {
+async fn edit_target(args: &Value, project: Option<&str>, ctx: &CoreContext<'_>) -> Result<Option<String>> {
     if let Some(target) = args.get("target_project_id") {
         let value = if target.is_null() { String::new() } else { value_to_string(target) };
         let value = js_trim(&value);
-        return (!value.is_empty() && value.to_lowercase() != "common").then(|| value.to_owned());
+        return Ok((!value.is_empty() && value.to_lowercase() != "common").then(|| value.to_owned()));
     }
     match args.get("target_cwd").and_then(Value::as_str).filter(|cwd| !cwd.is_empty()) {
-        Some(cwd) => resolve_project_scope(ctx.lane, Some(cwd), ctx.session_cwd).await,
-        None => project.map(str::to_owned),
+        Some(cwd) => Ok(resolve_project_scope(ctx.lane, Some(cwd), ctx.session_cwd).await?),
+        None => Ok(project.map(str::to_owned)),
     }
 }
 
@@ -129,7 +129,7 @@ pub async fn run(ctx: &CoreContext<'_>, args: &Value) -> ToolReply {
 async fn execute(ctx: &CoreContext<'_>, args: &Value, op: Op) -> Result<ToolReply> {
     let caller = MemoryCaller::from_value(args.get("memory_caller"));
     let agent_id = agent_of(args, &caller)?;
-    let project_id = if agent_id.is_some() { None } else { project_of(args, ctx).await };
+    let project_id = if agent_id.is_some() { None } else { project_of(args, ctx).await? };
     if args.get("source").is_some_and(|source| truthy(source) && source.as_str() != Some("curated")) {
         return Ok(ToolReply::error("memory manages user-curated entries only; use recall for generated history."));
     }
@@ -172,7 +172,7 @@ async fn execute(ctx: &CoreContext<'_>, args: &Value, op: Op) -> Result<ToolRepl
             if agent.is_some() && (args.get("target_project_id").is_some() || args.get("target_cwd").is_some_and(truthy)) {
                 return Err(MemoryError::rejected("agent memory has no project scope"));
             }
-            let target = if agent.is_some() { None } else { edit_target(args, project, ctx).await };
+            let target = if agent.is_some() { None } else { edit_target(args, project, ctx).await? };
             let record = index::resolve(
                 ctx.db,
                 project,
@@ -235,7 +235,7 @@ async fn run_list(
         for path in paths.iter().filter_map(Value::as_str) {
             scopes.push(ProjectScopeOf {
                 path: path.to_owned(),
-                project_id: resolve_project_scope(ctx.lane, Some(path), None).await,
+                project_id: resolve_project_scope(ctx.lane, Some(path), None).await?,
             });
         }
         project_scopes = Some(scopes);

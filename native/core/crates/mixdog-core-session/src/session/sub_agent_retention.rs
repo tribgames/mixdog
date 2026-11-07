@@ -177,7 +177,8 @@ pub trait RetentionHost: Send + Sync {
     /// Every stored, undeleted agent-only session.
     async fn agent_only_ids(&self) -> Result<Vec<String>, CoreError>;
     /// The session's header, the live one of an open session; `None` when it is unknown or deleted.
-    async fn stored_header(&self, id: &str) -> Option<Header>;
+    /// `Err` when the read never ran: that session is neither known nor deleted.
+    async fn stored_header(&self, id: &str) -> Result<Option<Header>, CoreError>;
     /// Whether the session is open in this process (`_isSessionLive`).
     fn is_live(&self, id: &str) -> bool;
     /// The desktop's automatic archive: this one session, no cascade.
@@ -195,7 +196,9 @@ pub trait RetentionHost: Send + Sync {
 pub async fn members_of(host: &dyn RetentionHost) -> Result<Vec<Member>, CoreError> {
     let mut members = Vec::new();
     for id in host.agent_only_ids().await? {
-        if let Some(header) = host.stored_header(&id).await
+        // An unread record fails the pass: a tree judged without one of its members could be
+        // archived or deleted whole while that member is still in use.
+        if let Some(header) = host.stored_header(&id).await?
             && let Some(found) = member(&id, &header)
         {
             members.push(found);
@@ -222,7 +225,11 @@ async fn tree_changed(host: &dyn RetentionHost, members: &[Member], tree: &[usiz
         if host.is_live(&member.id) {
             return true;
         }
-        let stored = host.stored_header(&member.id).await.map(|header| activity_at(&header));
+        let stored = match host.stored_header(&member.id).await {
+            Ok(stored) => stored.map(|header| activity_at(&header)),
+            // Unreadable counts as changed, as the doc says.
+            Err(_) => return true,
+        };
         if stored != Some(member.last_active) {
             return true;
         }
@@ -360,8 +367,8 @@ impl RetentionHost for DirectoryRetention {
         self.index.agent_only_ids().await
     }
 
-    async fn stored_header(&self, id: &str) -> Option<Header> {
-        self.directory.stored_header(&ThreadId::from(id)).await
+    async fn stored_header(&self, id: &str) -> Result<Option<Header>, CoreError> {
+        self.directory.try_stored_header(&ThreadId::from(id)).await
     }
 
     fn is_live(&self, id: &str) -> bool {

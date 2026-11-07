@@ -261,7 +261,17 @@ fn the_server_model_login_launches_without_the_model_proxy() {
     env.run(&server, &access).unwrap();
     let launch = access.launched.borrow().clone().unwrap();
     assert!(!launch.env.iter().any(|(k, _)| k == "MIXDOG_MODEL_PROXY"));
-    assert_eq!(launch.env_remove, ["MIXDOG_MODEL_PROXY"], "an inherited proxy setting is dropped too");
+    assert!(launch.env_remove.contains(&"MIXDOG_MODEL_PROXY".to_owned()), "an inherited proxy setting is dropped too");
+}
+
+#[test]
+fn the_launched_core_does_not_inherit_the_launchers_system_proxy_decision() {
+    let env = env();
+    let access = Access::new(None);
+    env.run(&args("1.4.6", "b6"), &access).unwrap();
+    let launch = access.launched.borrow().clone().unwrap();
+    assert!(launch.env_remove.contains(&"MIXDOG_SYSTEM_PROXY_HANDOFF".to_owned()));
+    assert!(!launch.env.iter().any(|(k, _)| k == "MIXDOG_SYSTEM_PROXY_HANDOFF"));
 }
 
 #[test]

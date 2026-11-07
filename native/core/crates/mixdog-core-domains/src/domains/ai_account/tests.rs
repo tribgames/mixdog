@@ -62,6 +62,25 @@ async fn account_admin_refusals_match_node() {
     }
 }
 
+/// A roster read that never ran is not the "default" account: a login, a forget or a credit
+/// redemption on "default" would act on a different account than the selected one.
+#[tokio::test]
+async fn an_unread_roster_is_not_the_default_account() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let store = AccountStore::new(
+        dir.path().to_path_buf(),
+        CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
+    );
+    {
+        let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
+        let error = super::admin::selected_of(store.pool("openai-oauth").await).unwrap_err();
+        assert!(error.unrun(), "{error}");
+    }
+    // A roster that was read and has no selection is "default".
+    assert_eq!(super::admin::selected_of(store.pool("openai-oauth").await).unwrap(), "default");
+}
+
 #[tokio::test]
 async fn account_roster_changes_match_node() {
     let fx = fixture("account-change.json");

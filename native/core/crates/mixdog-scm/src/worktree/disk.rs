@@ -201,6 +201,7 @@ pub fn folder_bytes(path: &Path, max_entries: usize) -> (u64, bool) {
         };
         for entry in entries.flatten() {
             seen += 1;
+            mixdog_rt::job_progress();
             if seen > max_entries {
                 return (bytes, false);
             }

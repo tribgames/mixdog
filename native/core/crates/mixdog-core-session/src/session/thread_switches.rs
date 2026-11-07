@@ -976,12 +976,16 @@ impl SessionContextSwitch {
         }
         let context = self.directory.model_context(thread);
         let memory = self.directory.deps().memory.clone();
-        let cwd = self.directory.stored_header(thread).await.and_then(|header| header.get("cwd").and_then(Value::as_str).map(str::to_owned)).unwrap_or_default();
-        tokio::spawn(async move {
-            if let Ok(rows) = context.read().await {
-                memory.ingest(&context.thread, &cwd, rows.into_iter().map(|(_, body)| body).collect()).await;
-            }
-        });
+        // An unread record is not "no cwd": the rows would be filed under the wrong project, so
+        // this best-effort ingest is skipped (the switch itself has already happened).
+        if let Ok(header) = self.directory.try_stored_header(thread).await {
+            let cwd = header.and_then(|header| header.get("cwd").and_then(Value::as_str).map(str::to_owned)).unwrap_or_default();
+            tokio::spawn(async move {
+                if let Ok(rows) = context.read().await {
+                    memory.ingest(&context.thread, &cwd, rows.into_iter().map(|(_, body)| body).collect()).await;
+                }
+            });
+        }
         Ok(())
     }
 }

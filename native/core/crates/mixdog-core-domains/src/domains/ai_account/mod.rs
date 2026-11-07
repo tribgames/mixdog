@@ -10,7 +10,11 @@ pub mod custom_probe;
 pub mod dashboards;
 pub mod failure;
 pub mod flows;
+pub mod oauth_credentials;
+pub mod oauth_status;
 pub(crate) mod js;
+pub mod provider_changes;
+pub mod provider_setup;
 #[cfg(test)]
 mod custom_admin_tests;
 #[cfg(test)]
@@ -19,6 +23,12 @@ mod custom_config_tests;
 mod custom_probe_tests;
 #[cfg(test)]
 mod custom_send_tests;
+#[cfg(test)]
+mod oauth_credentials_tests;
+#[cfg(test)]
+mod oauth_status_tests;
+#[cfg(test)]
+mod provider_setup_tests;
 #[cfg(test)]
 mod tests;
 pub mod usage;

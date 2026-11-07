@@ -34,11 +34,12 @@ use super::sources::PromptSources;
 use mixdog_core_config::config::bot_migration;
 use mixdog_core_config::config::is_store_bot;
 use mixdog_core_config::config::hidden_agents::hidden_agent_traits;
+use mixdog_core_config::config::mixy_display_name;
+use mixdog_core_config::config::mixy_identity_dir;
 use mixdog_core_config::workflow::pack::read_document;
 
 const MIXY_BOT_ID: &str = "mixy";
 const BOTS_DIR: &str = "bots";
-const DEFAULT_MIXY_NAME: &str = "Mixy";
 const PERSONA_MAX_UTF16: usize = 4000;
 const PERSONA_TRUNCATION_MARKER: &str = "\n\n[persona truncated]";
 const INSTRUCTION_FILE_MAX_BYTES: usize = 32 * 1024;
@@ -82,11 +83,7 @@ impl<'a> RealSources<'a> {
 
     /// `mixyIdentityDir(dataDir)`.
     fn mixy_dir(&self) -> PathBuf {
-        if bot_migration(self.lane, self.host.data_dir).is_some() {
-            self.host.data_dir.join(BOTS_DIR).join(MIXY_BOT_ID)
-        } else {
-            self.agents_dir().join("lead")
-        }
+        mixy_identity_dir(self.lane, self.host.data_dir)
     }
 
     /// `storeBotDir(agent)`: the bot's own folder, `None` for an agent that is no store bot.
@@ -123,9 +120,7 @@ impl<'a> RealSources<'a> {
 
     /// `mixyDisplayName()`.
     fn mixy_name(&self) -> String {
-        let manifest = fs::read_to_string(self.mixy_dir().join("agent.json")).ok().and_then(|text| serde_json::from_str::<Value>(&text).ok());
-        let name = one_line(manifest.as_ref().and_then(|m| m.get("name")));
-        if name.is_empty() { DEFAULT_MIXY_NAME.to_owned() } else { name }
+        mixy_display_name(self.lane, self.host.data_dir)
     }
 
     /// `findRepositoryRoot(startDirectory)`: the root and the git directory holding `HEAD`.

@@ -127,8 +127,8 @@ impl CustomProbeHost for Host {
         }
         Ok(Arc::new(Endpoint { listing, chat_status: chat["status"].as_u64().unwrap_or(200) as u16, chat_message: message }))
     }
-    async fn key_ids(&self, _: &str) -> Vec<String> {
-        Vec::new()
+    async fn key_ids(&self, _: &str) -> Result<Vec<String>, Failure> {
+        Ok(Vec::new())
     }
     fn env(&self, _: &str) -> Option<String> {
         None

@@ -21,8 +21,9 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
-use super::schema;
+use super::tool_accept;
 use super::traits::ModelTraits;
+use crate::providers::compat::schema::report_exclusion;
 use super::traits::ThinkingControl;
 
 /// A synthetic signature Google documents as the escape hatch for a history
@@ -432,6 +433,11 @@ fn tool_config(options: &RequestOptions, default_mode: Option<&str>) -> Option<V
     }
 }
 
+/// `isAntigravityClaude`: a Claude model served through the Antigravity gateway.
+pub fn antigravity_claude(model: &str) -> bool {
+    model.as_bytes().get(..7).is_some_and(|prefix| prefix.eq_ignore_ascii_case(b"claude-"))
+}
+
 /// The Gemini-shaped request object for `request`.
 pub fn build_request(
     request: &ModelRequest,
@@ -460,18 +466,20 @@ pub fn build_request(
         }
         body.insert("systemInstruction".into(), instruction);
     }
-    let declarations: Vec<Value> = request
-        .tools
-        .iter()
-        .map(|tool| {
-            let mut declaration = json!({ "name": tool.name, "description": tool.description });
-            if !tool.input_schema.is_null() {
-                let (key, schema) = schema::declaration_schema(&tool.input_schema);
-                declaration[key] = schema;
-            }
-            declaration
-        })
-        .collect();
+    // A Gemini endpoint rejects the whole request for one bad declaration, so a Gemini-family
+    // model's tools are checked (a tool it would reject is left out and reported); a Claude model
+    // behind Antigravity gets the 2020-12 schema its Anthropic bridge takes; another family behind
+    // the same endpoint keeps the plain conversion (`toGeminiTools`' options).
+    let mode = if dialect.family_gated && antigravity_claude(&request.model) {
+        tool_accept::Declarations::ClaudeBridge
+    } else if gemini_fields {
+        tool_accept::Declarations::Validated
+    } else {
+        tool_accept::Declarations::Plain
+    };
+    let declarations = tool_accept::function_declarations(&request.tools, mode, &mut |excluded| {
+        report_exclusion(&request.options, excluded)
+    });
     if !declarations.is_empty() {
         body.insert("tools".into(), json!([{ "functionDeclarations": declarations }]));
         if let Some(config) = tool_config(&request.options, dialect.default_tool_mode) {
@@ -571,6 +579,61 @@ mod tests {
         let body = build_request(&request, &vertex, &AllGemini).unwrap();
         assert!(body["contents"][1]["parts"][0]["functionCall"].get("id").is_none());
         assert!(body["contents"][2]["parts"][0]["functionResponse"].get("id").is_none());
+    }
+
+    struct NoGemini;
+    impl ModelTraits for NoGemini {
+        fn is_gemini_family(&self, _: &str) -> bool {
+            false
+        }
+        fn thinking(&self, _: &str) -> ThinkingControl {
+            ThinkingControl::Unspecified
+        }
+    }
+
+    /// One bad declaration rejects the whole request: a Gemini-family model's tool whose schema
+    /// cannot be made valid is left out (the others and the tool config stay), and a model of
+    /// another family behind the same endpoint keeps the plain conversion.
+    #[test]
+    fn a_tool_gemini_would_reject_is_left_out_of_the_request() {
+        let tool = |name: &str, schema: Value| ToolDefinition {
+            name: name.into(),
+            description: String::new(),
+            input_schema: schema,
+            defer_loading: false,
+        };
+        let good = json!({"type":"object","properties":{"key":{"type":"string"}},"required":["key"]});
+        let dangling = json!({"type":"object","properties":{"x":{"$ref":"#/$defs/missing"}}});
+        let request = |tools: Vec<ToolDefinition>| ModelRequest {
+            model: "some-model".into(),
+            messages: vec![msg(Role::User, "hi")],
+            tools,
+            options: RequestOptions::default(),
+        };
+        let both = request(vec![tool("good", good.clone()), tool("dangling", dangling.clone())]);
+        let body = build_request(&both, &dialect(), &AllGemini).unwrap();
+        let names: Vec<&str> = body["tools"][0]["functionDeclarations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|d| d["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["good"]);
+
+        let only_bad = request(vec![tool("dangling", dangling.clone())]);
+        let body = build_request(&only_bad, &dialect(), &AllGemini).unwrap();
+        assert!(body.get("tools").is_none() && body.get("toolConfig").is_none(), "no tool is left");
+
+        let mut gated = dialect();
+        gated.family_gated = true;
+        let body = build_request(&both, &gated, &NoGemini).unwrap();
+        let names: Vec<&str> = body["tools"][0]["functionDeclarations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|d| d["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(names, ["good", "dangling"], "another family is not validated");
     }
 
     #[test]

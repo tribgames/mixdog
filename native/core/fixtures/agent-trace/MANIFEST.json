@@ -1,0 +1,55 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-agent-trace.mjs <out>/golden.json && node benchmarks/rust-core/recorders/record-agent-trace-builders.mjs <out>/builders-golden.json && node benchmarks/rust-core/recorders/record-agent-trace-sites.mjs <out>/sites-golden.json && node benchmarks/rust-core/recorders/record-agent-trace-tools.mjs <out>/tools-golden.json && node benchmarks/rust-core/recorders/record-trace-store.mjs <out>/trace-store-golden.json (each with MIXDOG_REPO=<tree>)",
+  "fileCount": 6,
+  "files": [
+    {
+      "bytes": 23613,
+      "path": "builders-golden.json",
+      "sha256": "a212de9adfa8bf36d28e152fe5ac597509b530e7fda97de21e26a537d5df0dd1"
+    },
+    {
+      "bytes": 9381,
+      "path": "golden.json",
+      "sha256": "7be92b0eac50bc1d1459355c3e78da3b6df1ca1bb1beda9263601fa8e5974dd3"
+    },
+    {
+      "bytes": 11730,
+      "path": "sites-golden.json",
+      "sha256": "22e8ac9557913b03ae5668fff23b3cbf6f29a9960650919eb0cf3a2ad5fbd051"
+    },
+    {
+      "bytes": 40658,
+      "path": "tools-golden.json",
+      "sha256": "f4a77c592939810b42b5c0bb3f80058d2ba472b9abe6fb3ac09a3b571732e34d"
+    },
+    {
+      "bytes": 173445,
+      "path": "trace-store-golden.json",
+      "sha256": "7111984b58a8ef447b07f94e5d2c5a59c026fca372a18965dfdd502eb628b5a1"
+    },
+    {
+      "bytes": 14493,
+      "path": "watchdog-golden.json",
+      "sha256": "db3112bfba22233969a7714083fad779ccee46b5dc5dbd876f9f1f8bbe091809"
+    }
+  ],
+  "product": {
+    "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
+    "commit": "ad3aefe0604ca2371dac995fb47fc30e872ad5b2",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "ad3aefe0604ca2371dac995fb47fc30e872ad5b2",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-agent-trace.mjs",
+  "set": "agent-trace",
+  "totalBytes": 273320
+}

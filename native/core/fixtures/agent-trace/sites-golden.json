@@ -1,0 +1,236 @@
+{
+ "note": "recorded by benchmarks/rust-core/recorders/record-agent-trace-sites.mjs by driving the Node call sites",
+ "now": 1700000000000,
+ "cases": [
+  {
+   "name": "stall-abort",
+   "builder": "stall_abort",
+   "how": "driven",
+   "source": "agent-runtime/agent-progress-watchdog.mjs:255",
+   "rust": {
+    "sessionId": "sa",
+    "iteration": 2,
+    "agent": "w",
+    "elapsed_ms": 900000,
+    "message": "stalled",
+    "stage": "send"
+   },
+   "emits": true
+  },
+  {
+   "name": "transport-error",
+   "builder": "transport_error",
+   "how": "driven",
+   "source": "providers/openai-oauth-dispatch.mjs:118",
+   "rust": {
+    "sessionId": "pk",
+    "iteration": 1,
+    "model": "m",
+    "transport": "websocket",
+    "stage": "connect",
+    "error_code": "E",
+    "error_http_status": 0,
+    "error_ws_close_code": 1006,
+    "error_classifier": "c",
+    "ws_retries": 2,
+    "live_text_emitted": true,
+    "message": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx😀tail"
+   },
+   "emits": true
+  },
+  {
+   "name": "oauth-fallback",
+   "builder": "transport_fallback",
+   "how": "driven",
+   "source": "providers/openai-oauth-dispatch.mjs:153",
+   "rust": {
+    "sessionId": "pk",
+    "iteration": 1,
+    "provider": "openai-oauth",
+    "model": "m",
+    "transport": "http",
+    "from": "websocket",
+    "to": "http",
+    "reason": "ws_failed",
+    "error_code": "X",
+    "error_http_status": 426,
+    "error_classifier": "mc"
+   },
+   "emits": true
+  },
+  {
+   "name": "context",
+   "builder": "context",
+   "how": "driven",
+   "source": "session/manager/ask-turn-prepare.mjs:273",
+   "rust": {
+    "sessionId": "cx",
+    "model": "m",
+    "provider": "p",
+    "totalBytes": 42,
+    "breakdown": {
+     "contextBytes": 3,
+     "prefetchBytes": 2,
+     "promptBytes": 5,
+     "userTurnBytes": 11,
+     "messagesBytes": 31,
+     "messagesCount": 1
+    }
+   },
+   "emits": true
+  },
+  {
+   "name": "steer",
+   "builder": "steer",
+   "how": "driven",
+   "source": "session/tool-batch/pre-dispatch.mjs:83",
+   "rust": {
+    "sessionId": "st",
+    "iteration": 5,
+    "payload": {
+     "tag": "cross_turn_dedup",
+     "tool": "read",
+     "occurrence": 2,
+     "first_iteration": 2,
+     "dedup_stub_total": 1
+    },
+    "agent": "w"
+   },
+   "emits": true
+  },
+  {
+   "name": "ws-timeout",
+   "builder": "ws_timeout",
+   "how": "driven",
+   "source": "providers/openai-ws-watchdogs.mjs:66",
+   "rust": {
+    "sessionId": "ws1",
+    "iteration": 3,
+    "payload": {
+     "provider": "openai-oauth",
+     "transport": "websocket",
+     "event": "inter_chunk_timeout",
+     "timeout_ms": 5,
+     "elapsed_ms": 500,
+     "model": "gpt",
+     "attempt_index": 1,
+     "saw_response_created": true
+    }
+   },
+   "emits": true
+  },
+  {
+   "name": "cache-context",
+   "builder": "cache_context",
+   "how": "driven",
+   "source": "providers/openai-compat-xai.mjs:564",
+   "rust": {
+    "sessionId": "xc",
+    "iteration": 1,
+    "payload": {
+     "provider": "xai",
+     "api": "responses",
+     "transport": "http",
+     "model": "grok",
+     "response_model": null,
+     "session_id_hash": "207f5c1d8a3ec09f",
+     "provider_cache_key_hash": null,
+     "prompt_cache_key_option_hash": null,
+     "prompt_cache_key_hash": "8254c329a92850f6",
+     "xai_prompt_prefix_hash": null,
+     "xai_cache_mode": null,
+     "xai_cache_seed_hash": null,
+     "owner_session_hash": null,
+     "response_id_hash": null,
+     "previous_response_id_hash": null,
+     "previous_response_used": false,
+     "stateless_continuation_used": false,
+     "continuation_used": false,
+     "continuation_reset_reason": null,
+     "input_start_index": 0,
+     "input_count": 0,
+     "input_hash": "4f53cda18c2baa0c",
+     "request_sans_input_hash": "0b53269e3fc8fe8e",
+     "context_prefix_hash": "457ccd43dde259d3",
+     "has_instructions": true,
+     "instructions_chars": 8,
+     "instructions_hash": "b0d336336bae9756",
+     "reasoning_effort": null,
+     "tool_count": 0,
+     "tool_schema_hash": "4f53cda18c2baa0c",
+     "tool_names_hash": "4f53cda18c2baa0c",
+     "xai_cache_lane_enabled": false,
+     "xai_cache_lane_hash": null,
+     "xai_cache_lane_shard": null,
+     "xai_cache_lane_shards": null,
+     "xai_cache_lane_auto": false,
+     "xai_cache_lane_seed_hash": null,
+     "xai_cache_lane_max_in_flight": null,
+     "xai_cache_lane_wait_ms": null,
+     "xai_cache_lane_queued": false,
+     "input_tokens": 10,
+     "output_tokens": 2,
+     "cached_tokens": 8,
+     "cache_hit_rate": 0.8,
+     "mid_turn_cold": false
+    }
+   },
+   "emits": true
+  },
+  {
+   "name": "trace-loop",
+   "builder": "trace_loop",
+   "how": "driven",
+   "source": "session/send-with-recovery.mjs:317",
+   "rust": {
+    "kind": "retry",
+    "sessionId": "",
+    "iteration": 2,
+    "fields": {
+     "attempt": 1
+    }
+   },
+   "emits": true
+  },
+  {
+   "name": "no-tool",
+   "builder": "no_tool",
+   "how": "driven",
+   "source": "session/loop/no-tool-turn.mjs:102",
+   "rust": {
+    "sessionId": "nt",
+    "iteration": 3,
+    "kind": "provider_continuation",
+    "payload": {
+     "signal": "s",
+     "count": 1
+    },
+    "agent": "w"
+   },
+   "emits": true
+  },
+  {
+   "name": "cursor-unknown",
+   "builder": "cursor_unknown_field",
+   "how": "driven",
+   "source": "providers/cursor-wire-stream-messages.mjs (traceUnknownFields)",
+   "rust": {
+    "sessionId": "cu",
+    "payload": {
+     "scope": "agent_server_message",
+     "count": 1,
+     "fields": [
+      {
+       "no": 99,
+       "wire_type": 0,
+       "bytes": 1,
+       "preview_hex": "01"
+      }
+     ]
+    }
+   },
+   "emits": true
+  }
+ ],
+ "jsonl": "{\"iteration\":2,\"kind\":\"stall_abort\",\"agent\":\"w\",\"payload\":{\"elapsed_ms\":900000,\"message\":\"stalled\",\"stage\":\"send\"},\"ts\":1700000000000,\"session_id\":\"sa\"}\n{\"iteration\":1,\"kind\":\"transport_error\",\"provider\":\"openai-oauth\",\"model\":\"m\",\"transport\":\"websocket\",\"payload\":{\"stage\":\"connect\",\"error_code\":\"E\",\"error_http_status\":null,\"error_ws_close_code\":1006,\"error_classifier\":\"c\",\"ws_retries\":2,\"live_text_emitted\":true,\"message\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\\ud83d\"},\"ts\":1700000000000,\"session_id\":\"pk\"}\n{\"iteration\":1,\"kind\":\"transport_fallback\",\"provider\":\"openai-oauth\",\"model\":\"m\",\"transport\":\"http\",\"payload\":{\"from\":\"websocket\",\"to\":\"http\",\"reason\":\"ws_failed\",\"error_code\":\"X\",\"error_http_status\":426,\"error_classifier\":\"mc\"},\"ts\":1700000000000,\"session_id\":\"pk\"}\n{\"kind\":\"context\",\"model\":\"m\",\"provider\":\"p\",\"totalBytes\":42,\"breakdown\":{\"contextBytes\":3,\"prefetchBytes\":2,\"promptBytes\":5,\"userTurnBytes\":11,\"messagesBytes\":31,\"messagesCount\":1},\"ts\":1700000000000,\"session_id\":\"cx\",\"payload\":{}}\n{\"iteration\":5,\"kind\":\"steer\",\"payload\":{\"tag\":\"cross_turn_dedup\",\"tool\":\"read\",\"occurrence\":2,\"first_iteration\":2,\"dedup_stub_total\":1},\"agent\":\"w\",\"ts\":1700000000000,\"session_id\":\"st\"}\n{\"iteration\":3,\"kind\":\"ws_timeout\",\"provider\":\"openai-oauth\",\"transport\":\"websocket\",\"event\":\"inter_chunk_timeout\",\"timeout_ms\":5,\"elapsed_ms\":500,\"model\":\"gpt\",\"attempt_index\":1,\"saw_response_created\":true,\"payload\":{\"provider\":\"openai-oauth\",\"transport\":\"websocket\",\"event\":\"inter_chunk_timeout\",\"timeout_ms\":5,\"elapsed_ms\":500,\"model\":\"gpt\",\"attempt_index\":1,\"saw_response_created\":true},\"ts\":1700000000000,\"session_id\":\"ws1\"}\n{\"iteration\":1,\"kind\":\"cache_context\",\"provider\":\"xai\",\"api\":\"responses\",\"transport\":\"http\",\"model\":\"grok\",\"response_model\":null,\"session_id_hash\":\"207f5c1d8a3ec09f\",\"provider_cache_key_hash\":null,\"prompt_cache_key_option_hash\":null,\"prompt_cache_key_hash\":\"8254c329a92850f6\",\"xai_prompt_prefix_hash\":null,\"xai_cache_mode\":null,\"xai_cache_seed_hash\":null,\"owner_session_hash\":null,\"response_id_hash\":null,\"previous_response_id_hash\":null,\"previous_response_used\":false,\"stateless_continuation_used\":false,\"continuation_used\":false,\"continuation_reset_reason\":null,\"input_start_index\":0,\"input_count\":0,\"input_hash\":\"4f53cda18c2baa0c\",\"request_sans_input_hash\":\"0b53269e3fc8fe8e\",\"context_prefix_hash\":\"457ccd43dde259d3\",\"has_instructions\":true,\"instructions_chars\":8,\"instructions_hash\":\"b0d336336bae9756\",\"reasoning_effort\":null,\"tool_count\":0,\"tool_schema_hash\":\"4f53cda18c2baa0c\",\"tool_names_hash\":\"4f53cda18c2baa0c\",\"xai_cache_lane_enabled\":false,\"xai_cache_lane_hash\":null,\"xai_cache_lane_shard\":null,\"xai_cache_lane_shards\":null,\"xai_cache_lane_auto\":false,\"xai_cache_lane_seed_hash\":null,\"xai_cache_lane_max_in_flight\":null,\"xai_cache_lane_wait_ms\":null,\"xai_cache_lane_queued\":false,\"input_tokens\":10,\"output_tokens\":2,\"cached_tokens\":8,\"cache_hit_rate\":0.8,\"mid_turn_cold\":false,\"payload\":{\"provider\":\"xai\",\"api\":\"responses\",\"transport\":\"http\",\"model\":\"grok\",\"response_model\":null,\"session_id_hash\":\"207f5c1d8a3ec09f\",\"provider_cache_key_hash\":null,\"prompt_cache_key_option_hash\":null,\"prompt_cache_key_hash\":\"8254c329a92850f6\",\"xai_prompt_prefix_hash\":null,\"xai_cache_mode\":null,\"xai_cache_seed_hash\":null,\"owner_session_hash\":null,\"response_id_hash\":null,\"previous_response_id_hash\":null,\"previous_response_used\":false,\"stateless_continuation_used\":false,\"continuation_used\":false,\"continuation_reset_reason\":null,\"input_start_index\":0,\"input_count\":0,\"input_hash\":\"4f53cda18c2baa0c\",\"request_sans_input_hash\":\"0b53269e3fc8fe8e\",\"context_prefix_hash\":\"457ccd43dde259d3\",\"has_instructions\":true,\"instructions_chars\":8,\"instructions_hash\":\"b0d336336bae9756\",\"reasoning_effort\":null,\"tool_count\":0,\"tool_schema_hash\":\"4f53cda18c2baa0c\",\"tool_names_hash\":\"4f53cda18c2baa0c\",\"xai_cache_lane_enabled\":false,\"xai_cache_lane_hash\":null,\"xai_cache_lane_shard\":null,\"xai_cache_lane_shards\":null,\"xai_cache_lane_auto\":false,\"xai_cache_lane_seed_hash\":null,\"xai_cache_lane_max_in_flight\":null,\"xai_cache_lane_wait_ms\":null,\"xai_cache_lane_queued\":false,\"input_tokens\":10,\"output_tokens\":2,\"cached_tokens\":8,\"cache_hit_rate\":0.8,\"mid_turn_cold\":false},\"ts\":1700000000000,\"session_id\":\"xc\"}\n{\"kind\":\"retry\",\"iteration\":2,\"attempt\":1,\"ts\":1700000000000,\"session_id\":\"no-session\",\"payload\":{}}\n{\"iteration\":3,\"kind\":\"provider_continuation\",\"payload\":{\"signal\":\"s\",\"count\":1},\"agent\":\"w\",\"ts\":1700000000000,\"session_id\":\"nt\"}\n{\"kind\":\"cursor_unknown_field\",\"provider\":\"cursor\",\"payload\":{\"scope\":\"agent_server_message\",\"count\":1,\"fields\":[{\"no\":99,\"wire_type\":0,\"bytes\":1,\"preview_hex\":\"01\"}]},\"ts\":1700000000000,\"session_id\":\"cu\"}\n"
+}

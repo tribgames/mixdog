@@ -39,11 +39,13 @@ pub use ticker::Ticker;
 pub use ticker::TimerHandle;
 pub use ticker::ticker;
 
+pub use exec::job_progress;
 pub use lanes::JobDropped;
 pub use lanes::JobHandle;
 pub use lanes::JobRun;
 pub use lanes::LaneFull;
 pub use lanes::LaneKind;
+pub use lanes::LaneWedged;
 pub use lanes::QueuedJob;
 pub use lanes::SubmitWaitError;
 pub use lanes::ThreadKind;
@@ -105,6 +107,12 @@ pub trait Backend: Send + Sync + 'static {
     /// for lack of room, or cannot signal it, so `submit_wait` answers [`LaneFull`] at once.
     fn capacity_notify(&self, _lane: LaneKind) -> Option<Arc<tokio::sync::Notify>> {
         None
+    }
+    /// `true` while `lane` has no healthy worker (every thread is stuck in a job past its
+    /// lease). [`LaneToken::submit_wait`] answers [`LaneWedged`] instead of waiting, and the
+    /// backend notifies `capacity_notify` when this changes. Default: never wedged.
+    fn lane_wedged(&self, _lane: LaneKind) -> bool {
+        false
     }
 }
 
@@ -172,6 +180,29 @@ impl<F: Future> Future for Instrumented<F> {
 pub mod testing {
     use super::*;
 
+    thread_local! {
+        static REFUSE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    /// While alive, every job submitted from THIS thread to [`InlineBackend`] is refused
+    /// (`LaneFull`), as a lane with no healthy worker refuses it; other threads and tests are
+    /// unaffected. Use it on a current-thread runtime, where the code under test submits from the
+    /// test thread.
+    #[must_use]
+    pub struct RefuseJobs(());
+
+    /// Starts refusing jobs submitted from this thread, until the guard is dropped.
+    pub fn refuse_jobs_on_this_thread() -> RefuseJobs {
+        REFUSE.set(true);
+        RefuseJobs(())
+    }
+
+    impl Drop for RefuseJobs {
+        fn drop(&mut self) {
+            REFUSE.set(false);
+        }
+    }
+
     /// Runs lane jobs inline on the submitting thread (deterministic), spawns tasks on the
     /// ambient tokio runtime, and starts dedicated threads without priorities.
     pub struct InlineBackend;
@@ -184,6 +215,9 @@ pub mod testing {
         fn record_poll(&self, _task: &'static str, _class: TaskClass, _elapsed: Duration) {}
 
         fn submit(&self, job: QueuedJob) -> Result<(), LaneFull> {
+            if REFUSE.get() {
+                return Err(LaneFull { lane: job.lane() });
+            }
             job.run();
             Ok(())
         }

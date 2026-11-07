@@ -14,7 +14,7 @@ use serde_json::Map;
 use serde_json::Value;
 
 /// `NO_WIDEN_MESSAGE`.
-const NO_WIDEN: &str = "This change would widen what the bot may do without asking; make it on the desktop.";
+pub const NO_WIDEN: &str = "This change would widen what the bot may do without asking; make it on the desktop.";
 
 fn clean(value: &Value) -> String {
     value.as_str().map_or_else(String::new, |s| mixdog_js::js_trim(s).to_owned())

@@ -410,10 +410,18 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
             return None;
         }
         let oauth = self.oauth_of(cfg)?;
-        if !oauth.has_stored_tokens().await {
+        // A marker read that did not run is not "signed out": report the error, no sign-in state.
+        let signed_in = match oauth.has_stored_tokens().await {
+            Ok(signed_in) => signed_in,
+            Err(_) => return Some(json!({"error": "sign-in state unavailable: the lane did not run the read"})),
+        };
+        if !signed_in {
             return Some(json!({"signedIn": false}));
         }
-        let who = oauth.stored_identity().await;
+        let who = match oauth.stored_identity().await {
+            Ok(who) => who,
+            Err(_) => return Some(json!({"error": "sign-in state unavailable: the lane did not run the read"})),
+        };
         Some(json!({
             "signedIn": true,
             "account": who.as_ref().map(|w| w.account.clone()).unwrap_or_default(),

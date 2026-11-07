@@ -119,6 +119,8 @@ pub(crate) fn contained_real_path(root: &Path, path: &Path) -> Option<PathBuf> {
 
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a maintenance-lane job")]
 fn entries_of(dir: &Path) -> Vec<std::fs::DirEntry> {
+    // One call per folder of the history walk: the lane lease restarts with each.
+    mixdog_rt::job_progress();
     std::fs::read_dir(dir).map(|rd| rd.flatten().collect()).unwrap_or_default()
 }
 
@@ -292,6 +294,7 @@ pub fn enumerate_candidates(source: Source, env: &Env) -> Enumeration {
     }
     let mut unique: HashMap<String, Candidate> = HashMap::new();
     for path in paths {
+        mixdog_rt::job_progress();
         let Some(real) = contained_real_path(&root_real, &path) else { continue };
         let Ok(meta) = std::fs::metadata(&real) else { continue };
         if !meta.is_file() {

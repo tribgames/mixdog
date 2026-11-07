@@ -94,10 +94,20 @@ pub fn first_existing(dir: &Path, name: &str) -> Option<PathBuf> {
     bin_names(name).into_iter().map(|c| dir.join(c)).find(|p| p.exists())
 }
 
-async fn project_local_binary(lane: DurabilityIo, cwd: &Path, entry: &'static EngineEntry) -> Option<PathBuf> {
+/// Why a lookup has no answer: its lane job never ran. That says nothing about the project, so the
+/// engine is reported `unavailable` and neither "missing" nor replaced by another binary.
+fn unrun(what: &str) -> String {
+    format!("{what} could not be looked up: its lane did not run the check")
+}
+
+fn unavailable(base: Resolved, why: String) -> Resolved {
+    Resolved { source: "unavailable".into(), unavailable: Some(why), ..base }
+}
+
+async fn project_local_binary(lane: DurabilityIo, cwd: &Path, entry: &'static EngineEntry) -> Result<Option<PathBuf>, String> {
     // The entry is looked up again inside the job: the job owns only an id.
     let (cwd, id) = (cwd.to_owned(), entry.id.clone());
-    on_lane(lane, move || engine_entry(&id).and_then(|entry| project_local_binary_blocking(&cwd, entry))).await.ok().flatten()
+    on_lane(lane, move || engine_entry(&id).and_then(|entry| project_local_binary_blocking(&cwd, entry))).await.map_err(|_| unrun("The project-local binary"))
 }
 
 fn project_local_binary_blocking(cwd: &Path, entry: &EngineEntry) -> Option<PathBuf> {
@@ -122,9 +132,9 @@ fn project_local_binary_blocking(cwd: &Path, entry: &EngineEntry) -> Option<Path
 }
 
 /// Which of an engine's marker config files the project already has.
-async fn project_config_file_for(lane: DurabilityIo, cwd: &Path, entry: &'static EngineEntry) -> Option<String> {
+async fn project_config_file_for(lane: DurabilityIo, cwd: &Path, entry: &'static EngineEntry) -> Result<Option<String>, String> {
     let (cwd, id) = (cwd.to_owned(), entry.id.clone());
-    on_lane(lane, move || engine_entry(&id).and_then(|entry| project_config_file_blocking(&cwd, entry))).await.ok().flatten()
+    on_lane(lane, move || engine_entry(&id).and_then(|entry| project_config_file_blocking(&cwd, entry))).await.map_err(|_| unrun("The project's config for this engine"))
 }
 
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
@@ -137,15 +147,14 @@ fn project_config_file_blocking(cwd: &Path, entry: &EngineEntry) -> Option<Strin
 }
 
 /// The engine's binary on PATH; the lookups list directories, so they run as one lane job.
-async fn path_binary(lane: DurabilityIo, entry: &'static EngineEntry, env: Option<&HashMap<String, String>>, index: &Arc<PathIndex>) -> Option<PathBuf> {
+async fn path_binary(lane: DurabilityIo, entry: &'static EngineEntry, env: Option<&HashMap<String, String>>, index: &Arc<PathIndex>) -> Result<Option<PathBuf>, String> {
     let (env, index, id) = (env.cloned(), index.clone(), entry.id.clone());
     on_lane(lane, move || {
         let entry = engine_entry(&id)?;
         std::iter::once(&entry.bin).chain(entry.alt_bins.iter()).find_map(|name| which(name, env.as_ref(), Some(&index)))
     })
     .await
-    .ok()
-    .flatten()
+    .map_err(|_| unrun("The PATH lookup"))
 }
 
 #[derive(Debug, Clone, Default)]
@@ -168,11 +177,14 @@ pub struct Resolved {
     pub config_file: Option<String>,
     pub toolchain: bool,
     pub module_path: Option<String>,
+    /// A lookup that decides what this engine is never ran (`source` is `unavailable`): the engine
+    /// is not run and is not reported missing, and no other binary stands in for it.
+    pub unavailable: Option<String>,
 }
 
 impl Resolved {
     pub fn runnable(&self) -> bool {
-        !self.missing && self.skipped.is_none()
+        !self.missing && self.skipped.is_none() && self.unavailable.is_none()
     }
 
     pub fn to_json(&self) -> Value {
@@ -186,6 +198,9 @@ impl Resolved {
             if let Some(x) = x {
                 put(&mut v, k, json!(x));
             }
+        }
+        if let Some(why) = &self.unavailable {
+            put(&mut v, "unavailable", json!(why));
         }
         if !self.version.is_empty() {
             put(&mut v, "version", json!(self.version));
@@ -232,17 +247,25 @@ async fn resolve_one(processes: &Processes, cwd: &Path, entry: &'static EngineEn
             };
         }
     }
-    if let Some(local) = project_local_binary(processes.durability(), cwd, entry).await {
-        let (command, args) = command_for(entry, &local);
-        return Resolved { source: "project-local".into(), path: local.to_string_lossy().into_owned(), command, args, ..base };
+    match project_local_binary(processes.durability(), cwd, entry).await {
+        Ok(Some(local)) => {
+            let (command, args) = command_for(entry, &local);
+            return Resolved { source: "project-local".into(), path: local.to_string_lossy().into_owned(), command, args, ..base };
+        }
+        Ok(None) => {}
+        Err(why) => return unavailable(base, why),
     }
     if entry.project_local_only {
         return Resolved { source: "missing".into(), missing: true, ..base };
     }
     if entry.managed_module {
-        let Some(host) = path_binary(lane, entry, env, index).await else {
-            let hint = if entry.host_install_hint.is_empty() { entry.install_hint.clone() } else { entry.host_install_hint.clone() };
-            return Resolved { source: "missing".into(), missing: true, install_hint: hint, ..base };
+        let host = match path_binary(lane, entry, env, index).await {
+            Ok(Some(host)) => host,
+            Ok(None) => {
+                let hint = if entry.host_install_hint.is_empty() { entry.install_hint.clone() } else { entry.host_install_hint.clone() };
+                return Resolved { source: "missing".into(), missing: true, install_hint: hint, ..base };
+            }
+            Err(why) => return unavailable(base, why),
         };
         let host_path = host.to_string_lossy().into_owned();
         if entry.managed && !plugin_data.as_os_str().is_empty() {
@@ -253,9 +276,13 @@ async fn resolve_one(processes: &Processes, cwd: &Path, entry: &'static EngineEn
         }
         return Resolved { source: "missing".into(), path: host_path.clone(), command: host_path, missing: true, installable: installable(entry, manifest), ..base };
     }
-    if let Some(found) = path_binary(lane, entry, env, index).await {
-        let (command, args) = command_for(entry, &found);
-        return Resolved { source: "path".into(), path: found.to_string_lossy().into_owned(), command, args, ..base };
+    match path_binary(lane, entry, env, index).await {
+        Ok(Some(found)) => {
+            let (command, args) = command_for(entry, &found);
+            return Resolved { source: "path".into(), path: found.to_string_lossy().into_owned(), command, args, ..base };
+        }
+        Ok(None) => {}
+        Err(why) => return unavailable(base, why),
     }
     if entry.managed && !plugin_data.as_os_str().is_empty() {
         if let Some((path, version)) = managed_engine_binary(processes, &entry.id, manifest, plugin_data).await {
@@ -399,8 +426,13 @@ pub async fn resolve_engines(processes: &Processes, cwd: &Path, options: Resolve
     let mut resolved = Vec::new();
     for entry in requested {
         let mut r = resolve_one(processes, cwd, entry, &config, options.env.as_ref(), &manifest, &options.plugin_data, &index).await;
-        r.config_file = project_config_file_for(processes.durability(), cwd, entry).await;
-        if entry.requires_config && r.config_file.is_none() && r.source != "project-config" {
+        match project_config_file_for(processes.durability(), cwd, entry).await {
+            Ok(file) => r.config_file = file,
+            Err(why) => {
+                r.unavailable.get_or_insert(why);
+            }
+        }
+        if entry.requires_config && r.config_file.is_none() && r.source != "project-config" && r.unavailable.is_none() {
             r.skipped = Some("no project config for this engine".into());
         }
         r.toolchain = entry.toolchain;
@@ -411,7 +443,7 @@ pub async fn resolve_engines(processes: &Processes, cwd: &Path, options: Resolve
     for engine in &mut resolved {
         let Some(entry) = engine_entry(&engine.id) else { continue };
         let suppressors: Vec<String> = entry.suppressed_by.iter().filter(|id| matches!(sources.get(*id).map(String::as_str), Some("project-local" | "project-config"))).cloned().collect();
-        if !suppressors.is_empty() && !engine.missing {
+        if !suppressors.is_empty() && !engine.missing && engine.unavailable.is_none() {
             engine.skipped = Some(format!("project uses {}", suppressors.join(" + ")));
             engine.suppressed_by = suppressors;
         }
@@ -530,6 +562,22 @@ mod tests {
         assert!(by("eslint").missing, "project-local-only engines never come from PATH");
         assert_eq!(r.unknown_engines, ["nope"]);
         assert!(r.config.present);
+    }
+
+    /// A lookup whose lane job never ran is neither a missing engine nor an excuse to run another
+    /// binary: the engine is `unavailable` and does not run.
+    #[tokio::test]
+    async fn a_lookup_that_never_ran_is_unavailable_not_missing_and_not_the_path_binary() {
+        let project = tempfile::tempdir().unwrap();
+        let path_dir = tempfile::tempdir().unwrap();
+        write(path_dir.path(), &bin("ruff"), "x");
+        let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
+        let r = resolve_engines(&Processes::for_tests(), project.path(), opts(&["ruff"], path_dir.path())).await;
+        let ruff = &r.engines[0];
+        assert!(ruff.unavailable.as_deref().is_some_and(|why| why.contains("could not be looked up")), "{ruff:?}");
+        assert_eq!(ruff.source, "unavailable");
+        assert!(!ruff.missing && !ruff.runnable() && ruff.command.is_empty());
+        assert!(ruff.to_json()["unavailable"].is_string());
     }
 
     #[tokio::test]

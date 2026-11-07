@@ -112,5 +112,5 @@ async fn a_name_without_an_adapter_says_why() {
     assert!(ok(wires("anthropic", json!({}))).await);
     assert!(ok(wires("openai-chat", json!({"wires": ["messages", "chat"], "modelWires": {"c": "messages"}}))).await);
     assert!(!b.available("gated") && b.available("openai"));
-    assert!(!b.oauth_credentials_usable("openai-oauth").await);
+    assert!(!b.oauth_credentials_usable("openai-oauth").await.unwrap());
 }

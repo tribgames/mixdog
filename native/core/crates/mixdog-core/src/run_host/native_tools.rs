@@ -5,7 +5,7 @@
 //!   existing file, then a local cargo build (`native/mixdog-graph/target/release/`), then the
 //!   package's `native-tools/`, then a binary a verified download cached (`findCachedGraphBinary`).
 //! - computer (`apps/desktop/src/main/index.ts:356`, where the desktop's main process picks its
-//!   helper): `MIXDOG_COMPUTER_BIN`, else the bundled `native-tools/mixdog-computer`, else the
+//!   helper): `MIXDOG_COMPUTER_BIN` as given (even a name that is no file: the spawn fails on it), else the bundled `native-tools/mixdog-computer`, else the
 //!   local cargo build (`native/mixdog-computer/target/release/`). Unlike Node, which keeps a
 //!   PowerShell worker on Windows, the Rust core runs Computer Use through this helper on every
 //!   OS (decision D-DESKTOP), so Windows resolves it too.
@@ -20,8 +20,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::common::AbsPath;
+use mixdog_core_api::domain::computer::ComputerBackend;
 use mixdog_core_api::domain::fs::FileService;
+use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_rt::InteractiveIo;
+use mixdog_tools::desktop::computer_backend::ComputerConfig;
+use mixdog_tools::desktop::computer_backend::ProcessComputerBackend;
 
 use crate::run_host::run_seams::EnvReader;
 
@@ -113,6 +117,9 @@ impl NativeToolPaths {
         for step in tool.steps() {
             let found = match step {
                 Step::Env => match (self.env)(tool.env_name()).filter(|value| !value.is_empty()) {
+                    // Node's `computerNativeBinary` hands the variable to the spawn as given, so a
+                    // name that is not a file fails there instead of falling to the next place.
+                    Some(path) if tool == NativeTool::Computer => Some(PathBuf::from(path)),
                     Some(path) if self.exists.exists(Path::new(&path)).await => Some(PathBuf::from(path)),
                     _ => None,
                 },
@@ -128,6 +135,14 @@ impl NativeToolPaths {
             }
         }
         None
+    }
+
+    /// The `computer` tool's backend: the resolved `mixdog-computer` helper run under `manager`,
+    /// or `None` where no place has it (the tool then answers as unavailable). `session_id` names
+    /// the helper's per-session state.
+    pub async fn computer_backend(&self, session_id: &str, manager: Arc<dyn ProcessManager>) -> Option<Arc<dyn ComputerBackend>> {
+        let binary = self.resolve(NativeTool::Computer).await?;
+        Some(Arc::new(ProcessComputerBackend::new(ComputerConfig::new(binary, session_id), manager)))
     }
 
     async fn present(&self, path: PathBuf) -> Option<PathBuf> {
@@ -200,5 +215,28 @@ mod tests {
         assert_eq!(paths(&[], &all[1..], cached.clone()).resolve(tool).await, Some(bundled(tool)));
         assert_eq!(paths(&[], &all[2..], cached.clone()).resolve(tool).await, Some(built(tool)));
         assert_eq!(paths(&[], &[], cached).resolve(tool).await, None, "the computer helper is never taken from the graph cache");
+    }
+
+    /// Node uses `MIXDOG_COMPUTER_BIN` as given: one that names no file is the answer, and the
+    /// spawn fails on it, rather than the bundled helper being used instead.
+    #[tokio::test]
+    async fn a_computer_override_naming_no_file_is_used_as_given() {
+        let tool = NativeTool::Computer;
+        let all = [bundled(tool), built(tool)];
+        assert_eq!(paths(&[("MIXDOG_COMPUTER_BIN", "/x/gone")], &all, None).resolve(tool).await, Some(PathBuf::from("/x/gone")));
+        assert_eq!(paths(&[("MIXDOG_COMPUTER_BIN", "")], &all, None).resolve(tool).await, Some(bundled(tool)), "an empty value is unset");
+    }
+
+    /// The backend exists exactly when the helper does, wherever Node's order finds it.
+    #[tokio::test]
+    async fn the_computer_backend_is_built_only_where_the_helper_is() {
+        let tool = NativeTool::Computer;
+        let manager = || -> Arc<dyn ProcessManager> {
+            let tokens = mixdog_rt::testing::tokens();
+            Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()))
+        };
+        assert!(paths(&[], &[bundled(tool)], None).computer_backend("s1", manager()).await.is_some());
+        assert!(paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[PathBuf::from("/x/c")], None).computer_backend("s1", manager()).await.is_some());
+        assert!(paths(&[], &[], None).computer_backend("s1", manager()).await.is_none());
     }
 }

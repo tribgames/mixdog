@@ -74,9 +74,9 @@ fn with_install_hint(mut result: RunnerResult, timed_out: bool) -> RunnerResult 
 }
 
 /// The report a spawn wrote, read on the lane; empty when there is none.
-async fn read_report(lane: DurabilityIo, path: &Path) -> String {
+async fn read_report(lane: DurabilityIo, path: &Path) -> Result<String, String> {
     let path = path.to_owned();
-    on_lane(lane, move || read_report_blocking(&path)).await.unwrap_or_default()
+    on_lane(lane, move || read_report_blocking(&path)).await.map_err(|_| "the dotnet format report could not be read: its lane did not run the read".to_owned())
 }
 
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
@@ -156,7 +156,12 @@ async fn invoke(req: &RunRequest, verify: bool) -> RunnerResult {
             if !verify {
                 continue;
             }
-            let parsed = parse_dotnet_format_report(&read_report(lane, &report).await, &req.cwd);
+            // An unread report is not a clean one: `dotnet format` may have found anything.
+            let text = match read_report(lane, &report).await {
+                Ok(text) => text,
+                Err(why) => return spawn_failure_result(ID, &why, false, r.code, &r.stderr),
+            };
+            let parsed = parse_dotnet_format_report(&text, &req.cwd);
             if parsed.changed_files.is_empty() && parsed.diagnostics.is_empty() && r.code != 0 {
                 let error = if mixdog_js::js_trim(&r.stderr).is_empty() { format!("exit {}", r.code) } else { tail600(&r.stderr) };
                 return spawn_failure_result(ID, &error, r.timed_out, r.code, &r.stderr);

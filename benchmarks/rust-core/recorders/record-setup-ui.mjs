@@ -3,8 +3,9 @@
 // `request` calls `notification-bus.mjs` `notifySessionUi(sessionId, 'Desktop settings request',
 // { kind: 'setup-ui', id })`, which reaches only the listeners bound to that session and answers
 // whether one took it. Two kinds of listener: a session store's (`tui/session/agent-job-feed`
-// `createNotificationRouter`, what an attached TUI or Desktop binds; it takes the notice and
-// sets `setupUiRequest`) and `headless-exec.mjs`'s (`mixdog exec`; its listener returns
+// `createNotificationRouter`, which every daemon session runtime binds when it is created,
+// `standalone/local-session-runtime.mjs:487`, whoever views it; it takes the notice and sets
+// `setupUiRequest`) and `headless-exec.mjs`'s (`mixdog exec`'s own runtime; its listener returns
 // nothing, so it never takes one). Each scenario records the call with its answer, the events
 // every listener received, the store patches, the claim and the request's outcome. The Rust
 // SessionSetupUi publishes the same event as `thread/notification` on the thread's feed.

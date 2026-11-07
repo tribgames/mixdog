@@ -69,7 +69,6 @@ pub(super) struct Local {
     pub services: Vec<Arc<dyn DomainService>>,
     pub transfer_sources: Vec<Arc<dyn TransferSource>>,
     pub tool_modules_host: Arc<ServicesToolModulesHost>,
-    pub provider: Arc<LocalProvider>,
 }
 
 /// `Math.max(1, Number(process.env.MIXDOG_MEDIA_MAX_ACTIVE_JOBS) || 4)`: a count of `a` running
@@ -120,27 +119,29 @@ async fn voice_manifest(inputs: &DomainInputs) -> Result<RuntimeManifest, Compos
         .ok_or_else(|| ComposeDomainsError::Build(format!("{shown} names no voice runtime")))
 }
 
-pub(super) async fn build(inputs: &DomainInputs, config: &Config) -> Result<Local, ComposeDomainsError> {
-    let tokens = &inputs.tokens;
-    let data_dir: &Path = &inputs.paths.data_dir;
-    let processes = inputs.processes.clone();
-    let seams = &inputs.seams.local;
-    let mut services: Vec<Arc<dyn DomainService>> = Vec::new();
-    let mut transfer_sources: Vec<Arc<dyn TransferSource>> = Vec::new();
-
+/// The process's one managed local provider. It needs only the data folder, the process manager, the
+/// config and the stop token, so the composition builds it before `ProcessServices` (which the provider
+/// registry, the effects and then `compose_domains` follow) and hands it to `compose_domains` as
+/// `DomainInputs.local_provider`.
+pub fn build_local_provider(
+    data_dir: &Path,
+    processes: &mixdog_services::tidy::process::Processes,
+    config: &Config,
+    cancel: &CancellationToken,
+) -> Result<Arc<LocalProvider>, ComposeDomainsError> {
     let provider = LocalProvider::new(Parts {
         data_dir: data_dir.to_owned(),
         fetcher: Arc::new(ReqwestFetcher::default()),
         processes: processes.clone(),
         hf_http: Box::new(ReqwestHf::default()),
-        launcher: Arc::new(SystemLauncher::new(&processes)),
+        launcher: Arc::new(SystemLauncher::new(processes)),
         health: Arc::new(LoopbackHealth::default()),
         timing: Timing::default(),
         idle_ttl_seconds: idle_ttl(config)?,
         platform_key: None,
     });
     // `setConfig` re-applies the idle TTL on every adopted config.
-    let (watched, synced, stop) = (config.clone(), provider.clone(), inputs.cancel.clone());
+    let (watched, synced, stop) = (config.clone(), provider.clone(), cancel.clone());
     let mut changes = watched.changes();
     mixdog_rt::spawn("local-provider-idle-ttl", TaskClass::Work, async move {
         loop {
@@ -153,6 +154,18 @@ pub(super) async fn build(inputs: &DomainInputs, config: &Config) -> Result<Loca
             }
         }
     });
+    Ok(provider)
+}
+
+pub(super) async fn build(inputs: &DomainInputs, config: &Config) -> Result<Local, ComposeDomainsError> {
+    let tokens = &inputs.tokens;
+    let data_dir: &Path = &inputs.paths.data_dir;
+    let processes = inputs.processes.clone();
+    let seams = &inputs.seams.local;
+    let mut services: Vec<Arc<dyn DomainService>> = Vec::new();
+    let mut transfer_sources: Vec<Arc<dyn TransferSource>> = Vec::new();
+
+    let provider = inputs.local_provider.clone();
     let settings = Arc::new(ConfigLocalProviderSettings::new(config.clone(), Arc::new(CatalogRefresh::new(inputs.catalog.clone()))));
     let local_service = Arc::new(LocalProviderService::new(provider.clone(), settings));
     services.push(local_service.clone());
@@ -203,5 +216,5 @@ pub(super) async fn build(inputs: &DomainInputs, config: &Config) -> Result<Loca
     let setup = Arc::new(VoiceSetup::new(pipeline.clone(), Arc::new(ConfigVoiceEnabled::new(config.clone())), seams.voice_installer.clone()));
     services.push(Arc::new(VoiceService::new(pipeline, setup)));
 
-    Ok(Local { services, transfer_sources, tool_modules_host, provider })
+    Ok(Local { services, transfer_sources, tool_modules_host })
 }

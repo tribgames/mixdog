@@ -13,8 +13,18 @@ struct Headers(Option<Header>);
 
 #[async_trait]
 impl ThreadHeaders for Headers {
-    async fn header(&self, _: &ThreadId) -> Option<Header> {
-        self.0.clone()
+    async fn header(&self, _: &ThreadId) -> Result<Option<Header>, CoreError> {
+        Ok(self.0.clone())
+    }
+}
+
+/// A header store whose read never ran.
+struct Unreadable;
+
+#[async_trait]
+impl ThreadHeaders for Unreadable {
+    async fn header(&self, _: &ThreadId) -> Result<Option<Header>, CoreError> {
+        Err(CoreError::QueueFull { queue: "interactive".into() })
     }
 }
 
@@ -143,6 +153,15 @@ async fn web_search_capability_is_nodes_for_every_form_of_the_model() {
         let got = rig.hosts.web_search_capable(case["provider"].as_str().unwrap(), model);
         assert_eq!(got, case["expected"].as_bool().unwrap(), "{case}");
     }
+}
+
+/// An unread record is not a missing thread: `ThreadNotFound` is for a record that was read.
+#[tokio::test]
+async fn a_thread_record_that_was_not_read_is_not_a_missing_thread() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut rig = rig(dir.path(), json!({}), None, none(), &[]).await;
+    rig.hosts.headers = Arc::new(Unreadable);
+    assert_eq!(rig.hosts.thread_mode_facts("t3").await, Err(CoreError::QueueFull { queue: "interactive".into() }));
 }
 
 #[tokio::test]

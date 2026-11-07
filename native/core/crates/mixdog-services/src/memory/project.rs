@@ -28,9 +28,9 @@ fn find_marker_root(start: &Path) -> Option<PathBuf> {
 }
 
 /// The project id declared for `cwd`, or None for COMMON. The ancestor walk and the read are
-/// one job on `lane`.
+/// one job on `lane`. A walk that never ran is an error: it must not file the call under COMMON.
 #[allow(clippy::disallowed_methods, reason = "the whole walk is a lane job")]
-pub async fn resolve_project_id(lane: DurabilityIo, cwd: &Path) -> Option<String> {
+pub async fn resolve_project_id(lane: DurabilityIo, cwd: &Path) -> std::io::Result<Option<String>> {
     let cwd = cwd.to_owned();
     on_lane(lane, move || {
         let root = find_marker_root(&cwd)?;
@@ -39,18 +39,44 @@ pub async fn resolve_project_id(lane: DurabilityIo, cwd: &Path) -> Option<String
         (!content.is_empty() && content.to_lowercase() != "common").then(|| content.to_owned())
     })
     .await
-    .ok()
-    .flatten()
 }
 
 /// Project classification for a call: the explicit `cwd` when given, else the
 /// session's own working directory. No directory means COMMON; the process
 /// working directory is never consulted.
-pub async fn resolve_project_scope(lane: DurabilityIo, explicit_cwd: Option<&str>, session_cwd: Option<&Path>) -> Option<String> {
+pub async fn resolve_project_scope(lane: DurabilityIo, explicit_cwd: Option<&str>, session_cwd: Option<&Path>) -> std::io::Result<Option<String>> {
     let cwd = match explicit_cwd.filter(|cwd| !cwd.is_empty()) {
         Some(cwd) => PathBuf::from(cwd),
-        None => session_cwd?.to_path_buf(),
+        None => match session_cwd {
+            Some(cwd) => cwd.to_path_buf(),
+            None => return Ok(None),
+        },
     };
-    let absolute = if cwd.is_absolute() { cwd } else { std::env::current_dir().ok()?.join(cwd) };
+    let absolute = if cwd.is_absolute() {
+        cwd
+    } else {
+        match std::env::current_dir() {
+            Ok(here) => here.join(cwd),
+            Err(_) => return Ok(None),
+        }
+    };
     resolve_project_id(lane, &absolute).await
+}
+
+#[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "the test builds its marker file on the test thread")]
+mod tests {
+    use super::*;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_marker_walk_that_never_ran_is_an_error_not_common() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".mixdog")).unwrap();
+        std::fs::write(dir.path().join(".mixdog").join("project.id"), "alpha").unwrap();
+        let lane = mixdog_rt::testing::tokens().durability_io;
+        assert_eq!(resolve_project_id(lane, dir.path()).await.unwrap(), Some("alpha".to_owned()));
+        let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
+        assert!(resolve_project_id(lane, dir.path()).await.is_err());
+        assert!(resolve_project_scope(lane, dir.path().to_str(), None).await.is_err());
+    }
 }

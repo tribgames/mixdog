@@ -74,11 +74,12 @@ pub async fn ingest_transcript_tail(ingest: &TranscriptIngest, path: &Path, cwd:
     let uuid = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     let resolved = match cwd.filter(|c| !c.as_os_str().is_empty()) {
         Some(cwd) => Some(cwd.to_owned()),
-        None => cwd_from_transcript_path(ingest.io.maintenance, path).await,
+        None => cwd_from_transcript_path(ingest.io.maintenance, path).await?,
     };
-    // No cwd resolves to COMMON (project NULL); the process cwd would misclassify rows.
+    // No cwd resolves to COMMON (project NULL); the process cwd would misclassify rows. A read
+    // that never ran is an error instead: the offset stays and the next sweep ingests the rows.
     let project_id = match &resolved {
-        Some(cwd) => resolve_project_id(ingest.io.durability, cwd).await,
+        Some(cwd) => resolve_project_id(ingest.io.durability, cwd).await?,
         None => None,
     };
     let mut boundary = Position { bytes: tail.bytes, line_index: tail.line_index, generation: tail.generation };

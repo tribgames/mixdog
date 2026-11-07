@@ -55,7 +55,9 @@ impl OwnedShells for ShellControl {
 /// in `target`.
 #[async_trait]
 pub trait WorkspaceSight: Send + Sync {
-    async fn sees(&self, target: &str, viewer: &str) -> bool;
+    /// `Err` when the check could not run (its lane job was refused or dropped): Node has no such
+    /// outcome, and answering "does not see" would release or hide a shell wrongly.
+    async fn sees(&self, target: &str, viewer: &str) -> Result<bool, CoreError>;
 }
 
 pub struct ShellJobsService {
@@ -103,7 +105,11 @@ impl ShellJobsService {
             Some(_) => {
                 hold.owner_closed
                     && match self.cwd_of(caller).await {
-                        Some(viewer) => self.sight.sees(&hold.cwd, &viewer).await,
+                        Some(viewer) => match self.sight.sees(&hold.cwd, &viewer).await {
+                            Ok(seen) => seen,
+                            // Not "may not": the check did not run, so say so and let the caller retry.
+                            Err(_) => return json!({ "released": false, "error": "workspace check unavailable: the lane did not run it" }),
+                        },
                         None => false,
                     }
             }
@@ -127,16 +133,28 @@ impl ShellJobsService {
             Some(thread) => self.cwd_of(thread).await,
             None => None,
         };
+        let mut unavailable = false;
         for orphan in tasks.host_state().orphaned {
             let seen = match &cwd {
-                Some(viewer) => self.sight.sees(&orphan.cwd, viewer).await,
+                Some(viewer) => match self.sight.sees(&orphan.cwd, viewer).await {
+                    Ok(seen) => seen,
+                    Err(_) => {
+                        unavailable = true;
+                        false
+                    }
+                },
                 None => false,
             };
             if seen && !jobs.iter().any(|row| row.task_id == orphan.task_id) {
                 jobs.push(orphan);
             }
         }
-        json!({ "jobs": jobs.iter().map(row_json).collect::<Vec<_>>() })
+        let mut list = json!({ "jobs": jobs.iter().map(row_json).collect::<Vec<_>>() });
+        // The held shells of other folders could not be judged: the list is incomplete, not final.
+        if unavailable {
+            list["error"] = json!("workspace check unavailable: the lane did not run it");
+        }
+        list
     }
 }
 
@@ -291,8 +309,8 @@ mod tests {
     struct Sees(Vec<(&'static str, &'static str)>);
     #[async_trait]
     impl WorkspaceSight for Sees {
-        async fn sees(&self, target: &str, viewer: &str) -> bool {
-            self.0.iter().any(|(t, v)| *t == target && *v == viewer)
+        async fn sees(&self, target: &str, viewer: &str) -> Result<bool, CoreError> {
+            Ok(self.0.iter().any(|(t, v)| *t == target && *v == viewer))
         }
     }
 

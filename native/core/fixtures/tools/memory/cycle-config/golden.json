@@ -1,0 +1,633 @@
+{
+  "node": "v22.20.0",
+  "envFlag": [
+    {
+      "value": null,
+      "whenFalse": false,
+      "whenTrue": true
+    },
+    {
+      "value": "",
+      "whenFalse": false,
+      "whenTrue": true
+    },
+    {
+      "value": " ",
+      "whenFalse": false,
+      "whenTrue": true
+    },
+    {
+      "value": "1",
+      "whenFalse": true,
+      "whenTrue": true
+    },
+    {
+      "value": " 1 ",
+      "whenFalse": true,
+      "whenTrue": true
+    },
+    {
+      "value": "true",
+      "whenFalse": true,
+      "whenTrue": true
+    },
+    {
+      "value": "TRUE",
+      "whenFalse": true,
+      "whenTrue": true
+    },
+    {
+      "value": "Yes",
+      "whenFalse": true,
+      "whenTrue": true
+    },
+    {
+      "value": "on",
+      "whenFalse": true,
+      "whenTrue": true
+    },
+    {
+      "value": "0",
+      "whenFalse": false,
+      "whenTrue": false
+    },
+    {
+      "value": "false",
+      "whenFalse": false,
+      "whenTrue": false
+    },
+    {
+      "value": "OFF",
+      "whenFalse": false,
+      "whenTrue": false
+    },
+    {
+      "value": "no",
+      "whenFalse": false,
+      "whenTrue": false
+    },
+    {
+      "value": "maybe",
+      "whenFalse": false,
+      "whenTrue": true
+    },
+    {
+      "value": "2",
+      "whenFalse": false,
+      "whenTrue": true
+    }
+  ],
+  "cases": [
+    {
+      "name": "no config file",
+      "config": null,
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "empty config",
+      "config": {},
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "memory section only",
+      "config": {
+        "memory": {
+          "cycle1": {
+            "interval": "10m",
+            "batchSize": 40
+          },
+          "enabled": true
+        }
+      },
+      "env": {},
+      "memory": {
+        "cycle1": {
+          "interval": "10m",
+          "batchSize": 40
+        }
+      },
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "memory section with the generated marker",
+      "config": {
+        "memory": {
+          "_generated": true,
+          "cycle1": {
+            "interval": "5m"
+          }
+        }
+      },
+      "env": {},
+      "memory": {
+        "cycle1": {
+          "interval": "5m"
+        }
+      },
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "memory section is null",
+      "config": {
+        "memory": null
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "memory section is an array",
+      "config": {
+        "memory": [
+          1,
+          2
+        ]
+      },
+      "env": {},
+      "memory": [
+        1,
+        2
+      ],
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "memory section is a string",
+      "config": {
+        "memory": "x"
+      },
+      "env": {},
+      "memory": "x",
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "agent section with the generated marker",
+      "config": {
+        "agent": {
+          "_generated": true,
+          "recap": {
+            "enabled": false
+          }
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": false,
+      "preset": null
+    },
+    {
+      "name": "recap off",
+      "config": {
+        "agent": {
+          "recap": {
+            "enabled": false
+          }
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": false,
+      "preset": null
+    },
+    {
+      "name": "recap on",
+      "config": {
+        "agent": {
+          "recap": {
+            "enabled": true
+          }
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "recap empty object",
+      "config": {
+        "agent": {
+          "recap": {}
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "recap is a string",
+      "config": {
+        "agent": {
+          "recap": "off"
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "recap enabled is the string false",
+      "config": {
+        "agent": {
+          "recap": {
+            "enabled": "false"
+          }
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "recap enabled is zero",
+      "config": {
+        "agent": {
+          "recap": {
+            "enabled": 0
+          }
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "recap enabled is null",
+      "config": {
+        "agent": {
+          "recap": {
+            "enabled": null
+          }
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "recap is an array",
+      "config": {
+        "agent": {
+          "recap": []
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "agent section is null",
+      "config": {
+        "agent": null
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "agent section is a string",
+      "config": {
+        "agent": "x"
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "memory route stored",
+      "config": {
+        "agent": {
+          "maintenance": {
+            "memory": {
+              "provider": "anthropic-oauth",
+              "model": "claude-haiku-4-5"
+            }
+          }
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": {
+        "provider": "anthropic-oauth",
+        "model": "claude-haiku-4-5"
+      }
+    },
+    {
+      "name": "memory route keeps extra fields",
+      "config": {
+        "agent": {
+          "maintenance": {
+            "memory": {
+              "provider": "anthropic-oauth",
+              "model": "claude-haiku-4-5",
+              "effort": "low",
+              "fast": true,
+              "note": {
+                "a": 1
+              }
+            }
+          }
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": {
+        "provider": "anthropic-oauth",
+        "model": "claude-haiku-4-5",
+        "effort": "low",
+        "fast": true,
+        "note": {
+          "a": 1
+        }
+      }
+    },
+    {
+      "name": "memory route without a model",
+      "config": {
+        "agent": {
+          "maintenance": {
+            "memory": {
+              "provider": "anthropic-oauth"
+            }
+          }
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "memory route without a provider",
+      "config": {
+        "agent": {
+          "maintenance": {
+            "memory": {
+              "model": "m"
+            }
+          }
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "memory route with an empty model",
+      "config": {
+        "agent": {
+          "maintenance": {
+            "memory": {
+              "provider": "p",
+              "model": ""
+            }
+          }
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "memory route with a numeric model",
+      "config": {
+        "agent": {
+          "maintenance": {
+            "memory": {
+              "provider": "p",
+              "model": 7
+            }
+          }
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": {
+        "provider": "p",
+        "model": 7
+      }
+    },
+    {
+      "name": "memory route is an array",
+      "config": {
+        "agent": {
+          "maintenance": {
+            "memory": [
+              {
+                "provider": "anthropic-oauth",
+                "model": "claude-haiku-4-5"
+              }
+            ]
+          }
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "memory route is a string",
+      "config": {
+        "agent": {
+          "maintenance": {
+            "memory": "haiku"
+          }
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "memory route is null",
+      "config": {
+        "agent": {
+          "maintenance": {
+            "memory": null
+          }
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "only the webhook route is stored",
+      "config": {
+        "agent": {
+          "maintenance": {
+            "webhook": {
+              "provider": "anthropic-oauth",
+              "model": "claude-haiku-4-5"
+            }
+          }
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "maintenance is an array",
+      "config": {
+        "agent": {
+          "maintenance": [
+            {
+              "provider": "anthropic-oauth",
+              "model": "claude-haiku-4-5"
+            }
+          ]
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "maintenance is a string",
+      "config": {
+        "agent": {
+          "maintenance": "memory"
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "recap off and a route",
+      "config": {
+        "agent": {
+          "recap": {
+            "enabled": false
+          },
+          "maintenance": {
+            "memory": {
+              "provider": "anthropic-oauth",
+              "model": "claude-haiku-4-5"
+            }
+          }
+        }
+      },
+      "env": {},
+      "memory": {},
+      "cyclesEnabled": false,
+      "preset": {
+        "provider": "anthropic-oauth",
+        "model": "claude-haiku-4-5"
+      }
+    },
+    {
+      "name": "secondary process",
+      "config": {
+        "agent": {
+          "recap": {
+            "enabled": true
+          }
+        }
+      },
+      "env": {
+        "MIXDOG_MEMORY_SECONDARY": "1"
+      },
+      "memory": {},
+      "cyclesEnabled": false,
+      "preset": null
+    },
+    {
+      "name": "secondary spelled yes",
+      "config": {},
+      "env": {
+        "MIXDOG_MEMORY_SECONDARY": " Yes "
+      },
+      "memory": {},
+      "cyclesEnabled": false,
+      "preset": null
+    },
+    {
+      "name": "secondary spelled 0",
+      "config": {},
+      "env": {
+        "MIXDOG_MEMORY_SECONDARY": "0"
+      },
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "secondary spelled as a typo",
+      "config": {},
+      "env": {
+        "MIXDOG_MEMORY_SECONDARY": "sure"
+      },
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "cycles disabled by the environment",
+      "config": {
+        "agent": {
+          "recap": {
+            "enabled": true
+          }
+        }
+      },
+      "env": {
+        "MIXDOG_MEMORY_DISABLE_CYCLES": "true"
+      },
+      "memory": {},
+      "cyclesEnabled": false,
+      "preset": null
+    },
+    {
+      "name": "cycles disabled spelled off",
+      "config": {},
+      "env": {
+        "MIXDOG_MEMORY_DISABLE_CYCLES": "off"
+      },
+      "memory": {},
+      "cyclesEnabled": true,
+      "preset": null
+    },
+    {
+      "name": "both environment switches",
+      "config": {},
+      "env": {
+        "MIXDOG_MEMORY_SECONDARY": "1",
+        "MIXDOG_MEMORY_DISABLE_CYCLES": "1"
+      },
+      "memory": {},
+      "cyclesEnabled": false,
+      "preset": null
+    }
+  ]
+}

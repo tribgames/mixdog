@@ -78,14 +78,17 @@ pub trait ProviderBuilder: Send + Sync {
     /// for a name no family serves).
     async fn build(&self, name: &str, config: &Value) -> Result<Arc<dyn ProviderAdapter>, String>;
 
-    /// Ids of a custom provider's additional keys (`customProviderKeyIds`).
-    async fn custom_key_ids(&self, name: &str) -> Vec<String>;
+    /// Ids of a custom provider's additional keys (`customProviderKeyIds`). A roster that was read
+    /// and cannot be used lists none (Node); `Err` only when the read never ran, which fails the
+    /// build: an empty list would rebuild the provider without its additional keys.
+    async fn custom_key_ids(&self, name: &str) -> Result<Vec<String>, String>;
 
     /// Whether a dev-gated provider is on (`providerAvailable`).
     fn available(&self, name: &str) -> bool;
 
-    /// Whether an OAuth provider's stored credential reads as present.
-    async fn oauth_credentials_usable(&self, name: &str) -> bool;
+    /// Whether an OAuth provider's stored credential reads as present. `Err` only when the check
+    /// never ran: that is neither "present" nor "missing".
+    async fn oauth_credentials_usable(&self, name: &str) -> Result<bool, String>;
 }
 
 struct Entry {
@@ -178,13 +181,15 @@ impl ProviderRegistry {
 
     /// Adds a custom provider's additional key ids to its entry (and so its
     /// reuse signature): a save that changes them rebuilds the provider.
-    async fn with_custom_key_ids(&self, config: &Map<String, Value>) -> Map<String, Value> {
+    ///
+    /// `Err` when a key-id read never ran: the apply then changes nothing.
+    async fn with_custom_key_ids(&self, config: &Map<String, Value>) -> Result<Map<String, Value>, RegistryError> {
         let mut out = config.clone();
         for (name, cfg) in config {
             if !is_custom(name, cfg) || cfg.get("auth").and_then(Value::as_str) == Some("none") {
                 continue;
             }
-            let ids = self.builder.custom_key_ids(name).await;
+            let ids = self.builder.custom_key_ids(name).await.map_err(RegistryError::plain)?;
             if ids.is_empty() {
                 continue;
             }
@@ -194,14 +199,14 @@ impl ProviderRegistry {
             }
             out.insert(name.clone(), next);
         }
-        out
+        Ok(out)
     }
 
     /// Ensures the providers `config` enables are registered (additive). A
     /// registered one is left as it is. Errors with `NO_ENABLED_PROVIDERS`
     /// when the registry is still empty afterwards.
     pub async fn init_providers(&self, config: &Map<String, Value>) -> Result<(), RegistryError> {
-        let plan = Plan { config: self.with_custom_key_ids(config).await, rebuild: false, add: true, is_off: None };
+        let plan = Plan { config: self.with_custom_key_ids(config).await?, rebuild: false, add: true, is_off: None };
         if !self.state().providers.is_empty() && self.pending(&plan).is_empty() {
             return Ok(());
         }
@@ -223,7 +228,7 @@ impl ProviderRegistry {
                     || (name.starts_with("custom-") && !d.contains_key(name))
             }) as Box<dyn Fn(&str) -> bool + Send>
         });
-        let config = self.with_custom_key_ids(record).await;
+        let config = self.with_custom_key_ids(record).await?;
         self.apply_plan(Plan { config, rebuild: true, add: false, is_off }).await
     }
 
@@ -340,38 +345,48 @@ impl ProviderRegistry {
     /// replacement; an OAuth provider whose credential reads as present and
     /// that no decision turned off is registered on the spot, under the
     /// signature of the empty config it is built from.
+    ///
+    /// `None` also covers a lookup that could not be answered (see [`try_get`](Self::try_get));
+    /// callers that can report an error use that one.
     pub async fn get(&self, requested: &str) -> Option<Arc<dyn ProviderAdapter>> {
+        self.try_get(requested).await.ok().flatten()
+    }
+
+    /// [`get`](Self::get), but `Err` when the credential check never ran: the provider is then
+    /// neither registered nor reported missing.
+    pub async fn try_get(&self, requested: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, RegistryError> {
         let name = canonical(requested);
         if !self.builder.available(name) {
-            return None;
+            return Ok(None);
         }
         if let Some(adapter) = self.registered(name) {
-            return Some(adapter);
+            return Ok(Some(adapter));
         }
         if !OAUTH_PROVIDER_NAMES.contains(&name) || self.state().explicitly_disabled.contains(name) {
-            return None;
+            return Ok(None);
         }
-        if !self.builder.oauth_credentials_usable(name).await {
-            return None;
+        if !self.builder.oauth_credentials_usable(name).await.map_err(RegistryError::plain)? {
+            return Ok(None);
         }
         let empty = Value::Object(Map::new());
-        let adapter = self.accounted(name, self.builder.build(name, &empty).await.ok()?);
+        let Ok(built) = self.builder.build(name, &empty).await else { return Ok(None) };
+        let adapter = self.accounted(name, built);
         // Both gates again after the await (Node): the credential may have been
         // removed, or the provider disabled, while the build was in flight. The
         // disable check and the registration share one lock, so a `disable`
         // cannot slip between them.
-        if !self.builder.oauth_credentials_usable(name).await {
-            return None;
+        if !self.builder.oauth_credentials_usable(name).await.map_err(RegistryError::plain)? {
+            return Ok(None);
         }
         let mut state = self.state();
         if state.explicitly_disabled.contains(name) {
-            return None;
+            return Ok(None);
         }
         if let Some(existing) = state.providers.get(name) {
-            return Some(Arc::clone(&existing.adapter));
+            return Ok(Some(Arc::clone(&existing.adapter)));
         }
         Self::register(&mut state, name, Arc::clone(&adapter), Some(config_signature(&empty)));
-        Some(adapter)
+        Ok(Some(adapter))
     }
 
     /// `closeProviderConnections(id, 'session-deleted')`: every registered provider drops the
@@ -454,14 +469,14 @@ mod tests {
         async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
             Err(format!("no adapter for {name} in this test"))
         }
-        async fn custom_key_ids(&self, _name: &str) -> Vec<String> {
-            vec!["k1".into()]
+        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
+            Ok(vec!["k1".into()])
         }
         fn available(&self, name: &str) -> bool {
             name != "gated"
         }
-        async fn oauth_credentials_usable(&self, _name: &str) -> bool {
-            *self.usable.lock().unwrap()
+        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
+            Ok(*self.usable.lock().unwrap())
         }
     }
 
@@ -504,6 +519,42 @@ mod tests {
         assert!(r.init_errors().contains_key("custom-1"));
     }
 
+    /// A builder whose reads never run.
+    struct Unrun;
+
+    #[async_trait]
+    impl ProviderBuilder for Unrun {
+        async fn build(&self, name: &str, _config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
+            unreachable!("nothing is built from an unread roster: {name}")
+        }
+        async fn custom_key_ids(&self, name: &str) -> Result<Vec<String>, String> {
+            Err(format!("The additional API keys of {name} could not be read: its lane did not run the call."))
+        }
+        fn available(&self, _name: &str) -> bool {
+            true
+        }
+        async fn oauth_credentials_usable(&self, name: &str) -> Result<bool, String> {
+            Err(format!("The sign-in of {name} could not be read: its lane did not run the call."))
+        }
+    }
+
+    /// A read that never ran fails the apply and the lookup: nothing is registered, and no
+    /// provider is reported as missing or as an init error.
+    #[tokio::test]
+    async fn an_unrun_read_fails_the_build_and_registers_nothing() {
+        let r = ProviderRegistry::new(Arc::new(Unrun));
+        let cfg = json!({"custom-1": {"enabled": true, "type": "custom", "auth": "key"}});
+        let err = r.init_providers(cfg.as_object().unwrap()).await.unwrap_err();
+        assert!(err.message.contains("could not be read"), "{}", err.message);
+        assert_eq!(err.code, None);
+        assert!(r.sync_providers(cfg.as_object().unwrap(), None).await.is_err());
+        assert!(r.names().is_empty());
+        assert!(r.init_errors().is_empty());
+        assert!(r.try_get("anthropic-oauth").await.err().unwrap().message.contains("could not be read"));
+        assert!(r.get("anthropic-oauth").await.is_none());
+        assert!(r.names().is_empty());
+    }
+
     /// Builds only when released, so a test can act while a build is awaited.
     struct Gated {
         entered: tokio::sync::Notify,
@@ -517,14 +568,14 @@ mod tests {
             self.release.notified().await;
             Ok(crate::registry::multiwire::tests::refusing("t", 400, "x"))
         }
-        async fn custom_key_ids(&self, _name: &str) -> Vec<String> {
-            Vec::new()
+        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
         }
         fn available(&self, _name: &str) -> bool {
             true
         }
-        async fn oauth_credentials_usable(&self, _name: &str) -> bool {
-            true
+        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
+            Ok(true)
         }
     }
 
@@ -583,14 +634,14 @@ mod tests {
             let inner = crate::registry::multiwire::tests::refusing(name, 400, "x");
             Ok(Arc::new(Releasing { name: name.to_owned(), inner, released: self.0.clone() }))
         }
-        async fn custom_key_ids(&self, _name: &str) -> Vec<String> {
-            Vec::new()
+        async fn custom_key_ids(&self, _name: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
         }
         fn available(&self, _name: &str) -> bool {
             true
         }
-        async fn oauth_credentials_usable(&self, _name: &str) -> bool {
-            false
+        async fn oauth_credentials_usable(&self, _name: &str) -> Result<bool, String> {
+            Ok(false)
         }
     }
 

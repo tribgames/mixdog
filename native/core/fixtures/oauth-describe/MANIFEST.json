@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-oauth-describe.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 29302,
+      "path": "golden.json",
+      "sha256": "91427ed53917c6c29d84c98a11570f24a3010d13121517aef92941ef1353efb3"
+    }
+  ],
+  "product": {
+    "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
+    "commit": "ce265627939aebf6cbb73966bced41cd338917cc",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "ce265627939aebf6cbb73966bced41cd338917cc",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-oauth-describe.mjs",
+  "set": "oauth-describe",
+  "totalBytes": 29302
+}

@@ -1,0 +1,2108 @@
+{
+ "domain": "agent-settings-setup-twin",
+ "now": 1700000000000,
+ "recorder": "benchmarks/rust-core/recorders/record-agent-settings-setup.mjs",
+ "servers": [
+  "gmail",
+  "gmail-2",
+  "github"
+ ],
+ "tools": [
+  [
+   "gmail",
+   "send_email"
+  ],
+  [
+   "gmail",
+   "read_email"
+  ],
+  [
+   "github",
+   "create_issue"
+  ]
+ ],
+ "steps": [
+  {
+   "seed": "save",
+   "payload": {
+    "name": "Alpha",
+    "body": "Be brief."
+   }
+  },
+  {
+   "action": "read_agent_settings",
+   "args": {
+    "agent": "alpha"
+   },
+   "ask": null,
+   "ok": {
+    "agent": "alpha",
+    "permissions": [
+     {
+      "action": "comment",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "review",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "message",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "email",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "publish",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "form",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "payment",
+      "mode": "ask",
+      "rememberable": false
+     },
+     {
+      "action": "delete",
+      "mode": "ask",
+      "rememberable": false
+     },
+     {
+      "action": "trash",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_submit",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_post",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_upload",
+      "mode": "ask",
+      "rememberable": true
+     }
+    ],
+    "connectors": [
+     {
+      "id": "gmail",
+      "enabled": true
+     },
+     {
+      "id": "gmail-2",
+      "enabled": true
+     },
+     {
+      "id": "github",
+      "enabled": true
+     }
+    ],
+    "alwaysAllowedTools": []
+   },
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\"\n}\n"
+   }
+  },
+  {
+   "action": "read_agent_settings",
+   "args": {
+    "agent": " "
+   },
+   "ask": null,
+   "error": "agent is required",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\"\n}\n"
+   }
+  },
+  {
+   "action": "read_agent_settings",
+   "args": {},
+   "ask": null,
+   "error": "agent is required",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\"\n}\n"
+   }
+  },
+  {
+   "action": "read_agent_settings",
+   "args": {
+    "agent": "ghost"
+   },
+   "ask": null,
+   "error": "agent \"ghost\" not found",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\"\n}\n"
+   }
+  },
+  {
+   "action": "read_project_connectors",
+   "args": {
+    "projectPath": "<project>"
+   },
+   "ask": null,
+   "ok": {
+    "projectPath": "<project>",
+    "connectors": [
+     {
+      "id": "gmail",
+      "enabled": true
+     },
+     {
+      "id": "gmail-2",
+      "enabled": true
+     },
+     {
+      "id": "github",
+      "enabled": true
+     }
+    ]
+   },
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\"\n}\n"
+   }
+  },
+  {
+   "action": "read_project_connectors",
+   "args": {
+    "projectPath": "<project>/unknown"
+   },
+   "ask": null,
+   "error": "project not registered: <project>/unknown",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\"\n}\n"
+   }
+  },
+  {
+   "action": "read_project_connectors",
+   "args": {
+    "projectPath": ""
+   },
+   "ask": null,
+   "error": "projectPath is required",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\"\n}\n"
+   }
+  },
+  {
+   "action": "read_project_connectors",
+   "args": {},
+   "ask": null,
+   "error": "projectPath is required",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\"\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_permission",
+   "args": {
+    "agent": "alpha",
+    "actionKind": "comment",
+    "permissionMode": "block"
+   },
+   "ask": null,
+   "ok": {
+    "agent": "alpha",
+    "permissions": [
+     {
+      "action": "comment",
+      "mode": "block",
+      "rememberable": true
+     },
+     {
+      "action": "review",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "message",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "email",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "publish",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "form",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "payment",
+      "mode": "ask",
+      "rememberable": false
+     },
+     {
+      "action": "delete",
+      "mode": "ask",
+      "rememberable": false
+     },
+     {
+      "action": "trash",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_submit",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_post",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_upload",
+      "mode": "ask",
+      "rememberable": true
+     }
+    ]
+   },
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_permission",
+   "args": {
+    "agent": "alpha",
+    "actionKind": "comment",
+    "permissionMode": "allow"
+   },
+   "ask": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop.",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_permission",
+   "args": {
+    "agent": "alpha",
+    "actionKind": "comment",
+    "permissionMode": "ask"
+   },
+   "ask": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop.",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_permission",
+   "args": {
+    "agent": "alpha",
+    "actionKind": "email",
+    "permissionMode": "allow"
+   },
+   "ask": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop.",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_permission",
+   "args": {
+    "agent": "alpha",
+    "actionKind": "nope",
+    "permissionMode": "block"
+   },
+   "ask": null,
+   "error": "action must be one of comment, review, message, email, publish, form, payment, delete, trash, browser_submit, browser_post, browser_upload",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_permission",
+   "args": {
+    "agent": "alpha",
+    "actionKind": "email",
+    "permissionMode": "maybe"
+   },
+   "ask": null,
+   "error": "mode must be one of ask, allow, block",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_permission",
+   "args": {
+    "agent": "",
+    "actionKind": "email",
+    "permissionMode": "block"
+   },
+   "ask": null,
+   "error": "agent is required",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "read_agent_settings",
+   "args": {
+    "agent": "alpha"
+   },
+   "ask": null,
+   "ok": {
+    "agent": "alpha",
+    "permissions": [
+     {
+      "action": "comment",
+      "mode": "block",
+      "rememberable": true
+     },
+     {
+      "action": "review",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "message",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "email",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "publish",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "form",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "payment",
+      "mode": "ask",
+      "rememberable": false
+     },
+     {
+      "action": "delete",
+      "mode": "ask",
+      "rememberable": false
+     },
+     {
+      "action": "trash",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_submit",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_post",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_upload",
+      "mode": "ask",
+      "rememberable": true
+     }
+    ],
+    "connectors": [
+     {
+      "id": "gmail",
+      "enabled": true
+     },
+     {
+      "id": "gmail-2",
+      "enabled": true
+     },
+     {
+      "id": "github",
+      "enabled": true
+     }
+    ],
+    "alwaysAllowedTools": []
+   },
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "enabled": false
+   },
+   "ask": null,
+   "ok": {
+    "agent": "alpha",
+    "connectors": [
+     {
+      "id": "gmail",
+      "enabled": false
+     },
+     {
+      "id": "gmail-2",
+      "enabled": true
+     },
+     {
+      "id": "github",
+      "enabled": true
+     }
+    ]
+   },
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "enabled": true
+   },
+   "ask": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop.",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector",
+   "args": {
+    "agent": "alpha",
+    "name": " ",
+    "enabled": false
+   },
+   "ask": null,
+   "error": "name is required",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "enabled": "yes"
+   },
+   "ask": null,
+   "error": "enabled must be a boolean",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector",
+   "args": {
+    "agent": "alpha",
+    "name": "github",
+    "enabled": false
+   },
+   "ask": null,
+   "ok": {
+    "agent": "alpha",
+    "connectors": [
+     {
+      "id": "gmail",
+      "enabled": false
+     },
+     {
+      "id": "gmail-2",
+      "enabled": true
+     },
+     {
+      "id": "github",
+      "enabled": false
+     }
+    ]
+   },
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector",
+   "args": {
+    "agent": "ghost",
+    "name": "github",
+    "enabled": false
+   },
+   "ask": null,
+   "error": "agent \"ghost\" not found",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "read_agent_settings",
+   "args": {
+    "agent": "alpha"
+   },
+   "ask": null,
+   "ok": {
+    "agent": "alpha",
+    "permissions": [
+     {
+      "action": "comment",
+      "mode": "block",
+      "rememberable": true
+     },
+     {
+      "action": "review",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "message",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "email",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "publish",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "form",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "payment",
+      "mode": "ask",
+      "rememberable": false
+     },
+     {
+      "action": "delete",
+      "mode": "ask",
+      "rememberable": false
+     },
+     {
+      "action": "trash",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_submit",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_post",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_upload",
+      "mode": "ask",
+      "rememberable": true
+     }
+    ],
+    "connectors": [
+     {
+      "id": "gmail",
+      "enabled": false
+     },
+     {
+      "id": "gmail-2",
+      "enabled": true
+     },
+     {
+      "id": "github",
+      "enabled": false
+     }
+    ],
+    "alwaysAllowedTools": []
+   },
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"github\",\n      \"gmail\"\n    ]\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ]\n  }\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "seed": "enable",
+   "agent": "alpha",
+   "name": "gmail",
+   "enabled": true
+  },
+  {
+   "seed": "enable",
+   "agent": "alpha",
+   "name": "github",
+   "enabled": true
+  },
+  {
+   "seed": "tool",
+   "agent": "alpha",
+   "connector": "gmail",
+   "tool": "send_email",
+   "permission": "auto"
+  },
+  {
+   "action": "read_agent_settings",
+   "args": {
+    "agent": "alpha"
+   },
+   "ask": null,
+   "ok": {
+    "agent": "alpha",
+    "permissions": [
+     {
+      "action": "comment",
+      "mode": "block",
+      "rememberable": true
+     },
+     {
+      "action": "review",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "message",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "email",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "publish",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "form",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "payment",
+      "mode": "ask",
+      "rememberable": false
+     },
+     {
+      "action": "delete",
+      "mode": "ask",
+      "rememberable": false
+     },
+     {
+      "action": "trash",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_submit",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_post",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_upload",
+      "mode": "ask",
+      "rememberable": true
+     }
+    ],
+    "connectors": [
+     {
+      "id": "gmail",
+      "enabled": true
+     },
+     {
+      "id": "gmail-2",
+      "enabled": true
+     },
+     {
+      "id": "github",
+      "enabled": true
+     }
+    ],
+    "alwaysAllowedTools": [
+     {
+      "connector": "gmail",
+      "tool": "send_email"
+     }
+    ]
+   },
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\"\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "tool": "send_email",
+    "permission": "needs_approval"
+   },
+   "ask": null,
+   "ok": {
+    "agent": "alpha",
+    "connector": "gmail",
+    "tool": "send_email",
+    "permission": "needs_approval"
+   },
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "tool": "send_email",
+    "permission": "disabled"
+   },
+   "ask": null,
+   "ok": {
+    "agent": "alpha",
+    "connector": "gmail",
+    "tool": "send_email",
+    "permission": "disabled"
+   },
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"disabled\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "tool": "send_email",
+    "permission": "needs_approval"
+   },
+   "ask": "deny",
+   "ok": {
+    "agent": "alpha",
+    "connector": "gmail",
+    "tool": "send_email",
+    "requested": "needs_approval",
+    "saved": false,
+    "approved": false,
+    "permission": "disabled",
+    "note": "The user did not approve this change; nothing changed."
+   },
+   "asked": [
+    {
+     "name": "setup",
+     "kind": "connector",
+     "agentId": "alpha",
+     "connector": {
+      "server": "gmail",
+      "tool": "send_email",
+      "from": "disabled",
+      "requested": "needs_approval",
+      "choices": [
+       "needs_approval",
+       "auto"
+      ]
+     },
+     "args": {
+      "action": "set_agent_connector_tool",
+      "agent": "alpha",
+      "name": "gmail",
+      "tool": "send_email",
+      "permission": "needs_approval"
+     },
+     "reason": "Bot \"alpha\" asks to change the permission of send_email (gmail) from disabled to needs_approval.",
+     "remember": [
+      "once"
+     ]
+    }
+   ],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"disabled\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "tool": "send_email",
+    "permission": "needs_approval"
+   },
+   "ask": "timeout",
+   "ok": {
+    "agent": "alpha",
+    "connector": "gmail",
+    "tool": "send_email",
+    "requested": "needs_approval",
+    "saved": false,
+    "approved": false,
+    "permission": "disabled",
+    "note": "The approval card timed out; nothing changed."
+   },
+   "asked": [
+    {
+     "name": "setup",
+     "kind": "connector",
+     "agentId": "alpha",
+     "connector": {
+      "server": "gmail",
+      "tool": "send_email",
+      "from": "disabled",
+      "requested": "needs_approval",
+      "choices": [
+       "needs_approval",
+       "auto"
+      ]
+     },
+     "args": {
+      "action": "set_agent_connector_tool",
+      "agent": "alpha",
+      "name": "gmail",
+      "tool": "send_email",
+      "permission": "needs_approval"
+     },
+     "reason": "Bot \"alpha\" asks to change the permission of send_email (gmail) from disabled to needs_approval.",
+     "remember": [
+      "once"
+     ]
+    }
+   ],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"disabled\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "tool": "send_email",
+    "permission": "needs_approval"
+   },
+   "ask": "silent",
+   "ok": {
+    "agent": "alpha",
+    "connector": "gmail",
+    "tool": "send_email",
+    "requested": "needs_approval",
+    "saved": false,
+    "approved": false,
+    "permission": "disabled",
+    "note": "The user did not approve this change; nothing changed."
+   },
+   "asked": [
+    {
+     "name": "setup",
+     "kind": "connector",
+     "agentId": "alpha",
+     "connector": {
+      "server": "gmail",
+      "tool": "send_email",
+      "from": "disabled",
+      "requested": "needs_approval",
+      "choices": [
+       "needs_approval",
+       "auto"
+      ]
+     },
+     "args": {
+      "action": "set_agent_connector_tool",
+      "agent": "alpha",
+      "name": "gmail",
+      "tool": "send_email",
+      "permission": "needs_approval"
+     },
+     "reason": "Bot \"alpha\" asks to change the permission of send_email (gmail) from disabled to needs_approval.",
+     "remember": [
+      "once"
+     ]
+    }
+   ],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"disabled\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "tool": "send_email",
+    "permission": "needs_approval"
+   },
+   "ask": "once",
+   "ok": {
+    "agent": "alpha",
+    "connector": "gmail",
+    "tool": "send_email",
+    "requested": "needs_approval",
+    "saved": false,
+    "approved": false,
+    "permission": "disabled",
+    "note": "The user did not approve this change; nothing changed."
+   },
+   "asked": [
+    {
+     "name": "setup",
+     "kind": "connector",
+     "agentId": "alpha",
+     "connector": {
+      "server": "gmail",
+      "tool": "send_email",
+      "from": "disabled",
+      "requested": "needs_approval",
+      "choices": [
+       "needs_approval",
+       "auto"
+      ]
+     },
+     "args": {
+      "action": "set_agent_connector_tool",
+      "agent": "alpha",
+      "name": "gmail",
+      "tool": "send_email",
+      "permission": "needs_approval"
+     },
+     "reason": "Bot \"alpha\" asks to change the permission of send_email (gmail) from disabled to needs_approval.",
+     "remember": [
+      "once"
+     ]
+    }
+   ],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"disabled\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "tool": "send_email",
+    "permission": "needs_approval"
+   },
+   "ask": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop.",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"disabled\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "tool": "send_email",
+    "permission": "auto"
+   },
+   "ask": "needs_approval",
+   "error": "This change would widen what the bot may do without asking; make it on the desktop.",
+   "asked": [
+    {
+     "name": "setup",
+     "kind": "connector",
+     "agentId": "alpha",
+     "connector": {
+      "server": "gmail",
+      "tool": "send_email",
+      "from": "disabled",
+      "requested": "auto",
+      "choices": [
+       "needs_approval",
+       "auto"
+      ]
+     },
+     "args": {
+      "action": "set_agent_connector_tool",
+      "agent": "alpha",
+      "name": "gmail",
+      "tool": "send_email",
+      "permission": "auto"
+     },
+     "reason": "Bot \"alpha\" asks to change the permission of send_email (gmail) from disabled to auto.",
+     "remember": [
+      "once"
+     ]
+    }
+   ],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"disabled\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "tool": "send_email",
+    "permission": "auto"
+   },
+   "ask": "auto",
+   "error": "This change would widen what the bot may do without asking; make it on the desktop.",
+   "asked": [
+    {
+     "name": "setup",
+     "kind": "connector",
+     "agentId": "alpha",
+     "connector": {
+      "server": "gmail",
+      "tool": "send_email",
+      "from": "disabled",
+      "requested": "auto",
+      "choices": [
+       "needs_approval",
+       "auto"
+      ]
+     },
+     "args": {
+      "action": "set_agent_connector_tool",
+      "agent": "alpha",
+      "name": "gmail",
+      "tool": "send_email",
+      "permission": "auto"
+     },
+     "reason": "Bot \"alpha\" asks to change the permission of send_email (gmail) from disabled to auto.",
+     "remember": [
+      "once"
+     ]
+    }
+   ],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"disabled\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "tool": "send_email",
+    "permission": "auto"
+   },
+   "ask": "deny",
+   "ok": {
+    "agent": "alpha",
+    "connector": "gmail",
+    "tool": "send_email",
+    "requested": "auto",
+    "saved": false,
+    "approved": false,
+    "permission": "disabled",
+    "note": "The user did not approve this change; nothing changed."
+   },
+   "asked": [
+    {
+     "name": "setup",
+     "kind": "connector",
+     "agentId": "alpha",
+     "connector": {
+      "server": "gmail",
+      "tool": "send_email",
+      "from": "disabled",
+      "requested": "auto",
+      "choices": [
+       "needs_approval",
+       "auto"
+      ]
+     },
+     "args": {
+      "action": "set_agent_connector_tool",
+      "agent": "alpha",
+      "name": "gmail",
+      "tool": "send_email",
+      "permission": "auto"
+     },
+     "reason": "Bot \"alpha\" asks to change the permission of send_email (gmail) from disabled to auto.",
+     "remember": [
+      "once"
+     ]
+    }
+   ],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"disabled\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "seed": "tool",
+   "agent": "alpha",
+   "connector": "gmail",
+   "tool": "send_email",
+   "permission": "disabled"
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "tool": "send_email",
+    "permission": "needs_approval"
+   },
+   "ask": "auto",
+   "error": "This change would widen what the bot may do without asking; make it on the desktop.",
+   "asked": [
+    {
+     "name": "setup",
+     "kind": "connector",
+     "agentId": "alpha",
+     "connector": {
+      "server": "gmail",
+      "tool": "send_email",
+      "from": "disabled",
+      "requested": "needs_approval",
+      "choices": [
+       "needs_approval",
+       "auto"
+      ]
+     },
+     "args": {
+      "action": "set_agent_connector_tool",
+      "agent": "alpha",
+      "name": "gmail",
+      "tool": "send_email",
+      "permission": "needs_approval"
+     },
+     "reason": "Bot \"alpha\" asks to change the permission of send_email (gmail) from disabled to needs_approval.",
+     "remember": [
+      "once"
+     ]
+    }
+   ],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"disabled\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"disabled\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "seed": "tool",
+   "agent": "alpha",
+   "connector": "gmail",
+   "tool": "send_email",
+   "permission": "needs_approval"
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "tool": "send_email",
+    "permission": "auto"
+   },
+   "ask": "narrowed-then-auto",
+   "error": "This change would widen what the bot may do without asking; make it on the desktop.",
+   "asked": [
+    {
+     "name": "setup",
+     "kind": "connector",
+     "agentId": "alpha",
+     "connector": {
+      "server": "gmail",
+      "tool": "send_email",
+      "from": "needs_approval",
+      "requested": "auto",
+      "choices": [
+       "auto"
+      ]
+     },
+     "args": {
+      "action": "set_agent_connector_tool",
+      "agent": "alpha",
+      "name": "gmail",
+      "tool": "send_email",
+      "permission": "auto"
+     },
+     "reason": "Bot \"alpha\" asks to change the permission of send_email (gmail) from needs_approval to auto.",
+     "remember": [
+      "once"
+     ]
+    }
+   ],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"disabled\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "seed": "tool",
+   "agent": "alpha",
+   "connector": "gmail",
+   "tool": "send_email",
+   "permission": "disabled"
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "tool": "send_email",
+    "permission": "needs_approval"
+   },
+   "ask": "widened-then-needs_approval",
+   "ok": {
+    "agent": "alpha",
+    "connector": "gmail",
+    "tool": "send_email",
+    "requested": "needs_approval",
+    "approved": true,
+    "permission": "needs_approval",
+    "note": "The user approved on the card; send_email is now needs_approval."
+   },
+   "asked": [
+    {
+     "name": "setup",
+     "kind": "connector",
+     "agentId": "alpha",
+     "connector": {
+      "server": "gmail",
+      "tool": "send_email",
+      "from": "disabled",
+      "requested": "needs_approval",
+      "choices": [
+       "needs_approval",
+       "auto"
+      ]
+     },
+     "args": {
+      "action": "set_agent_connector_tool",
+      "agent": "alpha",
+      "name": "gmail",
+      "tool": "send_email",
+      "permission": "needs_approval"
+     },
+     "reason": "Bot \"alpha\" asks to change the permission of send_email (gmail) from disabled to needs_approval.",
+     "remember": [
+      "once"
+     ]
+    }
+   ],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail-2",
+    "tool": "read_email",
+    "permission": "auto"
+   },
+   "ask": "auto",
+   "ok": {
+    "agent": "alpha",
+    "connector": "gmail-2",
+    "tool": "read_email",
+    "requested": "auto",
+    "saved": false,
+    "permission": "auto",
+    "note": "The tool is already auto; nothing changed."
+   },
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "tool": "send_email",
+    "permission": "bogus"
+   },
+   "ask": null,
+   "error": "permission must be one of auto, needs_approval, disabled",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "tool": " ",
+    "permission": "auto"
+   },
+   "ask": null,
+   "error": "tool is required",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": " ",
+    "tool": "send_email",
+    "permission": "auto"
+   },
+   "ask": null,
+   "error": "name is required",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "tool": "send_email"
+   },
+   "ask": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop.",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": "github",
+    "tool": "create_issue",
+    "permission": "auto"
+   },
+   "ask": "auto",
+   "ok": {
+    "agent": "alpha",
+    "connector": "github",
+    "tool": "create_issue",
+    "requested": "auto",
+    "saved": false,
+    "permission": "auto",
+    "note": "The tool is already auto; nothing changed."
+   },
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "ghost",
+    "name": "gmail",
+    "tool": "send_email",
+    "permission": "auto"
+   },
+   "ask": "auto",
+   "error": "agent \"ghost\" not found",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "read_agent_settings",
+   "args": {
+    "agent": "alpha"
+   },
+   "ask": null,
+   "ok": {
+    "agent": "alpha",
+    "permissions": [
+     {
+      "action": "comment",
+      "mode": "block",
+      "rememberable": true
+     },
+     {
+      "action": "review",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "message",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "email",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "publish",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "form",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "payment",
+      "mode": "ask",
+      "rememberable": false
+     },
+     {
+      "action": "delete",
+      "mode": "ask",
+      "rememberable": false
+     },
+     {
+      "action": "trash",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_submit",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_post",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_upload",
+      "mode": "ask",
+      "rememberable": true
+     }
+    ],
+    "connectors": [
+     {
+      "id": "gmail",
+      "enabled": true
+     },
+     {
+      "id": "gmail-2",
+      "enabled": true
+     },
+     {
+      "id": "github",
+      "enabled": true
+     }
+    ],
+    "alwaysAllowedTools": []
+   },
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "seed": "enable",
+   "agent": "alpha",
+   "name": "gmail",
+   "enabled": false
+  },
+  {
+   "seed": "tool",
+   "agent": "alpha",
+   "connector": "gmail",
+   "tool": "send_email",
+   "permission": "auto"
+  },
+  {
+   "action": "set_agent_connector_tool",
+   "args": {
+    "agent": "alpha",
+    "name": "gmail",
+    "tool": "send_email",
+    "permission": "needs_approval"
+   },
+   "ask": "needs_approval",
+   "ok": {
+    "agent": "alpha",
+    "connector": "gmail",
+    "tool": "send_email",
+    "permission": "needs_approval"
+   },
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "read_agent_settings",
+   "args": {
+    "agent": "alpha"
+   },
+   "ask": null,
+   "ok": {
+    "agent": "alpha",
+    "permissions": [
+     {
+      "action": "comment",
+      "mode": "block",
+      "rememberable": true
+     },
+     {
+      "action": "review",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "message",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "email",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "publish",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "form",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "payment",
+      "mode": "ask",
+      "rememberable": false
+     },
+     {
+      "action": "delete",
+      "mode": "ask",
+      "rememberable": false
+     },
+     {
+      "action": "trash",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_submit",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_post",
+      "mode": "ask",
+      "rememberable": true
+     },
+     {
+      "action": "browser_upload",
+      "mode": "ask",
+      "rememberable": true
+     }
+    ],
+    "connectors": [
+     {
+      "id": "gmail",
+      "enabled": false
+     },
+     {
+      "id": "gmail-2",
+      "enabled": true
+     },
+     {
+      "id": "github",
+      "enabled": true
+     }
+    ],
+    "alwaysAllowedTools": []
+   },
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n"
+   }
+  },
+  {
+   "action": "set_project_connector",
+   "args": {
+    "projectPath": "<project>",
+    "name": "gmail",
+    "enabled": false
+   },
+   "ask": null,
+   "ok": {
+    "projectPath": "<project>",
+    "connectors": [
+     {
+      "id": "gmail",
+      "enabled": false
+     },
+     {
+      "id": "gmail-2",
+      "enabled": true
+     },
+     {
+      "id": "github",
+      "enabled": true
+     }
+    ]
+   },
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n",
+    "project-connectors.json": "{\n  \"projects\": {\n    \"<project>\": {\n      \"off\": [\n        \"gmail\"\n      ]\n    }\n  }\n}\n"
+   }
+  },
+  {
+   "action": "set_project_connector",
+   "args": {
+    "projectPath": "<project>",
+    "name": "gmail",
+    "enabled": true
+   },
+   "ask": null,
+   "error": "This change would widen what the bot may do without asking; make it on the desktop.",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n",
+    "project-connectors.json": "{\n  \"projects\": {\n    \"<project>\": {\n      \"off\": [\n        \"gmail\"\n      ]\n    }\n  }\n}\n"
+   }
+  },
+  {
+   "action": "set_project_connector",
+   "args": {
+    "projectPath": "<project>",
+    "name": "github",
+    "enabled": false
+   },
+   "ask": null,
+   "ok": {
+    "projectPath": "<project>",
+    "connectors": [
+     {
+      "id": "gmail",
+      "enabled": false
+     },
+     {
+      "id": "gmail-2",
+      "enabled": true
+     },
+     {
+      "id": "github",
+      "enabled": false
+     }
+    ]
+   },
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n",
+    "project-connectors.json": "{\n  \"projects\": {\n    \"<project>\": {\n      \"off\": [\n        \"github\",\n        \"gmail\"\n      ]\n    }\n  }\n}\n"
+   }
+  },
+  {
+   "action": "set_project_connector",
+   "args": {
+    "projectPath": "<project>",
+    "name": "github",
+    "enabled": false
+   },
+   "ask": null,
+   "ok": {
+    "projectPath": "<project>",
+    "connectors": [
+     {
+      "id": "gmail",
+      "enabled": false
+     },
+     {
+      "id": "gmail-2",
+      "enabled": true
+     },
+     {
+      "id": "github",
+      "enabled": false
+     }
+    ]
+   },
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n",
+    "project-connectors.json": "{\n  \"projects\": {\n    \"<project>\": {\n      \"off\": [\n        \"github\",\n        \"gmail\"\n      ]\n    }\n  }\n}\n"
+   }
+  },
+  {
+   "action": "set_project_connector",
+   "args": {
+    "projectPath": "<project>/unknown",
+    "name": "gmail",
+    "enabled": false
+   },
+   "ask": null,
+   "error": "project not registered: <project>/unknown",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n",
+    "project-connectors.json": "{\n  \"projects\": {\n    \"<project>\": {\n      \"off\": [\n        \"github\",\n        \"gmail\"\n      ]\n    }\n  }\n}\n"
+   }
+  },
+  {
+   "action": "set_project_connector",
+   "args": {
+    "projectPath": "",
+    "name": "gmail",
+    "enabled": false
+   },
+   "ask": null,
+   "error": "projectPath is required",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n",
+    "project-connectors.json": "{\n  \"projects\": {\n    \"<project>\": {\n      \"off\": [\n        \"github\",\n        \"gmail\"\n      ]\n    }\n  }\n}\n"
+   }
+  },
+  {
+   "action": "set_project_connector",
+   "args": {
+    "projectPath": "<project>",
+    "name": " ",
+    "enabled": false
+   },
+   "ask": null,
+   "error": "name is required",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n",
+    "project-connectors.json": "{\n  \"projects\": {\n    \"<project>\": {\n      \"off\": [\n        \"github\",\n        \"gmail\"\n      ]\n    }\n  }\n}\n"
+   }
+  },
+  {
+   "action": "set_project_connector",
+   "args": {
+    "projectPath": "<project>",
+    "name": "gmail",
+    "enabled": "x"
+   },
+   "ask": null,
+   "error": "enabled must be a boolean",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n",
+    "project-connectors.json": "{\n  \"projects\": {\n    \"<project>\": {\n      \"off\": [\n        \"github\",\n        \"gmail\"\n      ]\n    }\n  }\n}\n"
+   }
+  },
+  {
+   "action": "set_project_connector",
+   "args": {
+    "projectPath": "<project>",
+    "name": "gmail"
+   },
+   "ask": null,
+   "error": "enabled must be a boolean",
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n",
+    "project-connectors.json": "{\n  \"projects\": {\n    \"<project>\": {\n      \"off\": [\n        \"github\",\n        \"gmail\"\n      ]\n    }\n  }\n}\n"
+   }
+  },
+  {
+   "action": "read_project_connectors",
+   "args": {
+    "projectPath": "<project>"
+   },
+   "ask": null,
+   "ok": {
+    "projectPath": "<project>",
+    "connectors": [
+     {
+      "id": "gmail",
+      "enabled": false
+     },
+     {
+      "id": "gmail-2",
+      "enabled": true
+     },
+     {
+      "id": "github",
+      "enabled": false
+     }
+    ]
+   },
+   "asked": [],
+   "files": {
+    "agents/alpha/AGENT.md": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/AGENT.md.bak": "---\nname: Alpha\n---\n\nBe brief.\n",
+    "agents/alpha/agent.json": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"needs_approval\"\n      }\n    }\n  }\n}\n",
+    "agents/alpha/agent.json.bak": "{\n  \"name\": \"Alpha\",\n  \"connectors\": {\n    \"off\": [\n      \"gmail\"\n    ],\n    \"tools\": {\n      \"gmail\": {\n        \"send_email\": \"auto\"\n      }\n    }\n  }\n}\n",
+    "human-gate/audit.jsonl": "{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"timeout\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"deny\",\"device\":\"\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"deny\",\"device\":\"desktop\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"needs_approval>auto\",\"decision\":\"approve\",\"device\":\"phone\"}\n{\"at\":1700000000000,\"agentId\":\"alpha\",\"kind\":\"connector\",\"action\":\"\",\"tool\":\"gmail/send_email\",\"target\":\"disabled>needs_approval\",\"decision\":\"approve\",\"device\":\"phone\"}\n",
+    "human-gate/grants.json": "{\n  \"grants\": [\n    {\n      \"id\": \"grant_5e66cf24489eb3182cf43f20\",\n      \"agentId\": \"alpha\",\n      \"action\": \"comment\",\n      \"mode\": \"block\",\n      \"device\": \"\",\n      \"at\": 1700000000000\n    }\n  ]\n}\n",
+    "project-connectors.json": "{\n  \"projects\": {\n    \"<project>\": {\n      \"off\": [\n        \"github\",\n        \"gmail\"\n      ]\n    }\n  }\n}\n"
+   }
+  }
+ ]
+}

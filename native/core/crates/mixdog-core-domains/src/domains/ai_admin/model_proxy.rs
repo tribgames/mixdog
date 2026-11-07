@@ -304,6 +304,8 @@ fn options_in(o: w::ProxyOptions) -> Result<p::RequestOptions, Invalid> {
         send_group: None,
         usage_session_id: None,
         source_type: None,
+        // The remote adapter's exclusions are the remote PC's to record.
+        on_tool_excluded: None,
     })
 }
 

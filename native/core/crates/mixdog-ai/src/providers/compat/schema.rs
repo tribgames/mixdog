@@ -11,11 +11,19 @@
 //! against: the provider reads the keywords, not the dialect.
 
 use std::collections::HashMap;
+use std::collections::HashSet;
+use std::sync::LazyLock;
+use std::sync::Mutex;
+use std::sync::PoisonError;
 use std::sync::RwLock;
 
+use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::ToolDefinition;
+use mixdog_core_api::domain::provider::ToolExclusionReport;
 use mixdog_protocol::{JsonObject, JsonValue};
 use serde_json::json;
+
+use super::ajv_meta;
 
 /// The root rule of a wire.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -75,7 +83,7 @@ const NODE_KEYS: [&str; 11] = [
 const LIST_KEYS: [&str; 4] = ["prefixItems", "allOf", "anyOf", "oneOf"];
 const ROOT_FORBIDDEN_KEYS: [&str; 4] = ["anyOf", "oneOf", "allOf", "not"];
 
-fn escape_pointer(segment: &str) -> String {
+pub(crate) fn escape_pointer(segment: &str) -> String {
     segment.replace('~', "~0").replace('/', "~1")
 }
 
@@ -291,15 +299,13 @@ pub fn repaired_tool_input_schema(input: &JsonValue, rule: Rule) -> Option<JsonV
 }
 
 fn assert_valid_2020_12(schema: &JsonValue) -> Result<(), Problem> {
-    if let Err(error) = jsonschema::meta::validate(schema) {
-        return Err(problem(
-            error.instance_path().to_string(),
-            format!("not a valid JSON Schema 2020-12 schema: {error}"),
-        ));
+    // Worded as Ajv words it: the text reaches the user and the model (`ajv_meta`).
+    if let Some(error) = ajv_meta::first_error(schema) {
+        return Err(problem(error.pointer, format!("not a valid JSON Schema 2020-12 schema: {}", error.message)));
     }
     jsonschema::draft202012::new(schema)
         .map(|_| ())
-        .map_err(|error| problem(String::new(), error.to_string()))
+        .map_err(|error| ajv_meta::compile_problem(schema, &error.to_string()))
 }
 
 fn assert_object_root(schema: &JsonValue, rule: Rule) -> Result<(), Problem> {
@@ -326,7 +332,7 @@ fn assert_object_root(schema: &JsonValue, rule: Rule) -> Result<(), Problem> {
 }
 
 /// Why `schema` is not accepted as written on a `rule` wire.
-fn wire_problem(schema: &JsonValue, rule: Rule) -> Option<Problem> {
+pub(crate) fn wire_problem(schema: &JsonValue, rule: Rule) -> Option<Problem> {
     let JsonValue::Object(map) = schema else {
         return Some(problem("", "the input schema must be a JSON object schema"));
     };
@@ -351,6 +357,109 @@ pub fn wire_input_schema(input: &JsonValue, rule: Rule) -> Result<JsonValue, Pro
             Some(remaining) => Err(remaining),
         },
         None => Err(problem),
+    }
+}
+
+/// Whether a schema's `$schema` names draft-07 (`dialectOf`); 2020-12 when it is absent. Any other
+/// dialect is unsupported (the Claude bridge forwards a 2020-12 `input_schema`).
+fn is_draft_07(schema: &JsonObject) -> Result<bool, Problem> {
+    let Some(declared) = schema.get("$schema") else {
+        return Ok(false);
+    };
+    let name = declared.as_str().map_or_else(String::new, |text| {
+        let text = text.strip_prefix("https://").or_else(|| text.strip_prefix("http://")).unwrap_or(text);
+        text.strip_suffix('#').unwrap_or(text).to_owned()
+    });
+    match name.as_str() {
+        "json-schema.org/draft/2020-12/schema" => Ok(false),
+        "json-schema.org/draft-07/schema" => Ok(true),
+        _ => Err(problem(
+            "/$schema",
+            format!(
+                "unsupported JSON Schema dialect {} (supported: 2020-12, draft-07)",
+                mixdog_js::json_stringify(declared)
+            ),
+        )),
+    }
+}
+
+/// `buildSchema`: the tool schema as the Claude bridge forwards it, a 2020-12 schema with an
+/// Anthropic object root; a declared draft-07 is translated by the standard keyword mapping only.
+fn bridge_schema(input: &JsonValue) -> Result<JsonValue, Problem> {
+    let JsonValue::Object(map) = input else {
+        return Err(problem("", "the input schema must be a JSON object schema"));
+    };
+    let draft_07 = is_draft_07(map)?;
+    let mut rest = map.clone();
+    rest.shift_remove("$schema");
+    let rest = JsonValue::Object(rest);
+    let schema = if draft_07 {
+        translate(&rest, "", true, Lowering { drop_ref_siblings: true, rename_defs: true })?
+    } else {
+        rest
+    };
+    assert_valid_2020_12(&schema)?;
+    assert_object_root(&schema, Rule::Anthropic)?;
+    Ok(schema)
+}
+
+/// `claudeBridgeInputSchema`: the 2020-12 `parametersJsonSchema` of a Claude tool declaration
+/// behind Antigravity, or the pointer and reason it is invalid under its dialect or for the
+/// provider. A schema not valid as written is lowered once (undeclared draft-07/04 constructs, a
+/// missing root type) and only one still broken is excluded.
+pub fn claude_bridge_input_schema(input: &JsonValue) -> Result<JsonValue, Problem> {
+    // Validating a schema compiles it, which a request would repeat for every tool on every turn.
+    static MEMO: LazyLock<RwLock<HashMap<String, Result<JsonValue, Problem>>>> = LazyLock::new(Default::default);
+    let key = input.to_string();
+    if let Some(found) = MEMO.read().ok().and_then(|memo| memo.get(&key).cloned()) {
+        return found;
+    }
+    let verdict = bridge_schema(input).or_else(|error| match repaired_tool_input_schema(input, Rule::Anthropic) {
+        Some(repaired) if wire_problem(&repaired, Rule::Anthropic).is_none() => Ok(repaired),
+        _ => Err(error),
+    });
+    if let Ok(mut memo) = MEMO.write() {
+        if memo.len() >= MEMO_LIMIT {
+            memo.clear();
+        }
+        memo.insert(key, verdict.clone());
+    }
+    verdict
+}
+
+/// The report for a tool left out of request `tools[index]` for `problem`
+/// (`reportInvalidTool`); `source` prefixes the message (which route and kind of tool).
+pub(crate) fn exclusion(name: &str, index: usize, problem: Problem, source: &str) -> ToolExclusion {
+    let Problem { pointer, reason } = problem;
+    let at = if pointer.is_empty() { "/".to_owned() } else { pointer };
+    let message = format!("{source} \"{name}\" (tools[{index}]) excluded: invalid input schema at \"{at}\": {reason}");
+    ToolExclusion {
+        name: name.to_owned(),
+        index,
+        pointer: at,
+        reason,
+        message,
+    }
+}
+
+/// Where an adapter reports a tool it leaves out (`opts.onToolExcluded`): the request's sink, else
+/// the log, as Node's default `console.warn`.
+pub(crate) fn report_exclusion(options: &RequestOptions, found: ToolExclusion) {
+    match &options.on_tool_excluded {
+        Some(sink) => sink.report(ToolExclusionReport {
+            name: found.name,
+            index: found.index,
+            pointer: found.pointer,
+            reason: found.reason,
+            message: found.message,
+        }),
+        None => {
+            // Node's `console.warn` fires once per distinct message (`warned`).
+            static WARNED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+            if WARNED.lock().unwrap_or_else(PoisonError::into_inner).insert(found.message.clone()) {
+                tracing::warn!("{}", found.message);
+            }
+        }
     }
 }
 
@@ -401,20 +510,7 @@ impl SchemaMemo {
                     input_schema: schema,
                     ..tool.clone()
                 }),
-                Err(Problem { pointer, reason }) => {
-                    let at = if pointer.is_empty() { "/".to_owned() } else { pointer };
-                    let message = format!(
-                        "{source} \"{}\" (tools[{index}]) excluded: invalid input schema at \"{at}\": {reason}",
-                        tool.name
-                    );
-                    excluded(ToolExclusion {
-                        name: tool.name.clone(),
-                        index,
-                        pointer: at,
-                        reason,
-                        message,
-                    });
-                }
+                Err(problem) => excluded(exclusion(&tool.name, index, problem, source)),
             }
         }
         out
@@ -492,6 +588,31 @@ mod tests {
         let reported: Vec<_> = report.iter().map(|e| (e.name.as_str(), e.index)).collect();
         assert_eq!(reported, [("broken", 1), ("array", 2)]);
         assert!(report[1].message.starts_with("[t] tool \"array\" (tools[2]) excluded: invalid input schema at"));
+    }
+
+    /// `opts.onToolExcluded`: a tool a request leaves out is reported to the request's sink, with
+    /// every field of the report.
+    #[test]
+    fn an_exclusion_goes_to_the_requests_sink() {
+        use std::sync::Arc;
+        use std::sync::Mutex;
+
+        use mixdog_core_api::domain::provider::ToolExclusionSink;
+
+        let seen = Arc::new(Mutex::new(Vec::<ToolExclusionReport>::new()));
+        let into = Arc::clone(&seen);
+        let options = RequestOptions {
+            on_tool_excluded: Some(ToolExclusionSink(Arc::new(move |report: ToolExclusionReport| {
+                into.lock().unwrap().push(report);
+            }))),
+            ..RequestOptions::default()
+        };
+        let problem = Problem { pointer: String::new(), reason: "why".into() };
+        report_exclusion(&options, exclusion("t", 2, problem, "[x] tool"));
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 1);
+        assert_eq!((seen[0].name.as_str(), seen[0].index, seen[0].pointer.as_str(), seen[0].reason.as_str()), ("t", 2, "/", "why"));
+        assert_eq!(seen[0].message, "[x] tool \"t\" (tools[2]) excluded: invalid input schema at \"/\": why");
     }
 
     #[test]

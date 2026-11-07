@@ -59,11 +59,16 @@ struct TestVault {
     fallback: Mutex<Vec<String>>,
     /// Deleting an additional key's secret fails.
     refuse_extra_deletes: AtomicBool,
+    /// Reads never run (the lane refused them).
+    unrun_reads: AtomicBool,
 }
 
 #[async_trait]
 impl SecretVault for TestVault {
     async fn get(&self, account: &str) -> Result<Option<String>, VaultError> {
+        if self.unrun_reads.load(Ordering::SeqCst) {
+            return Err(VaultError::unrun("the keychain could not be reached"));
+        }
         Ok(self.secrets.lock().unwrap().get(account).cloned())
     }
     async fn set(&self, account: &str, value: &str) -> Result<(), VaultError> {
@@ -72,13 +77,13 @@ impl SecretVault for TestVault {
     }
     async fn delete(&self, account: &str) -> Result<(), VaultError> {
         if self.refuse_extra_deletes.load(Ordering::SeqCst) && account.contains(".apiKey.") {
-            return Err(VaultError("keychain is locked".into()));
+            return Err(VaultError::new("keychain is locked"));
         }
         self.secrets.lock().unwrap().remove(account);
         Ok(())
     }
-    async fn is_fallback(&self, account: &str) -> bool {
-        self.fallback.lock().unwrap().iter().any(|a| a == account)
+    async fn is_fallback(&self, account: &str) -> Result<bool, VaultError> {
+        Ok(self.fallback.lock().unwrap().iter().any(|a| a == account))
     }
 }
 
@@ -422,6 +427,41 @@ async fn a_key_kept_in_the_private_file_is_labelled_so() {
     w.vault.fallback.lock().unwrap().push(format!("agent.{id}.apiKey"));
     let row = w.admin.save_key(id, &json!("sk-b")).await.unwrap();
     assert_eq!(row["detail"], "stored in private file");
+}
+
+/// A key read that never ran is an error: not "no previous key" (whose rollback would delete the
+/// stored key) and not a row that says "No Key".
+#[tokio::test]
+async fn a_key_read_that_never_ran_fails_the_change_and_leaves_the_stored_key() {
+    let w = world(HashMap::new()).await;
+    let saved = w.admin.save(json!({ "name": "Kept", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "sk-a" })).await.unwrap();
+    let id = saved["id"].as_str().unwrap().to_owned();
+    w.vault.unrun_reads.store(true, Ordering::SeqCst);
+    assert!(w.admin.save_key(&id, &json!("sk-b")).await.is_err());
+    w.vault.unrun_reads.store(false, Ordering::SeqCst);
+    assert_eq!(w.vault.secrets.lock().unwrap().get(&format!("agent.{id}.apiKey")).map(String::as_str), Some("sk-a"));
+}
+
+/// A removal whose additional-key list could not be read deletes nothing, so it can be retried:
+/// an empty list would delete the primary key and leave the additional ones behind.
+#[tokio::test]
+async fn a_removal_that_cannot_read_the_additional_key_list_deletes_nothing() {
+    let w = world(HashMap::new()).await;
+    let saved = w
+        .admin
+        .save(json!({ "name": "Pool", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1", "apiKey": "sk-a", "extraApiKeys": [{ "apiKey": "sk-b" }] }))
+        .await
+        .unwrap();
+    let id = saved["id"].as_str().unwrap().to_owned();
+    let held = w.vault.secrets.lock().unwrap().len();
+    assert_eq!(held, 2);
+    {
+        let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
+        assert!(w.admin.remove(&id).await.is_err());
+    }
+    assert_eq!(w.vault.secrets.lock().unwrap().len(), held, "no secret was deleted");
+    assert!(w.admin.remove(&id).await.is_ok(), "and the removal can be retried");
+    assert!(w.vault.secrets.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

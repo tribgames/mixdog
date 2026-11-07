@@ -54,7 +54,11 @@ impl EmbeddingProvider {
         json!({
             "model": model,
             "dtype": config::normalize_dtype(model, self.config.dtype.as_deref()),
-            "dimensions": config::known_dims(model),
+            // `cachedDims || getKnownDimsForCurrentModel()`: the measured value once loaded.
+            "dimensions": match self.loaded.get() {
+                Some(Ok(embedder)) => Some(embedder.dims()),
+                _ => config::known_dims(model),
+            },
             "device": if ready { "cpu" } else { "" },
             "engine": "Transformers.js · ONNX Runtime",
             "supported": onnx_runtime_supported(),

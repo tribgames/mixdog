@@ -17,8 +17,6 @@ use std::sync::Weak;
 use async_trait::async_trait;
 use mixdog_agent::agent_tool::board::JobBoard;
 use mixdog_agent::env::Clock;
-use mixdog_ai::registry::accounted::AccountingDeps;
-use mixdog_ai::registry::providers::ProviderBuilder;
 use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_core_api::domain::ext::ExtPool;
 use mixdog_core_api::domain::fs::FileService;
@@ -114,7 +112,8 @@ impl LateDirectory {
         let _ = self.0.set(Arc::downgrade(directory));
     }
 
-    fn directory(&self) -> Option<Arc<SessionDirectory>> {
+    /// The directory once bound; `None` before the bind or after it is dropped.
+    pub fn directory(&self) -> Option<Arc<SessionDirectory>> {
         self.0.get()?.upgrade()
     }
 
@@ -226,8 +225,6 @@ pub struct ReadyIn {
 }
 
 pub struct ReadyRows {
-    pub provider_builder: Arc<dyn ProviderBuilder>,
-    pub accounting: AccountingDeps,
     pub ladder: Arc<super::ladder_sources::ProcessLadder>,
     /// `wiring` and `errors` of the route hop's `HopDeps`; `settings.wiring` is the same `wiring`.
     pub hop: HopBindings,
@@ -236,6 +233,14 @@ pub struct ReadyRows {
     pub resolver: Arc<McpAwareResolver>,
     pub skills_listed: Arc<CatalogSkillsListed>,
     pub allow_all: Arc<ConfigAllowAll>,
+}
+
+/// The process's one provider registry: `DefaultProviderBuilder` over the builder inputs of `process`, accounted
+/// by pricing, the ledger, the send scope and the account lookup. Built right after `ProcessServices`, so
+/// `ProviderReadiness::new(registry, catalog)` and the settings and feature effects share it with the turn path.
+pub fn provider_registry(process: &ProcessServices) -> Arc<ProviderRegistry> {
+    let builder = Arc::new(mixdog_ai::registry::builder::DefaultProviderBuilder::new(super::builder_env::builder_env(process)));
+    Arc::new(ProviderRegistry::new(builder).with_accounting(super::accounting_scope::accounting_deps(process)))
 }
 
 /// Builds every row whose inputs exist. `process` is the one `ProcessServices` of the daemon.
@@ -252,8 +257,6 @@ pub fn ready_rows(process: &ProcessServices, input: ReadyIn) -> ReadyRows {
         auto_effort: Arc::new(super::auto_effort::ConfigAutoEffort::new(process.config.clone(), input.env)),
     };
     ReadyRows {
-        provider_builder: Arc::new(mixdog_ai::registry::builder::DefaultProviderBuilder::new(super::builder_env::builder_env(process))),
-        accounting: super::accounting_scope::accounting_deps(process),
         ladder: Arc::new(super::ladder_sources::ProcessLadder::new(process)),
         hop,
         settings,
@@ -322,14 +325,13 @@ pub struct Owed {
 
 /// The whole `TurnPathParts`: the flip only adds the calls that produce `process`, `early`,
 /// `ready` and `owed`.
-pub fn turn_path_parts(process: &ProcessServices, early: EarlyRows, ready: ReadyRows, owed: Owed) -> TurnPathParts {
+pub fn turn_path_parts(process: &ProcessServices, registry: Arc<ProviderRegistry>, early: EarlyRows, ready: ReadyRows, owed: Owed) -> TurnPathParts {
     let hops = hops(process, &ready.hop, ready.bots.clone(), owed.hop_sessions);
     TurnPathParts {
         tokens: owed.tokens,
         clock: owed.clock,
         paths: owed.paths,
-        provider_builder: ready.provider_builder,
-        accounting: ready.accounting,
+        registry,
         effort_judge: owed.effort_judge,
         side: owed.side,
         next: owed.next,
@@ -420,8 +422,9 @@ pub struct LateHeaders(pub Arc<LateDirectory>);
 
 #[async_trait]
 impl ThreadHeaders for LateHeaders {
-    async fn header(&self, thread: &ThreadId) -> Option<Header> {
-        self.0.directory()?.stored_header(thread).await
+    async fn header(&self, thread: &ThreadId) -> Result<Option<Header>, mixdog_core_api::CoreError> {
+        let Some(directory) = self.0.directory() else { return Ok(None) };
+        directory.try_stored_header(thread).await
     }
 }
 
@@ -538,7 +541,7 @@ mod tests {
         let threads = LateThreads(late.clone());
         assert!(matches!(threads.header(&thread).await, Err(PortError::Unavailable { .. })));
         assert!(matches!(threads.messages(&thread).await, Err(PortError::Unavailable { .. })));
-        assert!(LateHeaders(late).header(&thread).await.is_none());
+        assert!(matches!(LateHeaders(late).header(&thread).await, Ok(None)));
     }
 
     #[test]
@@ -592,5 +595,16 @@ mod tests {
         assert!(!rows.settings.heartbeats.is_heartbeat("other"));
         assert!(!rows.allow_all.allow_all_actions(), "an unset developer option is off");
         assert_eq!(rows.skills_listed.any_for(dir.path()).await, Ok(false), "no skill root, no skill");
+    }
+
+    /// Registry, readiness and the effects are built from the process services before the turn path,
+    /// and all of them hold the one registry the turn path takes.
+    #[tokio::test]
+    async fn the_registry_is_built_once_and_shared_with_readiness() {
+        let world = world(&[], json!({}), Vec::new()).await;
+        let registry = provider_registry(&world.services);
+        let readiness = mixdog_ai::catalog::ProviderReadiness::new(registry.clone(), world.services.catalog.clone());
+        assert!(Arc::strong_count(&registry) >= 2, "readiness holds the registry the turn path is given");
+        drop(readiness);
     }
 }

@@ -339,7 +339,12 @@ impl RouteHop {
         // Read from the session's settings at this hop: a chain edited while it runs applies now,
         // and one cleared to [] leaves the provider's own error.
         let config = self.host.config();
-        let (chain, _) = live_route_fallbacks(&session, &config, self.host.bots()).await;
+        // A bot route read that never ran is not "no chain" and not the config's route: the hop
+        // fails with that, rather than switching to a model the user did not choose.
+        let (chain, _) = match live_route_fallbacks(&session, &config, self.host.bots()).await {
+            Ok(live) => live,
+            Err(error) => return RouteDecision::Fail(error.to_string()),
+        };
         if chain.is_empty() {
             return plain(error);
         }
@@ -475,11 +480,11 @@ mod tests {
     struct Bots;
     #[async_trait]
     impl BotRoutes for Bots {
-        async fn bot_route(&self, _: &str) -> Option<Option<Value>> {
-            None
+        async fn bot_route(&self, _: &str) -> Result<Option<Option<Value>>, crate::run_host::route_chain::RouteReadUnavailable> {
+            Ok(None)
         }
-        async fn stored_bot_route(&self, _: &str) -> Option<Value> {
-            None
+        async fn stored_bot_route(&self, _: &str) -> Result<Option<Value>, crate::run_host::route_chain::RouteReadUnavailable> {
+            Ok(None)
         }
     }
 

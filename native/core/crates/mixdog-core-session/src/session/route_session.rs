@@ -271,14 +271,16 @@ impl RouteSession for SessionRouteAdapter {
 
     /// `sessionRouteFallbackFields`: the owner's chain on `provider/model` for a session acting
     /// as an agent; `None` for a delegated worker, which keeps its own.
-    async fn owner_fallbacks(&self, thread: &ThreadId, header: &Header, provider: &str, model: &str) -> Option<Vec<Value>> {
+    async fn owner_fallbacks(&self, thread: &ThreadId, header: &Header, provider: &str, model: &str) -> Result<Option<Vec<Value>>, PortError> {
         let mut session = header.clone();
         session.insert("id".into(), json!(thread.as_str()));
         let (mode, agent) = resolve_session_mode(&Value::Object(session));
         if agent.is_empty() {
-            return None;
+            return Ok(None);
         }
-        Some(owner_route_fallbacks(mode, &agent, provider, model, &self.config.agent_config(), self.config.bots()).await)
+        let chain = owner_route_fallbacks(mode, &agent, provider, model, &self.config.agent_config(), self.config.bots()).await;
+        // An unread store is a failed switch, not a chain from the config.
+        chain.map(Some).map_err(|error| PortError::Failed { capability: "route".into(), message: error.to_string() })
     }
 
     /// `writeStatuslineRoute(statusRoutes, session, route)`.
@@ -469,11 +471,11 @@ mod tests {
     struct NoBots;
     #[async_trait::async_trait]
     impl BotRoutes for NoBots {
-        async fn bot_route(&self, _: &str) -> Option<Option<Value>> {
-            None
+        async fn bot_route(&self, _: &str) -> Result<Option<Option<Value>>, mixdog_core_run::run_host::route_chain::RouteReadUnavailable> {
+            Ok(None)
         }
-        async fn stored_bot_route(&self, _: &str) -> Option<Value> {
-            None
+        async fn stored_bot_route(&self, _: &str) -> Result<Option<Value>, mixdog_core_run::run_host::route_chain::RouteReadUnavailable> {
+            Ok(None)
         }
     }
     impl RouteConfig for Quiet {

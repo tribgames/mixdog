@@ -1,0 +1,182 @@
+{
+  "agentMode": [
+    {
+      "agentMode": true,
+      "session": {
+        "agent": "lead",
+        "id": "sess_home_lead"
+      }
+    },
+    {
+      "agentMode": true,
+      "session": {
+        "id": "sess_home_bench"
+      }
+    },
+    {
+      "agentMode": true,
+      "session": {
+        "id": "sess_home_a_b"
+      }
+    },
+    {
+      "agentMode": false,
+      "session": {
+        "id": "sess_home_Bad"
+      }
+    },
+    {
+      "agentMode": true,
+      "session": {
+        "id": "sess_rmem_room123_bench"
+      }
+    },
+    {
+      "agentMode": false,
+      "session": {
+        "id": "sess_rmem_ro_bench"
+      }
+    },
+    {
+      "agentMode": true,
+      "session": {
+        "id": "sess_task_owned",
+        "ownerAgentId": "bench"
+      }
+    },
+    {
+      "agentMode": true,
+      "session": {
+        "id": "sess_task_trimmed",
+        "ownerAgentId": "  bench  "
+      }
+    },
+    {
+      "agentMode": false,
+      "session": {
+        "id": "sess_task_invalid",
+        "ownerAgentId": "Bad Id"
+      }
+    },
+    {
+      "agentMode": false,
+      "session": {
+        "id": "sess_home_worker",
+        "owner": "agent"
+      }
+    },
+    {
+      "agentMode": false,
+      "session": {
+        "id": "sess_home_shouty",
+        "owner": " AGENT "
+      }
+    },
+    {
+      "agentMode": false,
+      "session": {
+        "id": "sess_home_hidden",
+        "visibility": "agent-only"
+      }
+    },
+    {
+      "agentMode": false,
+      "session": {
+        "agent": "lead",
+        "id": "sess_plain",
+        "sourceType": "lead"
+      }
+    },
+    {
+      "agentMode": false,
+      "session": {
+        "id": "sess_mode_stored",
+        "sessionMode": "agent"
+      }
+    }
+  ],
+  "mixyName": [
+    {
+      "files": {},
+      "mixyName": "Mixy",
+      "name": "no-manifest"
+    },
+    {
+      "files": {
+        "agents/lead/agent.json": "{\"name\":\"  Ada \\n\\t Lovelace  \"}"
+      },
+      "mixyName": "Ada Lovelace",
+      "name": "lead-name"
+    },
+    {
+      "files": {
+        "agents/lead/agent.json": "{\"name\":\" Zoë　Two \"}"
+      },
+      "mixyName": "Zoë Two",
+      "name": "unicode-spaces"
+    },
+    {
+      "files": {
+        "agents/lead/agent.json": "{\"name\":\"   \"}"
+      },
+      "mixyName": "Mixy",
+      "name": "empty-name"
+    },
+    {
+      "files": {
+        "agents/lead/agent.json": "{\"name\":42}"
+      },
+      "mixyName": "Mixy",
+      "name": "number-name"
+    },
+    {
+      "files": {
+        "agents/lead/agent.json": "[\"Ada\"]"
+      },
+      "mixyName": "Mixy",
+      "name": "not-an-object"
+    },
+    {
+      "files": {
+        "agents/lead/agent.json": "{\"name\": \"Ada\""
+      },
+      "mixyName": "Mixy",
+      "name": "malformed"
+    },
+    {
+      "files": {
+        "agents/lead/agent.json": "{broken",
+        "agents/lead/agent.json.bak": "{\"name\":\"Backup\"}"
+      },
+      "mixyName": "Mixy",
+      "name": "malformed-with-backup"
+    },
+    {
+      "files": {
+        "agents/lead/agent.json": "{\"name\":\"Old\"}",
+        "bots/migration.json": "{\"version\":1,\"bots\":[]}",
+        "bots/mixy/agent.json": "{\"name\":\"Mira\"}"
+      },
+      "mixyName": "Mira",
+      "name": "bot-store"
+    },
+    {
+      "files": {
+        "agents/lead/agent.json": "{\"name\":\"Old\"}",
+        "bots/migration.json": "{\"version\":1,\"bots\":[]}"
+      },
+      "mixyName": "Mixy",
+      "name": "bot-store-without-mixy"
+    },
+    {
+      "files": {
+        "agents/lead/agent.json": "{\"name\":\"Old\"}",
+        "bots/migration.json": "{\"version\":2}",
+        "bots/mixy/agent.json": "{\"name\":\"Mira\"}"
+      },
+      "mixyName": "Old",
+      "name": "unfinished-split"
+    }
+  ],
+  "noCaller": false
+}

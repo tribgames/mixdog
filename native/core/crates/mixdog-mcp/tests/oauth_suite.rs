@@ -6,6 +6,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -20,6 +22,7 @@ use mixdog_mcp::oauth::MemoryStore;
 use mixdog_mcp::oauth::OAuthEnv;
 use mixdog_mcp::oauth::SecretStore;
 use mixdog_mcp::result::OutputPolicy;
+use mixdog_mcp::transport::Authorizer;
 use mixdog_mcp::server::ServerState;
 use serde_json::Value;
 use serde_json::json;
@@ -31,6 +34,28 @@ use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use tokio_util::sync::CancellationToken;
 use url::Url;
+
+/// A secret store over a shared one whose reads can be made to never run, as a refused lane's do.
+struct Flaky {
+    inner: Arc<MemoryStore>,
+    unrun: AtomicBool,
+}
+
+#[async_trait::async_trait]
+impl SecretStore for Flaky {
+    async fn get(&self, account: &str) -> Result<Option<String>, mixdog_secrets::SecretError> {
+        if self.unrun.load(Ordering::SeqCst) {
+            return Err(mixdog_secrets::SecretError::unrun("the durability lane is full"));
+        }
+        self.inner.get(account).await
+    }
+    async fn set(&self, account: &str, value: &str) -> Result<(), mixdog_secrets::SecretError> {
+        self.inner.set(account, value).await
+    }
+    async fn delete(&self, account: &str) -> Result<(), mixdog_secrets::SecretError> {
+        self.inner.delete(account).await
+    }
+}
 
 #[derive(Default)]
 struct Auth {
@@ -197,7 +222,7 @@ async fn sign_in_connect_refresh_and_sign_out() {
         .unwrap()
         .unwrap();
     assert!(server.state().describe().contains("reauthenticationRequired"), "{}", server.state().describe());
-    assert!(!hub.oauth("acme").unwrap().has_stored_tokens().await);
+    assert!(!hub.oauth("acme").unwrap().has_stored_tokens().await.unwrap());
 
     // The explicit sign-in: the flow hands out the authorization URL; the "browser" follows it.
     let session = hub.login_flow("acme", AccountMode::Connect).unwrap().start().await.unwrap();
@@ -227,7 +252,7 @@ async fn sign_in_connect_refresh_and_sign_out() {
     assert!(session.next().await.is_none(), "nothing follows the terminal state");
 
     let oauth = hub.oauth("acme").unwrap();
-    assert!(oauth.has_stored_tokens().await);
+    assert!(oauth.has_stored_tokens().await.unwrap());
     assert!(store.get(&mixdog_mcp::oauth::session::account_of(oauth.binding().credential_key.as_str())).await.unwrap().is_some());
 
     // Signed in: the connect works and a call goes through.
@@ -244,8 +269,22 @@ async fn sign_in_connect_refresh_and_sign_out() {
     assert_eq!(shared.lock().unwrap().grants, ["authorization_code", "refresh_token"]);
     assert_eq!(shared.lock().unwrap().registrations, 1);
 
+    // A store read that never ran is neither "reauthentication required" nor a reason to erase the
+    // sign-in: a second hub over the same entries, whose reads never run, renews with an error.
+    let flaky = Arc::new(Flaky { inner: store.clone(), unrun: AtomicBool::new(true) });
+    let other = McpHub::new(io, dir.path().join("artifacts-flaky"), OutputPolicy::default());
+    other.set_oauth_env(OAuthEnv { store: flaky.clone(), plugin_data: dir.path().to_path_buf(), io: io.durability });
+    other.apply(vec![McpServerConfig::from_entry("acme", &entry, &Default::default()).unwrap()]);
+    let unread = other.oauth("acme").unwrap();
+    let error = unread.renew(Some("expired".into()), None).await.unwrap_err();
+    assert!(error.to_string().contains("credential store"), "{error}");
+    assert!(!unread.sign_in_required(), "the user is not asked to sign in again");
+    flaky.unrun.store(false, Ordering::SeqCst);
+    assert!(oauth.has_stored_tokens().await.unwrap(), "the stored sign-in is untouched");
+    other.close_all().await;
+
     assert!(!oauth.secrets().is_empty());
     assert!(!oauth.sign_out(false).await.unwrap(), "no revocation endpoint: nothing was revoked");
-    assert!(!oauth.has_stored_tokens().await);
+    assert!(!oauth.has_stored_tokens().await.unwrap());
     hub.close_all().await;
 }

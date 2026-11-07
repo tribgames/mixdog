@@ -121,14 +121,14 @@ impl ProviderBuilder for NoProviders {
     async fn build(&self, name: &str, _: &Value) -> Result<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, String> {
         Err(format!("no {name}"))
     }
-    async fn custom_key_ids(&self, _: &str) -> Vec<String> {
-        Vec::new()
+    async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+        Ok(Vec::new())
     }
     fn available(&self, _: &str) -> bool {
         false
     }
-    async fn oauth_credentials_usable(&self, _: &str) -> bool {
-        false
+    async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+        Ok(false)
     }
 }
 

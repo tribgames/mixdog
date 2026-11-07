@@ -1,0 +1,182 @@
+{
+  "files": {
+    "sess_home_a_b.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"36fbfe8a7a4cae70d3021d24\",\"id\":\"sess_home_a_b\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_home_a_b\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000001000,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"[mixdog-runtime] The user just created you as Bench, a bot. Say hello.\"},{\"role\":\"user\",\"content\":\"and a question\"}]}\n",
+    "sess_home_assistant.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"5d5d3845ee92b8dc44d1db91\",\"id\":\"sess_home_assistant\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_home_assistant\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000001000,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"assistant\",\"content\":\"[mixdog-runtime] The user just created you as Bench, a bot. Say hello.\"}]}\n",
+    "sess_home_bench.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"edbfdde311a67e56e68333ea\",\"id\":\"sess_home_bench\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_home_bench\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000001000,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":2,\"messages\":[{\"role\":\"user\",\"content\":\"[mixdog-runtime] The user just created you as Bench, a bot. Say hello.\"},{\"role\":\"assistant\",\"content\":\"Hello, I am Bench.\"}]}\n",
+    "sess_home_chat.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"8c45d4146fbf6766359b5b67\",\"id\":\"sess_home_chat\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_home_chat\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000001000,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello there\"}]}\n",
+    "sess_home_inline.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"7fa39bab1568e66ad07d5243\",\"id\":\"sess_home_inline\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_home_inline\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000001000,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"see [mixdog-runtime] The user just created you as Bench, a bot. Say hello.\"}]}\n",
+    "sess_home_lead.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"4c57c96041947ebc7b151806\",\"id\":\"sess_home_lead\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_home_lead\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000001000,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"what is on today?\"}]}\n",
+    "sess_home_mixed.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"07b473f73d3d48f7fd548c41\",\"id\":\"sess_home_mixed\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_home_mixed\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000001000,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":4,\"messages\":[{\"role\":\"assistant\",\"content\":\"Daily report: all quiet.\"},{\"role\":\"user\",\"content\":\"[mixdog-runtime] heartbeat tick\"},{\"role\":\"user\",\"content\":\"  \\n\\t \"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"Hi\"},\"there\",{\"type\":\"text\",\"text\":\"[Image omitted from stored history: image/png]\"}]}]}\n",
+    "sess_home_padded.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"3b14088b3fea42f6d91018b3\",\"id\":\"sess_home_padded\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_home_padded\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000001000,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"  [mixdog-runtime] queued result\"}]}\n",
+    "sess_home_parts.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"563ea304e34c3b1c07658864\",\"id\":\"sess_home_parts\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_home_parts\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000001000,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"note\"},{\"type\":\"text\",\"text\":\"[mixdog-runtime] The user just created you as Bench, a bot. Say hello.\"}]}]}\n"
+  },
+  "home": [
+    {
+      "agentId": "bench",
+      "chatted": false,
+      "greeted": true
+    },
+    {
+      "agentId": "chat",
+      "chatted": true,
+      "greeted": false
+    },
+    {
+      "agentId": "mixed",
+      "chatted": true,
+      "greeted": false
+    },
+    {
+      "agentId": "parts",
+      "chatted": false,
+      "greeted": true
+    },
+    {
+      "agentId": "inline",
+      "chatted": true,
+      "greeted": false
+    },
+    {
+      "agentId": "padded",
+      "chatted": false,
+      "greeted": false
+    },
+    {
+      "agentId": "assistant",
+      "chatted": false,
+      "greeted": false
+    },
+    {
+      "agentId": "a.b",
+      "chatted": true,
+      "greeted": true
+    },
+    {
+      "agentId": "lead",
+      "chatted": true,
+      "greeted": false
+    },
+    {
+      "agentId": "ghost",
+      "chatted": false,
+      "greeted": false
+    },
+    {
+      "agentId": "Bad",
+      "chatted": false,
+      "greeted": false
+    },
+    {
+      "agentId": "",
+      "chatted": false,
+      "greeted": false
+    }
+  ],
+  "routines": [
+    {
+      "cluster": true,
+      "name": "none",
+      "owns": false,
+      "schedules": [],
+      "webhooks": []
+    },
+    {
+      "cluster": false,
+      "name": "no-cluster",
+      "owns": false,
+      "schedules": [],
+      "webhooks": []
+    },
+    {
+      "cluster": true,
+      "name": "bot-owned",
+      "owns": false,
+      "schedules": [
+        {
+          "name": "s1",
+          "ownerAgentId": "bench"
+        }
+      ],
+      "webhooks": []
+    },
+    {
+      "cluster": true,
+      "name": "ownerless-schedule",
+      "owns": true,
+      "schedules": [
+        {
+          "name": "s1",
+          "ownerAgentId": null
+        }
+      ],
+      "webhooks": []
+    },
+    {
+      "cluster": true,
+      "name": "mixy-webhook",
+      "owns": true,
+      "schedules": [],
+      "webhooks": [
+        {
+          "name": "w1",
+          "ownerAgentId": "lead"
+        }
+      ]
+    },
+    {
+      "cluster": true,
+      "name": "invalid-owner",
+      "owns": true,
+      "schedules": [
+        {
+          "name": "s1",
+          "ownerAgentId": "Bad Id"
+        }
+      ],
+      "webhooks": []
+    },
+    {
+      "cluster": true,
+      "name": "padded-owner",
+      "owns": false,
+      "schedules": [
+        {
+          "name": "s1",
+          "ownerAgentId": "  bench "
+        }
+      ],
+      "webhooks": []
+    },
+    {
+      "cluster": true,
+      "name": "empty-owner",
+      "owns": true,
+      "schedules": [],
+      "webhooks": [
+        {
+          "name": "w1",
+          "ownerAgentId": ""
+        }
+      ]
+    },
+    {
+      "cluster": true,
+      "error": true,
+      "name": "webhooks-fail",
+      "schedules": [
+        {
+          "name": "s1",
+          "ownerAgentId": null
+        }
+      ],
+      "webhooks": "fail"
+    },
+    {
+      "cluster": true,
+      "error": true,
+      "name": "schedules-fail",
+      "schedules": "fail",
+      "webhooks": []
+    }
+  ]
+}

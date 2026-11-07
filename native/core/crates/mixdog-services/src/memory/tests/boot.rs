@@ -11,6 +11,33 @@ use crate::memory::runtime::RuntimeFlags;
 use crate::memory::sensitive::SensitiveStore;
 use crate::memory::session_search::ingest::IngestSession;
 
+/// `_initStore`'s dimensions: the saved measurement of this identity wins (a model the profiles do
+/// not list opens without being loaded), then the profile; an unlisted model with no saved
+/// measurement has no source without the model.
+#[tokio::test(flavor = "multi_thread")]
+async fn dimensions_come_from_the_saved_measurement_then_the_profile() {
+    use crate::memory::boot::resolve_dims;
+    let lane = mixdog_rt::testing::tokens().durability_io;
+    let dir = tempfile::tempdir().expect("dir");
+    let unlisted = config::identity(None, "acme/unlisted", None);
+
+    let err = resolve_dims(dir.path(), lane, &unlisted, "acme/unlisted", None).await.expect_err("no source");
+    assert!(err.message().contains("embedding dims unavailable without an embedding model"), "{}", err.message());
+
+    let mut saved = unlisted.clone();
+    saved["dims"] = json!(777);
+    std::fs::write(dir.path().join("embedding-meta.json"), saved.to_string()).expect("write");
+    assert_eq!(resolve_dims(dir.path(), lane, &unlisted, "acme/unlisted", None).await.expect("saved"), 777);
+
+    // The saved value belongs to its identity: another dtype is another measurement.
+    let other = config::identity(None, "acme/unlisted", Some("q8"));
+    assert!(resolve_dims(dir.path(), lane, &other, "acme/unlisted", None).await.is_err());
+
+    // A listed model needs no measurement.
+    let listed = config::identity(None, DEFAULT_MODEL_ID, None);
+    assert_eq!(resolve_dims(dir.path(), lane, &listed, DEFAULT_MODEL_ID, None).await.expect("profile"), 384);
+}
+
 /// Node's `metaKey` (`index.mjs` `_initStore`), which `openDatabase` stores as
 /// `embedding.current_model`; the same key under Node must not reset the vectors.
 #[test]
@@ -41,6 +68,8 @@ async fn a_started_stack_serves_the_close_ingest_and_the_turn_search_copy() {
         lane: mixdog_rt::testing::tokens().durability_io,
         maintenance: mixdog_rt::testing::tokens().maintenance_io,
         transcripts: None,
+        cycles: None,
+        backfill: None,
         processes: crate::tidy::process::Processes::for_tests(),
         cancel: tokio_util::sync::CancellationToken::new(),
     })

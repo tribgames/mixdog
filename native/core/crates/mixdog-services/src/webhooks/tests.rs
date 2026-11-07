@@ -562,3 +562,49 @@ mod lifecycle_tests {
         }
     }
 }
+
+// ---- hang bounds ----
+
+/// Tells the test the dispatch was reached, then never answers.
+struct NeverAnswers(Arc<tokio::sync::Notify>);
+
+#[async_trait]
+impl WebhookDispatch for NeverAnswers {
+    async fn handle(&self, _n: &str, _p: Value, _h: &Headers, _id: &str, _t: bool) -> Result<HttpReply, String> {
+        self.0.notify_one();
+        std::future::pending().await
+    }
+}
+
+/// A dispatch that never answers ends at the deadline with a 504, and the claimed delivery is
+/// closed as failed rather than left `received`.
+#[tokio::test(start_paused = true)]
+async fn a_stuck_dispatch_ends_at_the_deadline_with_a_504_and_a_failed_row() {
+    let f = fx(WebhookConfig::default());
+    let svc = WebhookService::new(f.store.clone(), Arc::new(NeverAnswers(Arc::default())), WebhookConfig::default(), f.work.clone(), Arc::new(|| 0));
+    let body = br#"{"a":1}"#;
+    let h = headers(&[JSON_CT, ("x-hub-signature-256", &sign("s3", body)), ("x-github-delivery", "g1")]);
+    let reply = svc.process("hook", &h, body).await;
+    assert_eq!((reply.status, reply.body), (504, json!({"error":"processing timeout"})));
+    assert_eq!(f.store.deliveries.lock().unwrap().values().cloned().collect::<Vec<_>>(), vec!["failed".to_string()]);
+}
+
+/// After stop, a request still inside its handler is cut at the shutdown grace (5 s), not left to
+/// run to the 25 s process bound: the client sees the connection close without a 504.
+#[tokio::test(start_paused = true)]
+async fn a_request_in_flight_is_cut_at_the_shutdown_grace() {
+    let f = fx(WebhookConfig::default());
+    let reached = Arc::new(tokio::sync::Notify::new());
+    let service = Arc::new(WebhookService::new(f.store.clone(), Arc::new(NeverAnswers(reached.clone())), WebhookConfig::default(), f.work.clone(), Arc::new(|| 0)));
+    let listener = WebhookListener::start(service, 0).await.unwrap();
+    let port = listener.port();
+    let body = br#"{"a":1}"#;
+    let signature = sign("s3", body);
+    let len = body.len().to_string();
+    let mut request = post("/webhook/hook", &[JSON_CT, ("x-hub-signature-256", &signature), ("content-length", &len)], "");
+    request.extend_from_slice(body);
+    let reply = tokio::spawn(async move { try_exchange(port, &[&request], false).await });
+    reached.notified().await;
+    listener.stop().await;
+    assert_eq!(reply.await.unwrap(), None, "the request ran to the 25 s bound instead of the grace");
+}

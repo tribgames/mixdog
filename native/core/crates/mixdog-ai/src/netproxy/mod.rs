@@ -15,6 +15,7 @@ pub mod diagnostics;
 mod hosts;
 pub mod route;
 pub mod setting;
+pub mod stack;
 pub mod system;
 pub mod tunnel;
 

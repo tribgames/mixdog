@@ -5,12 +5,12 @@
 use std::path::Path;
 use std::path::PathBuf;
 
+use mixdog_core_api::CoreError;
 use mixdog_js::is_js_space;
 use mixdog_js::js_trim;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
-use mixdog_rt::LaneToken;
 use mixdog_store::fsio::Access;
 use mixdog_store::fsio::publish_file_with;
 
@@ -27,17 +27,19 @@ impl UserCwd {
         Self { data_dir: data_dir.into(), io }
     }
 
-    /// `job` as an interactive-io lane job; `None` when the lane refused or dropped it.
-    async fn on_lane<R: Send + 'static>(&self, job: impl FnOnce(&InLane<InteractiveIo>) -> R + Send + 'static) -> Option<R> {
-        self.io.submit(&CancellationToken::new(), job).ok()?.await.ok()
+    /// `job` as an interactive-io lane job. An `Err` means the job did not run (the lane was
+    /// full or wedged), which is not "no saved cwd": Node's `catch { return null }` covers a
+    /// failed file read only, and an unrun read must not be taken for an absent file.
+    async fn on_lane<R: Send + 'static>(&self, job: impl FnOnce(&InLane<InteractiveIo>) -> R + Send + 'static) -> Result<R, CoreError> {
+        mixdog_core_base::support::on_lane(self.io, &CancellationToken::new(), job).await
     }
 
     /// `explicitSessionCwd()`: the scope's cwd, then a live `MIXDOG_SESSION_CWD`, then
-    /// `<data>/user-cwd.txt`; never the process cwd.
-    pub async fn explicit_cwd(&self, scoped: Option<&str>) -> Option<String> {
+    /// `<data>/user-cwd.txt`; never the process cwd. `Ok(None)` is Node's `null`.
+    pub async fn explicit_cwd(&self, scoped: Option<&str>) -> Result<Option<String>, CoreError> {
         // `runWithCwdOverride` stores `normalized || String(cwd)`.
         if let Some(scoped) = scoped.filter(|cwd| !cwd.is_empty()) {
-            return Some(normalize_platform_cwd(scoped).unwrap_or_else(|| scoped.to_owned()));
+            return Ok(Some(normalize_platform_cwd(scoped).unwrap_or_else(|| scoped.to_owned())));
         }
         let env = std::env::var("MIXDOG_SESSION_CWD").ok().filter(|raw| !raw.is_empty());
         let file = self.data_dir.join("user-cwd.txt");
@@ -57,12 +59,11 @@ impl UserCwd {
             normalize_platform_cwd(txt).filter(|cwd| !cwd.is_empty())
         })
         .await
-        .flatten()
     }
 
     /// `readLastSessionCwd(keyPid)`: this terminal's last `cwd set`, when it is still a
-    /// directory.
-    pub async fn last_cwd(&self, key_pid: Option<&str>) -> Option<String> {
+    /// directory. `Ok(None)` is Node's `null`.
+    pub async fn last_cwd(&self, key_pid: Option<&str>) -> Result<Option<String>, CoreError> {
         let file = self.last_cwd_file(key_pid);
         self.on_lane(move |lane| {
             let raw = read_text(lane, &file)?;
@@ -72,7 +73,6 @@ impl UserCwd {
             existing_directory(lane, js_trim(&raw))
         })
         .await
-        .flatten()
     }
 
     /// `writeLastSessionCwd(cwd, keyPid)`: best effort.
@@ -174,16 +174,16 @@ mod tests {
     async fn the_explicit_cwd_prefers_the_scope_then_the_saved_file() {
         let data = tempfile::tempdir().expect("data");
         let cwd = user_cwd(data.path());
-        assert_eq!(cwd.explicit_cwd(Some("/scoped")).await, normalize_platform_cwd("/scoped"));
+        assert_eq!(cwd.explicit_cwd(Some("/scoped")).await.unwrap(), normalize_platform_cwd("/scoped"));
         if std::env::var("MIXDOG_SESSION_CWD").is_ok() {
             return;
         }
-        assert_eq!(cwd.explicit_cwd(None).await, None);
+        assert_eq!(cwd.explicit_cwd(None).await.unwrap(), None);
         std::fs::write(data.path().join("user-cwd.txt"), "\0\0 \n").unwrap();
-        assert_eq!(cwd.explicit_cwd(None).await, None, "a crash leftover is no path");
+        assert_eq!(cwd.explicit_cwd(None).await.unwrap(), None, "a crash leftover is no path");
         let dir = data.path().to_string_lossy().into_owned();
         std::fs::write(data.path().join("user-cwd.txt"), format!("  {dir}\n")).unwrap();
-        assert_eq!(cwd.explicit_cwd(None).await, normalize_platform_cwd(&dir));
+        assert_eq!(cwd.explicit_cwd(None).await.unwrap(), normalize_platform_cwd(&dir));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -194,10 +194,10 @@ mod tests {
         let dir = data.path().to_string_lossy().into_owned();
         cwd.write_last_cwd(&dir, Some("4242")).await;
         assert!(data.path().join("session-cwd-4242.txt").exists());
-        assert_eq!(cwd.last_cwd(Some("4242")).await, normalize_platform_cwd(&dir));
-        assert_eq!(cwd.last_cwd(Some("1")).await, None);
+        assert_eq!(cwd.last_cwd(Some("4242")).await.unwrap(), normalize_platform_cwd(&dir));
+        assert_eq!(cwd.last_cwd(Some("1")).await.unwrap(), None);
         cwd.write_last_cwd(&data.path().join("gone").to_string_lossy(), Some("7")).await;
-        assert_eq!(cwd.last_cwd(Some("7")).await, None, "a removed directory is no cwd");
+        assert_eq!(cwd.last_cwd(Some("7")).await.unwrap(), None, "a removed directory is no cwd");
         // A non-numeric key falls back to `solo`.
         cwd.write_last_cwd(&dir, Some("abc")).await;
         assert!(data.path().join("session-cwd-solo.txt").exists());

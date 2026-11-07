@@ -118,6 +118,23 @@ fn link_builder(schedule: &KeepaliveSchedule, http2_only: bool) -> reqwest::Clie
     builder
 }
 
+/// The client of one route as [`RoutedClients::new`] asks for it: `None` is the direct client
+/// (it ignores the environment's proxy variables), `Some(uri)` the client of that proxy. The
+/// one builder of every routed client, so a provider's link and the proxy test connect alike.
+pub fn routed_builder(
+    schedule: KeepaliveSchedule,
+    http2_only: bool,
+) -> impl Fn(Option<&str>) -> Result<reqwest::Client, reqwest::Error> + Send + Sync + 'static {
+    move |proxy| {
+        let builder = link_builder(&schedule, http2_only);
+        match proxy {
+            Some(uri) => builder.proxy(reqwest::Proxy::all(uri)?),
+            None => builder.no_proxy(),
+        }
+        .build()
+    }
+}
+
 impl ReqwestLink {
     /// `http2_only` speaks HTTP/2 without negotiation (Connect streams need
     /// it, and so do the h2c peers of tests).
@@ -132,15 +149,7 @@ impl ReqwestLink {
     /// change of the setting retires the clients, so no pooled connection
     /// opened under the old setting is reused.
     pub fn routed(schedule: &KeepaliveSchedule, http2_only: bool, policy: Arc<NetworkProxy>) -> Self {
-        let schedule = *schedule;
-        let clients = RoutedClients::new(policy, move |proxy| {
-            let builder = link_builder(&schedule, http2_only);
-            match proxy {
-                Some(uri) => builder.proxy(reqwest::Proxy::all(uri)?),
-                None => builder.no_proxy(),
-            }
-            .build()
-        });
+        let clients = RoutedClients::new(policy, routed_builder(*schedule, http2_only));
         Self { clients: Clients::Routed(clients) }
     }
 

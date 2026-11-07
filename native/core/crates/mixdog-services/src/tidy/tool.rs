@@ -72,6 +72,11 @@ impl From<StructuralEngineUnavailable> for ToolError {
     }
 }
 
+/// One note per engine whose lookup never ran: it did not run, and it is not missing.
+fn unavailable_notes(engines: &[Resolved]) -> Vec<String> {
+    engines.iter().filter_map(|e| e.unavailable.as_ref().map(|why| format!("{}: {why}", e.id))).collect()
+}
+
 /// Splits a file list into `--files` batches. Empty input means "do not scan".
 pub fn chunk_structural_files(files: &[String], max_args: usize) -> Vec<Vec<String>> {
     if files.is_empty() { Vec::new() } else { files.chunks(max_args.max(1)).map(<[String]>::to_vec).collect() }
@@ -371,12 +376,20 @@ impl TidyTool {
         // Scan does not run structural rules, but an outdated binary that would fail check/fix is
         // named here so it cannot look like a clean project.
         notes.extend(Self::outdated_graph_note(&d).await);
+        notes.extend(unavailable_notes(&resolution.engines));
+        let shadows = match detect_engine_shadows(&self.processes, &resolution.engines, &env_map()).await {
+            Ok(rows) => Some(rows),
+            Err(note) => {
+                notes.push(note);
+                None
+            }
+        };
         build_tidy_report(ReportInput {
             action: "scan".into(),
             languages: d.detected.languages.iter().map(|(l, n)| json!({"id": l, "files": n})).collect(),
             language_source: d.detected.source.into(),
             policy: policy_json(&resolution.policy),
-            shadows: Some(detect_engine_shadows(&self.processes, &resolution.engines, &env_map()).await),
+            shadows,
             scope: if run.scope.is_empty() { Value::Null } else { json!(run.scope) },
             engines: resolution.engines,
             notes,
@@ -438,13 +451,20 @@ impl TidyTool {
         }
         let function_length = summarize_function_lengths(self.host.outline_source().as_ref(), run.cwd, &d.detected.files, &run.cancel.cloned().unwrap_or_default()).await;
         let working_tree = self.split_run_findings(run, &results, &structural).await;
-        let shadows = detect_engine_shadows(&self.processes, &resolution.engines, &env_map()).await;
+        notes.extend(unavailable_notes(&resolution.engines));
+        let shadows = match detect_engine_shadows(&self.processes, &resolution.engines, &env_map()).await {
+            Ok(rows) => Some(rows),
+            Err(note) => {
+                notes.push(note);
+                None
+            }
+        };
         let mut report = build_tidy_report(ReportInput {
             action: action.into(),
             languages,
             language_source: d.detected.source.into(),
             policy: policy_json(&resolution.policy),
-            shadows: Some(shadows),
+            shadows,
             working_tree,
             results: Some(results),
             structural,

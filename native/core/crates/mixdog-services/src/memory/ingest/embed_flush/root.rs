@@ -237,6 +237,12 @@ impl RawEmbedFlush {
         Ok(done)
     }
 
+    /// `syncRootEmbedding(db, rootId)`: embeds one root now; true when its vector was written.
+    pub async fn sync_root(&self, root_id: i64, cancel: &CancellationToken) -> Result<bool, FlushFailure> {
+        let client = self.db.client().await?;
+        Ok(!self.sync_roots(&client, &[root_id], false, cancel).await?.is_empty())
+    }
+
     async fn claim_roots(&self, client: &deadpool_postgres::Object, cursor: Option<i64>) -> Result<Vec<i64>, tokio_postgres::Error> {
         client.batch_execute("BEGIN").await?;
         let rows = client

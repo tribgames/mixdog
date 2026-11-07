@@ -72,6 +72,14 @@ pub fn utf16_len(value: &str) -> usize {
     value.chars().map(char::len_utf16).sum()
 }
 
+/// `String.prototype.toLowerCase()` (no locale): the Unicode full case mapping with the
+/// Final_Sigma context rule, so `İ` becomes `i` + U+0307 and a word-final `Σ` becomes `ς`. This is
+/// what `str::to_lowercase` implements; the function exists so every port names the JavaScript
+/// operation, and `testdata/js_lowercase.json` (recorded from Node for every code point) pins it.
+pub fn js_to_lowercase(value: &str) -> String {
+    value.to_lowercase()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,5 +107,25 @@ mod tests {
         assert_eq!(slice_utf16(&"é".repeat(250), 200), "é".repeat(200));
         assert_eq!(cut_utf16("ab😀", 4).dangling_high, None);
         assert_eq!(utf16_len("a😀"), 3);
+    }
+
+    /// Every code point and the context cases, against `toLowerCase()` recorded from Node
+    /// (testdata/js_lowercase.mjs).
+    #[test]
+    fn lowercasing_is_javascripts() {
+        let golden = crate::json_parse(include_str!("../testdata/js_lowercase.json")).unwrap();
+        let mut changed = std::collections::HashMap::new();
+        for row in golden["rows"].as_array().unwrap() {
+            changed.insert(row[0].as_u64().unwrap() as u32, row[1].as_str().unwrap().to_string());
+        }
+        for cp in 0..=0x10ffff_u32 {
+            let Some(c) = char::from_u32(cp) else { continue };
+            let want = changed.get(&cp).cloned().unwrap_or_else(|| c.to_string());
+            assert_eq!(js_to_lowercase(&c.to_string()), want, "U+{cp:04X}");
+        }
+        for row in golden["strings"].as_array().unwrap() {
+            let (input, want) = (row[0].as_str().unwrap(), row[1].as_str().unwrap());
+            assert_eq!(js_to_lowercase(input), want, "{input:?}");
+        }
     }
 }

@@ -322,3 +322,23 @@ fn replay(name: &str, base: &Header, steps: &Value, pool: &[String], combined: b
         routed(&staged_header, &staged_blocks, &route["from"], &route["to"], &format!("{name}: staged then route"), &steps["stagedThenRoute"]);
     }
 }
+
+/// `presentedWorkspace` (`prompt-utils.mjs:323`) against Node: `fixtures/prompt-presented/presented.json`,
+/// recorded by `record-presented-workspace.mjs` as the `seen` a staged workspace change stores.
+#[test]
+fn the_presented_workspace_is_what_node_reads_back_from_the_prompt() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/prompt-presented/presented.json");
+    let text = fs::read_to_string(path).expect("fixtures/prompt-presented/presented.json").replace("{WORK}", "/w");
+    let cases = serde_json::from_str::<Value>(&text).expect("json")["cases"].as_array().expect("cases").clone();
+    assert_eq!(cases.len(), 12);
+    for case in &cases {
+        let name = case["name"].as_str().unwrap();
+        let mut header: Header = case["header"].as_object().unwrap().clone();
+        let mut blocks = SystemBlocks::from_node_messages(case["messages"].as_array().unwrap()).unwrap();
+        blocks.combined = header.get("bp3EnvSplit") != Some(&Value::Bool(true));
+        blocks.write(&mut header);
+        let presented = crate::run_host::prompt_session::presented_workspace_of(&header);
+        assert_eq!(presented, case["presented"], "{name}");
+        assert_eq!(serde_json::to_string(&presented).unwrap(), serde_json::to_string(&case["presented"]).unwrap(), "{name}: key order");
+    }
+}

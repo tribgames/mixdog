@@ -25,11 +25,19 @@ impl<T> Scoped<T> {
     }
 }
 
+/// A std deadline on the tokio clock: its distance from the std clock now, added to the tokio
+/// clock now. Every wait in this crate sleeps on the tokio clock, which a paused or advanced test
+/// clock moves away from `std::time::Instant::now()`; an absolute std instant compared with it
+/// would already be past (or never come).
+pub(crate) fn on_tokio_clock(at: Instant) -> tokio::time::Instant {
+    tokio::time::Instant::now() + at.saturating_duration_since(Instant::now())
+}
+
 /// What bounds a wait: an optional token and an optional deadline.
 #[derive(Clone, Copy, Default)]
 pub struct Scope<'a> {
     cancel: Option<&'a CancellationToken>,
-    deadline: Option<Instant>,
+    deadline: Option<tokio::time::Instant>,
 }
 
 impl<'a> Scope<'a> {
@@ -43,7 +51,7 @@ impl<'a> Scope<'a> {
     }
 
     pub fn deadline(mut self, deadline: Option<Instant>) -> Self {
-        self.deadline = deadline;
+        self.deadline = deadline.map(on_tokio_clock);
         self
     }
 
@@ -58,7 +66,7 @@ impl<'a> Scope<'a> {
         };
         let expired = async {
             match self.deadline {
-                Some(at) => tokio::time::sleep_until(tokio::time::Instant::from_std(at)).await,
+                Some(at) => tokio::time::sleep_until(at).await,
                 None => std::future::pending().await,
             }
         };
@@ -82,7 +90,8 @@ impl Scope<'_> {
             ended => ended,
         };
         on_end();
-        match Scope::new().deadline(Some(Instant::now() + grace)).run(work).await {
+        let grace_ends = Scope { cancel: None, deadline: Some(tokio::time::Instant::now() + grace) };
+        match grace_ends.run(work).await {
             Scoped::Done(out) => Scoped::Done(out),
             _ => ended,
         }
@@ -119,6 +128,42 @@ mod tests {
         let mut work = Box::pin(std::future::pending::<()>());
         let out = Scope::new().cancel(&cancel).run_with_grace(&mut work, std::time::Duration::from_millis(1500), || {}).await;
         assert_eq!(out, Scoped::Cancelled);
+    }
+
+    /// The clock is moved far from the std clock before the run is cancelled; the grace must still
+    /// be a full `grace` on the tokio clock, so the callee is polled after its signal.
+    #[tokio::test(start_paused = true)]
+    async fn the_grace_is_measured_on_the_advanced_tokio_clock() {
+        tokio::time::advance(std::time::Duration::from_secs(3600)).await;
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let signalled = CancellationToken::new();
+        let mut work = Box::pin({
+            let signalled = signalled.clone();
+            async move {
+                signalled.cancelled().await;
+                "partial"
+            }
+        });
+        let out = Scope::new()
+            .cancel(&cancel)
+            .run_with_grace(&mut work, std::time::Duration::from_millis(1500), || signalled.cancel())
+            .await;
+        assert_eq!(out, Scoped::Done("partial"));
+    }
+
+    /// An advanced clock still ends a callee that ignores its signal, after the grace and not
+    /// before it.
+    #[tokio::test(start_paused = true)]
+    async fn an_ignored_signal_is_dropped_after_the_grace_on_the_advanced_clock() {
+        tokio::time::advance(std::time::Duration::from_secs(3600)).await;
+        let cancel = CancellationToken::new();
+        cancel.cancel();
+        let started = tokio::time::Instant::now();
+        let mut work = Box::pin(std::future::pending::<()>());
+        let out = Scope::new().cancel(&cancel).run_with_grace(&mut work, std::time::Duration::from_millis(1500), || {}).await;
+        assert_eq!(out, Scoped::Cancelled);
+        assert_eq!(started.elapsed(), std::time::Duration::from_millis(1500));
     }
 
     #[tokio::test]

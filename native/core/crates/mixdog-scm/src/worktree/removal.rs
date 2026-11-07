@@ -367,7 +367,10 @@ impl Worktrees {
             on_lane(self.scm().lane, cancel, move || include::remove_include_links(&links)).await?
         };
         let restore = |links: Vec<include::IncludeItem>| async move {
-            on_lane(self.scm().lane, cancel, move || include::restore_include_links(&links)).await.unwrap_or_default()
+            // A restore that never ran restored nothing: say so, rather than report no failures.
+            on_lane(self.scm().lane, cancel, move || include::restore_include_links(&links))
+                .await
+                .unwrap_or_else(|_| vec![("the linked folders".to_owned(), "the restore did not run".to_owned())])
         };
         if !left.is_empty() {
             let failures: Vec<String> = restore(links).await.into_iter().map(|(path, error)| format!("{path} ({error})")).collect();

@@ -25,6 +25,7 @@ mixdog-ledger = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-remote = { workspace = true }
 mixdog-rt = { workspace = true }
+mixdog-statefile = { workspace = true }
 mixdog-store = { workspace = true }
 mixdog-tools = { workspace = true }
 mixdog-workspace = { workspace = true }
@@ -46,6 +47,7 @@ mixdog-core-ports = { workspace = true }
 [dev-dependencies]
 bytes = { workspace = true }
 tempfile = { workspace = true }
+mixdog-secrets = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }

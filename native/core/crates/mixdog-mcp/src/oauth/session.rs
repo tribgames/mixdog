@@ -169,7 +169,7 @@ impl From<OAuthError> for Stop {
 }
 
 fn store_error(error: super::store::StoreError) -> OAuthError {
-    OAuthError::Store(error.message)
+    if error.unrun { OAuthError::Unavailable } else { OAuthError::Store(error.message) }
 }
 
 impl McpOAuth {
@@ -205,12 +205,12 @@ impl McpOAuth {
     }
 
     /// Whether tokens are stored, from the marker file without a keychain read.
-    pub async fn has_stored_tokens(&self) -> bool {
+    pub async fn has_stored_tokens(&self) -> Result<bool, super::store::StoreError> {
         self.files.has_tokens(&self.account).await
     }
 
     /// Who the stored sign-in belongs to, without a keychain read.
-    pub async fn stored_identity(&self) -> Option<StoredIdentity> {
+    pub async fn stored_identity(&self) -> Result<Option<StoredIdentity>, super::store::StoreError> {
         self.files.identity(&self.account).await
     }
 
@@ -289,28 +289,40 @@ impl McpOAuth {
 
     /// The client requests are made as: the pre-registered one (its secret lives in the secret
     /// store), else the one registered dynamically.
-    async fn client_credentials(&self, entry: &Entry) -> Option<ClientCredentials> {
+    ///
+    /// `Err` when the secret read never ran: a client that lost its secret is refused by the
+    /// provider (`invalid_client`), which erases the stored sign-in. A read that ran and failed
+    /// is "no secret", as before.
+    async fn client_credentials(&self, entry: &Entry) -> Result<Option<ClientCredentials>, OAuthError> {
         if let Some(client) = &self.binding.client {
             let secret = match &client.inline_secret {
                 Some(inline) => Some(inline.0.clone()),
-                None => self.store.get(&client.secret_account).await.ok().flatten().filter(|s| !s.is_empty()),
+                None => match self.store.get(&client.secret_account).await {
+                    Ok(secret) => secret.filter(|s| !s.is_empty()),
+                    Err(error) if error.unrun => return Err(store_error(error)),
+                    Err(_) => None,
+                },
             };
-            return Some(ClientCredentials { client_id: client.client_id.clone(), client_secret: secret });
+            return Ok(Some(ClientCredentials { client_id: client.client_id.clone(), client_secret: secret }));
         }
-        entry.client_information.as_ref().and_then(ClientCredentials::from_info)
+        Ok(entry.client_information.as_ref().and_then(ClientCredentials::from_info))
     }
 
     /// Renews a refused token from the refresh token. A failure that needs the user is
     /// `ReauthenticationRequired`.
     async fn refresh(&self, rejected: Option<String>, challenge: Option<&str>) -> Result<(), OAuthError> {
-        let mut cache = self.load().await.map_err(|_| OAuthError::ReauthenticationRequired)?;
+        // A store that never answered is not a sign-in that needs renewing by the user.
+        let mut cache = self.load().await.map_err(|error| match error {
+            OAuthError::Unavailable => error,
+            _ => OAuthError::ReauthenticationRequired,
+        })?;
         let entry = cache.entry.clone().ok_or(OAuthError::ReauthenticationRequired)?;
         // Another request already renewed it.
         if access_token(&entry).is_some() && access_token(&entry) != rejected {
             return Ok(());
         }
         let refresh_token = refresh_token(&entry).ok_or(OAuthError::ReauthenticationRequired)?;
-        let client = self.client_credentials(&entry).await.ok_or(OAuthError::ReauthenticationRequired)?;
+        let client = self.client_credentials(&entry).await?.ok_or(OAuthError::ReauthenticationRequired)?;
         let discovery = match entry.discovery.clone() {
             Some(d) if d.token_endpoint().is_some() => d,
             _ => self.protocol.discover(&self.binding.url, parse_challenge(challenge).resource_metadata_url.as_deref()).await,
@@ -488,7 +500,7 @@ impl McpOAuth {
             .filter(|c| !c.scopes.is_empty())
             .map(|c| c.scopes.join(" "))
             .or_else(|| discovery.resource_scopes());
-        let credentials = match self.client_credentials(&work).await {
+        let credentials = match self.client_credentials(&work).await? {
             Some(credentials) => {
                 if static_client.is_some() {
                     work.client_information = Some(match &credentials.client_secret {
@@ -654,7 +666,7 @@ fn failure_of(error: OAuthError) -> LoginFailure {
         OAuthError::ReauthenticationRequired => "reauthenticationRequired",
         OAuthError::LoginFailed => "loginFailed",
         OAuthError::ScopeNotGranted(_) => "scopeNotGranted",
-        OAuthError::Store(_) => "store",
+        OAuthError::Store(_) | OAuthError::Unavailable => "store",
     };
     LoginFailure::Failed { code: code.to_owned(), message }
 }

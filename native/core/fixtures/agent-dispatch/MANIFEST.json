@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-agent-dispatch.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 136561,
+      "path": "golden.json",
+      "sha256": "4c59095773f1302e659ca4f4715b90a79a707646005165139f2b1e682714fe2e"
+    }
+  ],
+  "product": {
+    "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
+    "commit": "c128f34bc4f3ed941597af43d3964f3a43f7b3e3",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "c128f34bc4f3ed941597af43d3964f3a43f7b3e3",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-agent-dispatch.mjs",
+  "set": "agent-dispatch",
+  "totalBytes": 136561
+}

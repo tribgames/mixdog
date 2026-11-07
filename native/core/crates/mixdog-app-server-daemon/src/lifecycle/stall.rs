@@ -1,7 +1,8 @@
 //! The stall monitor (LR §5.4 Crash, SPEC R48): it reports and never acts. A dedicated OS
 //! thread posts a probe task onto the async runtime and measures how long the previous probe
-//! has been waiting. It does not kill, restart or fence; the user terminates through the
-//! control listener.
+//! has been waiting; with [`StallReporter::watching_lanes`] it also reports pooled lanes whose
+//! workers are stuck past their lease. It does not kill, restart or fence; the user terminates
+//! through the control listener.
 
 #![allow(
     clippy::disallowed_methods,
@@ -9,6 +10,7 @@
     reason = "diagnostics are appended by the monitor OS thread, which exists to survive a stalled runtime"
 )]
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -21,6 +23,8 @@ use std::time::Duration;
 use std::time::Instant;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
+
+use mixdog_rt::exec::Executors;
 
 use super::handle::Lifecycle;
 use super::ports::CorePort;
@@ -54,11 +58,14 @@ pub struct StallReporter {
     core: Arc<dyn CorePort>,
     diagnostics: PathBuf,
     peak_ms: Mutex<u64>,
+    lanes: Option<Arc<Executors>>,
+    /// Wedged-worker count last reported per lane name.
+    lane_wedged: Mutex<HashMap<&'static str, usize>>,
 }
 
 impl StallReporter {
     pub fn new(core: Arc<dyn CorePort>, diagnostics: PathBuf) -> Self {
-        Self { core, diagnostics, peak_ms: Mutex::new(0) }
+        Self { core, diagnostics, peak_ms: Mutex::new(0), lanes: None, lane_wedged: Mutex::new(HashMap::new()) }
     }
 
     /// `stalled_ms == 0` means the runtime answered. The file gets one line when a stall
@@ -80,10 +87,39 @@ impl StallReporter {
         }
     }
 
+    /// Also watches the pooled lanes of `executors` (F1): a lane whose workers are stuck past
+    /// their lease is reported like a runtime stall.
+    pub fn watching_lanes(mut self, executors: Arc<Executors>) -> Self {
+        self.lanes = Some(executors);
+        self
+    }
+
+    /// One file line and one error log whenever a lane's wedged-worker count changes.
+    fn report_lanes(&self) {
+        let Some(executors) = &self.lanes else { return };
+        let mut seen = self.lane_wedged.lock().unwrap_or_else(PoisonError::into_inner);
+        for lane in executors.diagnostics().lanes {
+            let name = lane.kind.name();
+            if seen.insert(name, lane.wedged).unwrap_or(0) == lane.wedged {
+                continue;
+            }
+            let event = if lane.wedged == 0 { "laneRecovered" } else { "laneWedged" };
+            if lane.wedged > 0 {
+                tracing::error!(lane = name, wedged = lane.wedged, threads = lane.threads, "lane workers are stuck past their lease");
+            }
+            self.core.lane_health(name, lane.wedged);
+            self.write_line(&format!("\"event\":\"{event}\",\"lane\":\"{name}\",\"wedged\":{},\"threads\":{}", lane.wedged, lane.threads));
+        }
+    }
+
     fn append(&self, event: &str, stalled_ms: u64) {
+        self.write_line(&format!("\"event\":\"{event}\",\"stalledMs\":{stalled_ms}"));
+    }
+
+    fn write_line(&self, fields: &str) {
         use std::io::Write;
         let at_ms = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis());
-        let line = format!("{{\"event\":\"{event}\",\"atMs\":{at_ms},\"stalledMs\":{stalled_ms}}}\n");
+        let line = format!("{{{fields},\"atMs\":{at_ms}}}\n");
         let written = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
@@ -152,5 +188,6 @@ fn watch(
         let stalled = if u128::from(waited) >= config.report_after.as_millis() { waited } else { 0 };
         lifecycle.set_stalled_ms(stalled);
         reporter.report(stalled);
+        reporter.report_lanes();
     }
 }

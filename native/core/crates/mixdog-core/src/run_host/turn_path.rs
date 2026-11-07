@@ -7,8 +7,7 @@ use std::sync::Arc;
 
 use mixdog_agent::compact::image::ToolImageCompactor;
 use mixdog_agent::env::Clock;
-use mixdog_ai::registry::accounted::AccountingDeps;
-use mixdog_ai::registry::providers::{ProviderBuilder, ProviderRegistry};
+use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_core_api::domain::ext::ExtPool;
 use mixdog_core_api::domain::fs::FileService;
 use mixdog_core_api::domain::process::ProcessManager;
@@ -58,10 +57,9 @@ pub struct TurnPathParts {
     /// `Paths::from_process`, built once at boot.
     pub paths: Paths,
     // The model side.
-    /// `DefaultProviderBuilder::new(BuilderEnv)` (WP-AI-SVC).
-    pub provider_builder: Arc<dyn ProviderBuilder>,
-    /// Pricing, the ledger sink, the send scope and the account lookup (WP-AI-SVC, WP-LEDGER, WP-SESSION).
-    pub accounting: AccountingDeps,
+    /// The process's one provider registry, built before the turn path (`compose_parts::provider_registry`):
+    /// `ProviderReadiness` and the settings and feature effects hold the same `Arc`.
+    pub registry: Arc<ProviderRegistry>,
     /// The shared effort-judge model (needs the ONNX Runtime library, WP-INTEGRATE).
     pub effort_judge: Arc<EffortJudgeModel>,
     /// The one side-question store: compaction.requests is built over the same instance.
@@ -136,11 +134,10 @@ pub struct TurnPath {
 impl TurnPath {
     pub fn new(parts: TurnPathParts) -> Result<Self, TurnPathError> {
         let TurnPathParts {
-            tokens, clock, paths, provider_builder, accounting, effort_judge, side, next, files, processes, policy, connectors, resolver, run_stamps, agents, allow_all, hub, blobs, tool_pool, mcp,
+            tokens, clock, paths, registry, effort_judge, side, next, files, processes, policy, connectors, resolver, run_stamps, agents, allow_all, hub, blobs, tool_pool, mcp,
             skills_listed, skill_names, ext_pool, hook_bus, hook_common, goals, todos, work, cycles, config, settings, ladder, deps, compaction, hops, shells,
         } = parts;
         let io = ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io };
-        let registry = Arc::new(ProviderRegistry::new(provider_builder).with_accounting(accounting));
         let skill_tool = tool_pool.iter().find(|t| t.spec().name == "Skill").cloned().ok_or(TurnPathError::NoSkillTool)?;
         let reaction_targets: Arc<ReactionTargets> = Arc::default();
         let unattended = UnattendedRunRegistry::new(run_stamps);

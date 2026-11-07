@@ -11,6 +11,7 @@
 //! needs the config `compose_domains` opens.
 
 use std::collections::HashSet;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
@@ -47,6 +48,7 @@ use mixdog_mcp::connector_accounts::AccountHealth;
 use mixdog_mcp::declaration_cache::DeclarationCache;
 use mixdog_mcp::extension_service::ExtensionConfig;
 use mixdog_mcp::extension_service::ExtensionHost;
+use mixdog_mcp::hook_bus::HookObserver;
 use mixdog_mcp::hub::McpHub;
 use mixdog_mcp::mcp_glue::GlueHost;
 use mixdog_mcp::mcp_glue::GlueInputs;
@@ -76,6 +78,9 @@ use serde_json::Value;
 
 use crate::compose_domains::EnvReader;
 use crate::held_requests::HeldHome;
+use crate::domain_seams::doctor::HooksStatus;
+use crate::hook_rule_setup::HookRuleSetup;
+use crate::hook_rule_setup::hook_rules_path;
 
 /// What a `requires: browser|computer|terminal|visualize` skill asks: whether the desktop's bridge
 /// for the tool is up (Node reads the bridge discovery file, `builtin-features.mjs`).
@@ -247,6 +252,21 @@ pub trait SessionFacts: Send + Sync {
     async fn settings_reach_session(&self, thread: &ThreadId) -> bool;
 }
 
+#[async_trait]
+impl SessionFacts for mixdog_core_session::session::setup_facts::SessionSetupFacts {
+    async fn agent_mode(&self, thread: &ThreadId) -> bool {
+        mixdog_core_session::session::setup_facts::SessionSetupFacts::agent_mode(self, thread).await
+    }
+
+    async fn mixy_name(&self) -> String {
+        mixdog_core_session::session::setup_facts::SessionSetupFacts::mixy_name(self).await
+    }
+
+    async fn settings_reach_session(&self, thread: &ThreadId) -> bool {
+        mixdog_core_session::session::setup_facts::SessionSetupFacts::settings_reach_session(self, thread).await
+    }
+}
+
 /// `SetupCallers` over the session store, the heartbeat marks and the held layer's runs
 /// (`scheduleCallerScope`, `schedule-access.mjs`).
 pub struct SessionSetupCallers {
@@ -337,6 +357,24 @@ pub struct AgentSeams {
     pub now: Arc<dyn Fn() -> String + Send + Sync>,
 }
 
+/// The agent definitions, built once. `ConfigHosts` (the compaction and workflow hosts of
+/// `compose_domains`) and `mcp_services` both take this `Arc`, so it is built before either; it needs
+/// nothing `compose_domains` produces.
+pub fn build_agents(tokens: &LaneTokens, config: &Config, package_root: &Path, data_dir: &Path, task_workspace: &Path, seams: AgentSeams) -> Arc<AgentDefinitions> {
+    Arc::new(
+        AgentDefinitions::new(
+            package_root.to_path_buf(),
+            data_dir.to_path_buf(),
+            tokens.interactive_io,
+            AgentRoutes::new(config.clone(), data_dir.to_path_buf()),
+            seams.evidence,
+            seams.main_route,
+            task_workspace.to_path_buf(),
+        )
+        .with_writes(tokens.durability_io, seams.effects, seams.now),
+    )
+}
+
 /// What the setup tool needs of the session layer and the other owners.
 pub struct SetupSeams {
     pub sessions: Arc<dyn CallerSessions>,
@@ -356,8 +394,6 @@ pub struct McpInputs {
     pub data_dir: PathBuf,
     /// The package root: shipped `agents/`, `output-styles/`, `defaults/` (the bundled skills).
     pub package_root: PathBuf,
-    /// `<userData>/workspace/unclassified`: the folder task sessions run in.
-    pub task_workspace: PathBuf,
     /// The user's home folder (the connector folders, `~` in a server config).
     pub home: PathBuf,
     /// The process environment as one map (server configs expand `${VAR}` against it).
@@ -379,12 +415,17 @@ pub struct McpInputs {
     pub verifier: Arc<dyn GmailVerifier>,
     pub surface: Arc<dyn McpSurface>,
     pub bridges: Arc<dyn BridgeFeatures>,
+    /// `rt.hooksStatus()`: the one `HookStatus` the doctor reads (`DoctorInputs.hooks`).
+    pub hooks: Arc<dyn HooksStatus>,
+    /// The hook bus's observer: the event log that `HookStatus` shows (`HookStatus::new`'s last argument).
+    pub hook_observer: Arc<dyn HookObserver>,
     /// The watch the workspace watcher's sink feeds (`SkillsWatch::sink`).
     pub skills_watch: Arc<SkillsWatch>,
     pub git: Arc<dyn GitRunner>,
     pub announce: Arc<dyn Fn() + Send + Sync>,
     pub settings_effects: Arc<dyn SettingsEffects>,
-    pub agents: AgentSeams,
+    /// [`build_agents`]' result, also given to `ConfigHosts`.
+    pub agents: Arc<AgentDefinitions>,
     pub setup: SetupSeams,
 }
 
@@ -400,7 +441,7 @@ pub struct McpComposed {
 }
 
 pub fn mcp_services(inputs: McpInputs) -> McpComposed {
-    let McpInputs { tokens, data_dir, package_root, task_workspace, home, process_env, env, hub, config, tool_modules, extensions, extension_host, plugins, workflow, .. } = &inputs;
+    let McpInputs { tokens, data_dir, package_root, home, process_env, env, hub, config, tool_modules, extensions, extension_host, plugins, workflow, .. } = &inputs;
     let ext_config: Arc<dyn ExtensionConfig> = extensions.clone();
     let host: Arc<dyn ExtensionHost> = extension_host.clone();
     let admin = Arc::new(PluginAdmin::new(data_dir.clone(), inputs.git.clone(), inputs.announce.clone()));
@@ -445,18 +486,7 @@ pub fn mcp_services(inputs: McpInputs) -> McpComposed {
     extension_host.bind(glue_host);
     let skills: Arc<dyn DomainService> = skills;
 
-    let agents = Arc::new(
-        AgentDefinitions::new(
-            package_root.clone(),
-            data_dir.clone(),
-            tokens.interactive_io,
-            AgentRoutes::new(config.clone(), data_dir.clone()),
-            inputs.agents.evidence.clone(),
-            inputs.agents.main_route.clone(),
-            task_workspace.clone(),
-        )
-        .with_writes(tokens.durability_io, inputs.agents.effects.clone(), inputs.agents.now.clone()),
-    );
+    let agents = inputs.agents.clone();
     let callers = Arc::new(SessionSetupCallers::new(
         inputs.setup.sessions.clone(),
         inputs.setup.heartbeat.clone(),
@@ -468,6 +498,7 @@ pub fn mcp_services(inputs: McpInputs) -> McpComposed {
         .with_settings(Settings::new(config.clone(), inputs.settings_effects.clone(), env.clone()))
         .with_output_styles(OutputStyles::new(config.clone(), package_root.join("output-styles"), data_dir))
         .with_actions(Arc::new(McpSetup::new(runtime)))
+        .with_actions(Arc::new(HookRuleSetup::new(hook_rules_path(env, data_dir), tokens.maintenance_io, inputs.hooks.clone(), inputs.hook_observer.clone())))
         .with_actions(Arc::new(DefinitionSetup::new(agents.clone(), callers, workflow.clone(), skills.clone())));
     for owner in &inputs.setup.other_actions {
         setup = setup.with_actions(owner.clone());
@@ -563,6 +594,15 @@ mod tests {
         fn present(&self, _: &str) -> bool {
             false
         }
+    }
+    #[async_trait]
+    impl HooksStatus for Quiet {
+        async fn status(&self) -> Value {
+            serde_json::json!({ "rules": [] })
+        }
+    }
+    impl HookObserver for Quiet {
+        fn emit(&self, _: &str, _: Value) {}
     }
     impl GitRunner for Quiet {
         fn run(&self, _: &[String], _: std::time::Duration) -> Result<String, String> {
@@ -728,11 +768,23 @@ mod tests {
         );
         let quiet = Arc::new(Quiet);
         let late = LateExtensionHost::new();
+        let agents = build_agents(
+            &tokens,
+            &config,
+            &dir.path().join("package"),
+            &data,
+            &dir.path().join("tasks"),
+            AgentSeams {
+                evidence: quiet.clone(),
+                effects: quiet.clone(),
+                main_route: Arc::new(|| Value::Null),
+                now: Arc::new(|| "2026-01-01T00:00:00.000Z".into()),
+            },
+        );
         let composed = mcp_services(McpInputs {
             tokens,
             data_dir: data.clone(),
             package_root: dir.path().join("package"),
-            task_workspace: dir.path().join("tasks"),
             home: dir.path().join("home"),
             process_env: Env::default(),
             env,
@@ -747,16 +799,13 @@ mod tests {
             verifier: quiet.clone(),
             surface: quiet.clone(),
             bridges: quiet.clone(),
+            hooks: quiet.clone(),
+            hook_observer: quiet.clone(),
             skills_watch: Arc::new(SkillsWatch::new()),
             git: quiet.clone(),
             announce: Arc::new(|| {}),
             settings_effects: quiet.clone(),
-            agents: AgentSeams {
-                evidence: quiet.clone(),
-                effects: quiet.clone(),
-                main_route: Arc::new(|| Value::Null),
-                now: Arc::new(|| "2026-01-01T00:00:00.000Z".into()),
-            },
+            agents,
             setup: SetupSeams {
                 sessions: quiet.clone(),
                 heartbeat: HeartbeatSessions::new(),

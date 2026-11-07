@@ -18,6 +18,11 @@
       "sha256": "9b0211fed13a78cbbcf941879822d34b480e774dd7e7aeab13ca21fb94673344"
     },
     {
+      "bytes": 5719,
+      "path": "import-session-twin.json",
+      "sha256": "90c56cd805cf7aaf3d60d3e96ba6063e47c0040823f657093344efe4506940d3"
+    },
+    {
       "bytes": 51958,
       "path": "local-process-twin.json",
       "sha256": "e2ee92068540f47174ae769b64a8c213e5480dfea690a4bd1f0fdb3a88a1f631"
@@ -65,11 +70,11 @@
   ],
   "product": {
     "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
-    "commit": "ad3aefe0604ca2371dac995fb47fc30e872ad5b2",
+    "commit": "5159ffad2f0a30690e87786bbe2e50078fdef07a",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9248,
     "refComparison": {
-      "closestCommit": "ad3aefe0604ca2371dac995fb47fc30e872ad5b2",
+      "closestCommit": "5159ffad2f0a30690e87786bbe2e50078fdef07a",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -81,5 +86,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-setup-local-voice.mjs",
   "set": "services",
-  "totalBytes": 1988979
+  "totalBytes": 1932149
 }

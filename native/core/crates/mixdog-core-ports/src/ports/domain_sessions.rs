@@ -78,14 +78,15 @@ pub struct CallerChain {
 /// The live sessions of this process and the lane that reaches another one.
 #[async_trait]
 pub trait RouteSetupSessions: Send + Sync {
-    /// `None` when the caller has no agent (it follows no chain).
-    async fn caller_chain(&self, thread: &ThreadId, config: &Obj) -> Option<CallerChain>;
+    /// `None` when the caller has no agent (it follows no chain). `Err` when a bot route read
+    /// never ran: the position would be computed from the wrong route source.
+    async fn caller_chain(&self, thread: &ThreadId, config: &Obj) -> Result<Option<CallerChain>, PortError>;
     /// An open session by id, held here or stored (`mgr.getSession`); `None` when it is absent or
-    /// closed.
-    async fn session(&self, id: &str, config: &Obj) -> Option<SessionFacts>;
+    /// closed. `Err` as for [`caller_chain`](Self::caller_chain).
+    async fn session(&self, id: &str, config: &Obj) -> Result<Option<SessionFacts>, PortError>;
     /// The open sessions of `agent`: those held here, then its home thread, from disk when it is
-    /// not loaded.
-    async fn agent_sessions(&self, agent: &str, config: &Obj) -> Vec<SessionFacts>;
+    /// not loaded. `Err` as for [`caller_chain`](Self::caller_chain).
+    async fn agent_sessions(&self, agent: &str, config: &Obj) -> Result<Vec<SessionFacts>, PortError>;
     /// The daemon's configure lane (`executeSessionControl`, action `route`) on another session.
     async fn control(&self, caller: &ThreadId, session: &str, method: &str, input: Option<&Obj>) -> Result<Value, PortError>;
 }

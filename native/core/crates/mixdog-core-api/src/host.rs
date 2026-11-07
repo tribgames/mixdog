@@ -191,14 +191,6 @@ pub trait DesktopPresence: Send + Sync {
     fn desktop_attached(&self) -> bool;
 }
 
-/// Whether a session surface watches `thread`: a connection of kind `desktop` or `tui` live on
-/// the thread's feed. Node's surfaces are the session stores of an attached Desktop or TUI
-/// (`agent-job-feed` `notification-router`), the only listeners that take a UI-only notice
-/// (`notifySessionUi`); `mixdog exec`, bridges and paired devices are not surfaces.
-pub trait SessionSurfaces: Send + Sync {
-    fn surface_on(&self, thread: &crate::ids::ThreadId) -> bool;
-}
-
 /// Binary media frames from a host-role connection (X17: 16-byte header + payload), routed
 /// into the live-view encoder. Never waits; the receiver keeps only what its encoder can take.
 pub trait HostMediaSink: Send + Sync {

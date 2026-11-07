@@ -28,7 +28,7 @@ mod lead_twin_tests;
 mod home_api_tests;
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
-mod tests;
+pub(crate) mod tests;
 
 pub use connector_api::AgentConnectors;
 pub use connector_api::ConnectorCatalog;
@@ -59,6 +59,7 @@ use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
 pub use self::connectors::ApprovedToolChange;
+pub use self::connectors::NO_WIDEN;
 pub use self::connectors::Parsed;
 pub use self::connectors::Stored;
 use mixdog_mcp::permissions::read_raw_policy;

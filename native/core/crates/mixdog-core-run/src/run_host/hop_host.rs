@@ -186,7 +186,7 @@ impl HopHost for RegistryHopHost {
     async fn provider(&self, provider: &str) -> Result<Option<Arc<dyn ProviderAdapter>>, String> {
         let providers = ensure_provider_enabled(&self.config(), provider);
         self.deps.registry.init_providers(&providers).await.map_err(|e| e.message)?;
-        Ok(self.deps.registry.get(provider).await)
+        self.deps.registry.try_get(provider).await.map_err(|e| e.message)
     }
 
     fn raw_context_window(&self, provider: &str, model: &str, route: &Value) -> Option<u64> {

@@ -81,7 +81,7 @@ fn cache_key(entries: &[HookConfigEntry]) -> (String, bool) {
 }
 
 /// Why a hooks file gave no document.
-enum Unreadable {
+pub enum Unreadable {
     /// Damaged (empty, NUL-filled or not JSON): reported once, holds no hooks.
     Damaged(String),
     /// A real I/O error: the load is not cached, so it is retried.
@@ -92,7 +92,7 @@ enum Unreadable {
 /// file (`restore`) goes through `readJsonStateSync` with `keepWithoutBackup`: a valid `.bak` is
 /// restored and read, the damaged bytes kept aside as `<file>.corrupt-<ts>`; without one the
 /// file stays in place. Hooks files the user or a plugin owns are never moved or locked.
-fn read_document(lane: &InLane<MaintenanceIo>, path: &Path, restore: bool) -> Result<Option<Value>, Unreadable> {
+pub fn read_document(lane: &InLane<MaintenanceIo>, path: &Path, restore: bool) -> Result<Option<Value>, Unreadable> {
     let content = match mixdog_statefile::read_content(path) {
         Ok(Some(content)) => content,
         Ok(None) => return Ok(None),

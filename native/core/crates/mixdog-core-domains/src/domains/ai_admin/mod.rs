@@ -1,6 +1,7 @@
 //! The AI administration services of Node's session runtime (`model`, `modelProxy`, `route`,
 //! `fast`, and the setup route actions), over the pure helpers of `mixdog_ai::service`.
 
+pub mod account_actions;
 pub mod agent_route_service;
 pub mod chain;
 pub mod model_list;
@@ -11,6 +12,8 @@ pub mod route_service;
 pub mod route_set_service;
 pub mod thread_route_service;
 
+#[cfg(test)]
+mod account_actions_tests;
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "test setup")]
 mod agent_route_tests;

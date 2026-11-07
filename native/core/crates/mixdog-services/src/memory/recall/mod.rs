@@ -322,7 +322,7 @@ impl Recall {
             return Ok(RecallOutcome::ok(text));
         }
         let cwd = args.get("cwd").and_then(Value::as_str).filter(|c| !c.is_empty());
-        let resolved = resolve_project_scope(self.deps.lane, cwd, self.deps.session_cwd.as_deref()).await;
+        let resolved = resolve_project_scope(self.deps.lane, cwd, self.deps.session_cwd.as_deref()).await?;
         if let Some(ids) = args.raw.get("ids").filter(|v| v.as_array().is_some_and(|a| !a.is_empty())) {
             let ids = id_values(ids);
             let text = search_by_ids(db, &clock, args, &ids, resolved.as_deref()).await?;

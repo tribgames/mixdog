@@ -23,6 +23,7 @@ mixdog-workspace = { workspace = true }
 mixdog-protocol = { workspace = true }
 mixdog-rt = { workspace = true }
 mixdog-scm = { workspace = true }
+mixdog-secrets = { workspace = true }
 mixdog-services = { workspace = true }
 mixdog-statefile = { workspace = true }
 serde = { workspace = true }

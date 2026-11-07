@@ -93,7 +93,11 @@ impl Scm {
             };
             entries
                 .flatten()
-                .filter(|entry| std::fs::remove_dir_all(entry.path()).is_ok())
+                .filter(|entry| {
+                    // Restarts the lane lease per scratch folder removed.
+                    mixdog_rt::job_progress();
+                    std::fs::remove_dir_all(entry.path()).is_ok()
+                })
                 .count()
         })
         .await

@@ -1,0 +1,232 @@
+{
+ "note": "recorded by benchmarks/rust-core/recorders/record-agent-trace-watchdog.mjs against Node (fake clock)",
+ "now": 1700000000000,
+ "buildVersion": "1.4.5",
+ "cases": [
+  {
+   "name": "first-semantic",
+   "ctx": {
+    "sessionId": "s1",
+    "agent": "w",
+    "error": {
+     "message": "agent first semantic response stale (120000ms without a semantic event)"
+    },
+    "snapshot": {
+     "stage": "send",
+     "askStartedAt": 1699999500000,
+     "modelRequestStartedAt": 1699999600000,
+     "waitingForTransport": 1,
+     "waitingForFirstSemantic": true,
+     "awaitingUser": "approval",
+     "lastProgressAt": 1699999700000,
+     "lastKeepaliveAt": 1699999999000,
+     "firstActivityAt": 1699999550000,
+     "currentTool": "shell"
+    },
+    "policy": {
+     "idleStaleMs": 1800000
+    },
+    "now": 1700000000000,
+    "iteration": 2,
+    "registrationId": "reg1"
+   },
+   "emits": true
+  },
+  {
+   "name": "first-semantic-ask-clock",
+   "ctx": {
+    "sessionId": "s1b",
+    "error": {
+     "message": "agent first semantic response stale (90000ms)"
+    },
+    "snapshot": {
+     "stage": "prep",
+     "askStartedAt": 1699999910000,
+     "waitingForFirstSemantic": true
+    },
+    "policy": {},
+    "now": 1700000000000
+   },
+   "emits": true
+  },
+  {
+   "name": "first-transport",
+   "ctx": {
+    "sessionId": "s2",
+    "agent": "lead",
+    "error": {
+     "message": "agent first transport stale (60000ms)"
+    },
+    "snapshot": {
+     "stage": "send",
+     "askStartedAt": 1699999500000,
+     "modelRequestStartedAt": 1699999600000,
+     "waitingForTransport": true,
+     "waitingForFirstSemantic": false,
+     "awaitingUser": "approval",
+     "lastProgressAt": 1699999700000,
+     "lastKeepaliveAt": 1699999999000,
+     "firstActivityAt": 1699999550000,
+     "currentTool": "shell"
+    },
+    "policy": {
+     "idleStaleMs": 1
+    },
+    "now": 1700000000005,
+    "iteration": 0
+   },
+   "emits": true
+  },
+  {
+   "name": "idle",
+   "ctx": {
+    "sessionId": "s3",
+    "error": {
+     "message": "agent task stale (1800000ms without stream/tool progress)"
+    },
+    "snapshot": {
+     "stage": "send",
+     "askStartedAt": 1699999500000,
+     "modelRequestStartedAt": 1699999600000,
+     "waitingForTransport": 1,
+     "waitingForFirstSemantic": false,
+     "awaitingUser": "approval",
+     "lastProgressAt": 1699999700000,
+     "lastKeepaliveAt": 1699999999000,
+     "firstActivityAt": 1699999550000,
+     "currentTool": "shell"
+    },
+    "policy": {
+     "idleStaleMs": 1800000
+    },
+    "now": 1700000000000,
+    "iteration": 7,
+    "observation": {
+     "source": "cached",
+     "lastReadOkAt": 1699999998000,
+     "readPendingSince": 1699999999500,
+     "lastReadError": "ETIMEDOUT"
+    }
+   },
+   "emits": true
+  },
+  {
+   "name": "first-activity-clock",
+   "ctx": {
+    "sessionId": "s3b",
+    "error": {
+     "message": "agent task stale (5ms without stream/tool progress)"
+    },
+    "snapshot": {
+     "firstActivityAt": 1699999999995
+    },
+    "policy": {
+     "idleStaleMs": 5
+    },
+    "now": 1700000000000
+   },
+   "emits": true
+  },
+  {
+   "name": "checks-failed",
+   "ctx": {
+    "sessionId": "s4",
+    "agent": "w",
+    "error": {
+     "message": "agent progress checks failed 3 times"
+    },
+    "snapshot": {
+     "stage": "send",
+     "askStartedAt": 1699999500000,
+     "modelRequestStartedAt": 1699999600000,
+     "waitingForTransport": 1,
+     "waitingForFirstSemantic": false,
+     "awaitingUser": "approval",
+     "lastProgressAt": 1699999700000,
+     "lastKeepaliveAt": 1699999999000,
+     "firstActivityAt": 1699999550000,
+     "currentTool": "shell"
+    },
+    "policy": {
+     "idleStaleMs": 600000
+    },
+    "now": 1700000000000,
+    "comparedClock": {
+     "at": 1699999999958,
+     "field": "last_check_ok_at"
+    }
+   },
+   "emits": true
+  },
+  {
+   "name": "other-anchor",
+   "ctx": {
+    "sessionId": "s5",
+    "error": {
+     "message": "something else"
+    },
+    "anchorTs": 1699999876544,
+    "policy": {
+     "idleStaleMs": 5000
+    },
+    "now": 1700000000000
+   },
+   "emits": true
+  },
+  {
+   "name": "other-no-clock",
+   "ctx": {
+    "sessionId": "s6",
+    "error": {
+     "message": ""
+    },
+    "now": 1700000000000,
+    "iteration": null
+   },
+   "emits": true
+  },
+  {
+   "name": "clock-in-future",
+   "ctx": {
+    "sessionId": "s6b",
+    "error": {
+     "message": "x"
+    },
+    "anchorTs": 1700000001000,
+    "now": 1700000000000
+   },
+   "emits": true
+  },
+  {
+   "name": "non-string-message",
+   "ctx": {
+    "sessionId": "s7",
+    "error": {},
+    "snapshot": null,
+    "policy": null,
+    "now": 1700000000000
+   },
+   "emits": true
+  },
+  {
+   "name": "no-session",
+   "ctx": {
+    "error": {
+     "message": "x"
+    },
+    "now": 1700000000000
+   },
+   "emits": false
+  },
+  {
+   "name": "no-error",
+   "ctx": {
+    "sessionId": "s8",
+    "now": 1700000000000
+   },
+   "emits": false
+  }
+ ],
+ "jsonl": "{\"iteration\":2,\"kind\":\"stall_abort\",\"agent\":\"w\",\"payload\":{\"elapsed_ms\":400000,\"message\":\"agent first semantic response stale (120000ms without a semantic event)\",\"stage\":\"send\"},\"ts\":1700000000000,\"session_id\":\"s1\"}\n{\"iteration\":null,\"kind\":\"stall_abort\",\"agent\":null,\"payload\":{\"elapsed_ms\":90000,\"message\":\"agent first semantic response stale (90000ms)\",\"stage\":\"prep\"},\"ts\":1700000000000,\"session_id\":\"s1b\"}\n{\"iteration\":0,\"kind\":\"stall_abort\",\"agent\":\"lead\",\"payload\":{\"elapsed_ms\":300005,\"message\":\"agent first transport stale (60000ms)\",\"stage\":\"send\"},\"ts\":1700000000000,\"session_id\":\"s2\"}\n{\"iteration\":7,\"kind\":\"stall_abort\",\"agent\":null,\"payload\":{\"elapsed_ms\":300000,\"message\":\"agent task stale (1800000ms without stream/tool progress)\",\"stage\":\"send\"},\"ts\":1700000000000,\"session_id\":\"s3\"}\n{\"iteration\":null,\"kind\":\"stall_abort\",\"agent\":null,\"payload\":{\"elapsed_ms\":5,\"message\":\"agent task stale (5ms without stream/tool progress)\",\"stage\":null},\"ts\":1700000000000,\"session_id\":\"s3b\"}\n{\"iteration\":null,\"kind\":\"stall_abort\",\"agent\":\"w\",\"payload\":{\"elapsed_ms\":42,\"message\":\"agent progress checks failed 3 times\",\"stage\":\"send\"},\"ts\":1700000000000,\"session_id\":\"s4\"}\n{\"iteration\":null,\"kind\":\"stall_abort\",\"agent\":null,\"payload\":{\"elapsed_ms\":123456,\"message\":\"something else\",\"stage\":null},\"ts\":1700000000000,\"session_id\":\"s5\"}\n{\"iteration\":null,\"kind\":\"stall_abort\",\"agent\":null,\"payload\":{\"elapsed_ms\":null,\"message\":\"\",\"stage\":null},\"ts\":1700000000000,\"session_id\":\"s6\"}\n{\"iteration\":null,\"kind\":\"stall_abort\",\"agent\":null,\"payload\":{\"elapsed_ms\":0,\"message\":\"x\",\"stage\":null},\"ts\":1700000000000,\"session_id\":\"s6b\"}\n{\"iteration\":null,\"kind\":\"stall_abort\",\"agent\":null,\"payload\":{\"elapsed_ms\":null,\"message\":\"[object Object]\",\"stage\":null},\"ts\":1700000000000,\"session_id\":\"s7\"}\n",
+ "failures": "{\"ts\":1700000000000,\"kind\":\"stall_abort\",\"category\":\"agent-stall\",\"build_version\":\"1.4.5\",\"registration_id\":\"reg1\",\"session_id\":\"s1\",\"iteration\":2,\"agent\":\"w\",\"stage\":\"send\",\"window\":\"first_output\",\"limit_ms\":120000,\"form\":\"first_semantic\",\"compared_field\":\"model_request_started_at\",\"compared_at\":1699999600000,\"elapsed_ms\":400000,\"snapshot_present\":true,\"snapshot_source\":\"direct\",\"last_read_ok_at\":null,\"read_pending_since\":null,\"last_read_error\":null,\"ask_started_at\":1699999500000,\"model_request_started_at\":1699999600000,\"waiting_for_transport\":true,\"waiting_for_first_semantic\":true,\"awaiting_user\":\"approval\",\"last_progress_at\":1699999700000,\"last_keepalive_at\":1699999999000,\"anchor_ts\":null,\"current_tool\":\"shell\"}\n{\"ts\":1700000000000,\"kind\":\"stall_abort\",\"category\":\"agent-stall\",\"build_version\":\"1.4.5\",\"registration_id\":null,\"session_id\":\"s1b\",\"iteration\":null,\"agent\":null,\"stage\":\"prep\",\"window\":\"first_output\",\"limit_ms\":90000,\"form\":\"first_semantic\",\"compared_field\":\"ask_started_at\",\"compared_at\":1699999910000,\"elapsed_ms\":90000,\"snapshot_present\":true,\"snapshot_source\":\"direct\",\"last_read_ok_at\":null,\"read_pending_since\":null,\"last_read_error\":null,\"ask_started_at\":1699999910000,\"model_request_started_at\":null,\"waiting_for_transport\":false,\"waiting_for_first_semantic\":true,\"awaiting_user\":null,\"last_progress_at\":null,\"last_keepalive_at\":null,\"anchor_ts\":null,\"current_tool\":null}\n{\"ts\":1700000000000,\"kind\":\"stall_abort\",\"category\":\"agent-stall\",\"build_version\":\"1.4.5\",\"registration_id\":null,\"session_id\":\"s2\",\"iteration\":0,\"agent\":\"lead\",\"stage\":\"send\",\"window\":\"first_response\",\"limit_ms\":60000,\"form\":\"first_transport\",\"compared_field\":\"last_progress_at\",\"compared_at\":1699999700000,\"elapsed_ms\":300005,\"snapshot_present\":true,\"snapshot_source\":\"direct\",\"last_read_ok_at\":null,\"read_pending_since\":null,\"last_read_error\":null,\"ask_started_at\":1699999500000,\"model_request_started_at\":1699999600000,\"waiting_for_transport\":true,\"waiting_for_first_semantic\":false,\"awaiting_user\":\"approval\",\"last_progress_at\":1699999700000,\"last_keepalive_at\":1699999999000,\"anchor_ts\":null,\"current_tool\":\"shell\"}\n{\"ts\":1700000000000,\"kind\":\"stall_abort\",\"category\":\"agent-stall\",\"build_version\":\"1.4.5\",\"registration_id\":null,\"session_id\":\"s3\",\"iteration\":7,\"agent\":null,\"stage\":\"send\",\"window\":\"idle\",\"limit_ms\":1800000,\"form\":\"idle_progress\",\"compared_field\":\"last_progress_at\",\"compared_at\":1699999700000,\"elapsed_ms\":300000,\"snapshot_present\":true,\"snapshot_source\":\"cached\",\"last_read_ok_at\":1699999998000,\"read_pending_since\":1699999999500,\"last_read_error\":\"ETIMEDOUT\",\"ask_started_at\":1699999500000,\"model_request_started_at\":1699999600000,\"waiting_for_transport\":true,\"waiting_for_first_semantic\":false,\"awaiting_user\":\"approval\",\"last_progress_at\":1699999700000,\"last_keepalive_at\":1699999999000,\"anchor_ts\":null,\"current_tool\":\"shell\"}\n{\"ts\":1700000000000,\"kind\":\"stall_abort\",\"category\":\"agent-stall\",\"build_version\":\"1.4.5\",\"registration_id\":null,\"session_id\":\"s3b\",\"iteration\":null,\"agent\":null,\"stage\":null,\"window\":\"idle\",\"limit_ms\":5,\"form\":\"idle_progress\",\"compared_field\":\"first_activity_at\",\"compared_at\":1699999999995,\"elapsed_ms\":5,\"snapshot_present\":true,\"snapshot_source\":\"direct\",\"last_read_ok_at\":null,\"read_pending_since\":null,\"last_read_error\":null,\"ask_started_at\":null,\"model_request_started_at\":null,\"waiting_for_transport\":false,\"waiting_for_first_semantic\":false,\"awaiting_user\":null,\"last_progress_at\":null,\"last_keepalive_at\":null,\"anchor_ts\":null,\"current_tool\":null}\n{\"ts\":1700000000000,\"kind\":\"stall_abort\",\"category\":\"agent-stall\",\"build_version\":\"1.4.5\",\"registration_id\":null,\"session_id\":\"s4\",\"iteration\":null,\"agent\":\"w\",\"stage\":\"send\",\"window\":\"idle\",\"limit_ms\":600000,\"form\":\"checks_failed\",\"compared_field\":\"last_check_ok_at\",\"compared_at\":1699999999958,\"elapsed_ms\":42,\"snapshot_present\":true,\"snapshot_source\":\"direct\",\"last_read_ok_at\":null,\"read_pending_since\":null,\"last_read_error\":null,\"ask_started_at\":1699999500000,\"model_request_started_at\":1699999600000,\"waiting_for_transport\":true,\"waiting_for_first_semantic\":false,\"awaiting_user\":\"approval\",\"last_progress_at\":1699999700000,\"last_keepalive_at\":1699999999000,\"anchor_ts\":null,\"current_tool\":\"shell\"}\n{\"ts\":1700000000000,\"kind\":\"stall_abort\",\"category\":\"agent-stall\",\"build_version\":\"1.4.5\",\"registration_id\":null,\"session_id\":\"s5\",\"iteration\":null,\"agent\":null,\"stage\":null,\"window\":null,\"limit_ms\":5000,\"form\":\"other\",\"compared_field\":\"anchor_ts\",\"compared_at\":1699999876544,\"elapsed_ms\":123456,\"snapshot_present\":false,\"snapshot_source\":null,\"last_read_ok_at\":null,\"read_pending_since\":null,\"last_read_error\":null,\"ask_started_at\":null,\"model_request_started_at\":null,\"waiting_for_transport\":null,\"waiting_for_first_semantic\":null,\"awaiting_user\":null,\"last_progress_at\":null,\"last_keepalive_at\":null,\"anchor_ts\":1699999876544,\"current_tool\":null}\n{\"ts\":1700000000000,\"kind\":\"stall_abort\",\"category\":\"agent-stall\",\"build_version\":\"1.4.5\",\"registration_id\":null,\"session_id\":\"s6\",\"iteration\":null,\"agent\":null,\"stage\":null,\"window\":null,\"limit_ms\":null,\"form\":\"other\",\"compared_field\":null,\"compared_at\":null,\"elapsed_ms\":null,\"snapshot_present\":false,\"snapshot_source\":null,\"last_read_ok_at\":null,\"read_pending_since\":null,\"last_read_error\":null,\"ask_started_at\":null,\"model_request_started_at\":null,\"waiting_for_transport\":null,\"waiting_for_first_semantic\":null,\"awaiting_user\":null,\"last_progress_at\":null,\"last_keepalive_at\":null,\"anchor_ts\":null,\"current_tool\":null}\n{\"ts\":1700000000000,\"kind\":\"stall_abort\",\"category\":\"agent-stall\",\"build_version\":\"1.4.5\",\"registration_id\":null,\"session_id\":\"s6b\",\"iteration\":null,\"agent\":null,\"stage\":null,\"window\":null,\"limit_ms\":null,\"form\":\"other\",\"compared_field\":\"anchor_ts\",\"compared_at\":1700000001000,\"elapsed_ms\":0,\"snapshot_present\":false,\"snapshot_source\":null,\"last_read_ok_at\":null,\"read_pending_since\":null,\"last_read_error\":null,\"ask_started_at\":null,\"model_request_started_at\":null,\"waiting_for_transport\":null,\"waiting_for_first_semantic\":null,\"awaiting_user\":null,\"last_progress_at\":null,\"last_keepalive_at\":null,\"anchor_ts\":1700000001000,\"current_tool\":null}\n{\"ts\":1700000000000,\"kind\":\"stall_abort\",\"category\":\"agent-stall\",\"build_version\":\"1.4.5\",\"registration_id\":null,\"session_id\":\"s7\",\"iteration\":null,\"agent\":null,\"stage\":null,\"window\":null,\"limit_ms\":null,\"form\":\"other\",\"compared_field\":null,\"compared_at\":null,\"elapsed_ms\":null,\"snapshot_present\":false,\"snapshot_source\":null,\"last_read_ok_at\":null,\"read_pending_since\":null,\"last_read_error\":null,\"ask_started_at\":null,\"model_request_started_at\":null,\"waiting_for_transport\":null,\"waiting_for_first_semantic\":null,\"awaiting_user\":null,\"last_progress_at\":null,\"last_keepalive_at\":null,\"anchor_ts\":null,\"current_tool\":null}\n"
+}

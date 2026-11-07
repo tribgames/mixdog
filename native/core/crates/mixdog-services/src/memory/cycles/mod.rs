@@ -6,6 +6,8 @@
 //! the maintenance route), [`Cycle1Llm`] (the `cycle1-agent` dispatch) and [`CycleEmbeddings`]
 //! (root and raw-row embedding, which the memory embedding owner provides).
 
+pub mod config;
+pub mod embeddings;
 pub mod ledger;
 pub mod quality;
 pub mod requests;

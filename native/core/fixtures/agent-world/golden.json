@@ -1,0 +1,333 @@
+{
+  "hiddenAgents": [
+    {
+      "name": "explore-agent",
+      "agent": {
+        "agent": "explore-agent",
+        "slot": "explore",
+        "description": "One-off read-only explorer, one per query of the explore tool",
+        "invokedBy": "explore",
+        "maintKey": "explore"
+      }
+    },
+    {
+      "name": "cycle1-agent",
+      "agent": {
+        "agent": "cycle1-agent",
+        "slot": "cycle1",
+        "systemFile": "rules/agent/40-cycle1-agent.md",
+        "description": "Chunker/classifier invoked by memory-cycle runCycle1",
+        "invokedBy": "cycle1",
+        "maintKey": "memory",
+        "toolSchemaProfile": "none",
+        "kind": "maintenance",
+        "permission": "read",
+        "stallCap": {
+          "idleSeconds": 300
+        }
+      }
+    },
+    {
+      "name": "title-agent",
+      "agent": {
+        "agent": "title-agent",
+        "slot": "title",
+        "systemFile": "rules/agent/43-title-agent.md",
+        "description": "One-shot session title generator invoked by the desktop host",
+        "invokedBy": "desktop-title",
+        "maintKey": "memory",
+        "toolSchemaProfile": "none",
+        "kind": "maintenance",
+        "permission": "read",
+        "stallCap": {
+          "idleSeconds": 90
+        }
+      }
+    },
+    {
+      "name": "worker",
+      "agent": null
+    },
+    {
+      "name": "maintainer",
+      "agent": null
+    },
+    {
+      "name": "",
+      "agent": null
+    },
+    {
+      "name": "Cycle1-Agent",
+      "agent": null
+    }
+  ],
+  "runtimeSpec": [
+    {
+      "preset": {
+        "provider": "anthropic-oauth",
+        "model": "claude-sonnet"
+      },
+      "agentId": "cycle1-agent",
+      "spec": {
+        "lane": "agent",
+        "scopeKey": "agent:cycle1-agent:anthropic-oauth:claude-sonnet",
+        "reuse": true,
+        "preset": {
+          "provider": "anthropic-oauth",
+          "model": "claude-sonnet"
+        }
+      }
+    },
+    {
+      "preset": {
+        "provider": " openai ",
+        "model": " gpt-5 "
+      },
+      "agentId": "w1",
+      "spec": {
+        "lane": "agent",
+        "scopeKey": "agent:w1:openai:gpt-5",
+        "reuse": true,
+        "preset": {
+          "provider": " openai ",
+          "model": " gpt-5 "
+        }
+      }
+    },
+    {
+      "preset": {},
+      "agentId": "a",
+      "spec": {
+        "lane": "agent",
+        "scopeKey": "agent:a:unknown:_",
+        "reuse": true,
+        "preset": {}
+      }
+    },
+    {
+      "preset": {
+        "provider": "p"
+      },
+      "agentId": "a",
+      "spec": {
+        "lane": "agent",
+        "scopeKey": "agent:a:p:_",
+        "reuse": true,
+        "preset": {
+          "provider": "p"
+        }
+      }
+    },
+    {
+      "preset": {
+        "model": "m",
+        "effort": "high",
+        "fast": true
+      },
+      "agentId": "a",
+      "spec": {
+        "lane": "agent",
+        "scopeKey": "agent:a:unknown:m",
+        "reuse": true,
+        "preset": {
+          "model": "m",
+          "effort": "high",
+          "fast": true
+        }
+      }
+    },
+    {
+      "preset": null,
+      "agentId": "a",
+      "spec": {
+        "lane": "agent",
+        "scopeKey": "agent:a:unknown:_",
+        "reuse": true,
+        "preset": null
+      }
+    }
+  ],
+  "missingAgent": "agent lane requires agentId",
+  "contextSelection": [
+    {
+      "route": {
+        "provider": "p",
+        "model": "known"
+      },
+      "window": {
+        "contextWindow": 400000,
+        "maxContextWindow": 1000000
+      },
+      "selection": {
+        "contextPercent": 40,
+        "selectedContextWindow": 400000
+      }
+    },
+    {
+      "route": {
+        "provider": "p",
+        "model": "known",
+        "contextPercent": 50
+      },
+      "window": {
+        "contextWindow": 400000,
+        "maxContextWindow": 1000000
+      },
+      "selection": {
+        "contextPercent": 50,
+        "selectedContextWindow": 500000
+      }
+    },
+    {
+      "route": {
+        "provider": "p",
+        "model": "known",
+        "contextPercent": 100
+      },
+      "window": {
+        "contextWindow": 400000,
+        "maxContextWindow": 1000000
+      },
+      "selection": {
+        "contextPercent": 100,
+        "selectedContextWindow": 1000000
+      }
+    },
+    {
+      "route": {
+        "provider": "p",
+        "model": "known",
+        "contextPercent": 37
+      },
+      "window": {
+        "contextWindow": 400000,
+        "maxContextWindow": 1000000
+      },
+      "selection": {
+        "contextPercent": 40,
+        "selectedContextWindow": 400000
+      }
+    },
+    {
+      "route": {
+        "provider": "p",
+        "model": "known",
+        "contextTokens": 600000
+      },
+      "window": {
+        "contextWindow": 400000,
+        "maxContextWindow": 1000000
+      },
+      "selection": {
+        "contextPercent": 60,
+        "selectedContextWindow": 600000,
+        "contextTokens": 600000
+      }
+    },
+    {
+      "route": {
+        "provider": "p",
+        "model": "known",
+        "contextTokens": 400000
+      },
+      "window": {
+        "contextWindow": 400000,
+        "maxContextWindow": 1000000
+      },
+      "selection": {
+        "contextPercent": 40,
+        "selectedContextWindow": 400000
+      }
+    },
+    {
+      "route": {
+        "provider": "p",
+        "model": "known",
+        "contextTokens": 10
+      },
+      "window": {
+        "contextWindow": 400000,
+        "maxContextWindow": 1000000
+      },
+      "selection": {
+        "contextPercent": 10,
+        "selectedContextWindow": 100000,
+        "contextTokens": 100000
+      }
+    },
+    {
+      "route": {
+        "provider": "p",
+        "model": "plain",
+        "contextPercent": 60
+      },
+      "window": {
+        "contextWindow": 200000,
+        "maxContextWindow": 200000
+      },
+      "selection": {
+        "contextPercent": 60,
+        "selectedContextWindow": 120000
+      }
+    },
+    {
+      "route": {
+        "provider": "p",
+        "model": "only-max",
+        "contextPercent": 20
+      },
+      "window": {
+        "maxContextWindow": 500000
+      },
+      "selection": {
+        "contextPercent": 20,
+        "selectedContextWindow": 100000
+      }
+    },
+    {
+      "route": {
+        "provider": "p",
+        "model": "unknown",
+        "contextPercent": 40
+      },
+      "window": null,
+      "selection": {
+        "contextPercent": 40
+      }
+    },
+    {
+      "route": {
+        "provider": "p",
+        "model": "unknown",
+        "contextTokens": 123456
+      },
+      "window": null,
+      "selection": {
+        "contextTokens": 123456
+      }
+    },
+    {
+      "route": {
+        "provider": "p",
+        "model": "unknown"
+      },
+      "window": null,
+      "selection": {}
+    },
+    {
+      "route": {
+        "provider": " p ",
+        "model": " known ",
+        "contextPercent": "70"
+      },
+      "window": {
+        "contextWindow": 400000,
+        "maxContextWindow": 1000000
+      },
+      "selection": {
+        "contextPercent": 70,
+        "selectedContextWindow": 700000
+      }
+    }
+  ]
+}

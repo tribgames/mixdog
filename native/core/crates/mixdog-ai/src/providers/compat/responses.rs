@@ -32,6 +32,7 @@ use super::error;
 use super::models::{CompatModelInfo, fold_declared_effort};
 use super::profile::{CompatProfile, EffortDialect, ResponsesShape, ToolChoiceSupport};
 use super::schema::SchemaMemo;
+use super::schema::report_exclusion;
 
 const MUSE_SPARK_MAX_OUTPUT: u32 = 131_072;
 const MUSE_FIVE_LEVELS: &[&str] = &["minimal", "low", "medium", "high", "xhigh"];
@@ -354,10 +355,7 @@ impl WireCodec for CompatResponsesCodec {
             },
         );
         for exclusion in built.excluded {
-            match &self.config.on_tool_excluded {
-                Some(sink) => (sink.0)(exclusion),
-                None => tracing::warn!("{}", exclusion.message),
-            }
+            report_exclusion(&request.options, exclusion);
         }
         let mut body = if self.profile.responses == ResponsesShape::Muse {
             self.shape_muse(request, info.as_deref(), built.body)

@@ -220,6 +220,43 @@ pub struct ToolDefinition {
     pub defer_loading: bool,
 }
 
+/// A tool a provider left out of a request because it cannot accept the tool's input schema
+/// (Node's `{ name, index, pointer, reason, message }` for `opts.onToolExcluded`). `message` is the
+/// whole report line; `pointer` and `reason` are what the session tells the user and the model.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ToolExclusionReport {
+    pub name: String,
+    pub index: usize,
+    pub pointer: String,
+    pub reason: String,
+    pub message: String,
+}
+
+/// Node `opts.onToolExcluded`: where an adapter reports the tools it leaves out of a request. The
+/// agent loop sets it to record them for the session; with none set the adapter logs the message.
+#[derive(Clone)]
+pub struct ToolExclusionSink(pub Arc<dyn Fn(ToolExclusionReport) + Send + Sync>);
+
+impl ToolExclusionSink {
+    pub fn report(&self, report: ToolExclusionReport) {
+        (self.0)(report);
+    }
+}
+
+impl PartialEq for ToolExclusionSink {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for ToolExclusionSink {}
+
+impl std::fmt::Debug for ToolExclusionSink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ToolExclusionSink")
+    }
+}
+
 /// Send options the adapters read (PW §2.1, §2.1a). Callbacks are replaced
 /// by the [`StreamEvent`] stream; admission and account routing happen
 /// before an attempt and are not adapter options.
@@ -286,6 +323,8 @@ pub struct RequestOptions {
     pub usage_session_id: Option<String>,
     /// Node `opts.sourceType`: the ledger source of a request that is not a kind the provider is told (a title call is `session-title` while the provider sees a plain request). `request_kind` is the fallback.
     pub source_type: Option<String>,
+    /// Node `opts.onToolExcluded`: where a tool the adapter leaves out of this request is reported.
+    pub on_tool_excluded: Option<ToolExclusionSink>,
 }
 
 /// The session's saved provider-native state (Node `session.providerState`).

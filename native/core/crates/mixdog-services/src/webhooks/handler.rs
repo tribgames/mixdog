@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
+use mixdog_rt::{Scope, Scoped};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -110,6 +111,12 @@ pub trait WebhookDispatch: Send + Sync {
         endpoint_in_table: bool,
     ) -> Result<HttpReply, String>;
 }
+
+/// How long `process` may take. Node's request handler has no deadline, but the relay that forwards
+/// a public delivery stops waiting for the local listener after `LOCAL_TIMEOUT_MS = 25_000`
+/// (`relay-tunnel/limits.mjs:6`), so a reply later than that has no reader. The 504 is a new outcome
+/// (`decisions.md`, "hang-services").
+pub(crate) const PROCESS: std::time::Duration = std::time::Duration::from_secs(25);
 
 pub struct WebhookService {
     store: Arc<dyn WebhookStore>,
@@ -274,7 +281,16 @@ impl WebhookService {
 
     pub async fn process(&self, name: &str, headers: &Headers, raw_body: &[u8]) -> HttpReply {
         let mut claimed_id: Option<String> = None;
-        match self.process_inner(name, headers, raw_body, &mut claimed_id).await {
+        let deadline = std::time::Instant::now() + PROCESS;
+        let bounded = Scope::new().deadline(Some(deadline)).run(self.process_inner(name, headers, raw_body, &mut claimed_id)).await;
+        let Scoped::Done(outcome) = bounded else {
+            tracing::warn!("webhook {name}: processing timed out");
+            if let Some(id) = &claimed_id {
+                self.fail(name, id, "processing timeout").await;
+            }
+            return HttpReply::error(504, "processing timeout");
+        };
+        match outcome {
             Ok(reply) => reply,
             Err(Failure::Invalid(message)) => {
                 tracing::warn!("webhook JSON parse error for {name}: {message}");

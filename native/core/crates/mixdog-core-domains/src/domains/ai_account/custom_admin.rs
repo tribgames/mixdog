@@ -110,7 +110,7 @@ fn is_custom_id(id: &str) -> bool {
 }
 
 fn vault_failure(error: mixdog_ai::registry::keys::VaultError) -> Failure {
-    Failure::error(error.0)
+    Failure::error(error.message)
 }
 
 fn config_failure(error: mixdog_core_config::config::ConfigError) -> Failure {
@@ -407,8 +407,15 @@ impl CustomHost {
         Arc::new(Self { config, vault, keys, accounts, builder, env, broker, rotation, log })
     }
 
-    async fn key_ids_of(&self, id: &str) -> Vec<String> {
-        self.accounts.custom_key_ids(id).await.unwrap_or_default()
+    /// The additional key ids of a provider. A roster that could not be read (damaged, missing)
+    /// lists none, as in Node; one whose read never ran is an error: an empty list there would
+    /// leave the additional keys' secrets behind on a removal and treat saved ids as new.
+    async fn key_ids_of(&self, id: &str) -> Result<Vec<String>, Failure> {
+        match self.accounts.custom_key_ids(id).await {
+            Ok(ids) => Ok(ids),
+            Err(error) if error.unrun() => Err(acct(error)),
+            Err(_) => Ok(Vec::new()),
+        }
     }
 
     /// `resolveCustomInput`.
@@ -416,14 +423,15 @@ impl CustomHost {
         let input = input_object(raw)?;
         validate_transport_fields(input)?;
         let stored = match input.get("id").and_then(Value::as_str) {
-            Some(id) => self.keys.get(id).await.unwrap_or_default(),
+            Some(id) => self.keys.get(id).await.map_err(vault_failure)?.unwrap_or_default(),
             None => String::new(),
         };
         input_at(&self.config.agent(), input, &stored, self.env.as_ref())
     }
 
     /// `customProviderRow`: the secret-free public view of a custom provider.
-    async fn row(&self, id: &str, entry: &Value) -> Value {
+    /// `Err` when a keychain read never ran: the row would say "No Key" for a key that is stored.
+    async fn row(&self, id: &str, entry: &Value) -> Result<Value, Failure> {
         let (config, config_error) = match normalize(entry) {
             Ok(config) => (Some(config), None),
             Err(message) => (None, Some(message.strip_prefix("[custom-provider] ").unwrap_or(&message).to_owned())),
@@ -437,10 +445,15 @@ impl CustomHost {
             config.as_ref().and_then(|c| c.get("apiKeyEnv")).and_then(Value::as_str).unwrap_or_default().to_owned()
         };
         let env_set = !api_key_env.is_empty() && self.env.var(&api_key_env).is_some_and(|value| !value.is_empty());
-        let stored = self.vault.get(&api_key_account(id)).await.ok().flatten().is_some_and(|key| !key.is_empty());
+        let stored = match self.vault.get(&api_key_account(id)).await {
+            Ok(key) => key.is_some_and(|key| !key.is_empty()),
+            // A read that ran and failed shows no key, as before; one that never ran is no answer.
+            Err(error) if error.unrun => return Err(vault_failure(error)),
+            Err(_) => false,
+        };
         let unstored_status = if configured_enabled { "No Key" } else { "Off" };
         let mut status = if stored { "Set" } else { unstored_status };
-        let located = if self.vault.is_fallback(&api_key_account(id)).await { "stored in private file" } else { "stored in keychain" };
+        let located = if self.vault.is_fallback(&api_key_account(id)).await.map_err(vault_failure)? { "stored in private file" } else { "stored in keychain" };
         let mut detail = if stored { located } else { "custom endpoint" }.to_owned();
         if !api_key_env.is_empty() {
             status = if env_set { "Env" } else { unstored_status };
@@ -485,7 +498,7 @@ impl CustomHost {
             }
         }
         // Additional API keys by id only; their values never leave the keychain.
-        let extra = if keyless { Vec::new() } else { self.key_ids_of(id).await };
+        let extra = if keyless { Vec::new() } else { self.key_ids_of(id).await? };
         if !extra.is_empty() {
             row.insert("extraApiKeys".into(), json!(extra.iter().map(|key| json!({ "id": key })).collect::<Vec<_>>()));
         }
@@ -498,7 +511,7 @@ impl CustomHost {
             row.insert("ready".into(), json!(false));
             row.insert("authenticated".into(), json!(false));
         }
-        Value::Object(row)
+        Ok(Value::Object(row))
     }
 }
 
@@ -548,7 +561,9 @@ impl KeyEngines {
         if let Some(built) = self.built.lock().unwrap_or_else(PoisonError::into_inner).get(account) {
             return Ok(built.clone());
         }
-        let key = self.keys.read_custom(&self.id, account).await;
+        let key = self.keys.read_custom(&self.id, account).await.map_err(|error| {
+            plain_error(format!("An additional API key of {} could not be read: {error}.", self.id))
+        })?;
         if key.is_empty() {
             return Err(plain_error(format!(
                 "An additional API key of {} is not readable; enter it again in its settings.",
@@ -683,7 +698,7 @@ impl CustomProbeHost for CustomHost {
         Ok(Arc::new(endpoint))
     }
 
-    async fn key_ids(&self, id: &str) -> Vec<String> {
+    async fn key_ids(&self, id: &str) -> Result<Vec<String>, Failure> {
         self.key_ids_of(id).await
     }
 
@@ -778,7 +793,7 @@ impl CustomAdmin {
     /// The config write of a save: the entry over the document this transaction sees.
     async fn write_entry(&self, id: &str, input: &Obj, plan: &ExtraPlan) -> Result<Value, Failure> {
         self.apply_extra_keys(id, plan).await?;
-        let stored = self.host.keys.get(id).await.unwrap_or_default();
+        let stored = self.host.keys.get(id).await.map_err(vault_failure)?.unwrap_or_default();
         let (input, env, id) = (input.clone(), self.host.env.clone(), id.to_owned());
         self.edit(move |agent| {
             let latest = input_at(agent, &input, &stored, env.as_ref())?;
@@ -797,11 +812,12 @@ impl CustomAdmin {
         let host = &self.host;
         let existing = resolved.id.is_some();
         let typed = resolved.typed.as_str();
-        let previous = if !typed.is_empty() && existing { host.keys.get(id).await } else { None };
+        // An unread previous key must not become "none": the rollback below would delete it.
+        let previous = if !typed.is_empty() && existing { host.keys.get(id).await.map_err(vault_failure)? } else { None };
         // Auth as of this save's turn in the key queue: a no-auth save queued earlier may have
         // landed since the input was resolved.
         let keyless = if existing { input_at(&host.config.agent(), input, "", host.env.as_ref())?.keyless } else { resolved.keyless };
-        let saved = if existing { host.key_ids_of(id).await } else { Vec::new() };
+        let saved = if existing { host.key_ids_of(id).await? } else { Vec::new() };
         let plan = extra_key_plan(saved, input.get("extraApiKeys"), keyless)?;
         if !typed.is_empty() {
             host.keys.save(id, typed).await.map_err(vault_failure)?;
@@ -826,11 +842,11 @@ impl CustomAdmin {
             if let Err(error) = host.keys.forget_custom(id, key_id).await {
                 (host.log)(&format!(
                     "[provider-admin] could not delete additional API key {key_id} of {id}: {}\n",
-                    error.0
+                    error.message
                 ));
             }
         }
-        Ok(host.row(id, &entry).await)
+        host.row(id, &entry).await
     }
 
     async fn save_inner(&self, input: Value) -> Result<Value, Failure> {
@@ -882,10 +898,10 @@ impl CustomAdmin {
         self.serialized(&id, async {
             self.takes_stored_key(&id)?;
             let host = &self.host;
-            let previous = host.keys.get(&id).await;
+            let previous = host.keys.get(&id).await.map_err(vault_failure)?;
             host.keys.save(&id, key).await.map_err(vault_failure)?;
             match self.takes_stored_key(&id) {
-                Ok(entry) => Ok(host.row(&id, &entry).await),
+                Ok(entry) => host.row(&id, &entry).await,
                 Err(error) => {
                     // Switched to keyless (or the provider is gone) meanwhile: the key written is
                     // dropped, and the previous one is only put back for a provider that exists.
@@ -977,7 +993,7 @@ impl CustomAdmin {
                 Ok(saved)
             })
             .await?;
-        Ok(self.host.row(&id, &saved).await)
+        self.host.row(&id, &saved).await
     }
 
     async fn remove_inner(&self, id: &str) -> Result<Value, Failure> {
@@ -989,10 +1005,12 @@ impl CustomAdmin {
         self.serialized(&id, async {
             existing_entry(&self.host.config.agent(), &id)?;
             let host = &self.host;
+            // The additional-key list is read before anything is deleted: an unread list must not
+            // leave those secrets behind once the primary one is gone.
+            let extra = host.key_ids_of(&id).await?;
             // Secret first: a real keychain failure (locked, permission) leaves the provider
             // registered so the removal can be retried.
             host.vault.delete(&api_key_account(&id)).await.map_err(vault_failure)?;
-            let extra = host.key_ids_of(&id).await;
             for key_id in &extra {
                 host.keys.forget_custom(&id, key_id).await.map_err(vault_failure)?;
             }

@@ -15,6 +15,7 @@ members = [
     "crates/mixdog-core-api",
     "crates/mixdog-rt",
     "crates/mixdog-js",
+    "crates/mixdog-trace",
     "crates/mixdog-statefile",
     "crates/mixdog-store",
     "crates/mixdog-ledger",
@@ -83,6 +84,7 @@ mixdog-app-protocol = { path = "crates/mixdog-app-protocol" }
 mixdog-core-api = { path = "crates/mixdog-core-api" }
 mixdog-rt = { path = "crates/mixdog-rt" }
 mixdog-js = { path = "crates/mixdog-js" }
+mixdog-trace = { path = "crates/mixdog-trace" }
 # The patch engine Node runs, linked as a library (WP-TOOLS-FS apply_patch). Default features off:
 # the Windows version resource belongs to the standalone helper executable, not to the core.
 mixdog-patch = { path = "../mixdog-patch", default-features = false }

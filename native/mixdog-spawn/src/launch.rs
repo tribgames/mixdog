@@ -119,8 +119,18 @@ fn quote_windows_arg(arg: &str) -> String {
     out
 }
 
-/// The child's environment: the core's own when `inherit`, minus `remove`, plus `set`.
+/// The launching process's OS-proxy decision (`HANDOFF_VAR` of `system-proxy.mjs`). Node consumes
+/// and deletes it (`beginAdoption`) so no descendant sees a decision that was meant for this
+/// process alone; a child that is meant to get one is given it in `set`.
+const SYSTEM_PROXY_HANDOFF: &str = "MIXDOG_SYSTEM_PROXY_HANDOFF";
+
+/// The child's environment: the core's own when `inherit` (without the system-proxy handoff),
+/// minus `remove`, plus `set`.
 pub(crate) fn environment(spec: &EnvSpec) -> Vec<(OsString, OsString)> {
+    environment_of(spec, std::env::vars_os())
+}
+
+fn environment_of(spec: &EnvSpec, own: impl IntoIterator<Item = (OsString, OsString)>) -> Vec<(OsString, OsString)> {
     let same = |a: &OsString, b: &str| {
         if cfg!(windows) {
             a.to_string_lossy().eq_ignore_ascii_case(b)
@@ -129,7 +139,7 @@ pub(crate) fn environment(spec: &EnvSpec) -> Vec<(OsString, OsString)> {
         }
     };
     let mut env: Vec<(OsString, OsString)> = if spec.inherit {
-        std::env::vars_os().collect()
+        own.into_iter().filter(|(k, _)| !same(k, SYSTEM_PROXY_HANDOFF)).collect()
     } else {
         Vec::new()
     };
@@ -139,4 +149,26 @@ pub(crate) fn environment(spec: &EnvSpec) -> Vec<(OsString, OsString)> {
         env.push((key.into(), value.into()));
     }
     env
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn pair(key: &str, value: &str) -> (OsString, OsString) {
+        (key.into(), value.into())
+    }
+
+    fn spec(inherit: bool, set: &[(&str, &str)]) -> EnvSpec {
+        EnvSpec { inherit, set: set.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(), remove: Vec::new() }
+    }
+
+    #[test]
+    fn a_child_does_not_inherit_the_launchers_system_proxy_decision_unless_it_is_given_one() {
+        let own = || [pair("PATH", "/bin"), pair(SYSTEM_PROXY_HANDOFF, r#"{"proxy":null}"#)];
+        let inherited = environment_of(&spec(true, &[]), own());
+        assert_eq!(inherited, vec![pair("PATH", "/bin")]);
+        let given = environment_of(&spec(true, &[(SYSTEM_PROXY_HANDOFF, r#"{"proxy":{"https":"http://p:1"}}"#)]), own());
+        assert_eq!(given, vec![pair("PATH", "/bin"), pair(SYSTEM_PROXY_HANDOFF, r#"{"proxy":{"https":"http://p:1"}}"#)]);
+    }
 }

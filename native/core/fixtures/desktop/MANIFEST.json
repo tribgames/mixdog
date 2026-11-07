@@ -6,7 +6,7 @@
     "ports": 3,
     "search": 10
   },
-  "fileCount": 38,
+  "fileCount": 39,
   "files": [
     {
       "bytes": 43749,
@@ -72,6 +72,11 @@
       "bytes": 4388088,
       "path": "settings/agent-definition-actions-twin.json",
       "sha256": "37b244226054ba913f4569c1df173894d4878316354d2c86985b3ae992834030"
+    },
+    {
+      "bytes": 124399,
+      "path": "settings/agent-settings-setup-twin.json",
+      "sha256": "22e0cfab0ebb928d7c65a619c3a769be35b82187b0cb780118c2f9d5b80c63a0"
     },
     {
       "bytes": 1287921,

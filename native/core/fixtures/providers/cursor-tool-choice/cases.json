@@ -1,0 +1,869 @@
+{
+ "recorder": "benchmarks/rust-core/recorders/record-cursor-tool-choice.mjs",
+ "cases": [
+  {
+   "id": "abc / undefined",
+   "tools": [
+    "a",
+    "b",
+    "c"
+   ],
+   "choice": null,
+   "bodyToolChoice": null,
+   "offered": [
+    "a",
+    "b",
+    "c"
+   ]
+  },
+  {
+   "id": "abc / \"none\"",
+   "tools": [
+    "a",
+    "b",
+    "c"
+   ],
+   "choice": "none",
+   "bodyToolChoice": "none",
+   "offered": []
+  },
+  {
+   "id": "abc / \"auto\"",
+   "tools": [
+    "a",
+    "b",
+    "c"
+   ],
+   "choice": "auto",
+   "bodyToolChoice": "auto",
+   "offered": [
+    "a",
+    "b",
+    "c"
+   ]
+  },
+  {
+   "id": "abc / \"required\"",
+   "tools": [
+    "a",
+    "b",
+    "c"
+   ],
+   "choice": "required",
+   "bodyToolChoice": "required",
+   "offered": [
+    "a",
+    "b",
+    "c"
+   ]
+  },
+  {
+   "id": "abc / \"any\"",
+   "tools": [
+    "a",
+    "b",
+    "c"
+   ],
+   "choice": "any",
+   "bodyToolChoice": "any",
+   "offered": [
+    "a",
+    "b",
+    "c"
+   ]
+  },
+  {
+   "id": "abc / {\"name\":\"b\"}",
+   "tools": [
+    "a",
+    "b",
+    "c"
+   ],
+   "choice": {
+    "name": "b"
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "b"
+    }
+   },
+   "offered": [
+    "b"
+   ]
+  },
+  {
+   "id": "abc / {\"type\":\"function\",\"function\":{\"name\":\"b\"}}",
+   "tools": [
+    "a",
+    "b",
+    "c"
+   ],
+   "choice": {
+    "type": "function",
+    "function": {
+     "name": "b"
+    }
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "b"
+    }
+   },
+   "offered": [
+    "b"
+   ]
+  },
+  {
+   "id": "abc / {\"function\":{\"name\":\"c\"},\"name\":\"a\"}",
+   "tools": [
+    "a",
+    "b",
+    "c"
+   ],
+   "choice": {
+    "function": {
+     "name": "c"
+    },
+    "name": "a"
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "a"
+    }
+   },
+   "offered": [
+    "a"
+   ]
+  },
+  {
+   "id": "abc / {\"name\":\"missing\"}",
+   "tools": [
+    "a",
+    "b",
+    "c"
+   ],
+   "choice": {
+    "name": "missing"
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "missing"
+    }
+   },
+   "offered": []
+  },
+  {
+   "id": "abc / {\"name\":\"only\"}",
+   "tools": [
+    "a",
+    "b",
+    "c"
+   ],
+   "choice": {
+    "name": "only"
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "only"
+    }
+   },
+   "offered": []
+  },
+  {
+   "id": "abc / {\"name\":\"\"}",
+   "tools": [
+    "a",
+    "b",
+    "c"
+   ],
+   "choice": {
+    "name": ""
+   },
+   "bodyToolChoice": null,
+   "offered": [
+    "a",
+    "b",
+    "c"
+   ]
+  },
+  {
+   "id": "abc / {\"type\":\"function\"}",
+   "tools": [
+    "a",
+    "b",
+    "c"
+   ],
+   "choice": {
+    "type": "function"
+   },
+   "bodyToolChoice": null,
+   "offered": [
+    "a",
+    "b",
+    "c"
+   ]
+  },
+  {
+   "id": "abc / {\"name\":5}",
+   "tools": [
+    "a",
+    "b",
+    "c"
+   ],
+   "choice": {
+    "name": 5
+   },
+   "bodyToolChoice": null,
+   "offered": [
+    "a",
+    "b",
+    "c"
+   ]
+  },
+  {
+   "id": "abc / {}",
+   "tools": [
+    "a",
+    "b",
+    "c"
+   ],
+   "choice": {},
+   "bodyToolChoice": null,
+   "offered": [
+    "a",
+    "b",
+    "c"
+   ]
+  },
+  {
+   "id": "abc / null",
+   "tools": [
+    "a",
+    "b",
+    "c"
+   ],
+   "choice": null,
+   "bodyToolChoice": null,
+   "offered": [
+    "a",
+    "b",
+    "c"
+   ]
+  },
+  {
+   "id": "repeated / undefined",
+   "tools": [
+    "a",
+    "b",
+    "b"
+   ],
+   "choice": null,
+   "bodyToolChoice": null,
+   "offered": [
+    "a",
+    "b",
+    "b"
+   ]
+  },
+  {
+   "id": "repeated / \"none\"",
+   "tools": [
+    "a",
+    "b",
+    "b"
+   ],
+   "choice": "none",
+   "bodyToolChoice": "none",
+   "offered": []
+  },
+  {
+   "id": "repeated / \"auto\"",
+   "tools": [
+    "a",
+    "b",
+    "b"
+   ],
+   "choice": "auto",
+   "bodyToolChoice": "auto",
+   "offered": [
+    "a",
+    "b",
+    "b"
+   ]
+  },
+  {
+   "id": "repeated / \"required\"",
+   "tools": [
+    "a",
+    "b",
+    "b"
+   ],
+   "choice": "required",
+   "bodyToolChoice": "required",
+   "offered": [
+    "a",
+    "b",
+    "b"
+   ]
+  },
+  {
+   "id": "repeated / \"any\"",
+   "tools": [
+    "a",
+    "b",
+    "b"
+   ],
+   "choice": "any",
+   "bodyToolChoice": "any",
+   "offered": [
+    "a",
+    "b",
+    "b"
+   ]
+  },
+  {
+   "id": "repeated / {\"name\":\"b\"}",
+   "tools": [
+    "a",
+    "b",
+    "b"
+   ],
+   "choice": {
+    "name": "b"
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "b"
+    }
+   },
+   "offered": [
+    "b",
+    "b"
+   ]
+  },
+  {
+   "id": "repeated / {\"type\":\"function\",\"function\":{\"name\":\"b\"}}",
+   "tools": [
+    "a",
+    "b",
+    "b"
+   ],
+   "choice": {
+    "type": "function",
+    "function": {
+     "name": "b"
+    }
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "b"
+    }
+   },
+   "offered": [
+    "b",
+    "b"
+   ]
+  },
+  {
+   "id": "repeated / {\"function\":{\"name\":\"c\"},\"name\":\"a\"}",
+   "tools": [
+    "a",
+    "b",
+    "b"
+   ],
+   "choice": {
+    "function": {
+     "name": "c"
+    },
+    "name": "a"
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "a"
+    }
+   },
+   "offered": [
+    "a"
+   ]
+  },
+  {
+   "id": "repeated / {\"name\":\"missing\"}",
+   "tools": [
+    "a",
+    "b",
+    "b"
+   ],
+   "choice": {
+    "name": "missing"
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "missing"
+    }
+   },
+   "offered": []
+  },
+  {
+   "id": "repeated / {\"name\":\"only\"}",
+   "tools": [
+    "a",
+    "b",
+    "b"
+   ],
+   "choice": {
+    "name": "only"
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "only"
+    }
+   },
+   "offered": []
+  },
+  {
+   "id": "repeated / {\"name\":\"\"}",
+   "tools": [
+    "a",
+    "b",
+    "b"
+   ],
+   "choice": {
+    "name": ""
+   },
+   "bodyToolChoice": null,
+   "offered": [
+    "a",
+    "b",
+    "b"
+   ]
+  },
+  {
+   "id": "repeated / {\"type\":\"function\"}",
+   "tools": [
+    "a",
+    "b",
+    "b"
+   ],
+   "choice": {
+    "type": "function"
+   },
+   "bodyToolChoice": null,
+   "offered": [
+    "a",
+    "b",
+    "b"
+   ]
+  },
+  {
+   "id": "repeated / {\"name\":5}",
+   "tools": [
+    "a",
+    "b",
+    "b"
+   ],
+   "choice": {
+    "name": 5
+   },
+   "bodyToolChoice": null,
+   "offered": [
+    "a",
+    "b",
+    "b"
+   ]
+  },
+  {
+   "id": "repeated / {}",
+   "tools": [
+    "a",
+    "b",
+    "b"
+   ],
+   "choice": {},
+   "bodyToolChoice": null,
+   "offered": [
+    "a",
+    "b",
+    "b"
+   ]
+  },
+  {
+   "id": "repeated / null",
+   "tools": [
+    "a",
+    "b",
+    "b"
+   ],
+   "choice": null,
+   "bodyToolChoice": null,
+   "offered": [
+    "a",
+    "b",
+    "b"
+   ]
+  },
+  {
+   "id": "single / undefined",
+   "tools": [
+    "only"
+   ],
+   "choice": null,
+   "bodyToolChoice": null,
+   "offered": [
+    "only"
+   ]
+  },
+  {
+   "id": "single / \"none\"",
+   "tools": [
+    "only"
+   ],
+   "choice": "none",
+   "bodyToolChoice": "none",
+   "offered": []
+  },
+  {
+   "id": "single / \"auto\"",
+   "tools": [
+    "only"
+   ],
+   "choice": "auto",
+   "bodyToolChoice": "auto",
+   "offered": [
+    "only"
+   ]
+  },
+  {
+   "id": "single / \"required\"",
+   "tools": [
+    "only"
+   ],
+   "choice": "required",
+   "bodyToolChoice": "required",
+   "offered": [
+    "only"
+   ]
+  },
+  {
+   "id": "single / \"any\"",
+   "tools": [
+    "only"
+   ],
+   "choice": "any",
+   "bodyToolChoice": "any",
+   "offered": [
+    "only"
+   ]
+  },
+  {
+   "id": "single / {\"name\":\"b\"}",
+   "tools": [
+    "only"
+   ],
+   "choice": {
+    "name": "b"
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "b"
+    }
+   },
+   "offered": []
+  },
+  {
+   "id": "single / {\"type\":\"function\",\"function\":{\"name\":\"b\"}}",
+   "tools": [
+    "only"
+   ],
+   "choice": {
+    "type": "function",
+    "function": {
+     "name": "b"
+    }
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "b"
+    }
+   },
+   "offered": []
+  },
+  {
+   "id": "single / {\"function\":{\"name\":\"c\"},\"name\":\"a\"}",
+   "tools": [
+    "only"
+   ],
+   "choice": {
+    "function": {
+     "name": "c"
+    },
+    "name": "a"
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "a"
+    }
+   },
+   "offered": []
+  },
+  {
+   "id": "single / {\"name\":\"missing\"}",
+   "tools": [
+    "only"
+   ],
+   "choice": {
+    "name": "missing"
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "missing"
+    }
+   },
+   "offered": []
+  },
+  {
+   "id": "single / {\"name\":\"only\"}",
+   "tools": [
+    "only"
+   ],
+   "choice": {
+    "name": "only"
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "only"
+    }
+   },
+   "offered": [
+    "only"
+   ]
+  },
+  {
+   "id": "single / {\"name\":\"\"}",
+   "tools": [
+    "only"
+   ],
+   "choice": {
+    "name": ""
+   },
+   "bodyToolChoice": null,
+   "offered": [
+    "only"
+   ]
+  },
+  {
+   "id": "single / {\"type\":\"function\"}",
+   "tools": [
+    "only"
+   ],
+   "choice": {
+    "type": "function"
+   },
+   "bodyToolChoice": null,
+   "offered": [
+    "only"
+   ]
+  },
+  {
+   "id": "single / {\"name\":5}",
+   "tools": [
+    "only"
+   ],
+   "choice": {
+    "name": 5
+   },
+   "bodyToolChoice": null,
+   "offered": [
+    "only"
+   ]
+  },
+  {
+   "id": "single / {}",
+   "tools": [
+    "only"
+   ],
+   "choice": {},
+   "bodyToolChoice": null,
+   "offered": [
+    "only"
+   ]
+  },
+  {
+   "id": "single / null",
+   "tools": [
+    "only"
+   ],
+   "choice": null,
+   "bodyToolChoice": null,
+   "offered": [
+    "only"
+   ]
+  },
+  {
+   "id": "none-at-all / undefined",
+   "tools": [],
+   "choice": null,
+   "bodyToolChoice": null,
+   "offered": []
+  },
+  {
+   "id": "none-at-all / \"none\"",
+   "tools": [],
+   "choice": "none",
+   "bodyToolChoice": "none",
+   "offered": []
+  },
+  {
+   "id": "none-at-all / \"auto\"",
+   "tools": [],
+   "choice": "auto",
+   "bodyToolChoice": "auto",
+   "offered": []
+  },
+  {
+   "id": "none-at-all / \"required\"",
+   "tools": [],
+   "choice": "required",
+   "bodyToolChoice": "required",
+   "offered": []
+  },
+  {
+   "id": "none-at-all / \"any\"",
+   "tools": [],
+   "choice": "any",
+   "bodyToolChoice": "any",
+   "offered": []
+  },
+  {
+   "id": "none-at-all / {\"name\":\"b\"}",
+   "tools": [],
+   "choice": {
+    "name": "b"
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "b"
+    }
+   },
+   "offered": []
+  },
+  {
+   "id": "none-at-all / {\"type\":\"function\",\"function\":{\"name\":\"b\"}}",
+   "tools": [],
+   "choice": {
+    "type": "function",
+    "function": {
+     "name": "b"
+    }
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "b"
+    }
+   },
+   "offered": []
+  },
+  {
+   "id": "none-at-all / {\"function\":{\"name\":\"c\"},\"name\":\"a\"}",
+   "tools": [],
+   "choice": {
+    "function": {
+     "name": "c"
+    },
+    "name": "a"
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "a"
+    }
+   },
+   "offered": []
+  },
+  {
+   "id": "none-at-all / {\"name\":\"missing\"}",
+   "tools": [],
+   "choice": {
+    "name": "missing"
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "missing"
+    }
+   },
+   "offered": []
+  },
+  {
+   "id": "none-at-all / {\"name\":\"only\"}",
+   "tools": [],
+   "choice": {
+    "name": "only"
+   },
+   "bodyToolChoice": {
+    "type": "function",
+    "function": {
+     "name": "only"
+    }
+   },
+   "offered": []
+  },
+  {
+   "id": "none-at-all / {\"name\":\"\"}",
+   "tools": [],
+   "choice": {
+    "name": ""
+   },
+   "bodyToolChoice": null,
+   "offered": []
+  },
+  {
+   "id": "none-at-all / {\"type\":\"function\"}",
+   "tools": [],
+   "choice": {
+    "type": "function"
+   },
+   "bodyToolChoice": null,
+   "offered": []
+  },
+  {
+   "id": "none-at-all / {\"name\":5}",
+   "tools": [],
+   "choice": {
+    "name": 5
+   },
+   "bodyToolChoice": null,
+   "offered": []
+  },
+  {
+   "id": "none-at-all / {}",
+   "tools": [],
+   "choice": {},
+   "bodyToolChoice": null,
+   "offered": []
+  },
+  {
+   "id": "none-at-all / null",
+   "tools": [],
+   "choice": null,
+   "bodyToolChoice": null,
+   "offered": []
+  }
+ ]
+}

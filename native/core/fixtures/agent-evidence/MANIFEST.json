@@ -1,0 +1,30 @@
+{
+  "command": "node --experimental-test-module-mocks <repo>/benchmarks/rust-core/recorders/record-agent-evidence.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 8093,
+      "path": "golden.json",
+      "sha256": "a996b9f27f3745602f18fa29c73cd4271dc7266b5fb01d00a43e699d591ae81a"
+    }
+  ],
+  "product": {
+    "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9248,
+    "refComparison": {
+      "closestCommit": "caf95d9f8982e1a565e2442c879032b549ef0163",
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 4447
+    },
+    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-agent-evidence.mjs",
+  "set": "agent-evidence",
+  "totalBytes": 8093
+}

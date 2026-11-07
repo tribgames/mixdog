@@ -25,8 +25,11 @@ pub mod hidden_agents;
 mod schema;
 mod seams;
 mod service;
+mod secret_changes;
 mod watch;
 
+pub use secret_changes::AnnouncingStore;
+pub use secret_changes::SecretChanges;
 pub use seams::ConfigFeatureGate;
 pub use service::ConfigService;
 pub use watch::ConfigWatcher;
@@ -69,6 +72,9 @@ pub use settings::SettingsEnv;
 pub use agent_routes::agent_disabled;
 pub use agent_routes::bot_migration;
 pub use agent_routes::is_store_bot;
+pub use agent_routes::DEFAULT_MIXY_NAME;
+pub use agent_routes::mixy_display_name;
+pub use agent_routes::mixy_identity_dir;
 pub use agent_routes::AgentRoutes;
 pub use agent_routes::MIXY_RUNTIME_ID;
 pub use agent_routes::RouteHome;
@@ -249,6 +255,14 @@ impl Config {
     /// derive a view from the config and push it when it changes.
     pub fn changes(&self) -> tokio::sync::watch::Receiver<u64> {
         self.shared.changed.subscribe()
+    }
+
+    /// A change that is not in the document (a stored secret changed: [`SecretChanges`]) ticks
+    /// [`Config::changes`] like an installed document does, so the services that follow the
+    /// config have one signal to follow.
+    pub(crate) fn announce_change(&self) {
+        let generation = self.shared.generation.fetch_add(1, Ordering::Release) + 1;
+        self.shared.changed.send_replace(generation);
     }
 
     /// Counts the documents installed so far; the `revision` of a write reply.

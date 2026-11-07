@@ -93,13 +93,15 @@ impl RetentionHost for Host {
         Ok(self.ids.lock().unwrap().clone())
     }
 
-    async fn stored_header(&self, id: &str) -> Option<Header> {
+    async fn stored_header(&self, id: &str) -> Result<Option<Header>, CoreError> {
+        Ok((|| -> Option<Header> {
         let at = *self.stored.lock().unwrap().get(id)?;
         let mut header = Header::new();
         header.insert("owner".into(), json!("agent"));
         header.insert("ownerSessionId".into(), json!("sess_lead"));
         header.insert("lastUsedAt".into(), json!(at));
         Some(header)
+        })())
     }
 
     fn is_live(&self, id: &str) -> bool {
@@ -182,12 +184,12 @@ async fn a_failed_delete_keeps_its_session_and_a_moved_member_is_not_deleted() {
         async fn agent_only_ids(&self) -> Result<Vec<String>, CoreError> {
             self.0.agent_only_ids().await
         }
-        async fn stored_header(&self, id: &str) -> Option<Header> {
-            let mut header = self.0.stored_header(id).await?;
+        async fn stored_header(&self, id: &str) -> Result<Option<Header>, CoreError> {
+            let Some(mut header) = self.0.stored_header(id).await? else { return Ok(None) };
             if id == "sess_q" {
                 header.insert("ownerSessionId".into(), json!("sess_p"));
             }
-            Some(header)
+            Ok(Some(header))
         }
         fn is_live(&self, id: &str) -> bool {
             self.0.is_live(id)
@@ -215,8 +217,10 @@ async fn the_timer_sweeps_every_interval_until_cancelled() {
             *self.0.lock().unwrap() += 1;
             Err(CoreError::Internal { incident_id: "index".to_owned().into() })
         }
-        async fn stored_header(&self, _: &str) -> Option<Header> {
+        async fn stored_header(&self, _: &str) -> Result<Option<Header>, CoreError> {
+            Ok((|| -> Option<Header> {
             None
+            })())
         }
         fn is_live(&self, _: &str) -> bool {
             false
@@ -268,8 +272,10 @@ impl RetentionHost for Scripted {
         Ok(self.order.clone())
     }
 
-    async fn stored_header(&self, id: &str) -> Option<Header> {
+    async fn stored_header(&self, id: &str) -> Result<Option<Header>, CoreError> {
+        Ok((|| -> Option<Header> {
         self.headers.lock().unwrap().get(id).cloned().flatten()
+        })())
     }
 
     fn is_live(&self, id: &str) -> bool {
@@ -415,7 +421,7 @@ async fn the_timer_task_ends_after_the_admitted_operation() {
         async fn agent_only_ids(&self) -> Result<Vec<String>, CoreError> {
             self.inner.agent_only_ids().await
         }
-        async fn stored_header(&self, id: &str) -> Option<Header> {
+        async fn stored_header(&self, id: &str) -> Result<Option<Header>, CoreError> {
             self.inner.stored_header(id).await
         }
         fn is_live(&self, id: &str) -> bool {
@@ -443,4 +449,31 @@ async fn the_timer_task_ends_after_the_admitted_operation() {
     ended.await.expect("ended");
     assert_eq!(*host.finished.lock().unwrap(), 1, "the admitted delete was awaited");
     assert_eq!(inner.deleted.lock().unwrap().len(), 1, "no second delete after the token fired");
+}
+
+/// A record whose read never ran is neither a known nor a deleted session.
+struct Unread;
+
+#[async_trait]
+impl RetentionHost for Unread {
+    async fn agent_only_ids(&self) -> Result<Vec<String>, CoreError> {
+        Ok(vec!["sess_a".to_owned()])
+    }
+    async fn stored_header(&self, _: &str) -> Result<Option<Header>, CoreError> {
+        Err(CoreError::QueueFull { queue: "interactive".into() })
+    }
+    fn is_live(&self, _: &str) -> bool {
+        false
+    }
+    async fn archive(&self, _: &str) -> Result<(), CoreError> {
+        unreachable!("nothing is judged from an unread record")
+    }
+    async fn delete(&self, _: &str, _: f64, _: &[(String, f64)], _: &CancellationToken) -> Result<bool, CoreError> {
+        unreachable!("nothing is judged from an unread record")
+    }
+}
+
+#[tokio::test]
+async fn an_unread_record_fails_the_pass_instead_of_dropping_the_member() {
+    assert!(members_of(&Unread).await.is_err());
 }

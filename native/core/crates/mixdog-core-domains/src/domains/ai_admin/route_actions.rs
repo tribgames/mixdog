@@ -155,7 +155,9 @@ impl RouteActions {
         let mut out = Obj::new();
         let Some(saved) = route.get("fallbacks").and_then(Value::as_array) else { return out };
         let config = self.writes.config();
-        let Some(chain) = self.sessions.caller_chain(thread, &config).await else { return out };
+        // No receipt when the position could not be computed (a bot route read that never ran): the
+        // route write itself is done, and a receipt that claims nothing is not a false one.
+        let Ok(Some(chain)) = self.sessions.caller_chain(thread, &config).await else { return out };
         let position = &chain.position;
         let kind_matches = position["kind"] == json!(owner_kind)
             && (owner_kind != "bot" || position.get("agent").and_then(Value::as_str) == owner_agent);
@@ -188,7 +190,7 @@ impl RouteActions {
             return Err(fail(format!("{action} applies to another session: this one is running the setup call")));
         }
         let config = self.writes.config();
-        let session = self.sessions.session(&id, &config).await.ok_or_else(|| fail(format!("session {id} not found")))?;
+        let session = self.sessions.session(&id, &config).await?.ok_or_else(|| fail(format!("session {id} not found")))?;
         self.assert_agent(thread, &session.acting_agent, action).await?;
         Ok(session)
     }
@@ -204,7 +206,7 @@ impl RouteActions {
                 return Err(fail("agent is required"));
             }
             self.assert_agent(thread, &agent, "reset_route_fallback").await?;
-            self.sessions.agent_sessions(&agent, &config).await
+            self.sessions.agent_sessions(&agent, &config).await?
         } else {
             vec![self.target(thread, args, "reset_route_fallback", false).await?]
         };
