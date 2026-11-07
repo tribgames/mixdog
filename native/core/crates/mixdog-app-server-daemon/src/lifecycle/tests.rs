@@ -183,7 +183,11 @@ fn a_stop_request_waits_for_zero_clients_as_node_s_shutdown_does() {
             // Work running when the request comes (the recorded turn): the stop waits for it and reads what settled.
             let work = case["running"].is_string().then(|| fx.lifecycle.begin_activity(turn()));
             fx.lifecycle.request_stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
-            assert_eq!(!fx.recorder.has_exited(), case["aliveWhileRunning"].as_bool().unwrap_or(false), "{name}");
+            // Only a recorded running turn has a recorded state to compare: the process exit of an idle stop is a release on
+            // its own thread, so whether it has run yet by now is not a state Node recorded.
+            if let Some(alive) = case["aliveWhileRunning"].as_bool() {
+                assert_eq!(!fx.recorder.has_exited(), alive, "{name}");
+            }
             drop(work);
         }
         fx.recorder.wait_exit();

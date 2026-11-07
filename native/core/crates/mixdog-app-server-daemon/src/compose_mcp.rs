@@ -1140,7 +1140,9 @@ mod tests {
         // The connect reached the server: it is pending now, and nothing answers it.
         let accepted = tokio::task::spawn_blocking(move || (listener.accept().unwrap().0, listener));
         let (held, listener) = accepted.await.unwrap();
-        assert!(hub.servers_in(hub.runtime_scope()).is_empty() && !boot.is_finished(), "the first connect is pending");
+        // The configured server is registered the moment the scope's first connect applies it (and reads as not connected); the
+        // connect itself has not returned.
+        assert!(hub.servers_in(hub.runtime_scope()).len() == 1 && !boot.is_finished(), "the first connect is pending");
 
         let status = call(&composed.mcp_domain, "mcp/mcpStatus", serde_json::json!({})).await;
         assert_eq!(status["servers"][0]["name"], "held", "the status read answered during the connect: {status}");

@@ -198,7 +198,9 @@ async fn the_relay_peer_header_never_raises_rights_or_works_off_the_ssh_listener
 
     // Everything a relay connection may call, a local or SSH one may call as well.
     use mixdog_app_protocol::{CLIENT_METHODS, Origin};
-    for spec in CLIENT_METHODS.iter().filter(|spec| spec.allows(Origin::Relay)) {
+    // The one exception is the paired device's one-file grant: Node holds those per relay credential only
+    // (`remote-relay-device-methods.ts` `fileGrantsFor`), so a local or SSH connection has nothing to mint into.
+    for spec in CLIENT_METHODS.iter().filter(|spec| spec.allows(Origin::Relay) && spec.method != "transfer/grant/mint") {
         assert!(spec.allows(Origin::Local) && spec.allows(Origin::Ssh), "{} is relay-only", spec.method);
     }
 }
