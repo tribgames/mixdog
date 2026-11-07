@@ -1258,7 +1258,17 @@ async fn a_started_lead_sends_the_array_of_a_recorded_harness_request() {
     let surface = ToolSurface { host: &host, clock: &Fixed };
     let change = route_surface_change(&surface, &Fixed, &seated, &mixdog_core_ports::ports::route::Route::new(), Some(prepared), false);
     assert!(change.set.is_empty() && change.unset.is_empty(), "the first route's seat rebuilds no surface");
-    let sent: Vec<String> = request_tools(&pool, &mcp, &seated).await.iter().map(|tool| tool.name.clone()).collect();
-    let node: Vec<String> = harness["tools"].as_array().expect("tools").iter().map(|tool| tool["name"].as_str().expect("name").to_owned()).collect();
-    assert_eq!(sent, node);
+    // The tools are Node's, in Node's order and whole: the description bound to the model (`shell` names `edit`, not
+    // `edit/apply_patch`) and the input schema, as the stored header holds them and as the request carries them.
+    let node: Vec<Value> = harness["tools"].as_array().expect("tools").clone();
+    let definition = |tool: &Value| json!({ "name": tool["name"], "description": tool["description"], "inputSchema": tool["inputSchema"] });
+    let names_of = |tools: &[Value]| tools.iter().map(|tool| tool["name"].as_str().unwrap_or_default().to_owned()).collect::<Vec<_>>();
+    let stored: Vec<Value> = seated["tools"].as_array().expect("stored tools").iter().map(definition).collect();
+    let node_definitions: Vec<Value> = node.iter().map(definition).collect();
+    assert_eq!(names_of(&stored), names_of(&node_definitions), "the stored tools and their order");
+    assert_eq!(stored, node_definitions, "the stored definitions");
+    let sent: Vec<Value> = request_tools(&pool, &mcp, &seated).await.iter().map(wire).collect();
+    let node_sent: Vec<Value> = node.iter().map(|tool| json!({ "name": tool["name"], "description": tool["description"], "inputSchema": tool["inputSchema"], "deferLoading": false })).collect();
+    assert_eq!(names_of(&sent), names_of(&node_sent), "the sent tools and their order");
+    assert_eq!(sent, node_sent, "the sent definitions");
 }
