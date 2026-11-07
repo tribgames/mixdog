@@ -30,6 +30,8 @@ import type {
 } from './desktop-service-contract';
 import type { DesktopServiceInbound, DesktopServiceOutbound } from './desktop-service-protocol';
 import type { CapabilityLane } from './protocol/capability-route';
+import type { OperationLane } from './protocol/desktop-operation-route';
+import type { ServiceLane } from './protocol/service-route';
 import { filterSessionIds } from './desktop-state';
 import { longRunningRequestTimeout } from './local-provider-install-timeout';
 import { createSnapshotDeltaDecoder, releaseHiddenSessionStateEntries } from './state-delta';
@@ -52,6 +54,11 @@ interface DesktopServiceClientOptions {
   /** The connection's core, when it has one: session capabilities are requests of that core, not calls of the Node
    *  service. Removed with the Node lane at K1. */
   capabilityLane?: CapabilityLane;
+  /** The connection's core, for desktop operations: `invokeDesktopOperation` is the core request of the operation
+   *  (desktop-operation-route.ts), not a call of the Node service. Removed with the Node lane at K1. */
+  operationLane?: OperationLane;
+  /** The connection's core, for the DesktopService methods (service-route.ts). Removed with the Node lane at K1. */
+  serviceLane?: ServiceLane;
   requestTimeoutMs?: number;
   startupTimeoutMs?: number;
   restartBaseDelayMs?: number;
@@ -718,11 +725,15 @@ export class DesktopServiceClient implements DesktopService {
     timeoutMs?: number,
     signal?: AbortSignal
   ): Promise<T> {
+    // A connection with a core sends the method there (service-route.ts); the Node service is not started for it.
+    const lane = this.options.serviceLane;
+    if (lane) return lane.call<T>(method, args, signal);
     await this.start();
     return await this.sendRequest<T>(method, args, timeoutMs, signal);
   }
 
   private async invokeRead<T>(method: DesktopServiceMethod, args: unknown[] = [], signal?: AbortSignal): Promise<T> {
+    if (this.options.serviceLane) return await this.invoke<T>(method, args, undefined, signal);
     try {
       return await this.invoke<T>(method, args, undefined, signal);
     } catch (error) {
@@ -785,7 +796,8 @@ export class DesktopServiceClient implements DesktopService {
 
   private async invokeAndPublish(method: DesktopServiceMethod, args: unknown[] = []): Promise<SessionSnapshot> {
     const snapshot = await this.invoke<SessionSnapshot>(method, args);
-    this.publish(snapshot);
+    // The core lane answers with the snapshot this process already holds: nothing new to publish.
+    if (!this.options.serviceLane) this.publish(snapshot);
     return snapshot;
   }
   startProject(projectPath: string): Promise<SessionSnapshot> {
@@ -853,6 +865,7 @@ export class DesktopServiceClient implements DesktopService {
     return this.invokeRead('codeGraphQuery', [projectPath, mode, query]);
   }
   async listSessions(): Promise<DesktopSessionSummary[]> {
+    if (this.options.serviceLane) return this.invoke('listSessions');
     await this.start();
     if (this.sessionCacheFresh && this.cachedSessions) {
       this.sessionCacheFresh = false;
@@ -869,6 +882,7 @@ export class DesktopServiceClient implements DesktopService {
     return this.invokeRead('searchSessionContent', [query]);
   }
   async listAgentPool(): Promise<DesktopAgentPoolRow[]> {
+    if (this.options.serviceLane) return this.invoke('listAgentPool');
     await this.start();
     if (this.agentPoolCacheFresh && this.cachedAgentPool) {
       this.agentPoolCacheFresh = false;
@@ -1042,12 +1056,21 @@ export class DesktopServiceClient implements DesktopService {
     return lane ? lane.read(requests) : this.invokeRead('readCapabilities', [requests]);
   }
   invokeDesktopOperation(method: string, args: unknown[] = []): Promise<unknown> {
+    const lane = this.options.operationLane;
+    if (lane) return lane.invoke(method, args);
     return this.invoke('invokeDesktopOperation', [method, wireArgs(args)], longRunningRequestTimeout(method, args));
   }
   /** Fire-and-forget service call: no pending request (with its 120s timer)
    *  per terminal keystroke or resize, and no wait for a reply behind
    *  whatever session traffic is in flight. */
   notifyDesktopOperation(method: string, args: unknown[] = []): void {
+    const lane = this.options.operationLane;
+    if (lane) {
+      void lane.invoke(method, args).catch(() => {
+        /* fire-and-forget: the caller never reads a reply */
+      });
+      return;
+    }
     const transport = this.transport;
     if (!transport) {
       // Pre-ready (or mid-restart): fall back to the request lane, which waits
