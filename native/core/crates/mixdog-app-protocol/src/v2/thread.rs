@@ -850,6 +850,12 @@ pub struct ThreadRuntime {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(type = "number")]
     pub waiting_on_provider_since: Option<i64>,
+    // Node's runtime.clientHostPid: the process hosting the session runtime, which owns its shell jobs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_host_pid: Option<u32>,
+    // Node's toasts: transient notices, empty while none.
+    #[serde(default)]
+    pub toasts: Vec<JsonValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
@@ -871,6 +877,20 @@ pub struct ThreadRoute {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(type = "number")]
     pub selected_context_window: Option<i64>,
+    // Node's runtime.effort (effectiveEffort || effort || preset.effort): null while the route has none.
+    #[serde(default)]
+    pub effort: Option<String>,
+    // Node's runtime.provider / runtime.model: the selected route, which sessionProvider / sessionModel (the session's own) follow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    // Node's runtime.turnEffort: the effort the Auto judge resolved for the turn in flight, null when none.
+    #[serde(default)]
+    pub turn_effort: Option<String>,
+    // Node's runtime.effortOptions (state.route.effortOptions): the efforts the route's model offers, empty while none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort_options: Option<Vec<JsonValue>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
@@ -884,6 +904,21 @@ pub struct ThreadContext {
     pub context_tokens: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_default_percent: Option<f64>,
+    // Node's session.contextWindow: the session's window, null while it states none.
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub context_window: Option<i64>,
+    // Node's displayContextWindow (syncContextDisplayFields): the window the status shows, 0 until known.
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub display_context_window: Option<i64>,
+    // Node's autoCompactTokenLimit: the compaction trigger, 0 until known.
+    #[serde(default)]
+    #[ts(type = "number")]
+    pub auto_compact_token_limit: Option<i64>,
+    // Node's stats: the session's usage totals and context measurement.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stats: Option<JsonValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
@@ -913,7 +948,8 @@ pub struct ThreadWorkflow {
 #[serde(rename_all = "camelCase")]
 #[ts(optional_fields)]
 pub struct ThreadApprovals {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    // Node's toolApprovalResult: null while no decision has been shown.
+    #[serde(default)]
     pub tool_approval_result: Option<ToolApprovalResult>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handoff_questions: Option<Vec<JsonValue>>,

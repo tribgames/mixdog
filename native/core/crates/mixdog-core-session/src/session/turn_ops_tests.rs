@@ -697,7 +697,7 @@ async fn a_failure_without_an_end_item_records_its_end_and_the_history_shows_it_
     completion.as_object_mut().expect("object").shift_remove("attemptId");
     assert_eq!(
         completion,
-        json!({ "status": "failed", "at": 1000, "verb": "Thought", "elapsedMs": 0, "detail": want["detail"], "errorDetails": want["errorDetails"], "errorKind": want["errorKind"] })
+        json!({ "status": "failed", "at": 1000, "verb": "Mapped", "elapsedMs": 0, "detail": want["detail"], "errorDetails": want["errorDetails"], "errorKind": want["errorKind"] })
     );
 
     // The history is read through the stored-record transcript, the one that restores a row from its stored message

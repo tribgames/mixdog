@@ -589,6 +589,7 @@ impl Transcript for TextTranscript {
                 input: Value::Null,
                 output: None,
                 run: Box::new(mixdog_protocol::ToolRun {
+                    call_id: Some(call.to_owned()),
                     result: Some(MaybeBlob::Inline(
                         body["text"].as_str().unwrap_or_default().to_owned(),
                     )),
@@ -604,7 +605,7 @@ impl Transcript for TextTranscript {
                 name: call["name"].as_str().unwrap_or_default().to_owned(),
                 input: call["arguments"].clone(),
                 output: None,
-                run: Default::default(),
+                run: Box::new(mixdog_protocol::ToolRun { call_id: call["id"].as_str().map(str::to_owned), ..Default::default() }),
                 meta: ItemMeta::default(),
             }));
         }

@@ -375,6 +375,15 @@ pub enum Shown {
     Update(ThreadItem),
 }
 
+/// Whether `update` is for the item `existing`. A tool card is keyed by its provider call id (`run.callId`, Node's
+/// `pendingToolCalls` key); every other item by its id.
+pub fn updates(existing: &ThreadItem, update: &ThreadItem) -> bool {
+    match (existing, update) {
+        (ThreadItem::ToolCall { run: held, .. }, ThreadItem::ToolCall { run: new, .. }) => new.call_id.is_some() && held.call_id == new.call_id,
+        _ => existing.id() == update.id(),
+    }
+}
+
 /// A `ToolCall` update keeps the call (name, input, meta) and takes the result's output and
 /// every `ToolRun` fact the update sets; any other update replaces the item.
 pub fn merge_update(existing: &ThreadItem, update: &ThreadItem) -> ThreadItem {
@@ -551,6 +560,8 @@ pub struct RunStart {
     /// No person is attached to the turn: a worker's turn, a routine fire (schedule, webhook,
     /// room) or an automatic Goal turn. The progress watchdog stops only such a turn.
     pub unattended: bool,
+    /// `pickDoneVerb(stats.turns)` for the turn (`beginTurn`): the one count of closed turns the session keeps.
+    pub verb: &'static str,
     pub thread: ThreadId,
     pub turn: TurnId,
     pub input: TurnInput,

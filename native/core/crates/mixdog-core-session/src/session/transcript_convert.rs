@@ -213,7 +213,8 @@ fn tool_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
     let name = take_str(&mut row, "name").unwrap_or_default();
     let input = row.shift_remove("args").unwrap_or(Value::Null);
     let call_id = take_str(&mut row, "callId");
-    let id = call_id.as_deref().map_or(row_id, call_item_id);
+    // The item id is opaque (Node's `it_<run>_<n>`); the provider's call id rides `run.callId`, which a result's update finds the card by.
+    let id = row_id;
     let result = blob_text(&mut row, "result");
     let is_error = take_bool(&mut row, "isError");
     let completed_count = take_int(&mut row, "completedCount").and_then(|n| u32::try_from(n).ok());

@@ -1998,6 +1998,15 @@ async fn a_web_searchs_spend_is_heard_by_the_feed_and_not_by_the_headers_books()
     let live = handle.live_header();
     let header = live.header();
     assert_eq!((header.get("totalInputTokens"), header.get("totalOutputTokens"), header.get("lastIterationIndex")), (Some(&json!(10)), Some(&json!(5)), Some(&json!(1))));
+    // The session's stats (`applyUsageDelta`) fold the main stream only: the TUI never registers `onNativeWebSearchUsage`.
+    let stats = rig
+        .feeds
+        .frames(handle.id.as_str())
+        .into_iter()
+        .rev()
+        .find_map(|(_, method, params)| (method == "thread/context/updated" && params["value"]["stats"].is_object()).then(|| params["value"]["stats"].clone()))
+        .expect("the stats are published");
+    assert_eq!((&stats["inputTokens"], &stats["outputTokens"]), (&json!(10), &json!(5)), "a web search's spend is not in the totals");
 }
 
 

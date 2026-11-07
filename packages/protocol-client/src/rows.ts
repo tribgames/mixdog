@@ -117,7 +117,7 @@ function toolRow(item: Obj, m: Obj, name: string, args: Json | undefined, output
     count: 1,
     completedCount: finished ? 1 : 0,
     ...(finite(m.at) ? { at: m.at, startedAt: m.at, ...(finished ? { completedAt: m.at } : {}) } : {}),
-    ...present('callId', ext.callId),
+    ...present('callId', asObj(item.run).callId ?? ext.callId),
   };
   if (!finished) return row;
   const result = output ?? '';

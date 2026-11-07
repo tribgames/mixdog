@@ -13034,6 +13034,13 @@
     },
     "ThreadContext": {
       "properties": {
+        "autoCompactTokenLimit": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "contextDefaultPercent": {
           "format": "double",
           "type": [
@@ -13054,7 +13061,22 @@
             "integer",
             "null"
           ]
-        }
+        },
+        "contextWindow": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "displayContextWindow": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "stats": true
       },
       "type": "object"
     },
@@ -14506,6 +14528,19 @@
             "null"
           ]
         },
+        "effort": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "effortOptions": {
+          "items": true,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "fast": {
           "type": [
             "boolean",
@@ -14518,12 +14553,24 @@
             "null"
           ]
         },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "modelParameters": {
           "additionalProperties": {
             "type": "string"
           },
           "type": [
             "object",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": [
+            "string",
             "null"
           ]
         },
@@ -14545,6 +14592,12 @@
             "string",
             "null"
           ]
+        },
+        "turnEffort": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "type": "object"
@@ -14555,6 +14608,14 @@
         "busy": {
           "default": false,
           "type": "boolean"
+        },
+        "clientHostPid": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
         },
         "commandBusy": {
           "default": false,
@@ -14574,6 +14635,11 @@
           ]
         },
         "thinking": true,
+        "toasts": {
+          "default": [],
+          "items": true,
+          "type": "array"
+        },
         "waitingOnProviderSince": {
           "description": "Provider keepalives seen while no content arrives (SPEC §4.9), epoch ms.",
           "format": "int64",

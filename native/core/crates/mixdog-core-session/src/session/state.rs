@@ -8,7 +8,10 @@ use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use mixdog_protocol::OrchestrationMode;
+use mixdog_app_protocol::v2::thread::ThreadContext;
 use mixdog_app_protocol::v2::thread::ThreadRoute;
+use mixdog_app_protocol::v2::thread::ThreadWorkflow;
 use mixdog_app_protocol::v2::thread::ThreadRuntime;
 use mixdog_app_protocol::v2::thread::ThreadState;
 use mixdog_app_protocol::v2::thread::StorageState;
@@ -30,6 +33,7 @@ use serde_json::Value;
 use super::prompt_history;
 use super::seams::Shown;
 use super::seams::merge_update;
+use super::seams::updates;
 
 /// What a record shows besides itself.
 #[derive(Clone, Debug)]
@@ -204,10 +208,15 @@ impl SessionState {
         if let Some(row) = self
             .window
             .iter_mut()
-            .find(|row| row.item.id() == update.id())
+            .find(|row| updates(&row.item, update))
         {
             row.item = Arc::new(merge_update(&row.item, update));
         }
+    }
+
+    /// The item in view that `update` is for.
+    pub fn shown_for(&self, update: &ThreadItem) -> Option<Arc<ThreadItem>> {
+        self.window.iter().find(|row| updates(&row.item, update)).map(|row| row.item.clone())
     }
 
     /// The item in view with `id`.
@@ -391,10 +400,15 @@ impl SessionState {
     fn apply_section(&mut self, section: Section) {
         let s = &mut self.sections;
         match section {
-            Section::Runtime(value) => s.runtime = Some(value),
+            // The queue is the session's own (Toasts): a producer's whole runtime section leaves it.
+            Section::Runtime(mut value) => {
+                value.toasts = s.runtime.take().map(|held| held.toasts).unwrap_or_default();
+                s.runtime = Some(value);
+            }
+            Section::Toasts(toasts) => s.runtime.get_or_insert_with(ThreadRuntime::default).toasts = toasts,
             Section::ProgressHint(hint) => s.runtime.get_or_insert_with(ThreadRuntime::default).progress_hint = hint,
-            Section::Route(value) => s.route = Some(value),
-            Section::Context(value) => s.context = Some(value),
+            Section::Route(value) => s.route = Some(merge_route(s.route.take().unwrap_or_default(), value)),
+            Section::Context(value) => s.context = Some(merge_context(s.context.take().unwrap_or_default(), value)),
             Section::Todo(value) => s.todo = value,
             Section::Goal(value) => s.goal = value,
             Section::QuotaResume(value) => s.quota_resume = value,
@@ -425,23 +439,63 @@ impl SessionState {
             .collect()
     }
 
-    /// The `ThreadState` the view and snapshots show.
-    pub fn thread_state(&self, storage: StorageState) -> ThreadState {
-        let mut state = self.sections.clone();
-        // Sections no producer has published yet hold the engine's initial values (`initial-state.mjs`,
-        // `baseRouteState`): the session's route, an idle composer, no agents, no approval result.
+    /// The route section as clients hold it: the session's route (`baseRouteState`) under what producers published.
+    pub fn route(&self) -> ThreadRoute {
         let header_text = |key: &str| self.header.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
-        state.route.get_or_insert_with(|| ThreadRoute {
+        let initial = ThreadRoute {
             session_provider: header_text("provider"),
             session_model: header_text("model"),
             fast: Some(false),
             fast_capable: Some(false),
             auto_effort: Some(true),
             model_parameters: Some(Default::default()),
+            effort: header_text("effort"),
+            provider: header_text("provider"),
+            model: header_text("model"),
+            effort_options: Some(Vec::new()),
             ..Default::default()
-        });
-        state.runtime.get_or_insert_with(Default::default);
-        state.context.get_or_insert_with(Default::default);
+        };
+        merge_route(initial, self.sections.route.clone().unwrap_or_default())
+    }
+
+    /// The context section as clients hold it: the engine's initial figures (initial-state.mjs: display window and compaction limit 0, no window,
+    /// stats of a session that has made no call) under what producers published.
+    pub fn context(&self) -> ThreadContext {
+        let initial = ThreadContext {
+            display_context_window: Some(0),
+            auto_compact_token_limit: Some(0),
+            stats: Some(super::stats::SessionStats::default().json(0)),
+            ..Default::default()
+        };
+        merge_context(initial, self.sections.context.clone().unwrap_or_default())
+    }
+
+    /// The workflow section before a producer publishes one: the session's workflow meta (`toSessionWorkflowMeta`:
+    /// `id`, `name`, `description`, `source`, `delegatesAgents`) as the header holds it, the configured orchestration
+    /// mode (`getOrchestrationMode`, `balanced` by default), and no pending switch (`baseRouteState`).
+    fn initial_workflow(&self) -> ThreadWorkflow {
+        ThreadWorkflow {
+            workflow: self.header.get("workflow").filter(|workflow| workflow.is_object()).cloned(),
+            orchestration_mode: Some(
+                self.header
+                    .get("orchestrationMode")
+                    .and_then(|mode| serde_json::from_value(mode.clone()).ok())
+                    .unwrap_or(OrchestrationMode::Balanced),
+            ),
+            pending_workflow_switch: Some(false),
+            pending_orchestration_mode_switch: Some(false),
+        }
+    }
+
+    /// The `ThreadState` the view and snapshots show.
+    pub fn thread_state(&self, storage: StorageState) -> ThreadState {
+        let mut state = self.sections.clone();
+        // Sections no producer has published yet hold the engine's initial values (`initial-state.mjs`,
+        // `baseRouteState`): the session's route, an idle composer, no agents, no approval result.
+        state.route = Some(self.route());
+        state.workflow.get_or_insert_with(|| self.initial_workflow());
+        state.runtime = Some(self.runtime(StorageState::Ok));
+        state.context = Some(self.context());
         state.agents.get_or_insert_with(Default::default);
         state.approvals.get_or_insert_with(Default::default);
         state.queued = Some(self.queued_rows());
@@ -459,7 +513,41 @@ impl SessionState {
     pub fn runtime(&self, storage: StorageState) -> ThreadRuntime {
         let mut runtime = self.sections.runtime.clone().unwrap_or_default();
         runtime.storage = (storage != StorageState::Ok).then_some(storage);
+        // Node's runtime.clientHostPid: this process hosts the session runtime.
+        runtime.client_host_pid = Some(std::process::id());
         runtime
+    }
+}
+
+/// A route section update over the held one: a field the update states replaces it (the section is published whole, so
+/// a producer that knows one field leaves the others).
+fn merge_route(held: ThreadRoute, new: ThreadRoute) -> ThreadRoute {
+    ThreadRoute {
+        session_provider: new.session_provider.or(held.session_provider),
+        session_model: new.session_model.or(held.session_model),
+        fast: new.fast.or(held.fast),
+        fast_capable: new.fast_capable.or(held.fast_capable),
+        auto_effort: new.auto_effort.or(held.auto_effort),
+        model_parameters: new.model_parameters.or(held.model_parameters),
+        selected_context_window: new.selected_context_window.or(held.selected_context_window),
+        effort: new.effort.or(held.effort),
+        provider: new.provider.or(held.provider),
+        model: new.model.or(held.model),
+        turn_effort: new.turn_effort.or(held.turn_effort),
+        effort_options: new.effort_options.or(held.effort_options),
+    }
+}
+
+/// A context section update over the held one: a figure the update states replaces it.
+fn merge_context(held: ThreadContext, new: ThreadContext) -> ThreadContext {
+    ThreadContext {
+        context_percent: new.context_percent.or(held.context_percent),
+        context_tokens: new.context_tokens.or(held.context_tokens),
+        context_default_percent: new.context_default_percent.or(held.context_default_percent),
+        context_window: new.context_window.or(held.context_window),
+        display_context_window: new.display_context_window.or(held.display_context_window),
+        auto_compact_token_limit: new.auto_compact_token_limit.or(held.auto_compact_token_limit),
+        stats: new.stats.or(held.stats),
     }
 }
 
@@ -531,4 +619,19 @@ mod tests {
         state.apply(&Change::Section(Section::ProgressHint(None)), None);
         assert_eq!(state.sections.runtime, Some(held));
     }
-}
+
+    /// The toast queue is the session's own: a producer's whole runtime section leaves it, and the queue
+    /// publishes as Node's `{ id, text, tone, owner? }` toasts (`notice-surface.mjs` `pushToast`).
+    #[test]
+    fn a_runtime_section_leaves_the_toast_queue() {
+        let mut state = SessionState::new(10);
+        let toast = json!({ "id": "t1", "text": "boom happened", "tone": "error", "owner": "transcript" });
+        state.apply(&Change::Section(Section::Toasts(vec![toast.clone()])), None);
+        state.apply(&Change::Section(Section::Runtime(ThreadRuntime { busy: true, ..ThreadRuntime::default() })), None);
+        let runtime = state.sections.runtime.clone().unwrap();
+        assert!(runtime.busy);
+        assert_eq!(runtime.toasts, vec![toast]);
+        state.apply(&Change::Section(Section::Toasts(Vec::new())), None);
+        assert_eq!(state.sections.runtime.clone().unwrap().toasts, Vec::<serde_json::Value>::new());
+        assert!(state.sections.runtime.unwrap().busy, "the queue's expiry leaves the rest of the section");
+    }}
