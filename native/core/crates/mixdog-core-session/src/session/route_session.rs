@@ -672,4 +672,85 @@ mod tests {
         assert_eq!(items.len(), 3, "the switch row follows the reply");
         assert!(items[2].id().as_str().starts_with(&format!("{}:model:", items[1].id().as_str())));
     }
+
+    /// A new thread seated on its live route (`NewThreadRoute::seat`) carries the route fields the
+    /// Node session create recorded for that route (`route_goldens/node_create_route.json`, cut from
+    /// the Node real-turn harness run): the header names the route, Auto effort stays unrecorded.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_seated_thread_carries_the_route_fields_node_recorded() {
+        use mixdog_core_ports::ports::route::FollowOptions;
+        use mixdog_core_ports::ports::route::SessionRoutes;
+        use crate::session::thread_state::SessionThreads;
+        let golden: Value = serde_json::from_str(include_str!("route_goldens/node_create_route.json")).expect("golden");
+        let rig = crate::session::testing::Rig::new();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let thread = ThreadId::from("sess_seat");
+        directory.create_with_id(thread.clone(), obj(json!({ "cwd": "/ws" })), json!({})).await.expect("create");
+        let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
+        let adapter = SessionRouteAdapter::new(
+            directory.clone(),
+            threads.clone(),
+            Arc::new(Change(Mutex::default())),
+            Arc::new(Quiet),
+            Arc::new(Quiet),
+            Arc::new(Quiet),
+            rig.clock.clone(),
+        );
+        let live = Live(obj(golden["route"].clone()));
+        let routes = SessionRoutes::new(threads.clone(), threads.clone(), Arc::new(adapter), Arc::new(live));
+        let seat = FollowOptions { apply_to_current_session: true, lease: Some(0), ..FollowOptions::default() };
+        routes.follow(&thread, &seat).await.expect("seat");
+        let header = threads.header(&thread).await.expect("header");
+        for (key, want) in golden["header"].as_object().expect("recorded header fields") {
+            assert_eq!(header.get(key), Some(want), "{key}");
+        }
+        for key in golden["absent"].as_array().expect("recorded absent fields") {
+            assert!(!header.contains_key(key.as_str().expect("key")), "{key}");
+        }
+    }
+
+    /// A runtime whose route a held pick replaces (`setRouteState(resolveRoute(config, held))`).
+    struct Adopting(Mutex<Route>);
+    impl mixdog_core_ports::ports::route::LiveRoute for Adopting {
+        fn route(&self, _: &ThreadId) -> Route {
+            self.0.lock().unwrap().clone()
+        }
+        fn adopt_held(&self, _: &ThreadId, held: &Route) {
+            *self.0.lock().unwrap() = held.clone();
+        }
+    }
+
+    /// A pick held on the session (`pendingRoute`, the shape `heldRoutePick` gave in the Node
+    /// recording) takes effect at the next turn start (`applyPendingRoute`): the header names the
+    /// route Node recorded and holds no pick any more.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_held_pick_takes_effect_at_the_next_turn_start() {
+        use mixdog_core_ports::ports::route::SessionRoutes;
+        use crate::session::thread_state::SessionThreads;
+        let golden: Value = serde_json::from_str(include_str!("route_goldens/node_create_route.json")).expect("golden");
+        let rig = crate::session::testing::Rig::new();
+        let directory = Arc::new(SessionDirectory::new(rig.deps()));
+        let thread = ThreadId::from("sess_held");
+        let header = obj(json!({ "cwd": "/ws", "provider": "other", "model": "other-model", "pendingRoute": golden["held"].clone() }));
+        directory.create_with_id(thread.clone(), header, json!({})).await.expect("create");
+        let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
+        let adapter = SessionRouteAdapter::new(
+            directory.clone(),
+            threads.clone(),
+            Arc::new(Change(Mutex::default())),
+            Arc::new(Quiet),
+            Arc::new(Quiet),
+            Arc::new(Quiet),
+            rig.clock.clone(),
+        );
+        let live = Adopting(Mutex::new(obj(json!({ "provider": "other", "model": "other-model" }))));
+        let routes = SessionRoutes::new(threads.clone(), threads.clone(), Arc::new(adapter), Arc::new(live));
+        routes.apply_pending(&thread).await.expect("apply");
+        let header = threads.header(&thread).await.expect("header");
+        assert!(!header.contains_key("pendingRoute"), "the held pick is consumed");
+        for (key, want) in golden["header"].as_object().expect("recorded header fields") {
+            assert_eq!(header.get(key), Some(want), "{key}");
+        }
+        assert!(routes.apply_pending(&thread).await.expect("again").is_none(), "nothing is held any more");
+    }
 }

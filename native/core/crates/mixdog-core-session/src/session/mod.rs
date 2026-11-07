@@ -133,6 +133,7 @@ pub mod user_cwd;
 pub mod user_facts;
 pub mod agent_route;
 pub mod route_cell;
+pub mod new_route;
 pub mod session_options;
 mod view;
 pub mod worktree;
@@ -190,6 +191,7 @@ pub use self::seams::CommitRecord;
 pub use self::seams::EncodedRecord;
 pub use self::seams::EffortPrewarm;
 pub use self::seams::FeedFactory;
+pub use self::seams::NewThreadRoute;
 pub use self::seams::NewThreadTools;
 pub use self::seams::ResumedTools;
 pub use self::seams::RoomMemberEvents;
@@ -234,6 +236,8 @@ pub struct SessionDeps {
     pub surfaces: Arc<dyn ToolSurfaceSource>,
     /// The tool definitions a `thread/start` thread begins with.
     pub new_tools: Arc<dyn NewThreadTools>,
+    /// The route a `thread/start` thread begins on (its draft's pick, else the config's default).
+    pub new_route: Arc<dyn NewThreadRoute>,
     /// The tool surface a stored thread opened for use takes (`_refreshResumedTools`).
     pub resumed_tools: Arc<dyn ResumedTools>,
     /// A room member's handed-off questions moved or its approval resolved: its room follows.

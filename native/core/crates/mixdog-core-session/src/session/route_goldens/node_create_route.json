@@ -1,0 +1,35 @@
+{
+  "recorded": {
+    "request": "baseline/node/created.json (session.create {provider, model}) and out/compare/stored-header.node.json of the Node real-turn harness run",
+    "held": "heldRoutePick(route) of src/session-runtime/model-route/set-route.mjs (the pick route/set holds on the session as pendingRoute), evaluated on `route`"
+  },
+  "route": {
+    "provider": "custom-harness",
+    "model": "harness-model",
+    "effort": null,
+    "fast": false,
+    "autoEffort": true,
+    "modelParameters": {},
+    "contextPercent": null
+  },
+  "header": {
+    "provider": "custom-harness",
+    "model": "harness-model",
+    "effort": null,
+    "fast": false,
+    "modelParameters": {},
+    "contextPercent": null,
+    "selectedContextWindow": null
+  },
+  "absent": [
+    "autoEffort"
+  ],
+  "held": {
+    "provider": "custom-harness",
+    "model": "harness-model",
+    "effort": null,
+    "fast": false,
+    "modelParameters": {},
+    "contextPercent": null
+  }
+}
