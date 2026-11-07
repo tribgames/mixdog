@@ -250,6 +250,26 @@ async fn call(
     value(&*rig.service, request(method, params, op)).await
 }
 
+/// `startBootCheck()`: one forced check at boot fills the settings (`latestVersion`) that a
+/// read answers, and leaves the phase alone.
+#[tokio::test]
+async fn the_boot_check_remembers_the_latest_version() {
+    let (url, hits) = registry(200, r#"{"version":"9.9.9"}"#);
+    let installer = Installer::new(Ok(None));
+    let rig = rig(url, installer.clone(), "1.4.5").await;
+    rig.service.start_boot_check().await.unwrap();
+    // `update.auto` is on and 9.9.9 is newer: it is staged in the background.
+    assert_eq!(*installer.staged.lock().unwrap(), ["9.9.9"]);
+    let settings = call(&rig, "config/getUpdateSettings", json!({}), None).await.unwrap();
+    assert_eq!(settings["latestVersion"], "9.9.9");
+    assert_eq!(settings["updateAvailable"], true);
+    assert_eq!(hits.load(AtomicOrdering::SeqCst), 1);
+    assert_eq!(
+        call(&rig, "update/getUpdateStatus", json!({}), None).await.unwrap(),
+        json!({ "phase": "idle", "version": null, "error": null })
+    );
+}
+
 #[tokio::test]
 async fn the_status_starts_idle_and_a_check_reports_the_update_settings() {
     let (url, hits) = registry(200, r#"{"version":"9.9.9"}"#);
