@@ -625,6 +625,8 @@ process.exit(0);
 #[test]
 #[ignore = "needs MIXDOG_TAG_TREE (real 1.4.5 tag); suspends the core for 61 s"]
 fn gate_4_contenders_against_a_suspended_core_all_exit() {
+    // The tree is first needed by the contenders, 61 s into the suspension: a missing `MIXDOG_TAG_TREE` must fail before the core is suspended and slept on, not after.
+    let _tree = tag_tree();
     let temp = TempData::new();
     let mut core = core_process(&temp);
     assert_eq!(core.expect("SERVING"), "");

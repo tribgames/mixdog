@@ -95,6 +95,8 @@ mod tests {
     use super::*;
 
     fn source() -> (oneshot::Sender<io::Result<StopSignal>>, impl Future<Output = io::Result<StopSignal>> + Send + 'static) {
+        // `from_source` spawns on the runtime's executors, which a test process installs once.
+        mixdog_rt::testing::tokens();
         let (send, receive) = oneshot::channel();
         (send, async move { receive.await.unwrap_or_else(|_| Err(io::Error::other("closed"))) })
     }
