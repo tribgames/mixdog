@@ -3,11 +3,13 @@
 // the session the call is addressed to as `threadId`. A call without a session is the control session's: no
 // `threadId` (a thread-scoped request is `thread_id`, a control one `global(<domain>)`, protocol.md §12 preamble).
 // The routing table is the TUI's (`src/standalone/protocol-session`); only actions the TUI does not route are added.
-// The control session is a real thread of the core, started on first need and addressed by the ops that require one.
+// The control session is a real thread of the core, started on first need and addressed by the ops that require one and by
+// the MCP actions (Node sends the control session's id with every MCP action, session and control path alike).
 import {
   desktopSessionState,
   sessionReducer,
 } from '../../../../../packages/protocol-client/src/index.ts';
+import { ACTION_NAMESPACES } from '../../../../../src/standalone/protocol-session/action-namespaces.mjs';
 import { resolveAction } from '../../../../../src/standalone/protocol-session/action-route.mjs';
 import type {
   DesktopCapability,
@@ -69,6 +71,14 @@ export const THREAD_REQUIRED_CAPABILITIES: ReadonlySet<string> = new Set([
   'clear',
 ]);
 
+/** The capabilities served by the core's `mcp/*` and `connector/*` ops: the same set as Node's `MCP_ACTIONS`
+ *  (`session-host-transport.ts`). A call of one without a session is addressed to the control thread, whose scope is the
+ *  draft scope a request with no `threadId` would have named. */
+export const MCP_CAPABILITIES: ReadonlySet<string> = new Set([
+  ...ACTION_NAMESPACES.mcp,
+  ...ACTION_NAMESPACES.connector,
+]);
+
 const failureMessage = (error: unknown): string => {
   const shown = coreErrorForWindow(error);
   return shown instanceof Error ? shown.message : String(shown);
@@ -84,17 +94,30 @@ const startedThreadId = (started: unknown): string => {
  *  creates its control session) on first need and kept. A reply carries the state of the thread the call was addressed to,
  *  read from the core when the reply arrives (`thread/read` without items, folded by the client library's own
  *  `sessionReducer`/`desktopSessionState`, with the `hostShellJobs` section the core pushes): nothing is held between calls.
- *  A pending tool approval is not part of that read, so `toolApproval` is `null` here; it reaches the pane with its server
- *  request. */
+ *  The pending approvals are the ones the core asked this connection
+ *  for (`item/*` server requests), joined by the library's own projection, so `toolApproval` is what Node's reply shows. */
 export function createCapabilityLane({
   protocol,
 }: {
-  protocol: Pick<ProtocolConnection, 'call' | 'snapshot'>;
+  protocol: Pick<ProtocolConnection, 'call' | 'snapshot' | 'onEvent'>;
 }): CapabilityLane {
   const request = (method: string, params: unknown): Promise<unknown> =>
     protocol.call(method, params).catch((error: unknown) => {
       throw coreErrorForWindow(error);
     });
+  // The approvals the core is waiting on, as the client library's `pendingServerRequests` holds them: added when the core asks,
+  // removed when it resolves the ask, all dropped with the socket (the core asks again after a reconnect).
+  const pendingApprovals = new Map<string, unknown>();
+  protocol.onEvent((event) => {
+    if (event.type === 'serverRequest') {
+      const asked = (event as { request: { id: unknown; method: string } }).request;
+      if (asked.method.startsWith('item/')) pendingApprovals.set(JSON.stringify(asked.id), asked);
+    } else if (event.type === 'serverRequestResolved') {
+      pendingApprovals.delete(JSON.stringify((event as { params: { requestId?: unknown } }).params.requestId));
+    } else if (event.type === 'status' && (event as { status: { state: string } }).status.state !== 'ready') {
+      pendingApprovals.clear();
+    }
+  });
   let control: Promise<string> | null = null;
   const controlThread = (): Promise<string> => {
     if (control) return control;
@@ -107,7 +130,12 @@ export function createCapabilityLane({
     return pending;
   };
   const send = async (capability: string, args: readonly unknown[], sessionId?: string): Promise<unknown> => {
-    const thread = sessionId ?? (THREAD_REQUIRED_CAPABILITIES.has(capability) ? await controlThread() : undefined);
+    let thread = sessionId;
+    if (!thread && (THREAD_REQUIRED_CAPABILITIES.has(capability) || MCP_CAPABILITIES.has(capability))) {
+      // An action with no op fails here, before a thread is started for it.
+      routeCapability(capability, args);
+      thread = await controlThread();
+    }
     // `retryFailedTurn(sessionId, turnKey)` names its thread as its first argument; left out, it is the one addressed.
     const named = capability === 'retryFailedTurn' && !args[0] ? [thread, ...args.slice(1)] : args;
     const { method, params } = routeCapability(capability, named, thread);
@@ -118,7 +146,7 @@ export function createCapabilityLane({
     const hostShellJobs = protocol.snapshot().entries.find((entry) => entry.section === 'hostShellJobs')?.value;
     return desktopSessionState(
       sessionReducer.initial(read as Parameters<typeof sessionReducer.initial>[0]),
-      [],
+      [...pendingApprovals.values()] as Parameters<typeof desktopSessionState>[1],
       hostShellJobs as Parameters<typeof desktopSessionState>[2]
     ) as unknown as SessionSnapshot;
   };
@@ -127,7 +155,8 @@ export function createCapabilityLane({
       const value = (await send(capability, args, sessionId)) as T;
       return { value, snapshot: await stateOf(sessionId ?? (await controlThread())) };
     },
-    // Node answers every read from the control session and ignores the request's `sessionId`; so does this. Reads are
+    // Node answers every read from the control session and ignores the request's `sessionId`; so does this (an MCP read is
+    // addressed to the control thread, as Node's carrier does). Reads are
     // independent getters, answered together; the result order stays positional.
     read: (requests) =>
       Promise.all(

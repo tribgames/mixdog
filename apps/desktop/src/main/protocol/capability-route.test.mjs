@@ -11,7 +11,12 @@ import { METHOD_ARGS } from '../../../../../src/standalone/protocol-session/meth
 import { DESKTOP_CAPABILITIES } from '../../shared/contract-capabilities.ts';
 import { createDesktopConnection } from '../connections/desktop-connection.ts';
 import { DesktopServiceClient } from '../desktop-service-client.ts';
-import { THREAD_REQUIRED_CAPABILITIES, createCapabilityLane, routeCapability } from './capability-route.ts';
+import {
+  MCP_CAPABILITIES,
+  THREAD_REQUIRED_CAPABILITIES,
+  createCapabilityLane,
+  routeCapability,
+} from './capability-route.ts';
 
 const schemaDir = new URL('../../../../../native/core/crates/mixdog-app-protocol/schema/', import.meta.url);
 const json = (name) => JSON.parse(readFileSync(new URL(name, schemaDir), 'utf8'));
@@ -57,8 +62,13 @@ function recordingLane(answer = async () => ({ ok: true })) {
   const all = [];
   const states = new Map();
   const world = { starts: 0, failStarts: 0, shell: [] };
+  const listeners = new Set();
   const protocol = {
     snapshot: () => ({ status: 'ready', entries: world.shell }),
+    onEvent: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     call: async (method, params) => {
       all.push({ method, params });
       if (method === 'thread/start') {
@@ -77,7 +87,8 @@ function recordingLane(answer = async () => ({ ok: true })) {
       return answer(method, params);
     },
   };
-  return { calls, all, states, world, lane: createCapabilityLane({ protocol }) };
+  const emit = (event) => listeners.forEach((listener) => listener(event));
+  return { calls, all, states, world, emit, lane: createCapabilityLane({ protocol }) };
 }
 // The 14 `mcp/*` actions: `[capability, positional args, params without threadId]`. The names are the fields of the
 // Rust `Mcp*Params` structs in declared order (`v2/params.rs`), which is the order of Node's `resource-mcp-api.mjs`.
@@ -113,10 +124,10 @@ for (const [capability, args, method, params] of MCP) {
     await lane.invoke(capability, args, 'pane-1');
     assert.deepEqual(calls, [{ method, params: { threadId: 'pane-1', ...params } }]);
   });
-  test(`${capability} from the control session is ${method} with no thread`, async () => {
+  test(`${capability} from the control session is ${method} for the control thread`, async () => {
     const { calls, lane } = recordingLane();
     await lane.invoke(capability, args, undefined);
-    assert.deepEqual(calls, [{ method, params }]);
+    assert.deepEqual(calls, [{ method, params: { threadId: 'control-1', ...params } }]);
   });
 }
 
@@ -150,6 +161,63 @@ test('a reply carries the state of the addressed thread, read from the core at t
       { method: 'thread/read', params: { threadId: 'pane-1', window: { none: true } } },
     ]
   );
+});
+
+test('an MCP action without a session names the control thread; the set is the mcp and connector ops', async () => {
+  const routed = DESKTOP_CAPABILITIES.filter(
+    (capability) => MCP_CAPABILITIES.has(capability) && !NOT_ROUTED.includes(capability)
+  );
+  assert.deepEqual(
+    [...routed].sort(),
+    DESKTOP_CAPABILITIES.filter((capability) => {
+      if (NOT_ROUTED.includes(capability)) return false;
+      const { method } = routeCapability(capability, [], 'pane-1');
+      return method.startsWith('mcp/') || method.startsWith('connector/');
+    }).sort()
+  );
+  for (const capability of routed) {
+    const { calls, lane } = recordingLane();
+    await lane.invoke(capability, [], undefined);
+    await lane.invoke(capability, [], 'pane-1');
+    assert.deepEqual(
+      calls.map((call) => call.params.threadId),
+      ['control-1', 'pane-1'],
+      capability
+    );
+  }
+});
+
+test('a call that is not an MCP action and has no session names no thread', async () => {
+  const { calls, lane } = recordingLane();
+  await lane.invoke('getAutoClear', [], undefined);
+  assert.deepEqual(calls, [{ method: 'config/getAutoClear', params: {} }]);
+});
+
+test('a reply shows the approvals the core is waiting on for its thread, as the library projects them', async () => {
+  const { emit, lane } = recordingLane();
+  const ask = (id, thread, order, method = 'item/tool/requestApproval') => ({
+    type: 'serverRequest',
+    request: {
+      id,
+      method,
+      params: { threadId: thread, turnId: 't', itemId: `i${id}`, order, request: { name: 'shell' } },
+    },
+  });
+  emit(ask(7, 'pane-1', 1));
+  emit(ask(8, 'pane-1', 2));
+  emit(ask(9, 'pane-2', 1));
+  emit(ask(10, 'pane-1', 0, 'host/browser/command'));
+  const shown = (await lane.invoke('mcpStatus', [], 'pane-1')).snapshot;
+  assert.equal(shown.toolApproval.id, '7');
+  assert.equal(shown.toolApproval.name, 'shell');
+  assert.equal(shown.toolApprovalsWaiting, 1);
+  emit({ type: 'serverRequestResolved', params: { requestId: 7 } });
+  const next = (await lane.invoke('mcpStatus', [], 'pane-1')).snapshot;
+  assert.equal(next.toolApproval.id, '8');
+  assert.equal(next.toolApprovalsWaiting, 0);
+  emit({ type: 'status', status: { state: 'reconnecting' } });
+  const dropped = (await lane.invoke('mcpStatus', [], 'pane-1')).snapshot;
+  assert.equal(dropped.toolApproval, null);
 });
 
 test('a call without a session is answered with the state of the control thread', async () => {
@@ -272,6 +340,8 @@ test('a capability with no op fails before anything is sent, and does not fall b
   const { all, calls, lane } = recordingLane();
   for (const capability of NOT_ROUTED) {
     await assert.rejects(lane.invoke(capability, [], 'pane-1'), (error) => error.code === 'unknownMethod', capability);
+    // Without a session too: no control thread is started for an action that has no op.
+    await assert.rejects(lane.invoke(capability, [], undefined), (error) => error.code === 'unknownMethod', capability);
   }
   assert.deepEqual(calls, []);
   const [result] = await lane.read([{ capability: 'listAgents' }]);
@@ -296,13 +366,23 @@ test('reads are answered together, in order, from the control session whatever s
     { ok: false, error: 'status unavailable' },
     { ok: true, value: 'skills/skillsStatus' },
   ]);
-  assert.deepEqual(calls, [
-    { method: 'config/getAutoClear', params: {} },
-    { method: 'mcp/mcpStatus', params: {} },
-    { method: 'skills/skillsStatus', params: { options: { cwd: '/w' } } },
-  ]);
-  // Node's readCapabilities never reads a request's sessionId, and a read starts no thread and reads no state.
-  assert.deepEqual(all, calls);
+  // The MCP read waits for the control thread to start, so the ops reach the core in no fixed order.
+  const byMethod = (left, right) => left.method.localeCompare(right.method);
+  assert.deepEqual(
+    [...calls].sort(byMethod),
+    [
+      { method: 'config/getAutoClear', params: {} },
+      { method: 'mcp/mcpStatus', params: { threadId: 'control-1' } },
+      { method: 'skills/skillsStatus', params: { options: { cwd: '/w' } } },
+    ].sort(byMethod)
+  );
+  // Node's readCapabilities never reads a request's sessionId, and a read reads no state; only the MCP read is addressed
+  // to the control thread (as Node's MCP carrier does), which it starts.
+  assert.deepEqual(
+    all.filter((call) => call.method === 'thread/start'),
+    [{ method: 'thread/start', params: { kind: 'task' } }]
+  );
+  assert.deepEqual(all.filter((call) => call.method !== 'thread/start'), calls);
 });
 
 test('a domain error of the core reaches the window as the error Node raised', async () => {
@@ -340,7 +420,7 @@ test('the service client sends capabilities to its lane and never to the Node se
   await client.readCapabilities([{ capability: 'mcpStatus' }]);
   assert.deepEqual(calls, [
     { method: 'mcp/setMcpServerEnabled', params: { threadId: 'pane-1', name: 'fixture', enabled: false } },
-    { method: 'mcp/mcpStatus', params: {} },
+    { method: 'mcp/mcpStatus', params: { threadId: 'control-1' } },
   ]);
 });
 
@@ -352,6 +432,7 @@ test("a connection with a core endpoint routes its client's capabilities through
       return { servers: [] };
     },
     snapshot: () => ({ status: 'ready', entries: [] }),
+    onEvent: () => () => {},
     close: async () => {},
   };
   const connection = createDesktopConnection(
