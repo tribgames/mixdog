@@ -286,6 +286,9 @@ async fn the_tick_runs_the_scheduled_cycle_and_shutdown_stops_it() {
     let config = Arc::new(Config { section: Mutex::new(json!({"cycle1": {"interval": "50ms", "min_batch": 1}})), enabled: AtomicBool::new(true) });
     let llm = Arc::new(Llm { replies: Mutex::new(VecDeque::from(["1-3|Topic|task|Short summary".to_owned()])), gate: None, entered: Default::default(), calls: Mutex::new(0) });
     let timer = Arc::new(ManualTimer::default());
+    // The scheduler reads the injected clock, as `periodicCycleDue` reads `Date.now()` in Node: the
+    // first check is due only once the cycle interval has passed since `start_cycles`.
+    let clock = Arc::new(std::sync::atomic::AtomicI64::new(now_ms()));
     let scheduler = CycleScheduler::new(SchedulerDeps {
         db: db.clone(),
         llm: llm.clone(),
@@ -293,16 +296,27 @@ async fn the_tick_runs_the_scheduled_cycle_and_shutdown_stops_it() {
         config: config.clone(),
         state_file: state.clone(),
         lane: mixdog_rt::testing::tokens().maintenance_io,
-        now: Arc::new(now_ms),
+        now: {
+            let clock = Arc::clone(&clock);
+            Arc::new(move || clock.load(Ordering::SeqCst))
+        },
         timer: timer.clone(),
     })
     .with_tick(Duration::from_millis(150));
     scheduler.start_cycles().await;
     let tick = Duration::from_millis(150);
     timer.armed_at(tick).await;
+    clock.fetch_add(50, Ordering::SeqCst);
     timer.fire(tick);
+    // The claimed slot's coalesced retry waits out its own delay (default 1000 ms) on the timer.
+    let retry = Duration::from_millis(1000);
+    timer.armed_at(retry).await;
+    timer.fire(retry);
     llm.entered.notified().await;
-    // Shutdown joins the tick task, which finishes the check it is in before it ends.
+    // The run commits and clears its in-flight slot before shutdown cancels what is left.
+    while scheduler.is_cycle1_running() {
+        tokio::task::yield_now().await;
+    }
     scheduler.shutdown().await;
     let last = db.query_opt("SELECT value FROM meta WHERE key = 'state.cycle_last_run'", &[]).await.unwrap();
     assert!(last.is_some_and(|r| r.get::<_, Value>(0)["cycle1"].as_i64().unwrap_or(0) > 0), "the scheduled tick ran cycle1");

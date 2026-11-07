@@ -17,9 +17,9 @@ test-group = 'migration-crash-matrix'
 # (about 4 s and a dozen processes each, fsync-bound). Started together, the postmasters of a run are
 # still in recovery when the tests connect, and shutdowns of the stack queue behind the same disk;
 # one cluster at a time is the load a single test was verified under. Matching the module paths
-# keeps tests added to those modules in the group.
+# keeps tests added to those modules in the group. The daemon's real-core tests (#[ignore], MIXDOG_PG_RUNTIME) share the one data dir's port the same way.
 [[profile.default.overrides]]
-filter = 'package(mixdog-services) & (test(/^memory::tests::/) | test(/^memory::thread_search::tests::/))'
+filter = 'package(mixdog-services) & (test(/^memory::tests::/) | test(/^memory::thread_search::tests::/)) | (package(mixdog-app-server-daemon) & (test(/^compose::tests::/) | test(/^server::tests::/) | test(/^serving::tests::start_serves_both/)))'
 test-group = 'pg-cluster'
 
 # The two real-git replays of mixdog-core-session each wait on a chain of about 1,400 git processes
