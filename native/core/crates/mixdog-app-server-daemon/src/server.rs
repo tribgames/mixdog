@@ -79,7 +79,7 @@ impl Running {
     }
 }
 
-fn server_config(limits: Limits) -> ServerConfig {
+pub(crate) fn server_config(limits: Limits) -> ServerConfig {
     let version = env!("CARGO_PKG_VERSION");
     let server = compat::parse(version).expect("the workspace version is semver");
     ServerConfig {
