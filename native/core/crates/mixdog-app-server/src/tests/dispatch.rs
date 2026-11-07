@@ -296,7 +296,7 @@ async fn requests_of_one_key_run_one_at_a_time_and_other_keys_run_beside_them() 
     let rig = Rig::gated(&["terminal"]);
     let client = rig.ready(1, json!({}));
     let gate = rig.gate("terminal");
-    let focus = |id: i64, tab: &str| client.request(id, "terminal/focus", json!({ "tabId": tab }));
+    let focus = |id: i64, tab: &str| client.request(id, "terminal/focus", json!({ "tabId": tab, "focused": true }));
     focus(1, "a");
     focus(2, "a");
     focus(3, "b");

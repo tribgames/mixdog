@@ -241,10 +241,28 @@ impl GitInspector {
             let git = self.git.clone();
             let head = key.head.clone();
             run_status(cell.status.clone(), key, sender, async move {
-                scan(&git, lane, &CancellationToken::new(), &identity, head).await
+                scan(&git, lane, &CancellationToken::new(), &identity, head, true).await
             });
         }
         slot.wait().await
+    }
+
+    /// The scan without add/delete counts: never shared with, or kept for, the counted scan.
+    pub async fn scan_without_line_stats(
+        &self,
+        lane: MaintenanceIo,
+        repo: RepoRef,
+    ) -> Result<Arc<StatusScan>, ScmError> {
+        let cell = self.cell(&repo);
+        let identity = self.identity(lane, &cell, &repo).await.map_err(ScmError::from)?;
+        let key = self
+            .current_key(lane, &cell, &identity)
+            .await
+            .map_err(ScmError::from)?;
+        let scanned = scan(&self.git, lane, &CancellationToken::new(), &identity, key.head, false)
+            .await
+            .map_err(ScmError::from)?;
+        Ok(Arc::new(scanned))
     }
 
     fn review_slot(&self, key: &InspectorKey) -> Option<Slot<ReviewEntry>> {

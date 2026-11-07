@@ -3234,7 +3234,7 @@ crate::client_request_definitions! {
     /// Abort an upload.
     TransferAbort => "transfer/abort" {
         params: TransferAbortParams,
-        result: v2::feed::EmptyResult,
+        result: JsonValue,
         scope: none,
         class: C2,
         mutation: none,
@@ -3919,7 +3919,7 @@ crate::client_request_definitions! {
     /// Subscribe `process:<tabId>`; snapshot = screen text.
     TerminalAttach => "terminal/attach" {
         params: TerminalAttachParams,
-        result: v2::feed::Subscription,
+        result: JsonValue,
         scope: terminal(tab_id),
         class: C2,
         mutation: none,

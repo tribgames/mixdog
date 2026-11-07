@@ -8034,7 +8034,7 @@
         "ssh"
       ],
       "params": "TransferAbortParams",
-      "result": "v2::feed::EmptyResult",
+      "result": "JsonValue",
       "scope": {
         "kind": "none"
       }
@@ -9671,7 +9671,7 @@
         "relay"
       ],
       "params": "TerminalAttachParams",
-      "result": "v2::feed::Subscription",
+      "result": "JsonValue",
       "scope": {
         "field": "tabId",
         "kind": "terminal"

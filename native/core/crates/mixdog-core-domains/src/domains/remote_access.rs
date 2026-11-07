@@ -3,8 +3,8 @@
 //! result and refusal sentence is today's: a setting returns the settings view, `rotate` and
 //! `revokeClient` return the descriptor, `resolveClaim` a boolean, the rest `null` or `true`.
 //!
-//! `input` is the operation's argument list as the Node dispatcher received it: `resolveClaim`
-//! `[claimId, approved]`, `settleOwedControllerKeys` `[keys, unknown]`; `registerNativePush`
+//! `resolveClaim` carries `claimId` and `approve`, `pairCode` its `action`; `input` is the operation's
+//! argument list as the Node dispatcher received it for `settleOwedControllerKeys` `[keys, unknown]`; `registerNativePush`
 //! carries the one record; `deliverScreenControllerKey` the key itself. The paired device of a
 //! phone-side call is the credential id the relay named for the caller's connection.
 //!
@@ -17,7 +17,7 @@ use async_trait::async_trait;
 use mixdog_app_protocol::v2::params::{
     RemoteAccessDeliverScreenControllerKeyParams, RemoteAccessRegisterNativePushParams, RemoteAccessRemoveNativePushParams,
     RemoteAccessRegisterPushSubscriptionParams, RemoteAccessRemovePushSubscriptionParams,
-    RemoteAccessResolveClaimParams, RemoteAccessRevokeClientParams, RemoteAccessSetClientAliasParams,
+    RemoteAccessPairCodeParams, RemoteAccessResolveClaimParams, RemoteAccessRevokeClientParams, RemoteAccessSetClientAliasParams,
     RemoteAccessSetEnabledParams, RemoteAccessSetNameParams, RemoteAccessSettleOwedControllerKeysParams,
 };
 use mixdog_core_api::call::Caller;
@@ -58,12 +58,6 @@ fn arguments(input: &Value) -> &[Value] {
     input.as_array().map_or(&[], Vec::as_slice)
 }
 
-fn text(value: Option<&Value>) -> String {
-    match value {
-        None | Some(Value::Null) => String::new(),
-        Some(other) => mixdog_js::value_to_string(other),
-    }
-}
 
 impl RemoteAccessService {
     pub fn new(runtime: Arc<RemoteRuntime>, registry: Arc<DeviceRegistry>, ops: OpScopes) -> Self {
@@ -139,25 +133,27 @@ impl RemoteAccessService {
 
     async fn resolve_claim(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         let params: RemoteAccessResolveClaimParams = decode(req)?;
-        let args = arguments(&params.input);
-        let (claim_id, approved) = (text(args.first()), args.get(1) == Some(&Value::Bool(true)));
         self.ops
             .run(
                 req,
                 None,
-                || async { Ok(json!(self.runtime.resolve_claim(&claim_id, approved).await.map_err(refused)?)) },
+                || async { Ok(json!(self.runtime.resolve_claim(&params.claim_id, params.approve).await.map_err(refused)?)) },
                 || async { Ok(json!(false)) },
             )
             .await
     }
 
-    /// `ensure` is the Node default; the desktop follows `remote.pairCode` for the rest.
+    /// `action` is `ensure`, `renew` or `release`, as the settings screen asks.
     async fn pair_code(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
+        let params: RemoteAccessPairCodeParams = decode(req)?;
+        if !matches!(params.action.as_str(), "ensure" | "renew" | "release") {
+            return Err(CoreError::InvalidParams { path: "action".into(), expected: "ensure, renew or release".into() });
+        }
         self.ops
             .run(
                 req,
                 None,
-                || async { self.runtime.pair_code("ensure").await.map_err(refused) },
+                || async { self.runtime.pair_code(&params.action).await.map_err(refused) },
                 || async { Ok(Value::Null) },
             )
             .await
@@ -457,7 +453,7 @@ mod tests {
             .unwrap_err();
         assert!(sentence(&native).contains("Native push needs a paired client."), "{native:?}");
         // A claim nobody is asking about is not resolved.
-        let claim = value(&service, request("remoteAccess/resolveClaim", with_op(json!({ "input": ["nope", true] }), 6), Some(6))).await.unwrap();
+        let claim = value(&service, request("remoteAccess/resolveClaim", with_op(json!({ "claimId": "nope", "approve": true }), 6), Some(6))).await.unwrap();
         assert_eq!(claim, json!(false));
         let owed = value(
             &service,

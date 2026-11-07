@@ -131,6 +131,17 @@ fn desktop_settings_follow_the_node_rules() {
 }
 
 #[test]
+fn turning_auto_compact_off_retires_the_legacy_compaction_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let legacy = json!({ "agent": { "compaction": { "enabled": false, "semanticModel": "m1", "recallMemoryTimeoutMs": 900, "tailTurns": 3 } } });
+    let (config, _) = open(&dir, Some(legacy));
+    config.write("agent.compaction.auto", json!(false), replace()).unwrap();
+    assert_eq!(on_disk(&dir)["agent"]["compaction"], json!({ "auto": false, "summaryModel": "m1", "memoryTimeoutMs": 900 }));
+    // On is the default: nothing but the carried successors stays.
+    config.write("agent.compaction.auto", json!(true), replace()).unwrap();
+    assert_eq!(on_disk(&dir)["agent"]["compaction"], json!({ "summaryModel": "m1", "memoryTimeoutMs": 900 }));
+}
+#[test]
 fn computer_control_off_keeps_the_install_marker() {
     let dir = tempfile::tempdir().unwrap();
     let (config, _) = open(&dir, Some(json!({ "desktop": { "computerControl": true } })));

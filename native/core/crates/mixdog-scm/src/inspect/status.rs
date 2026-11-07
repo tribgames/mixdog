@@ -319,13 +319,15 @@ pub fn not_a_repository() -> GitStatusJson {
     GitStatusJson::default()
 }
 
-/// Scans the work tree at `root`.
+/// Scans the work tree at `root`. Without `line_stats` no file has add/delete counts (the
+/// numstat reads and the untracked line counts are skipped), as the pane's `skipLineStats` asks.
 pub async fn scan(
     git: &Git,
     lane: MaintenanceIo,
     cancel: &CancellationToken,
     identity: &RepoIdentity,
     head: Option<ObjectId>,
+    line_stats: bool,
 ) -> Result<StatusScan, ScmFailure> {
     let root = identity
         .work_tree
@@ -350,18 +352,21 @@ pub async fn scan(
             ],
             &status_options,
         ),
-        git.text(
-            cancel,
-            &root,
-            &["--no-optional-locks", "diff", "--cached", "--numstat", "-z"],
-            &read,
-        ),
-        git.text(
-            cancel,
-            &root,
-            &["--no-optional-locks", "diff", "--numstat", "-z"],
-            &read
-        ),
+        async {
+            if line_stats {
+                git.text(cancel, &root, &["--no-optional-locks", "diff", "--cached", "--numstat", "-z"], &read)
+                    .await
+            } else {
+                Ok(String::new())
+            }
+        },
+        async {
+            if line_stats {
+                git.text(cancel, &root, &["--no-optional-locks", "diff", "--numstat", "-z"], &read).await
+            } else {
+                Ok(String::new())
+            }
+        },
         git.text(cancel, &root, &["--no-optional-locks", "remote", "-v"], &read),
     )?;
     let mut parsed = parse_porcelain(&porcelain);
@@ -373,7 +378,7 @@ pub async fn scan(
     let untracked_paths: Vec<String> = parsed
         .files
         .iter()
-        .filter(|file| file.untracked)
+        .filter(|file| line_stats && file.untracked)
         .map(|file| file.path.clone())
         .collect();
     let counted_root: PathBuf = root.clone();

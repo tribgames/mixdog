@@ -34,16 +34,30 @@ fn clip(text: String, limit: usize) -> String {
 impl Scm {
     /// `git/status`: a folder outside any repository answers `repository: false`.
     pub async fn git_status(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+        self.git_status_counting(cwd, cancel, true).await
+    }
+
+    /// `git/status` with the pane's line-stats hint: `skipLineStats` answers without add/delete
+    /// counts (`line_stats` false). `reuseLineStats` needs no branch: the inspector already
+    /// serves the counted scan of an unchanged repository from its cache.
+    pub async fn git_status_counting(
+        self: &Arc<Self>,
+        cwd: &Path,
+        cancel: &CancellationToken,
+        line_stats: bool,
+    ) -> Result<Value, ScmFailure> {
         let repo = match self.open(cwd, cancel).await {
             Ok(repo) => repo,
             Err(ScmFailure::NotARepository) => return to_value(not_a_repository()),
             Err(other) => return Err(other),
         };
-        let scan = self
-            .inspector
-            .scan(self.lane, repo.repo_ref()?)
-            .await
-            .map_err(crate::mutate::scm_error)?;
+        let reference = repo.repo_ref()?;
+        let scan = if line_stats {
+            self.inspector.scan(self.lane, reference).await
+        } else {
+            self.inspector.scan_without_line_stats(self.lane, reference).await
+        }
+        .map_err(crate::mutate::scm_error)?;
         to_value(&scan.json)
     }
 

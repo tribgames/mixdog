@@ -92,6 +92,37 @@ async fn call(env: &Env, method: &'static str, params: Value) -> Result<Value, C
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_local_connection_reads_any_absolute_folder_while_a_relay_is_held_to_the_projects() {
+    let env = env();
+    let outside = env.root.parent().unwrap().join("unregistered");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("note.txt"), "hello\n").unwrap();
+    let params = json!({ "root": outside.to_string_lossy(), "rel": "note.txt" });
+    // The `…In` operations of Node take any root the window resolved; the relay is the strict origin.
+    assert!(matches!(call(&env, "projectFs/readText", params.clone()).await, Err(CoreError::PermissionDenied { .. })));
+    let mut local = request("projectFs/readText", params.clone());
+    local.ctx = CallContext::connection(ConnectionId(1), Origin::Local, CancellationToken::new());
+    let Reply::Value(read) = env.service.call(local).await.unwrap() else { panic!("readText answers with a value") };
+    assert_eq!(read["content"], "hello\n");
+    let mut stat = request("projectFs/stat", params);
+    stat.ctx = CallContext::connection(ConnectionId(1), Origin::Local, CancellationToken::new());
+    let Reply::Value(stat) = env.service.call(stat).await.unwrap() else { panic!("stat answers with a value") };
+    assert_eq!(stat["directory"], false);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stat_local_reports_a_failure_per_path() {
+    let env = env();
+    let present = env.root.join("a.txt");
+    let missing = env.root.join("missing.txt");
+    let listed = call(&env, "projectFs/statLocal", json!({ "paths": [present.to_string_lossy(), missing.to_string_lossy()] }))
+        .await
+        .unwrap();
+    assert_eq!(listed[0]["name"], "a.txt");
+    assert!(listed[1]["error"].is_string(), "a path that cannot be read carries its own error: {listed}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn concurrent_writes_with_one_expected_content_have_one_winner() {
     let env = env();
     let root = env.root.to_string_lossy().into_owned();
@@ -256,7 +287,7 @@ async fn workspace_text_search_and_replace_round_trip_through_the_service() {
     let found = call(&env, "projectFs/searchText", json!({ "root": root, "options": { "query": "one" } })).await.unwrap();
     assert_eq!(found["matchCount"], 1);
     let replaced =
-        call(&env, "projectFs/replaceText", json!({ "root": root, "options": { "query": "one", "replacement": "1", "matchCase": true } }))
+        call(&env, "projectFs/replaceText", json!({ "root": root, "options": { "query": "one", "matchCase": true }, "replacement": "1" }))
             .await
             .unwrap();
     assert_eq!(replaced["filesChanged"], 1);
@@ -609,9 +640,11 @@ async fn replay(env: &Env, cases: &Value, root: &str, ctx: &str) {
             "copyProjectEntryIn" => ("projectFs/copy", json!({ "root": root, "rel": args[0], "targetDirRel": args[1] })),
             "searchWorkspaceTextIn" => ("projectFs/searchText", json!({ "root": root, "options": args })),
             "replaceWorkspaceTextIn" => {
-                let mut options = args[0].clone();
-                options["replacement"] = args[1].clone();
-                ("projectFs/replaceText", json!({ "root": root, "options": options }))
+                let mut params = json!({ "root": root, "options": args[0], "replacement": args[1] });
+                if let Some(paths) = args.get(2).filter(|p| !p.is_null()) {
+                    params["relPaths"] = paths.clone();
+                }
+                ("projectFs/replaceText", params)
             }
             other => panic!("{ctx}: unmapped recorded op {other}"),
         };
