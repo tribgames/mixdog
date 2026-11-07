@@ -177,7 +177,7 @@ impl HomeDeps for SessionHomeDeps {
     }
 
     async fn name_retired(&self, session_id: &str, name: &str) -> Result<(), DepError> {
-        self.sessions.rename(session_id, name).await.map_err(room)
+        self.sessions.set_retired_title(session_id, name).await.map_err(room)
     }
 
     async fn archived_agent_name(&self, agent_id: &str) -> Result<String, DepError> {
@@ -185,7 +185,15 @@ impl HomeDeps for SessionHomeDeps {
     }
 
     async fn known_session_ids(&self) -> Result<Vec<String>, DepError> {
-        self.stored.session_ids().await.map_err(|error| DepError::new(error.to_string()))
+        // The store's rows, then the sessions this process holds that are not stored yet (`storedSessionIds()` and the
+        // live projections of the Node host, as one set).
+        let mut ids = self.stored.session_ids().await.map_err(|error| DepError::new(error.to_string()))?;
+        for live in self.directory.loaded_ids() {
+            if !ids.iter().any(|id| id == live.as_str()) {
+                ids.push(live.as_str().to_owned());
+            }
+        }
+        Ok(ids)
     }
 
     async fn agent_presence(&self, agent_ids: &[String]) -> Result<HashMap<String, Presence>, DepError> {

@@ -4,6 +4,7 @@
 //! scenario's result or error, and the dependency calls made, in order, must equal Node's.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
@@ -288,7 +289,18 @@ fn the_greeting_text_is_what_node_sends() {
 
 /// A home world with nothing in it, for the tests of other methods that do not look at the lifecycle: no home is known, no
 /// agent is proven deleted, nobody is greeted.
-pub(super) struct Quiet;
+pub(super) struct Quiet {
+    gates: Option<Arc<Gates>>,
+}
+
+/// Two reconciles that can only both finish if both are in flight at once: each opens the gate the other waits at.
+#[derive(Default)]
+struct Gates {
+    presence_entered: tokio::sync::Notify,
+    read_entered: tokio::sync::Notify,
+    presence_finished: tokio::sync::Notify,
+    read_finished: tokio::sync::Notify,
+}
 
 #[async_trait]
 impl HomeDeps for Quiet {
@@ -335,9 +347,14 @@ impl HomeDeps for Quiet {
         Ok(String::new())
     }
     async fn known_session_ids(&self) -> Result<Vec<String>, DepError> {
-        Ok(Vec::new())
+        Ok(if self.gates.is_some() { vec!["sess_home_ada".to_owned()] } else { Vec::new() })
     }
     async fn agent_presence(&self, _: &[String]) -> Result<HashMap<String, Presence>, DepError> {
+        if let Some(gates) = &self.gates {
+            gates.presence_entered.notify_one();
+            gates.read_entered.notified().await;
+            gates.presence_finished.notify_one();
+        }
         Ok(HashMap::new())
     }
     async fn forget_room_member(&self, _: &str) -> Result<(), DepError> {
@@ -348,6 +365,11 @@ impl HomeDeps for Quiet {
 #[async_trait]
 impl GreetingDeps for Quiet {
     async fn read(&self) -> Result<Option<Vec<String>>, DepError> {
+        if let Some(gates) = &self.gates {
+            gates.read_entered.notify_one();
+            gates.presence_entered.notified().await;
+            gates.read_finished.notify_one();
+        }
         Ok(Some(Vec::new()))
     }
     async fn write(&self, _: &[String]) -> Result<(), DepError> {
@@ -363,6 +385,18 @@ impl GreetingDeps for Quiet {
 
 /// The lifecycle of a service whose test does not look at it.
 pub(super) fn quiet_lifecycle() -> AgentLifecycle {
-    let quiet = std::sync::Arc::new(Quiet);
+    let quiet = std::sync::Arc::new(Quiet { gates: None });
     AgentLifecycle::new(AgentHomeSessions::new(quiet.clone()), AgentGreetings::new(quiet))
+}
+
+/// Node's list read starts `reconcile` and the greetings together and holds neither (two `void` calls): both are in flight at
+/// once. A lifecycle that ran one after the other would wait at its first gate for ever.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_list_read_starts_the_reconcile_and_the_greetings_together() {
+    let gates = std::sync::Arc::new(Gates::default());
+    let quiet = std::sync::Arc::new(Quiet { gates: Some(gates.clone()) });
+    let lifecycle = AgentLifecycle::new(AgentHomeSessions::new(quiet.clone()), AgentGreetings::new(quiet));
+    lifecycle.listed(json!([]));
+    gates.presence_finished.notified().await;
+    gates.read_finished.notified().await;
 }

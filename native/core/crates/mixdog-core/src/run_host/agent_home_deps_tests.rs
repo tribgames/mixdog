@@ -255,7 +255,9 @@ async fn a_deleted_agents_home_is_archived_and_named_then_brought_back_by_a_rest
     let homes = AgentHomeSessions::new(world.deps.clone());
     let home = homes.open("ada").await.expect("opens")["sessionId"].as_str().unwrap().to_owned();
     let header = || async { world.state.header(&ThreadId::from(home.as_str())).await.unwrap() };
-    assert_eq!(world.deps.known_session_ids().await.unwrap(), ["sess_home_ada", "sess_other"]);
+    // The stored ids, then a session the process holds that is not stored yet.
+    world.deps.create_session("sess_live_only", &json!({ "provider": "openai", "model": "gpt-x" })).await.unwrap();
+    assert_eq!(world.deps.known_session_ids().await.unwrap(), ["sess_home_ada", "sess_other", "sess_live_only"]);
     assert!(homes.has_home("ada").await.unwrap() && !homes.has_home("bob").await.unwrap());
 
     homes.retire(&["ada".into(), "lead".into()]).await.expect("retires");

@@ -3733,11 +3733,14 @@ impl SessionActor {
         let value = json!({});
         let mut set = serde_json::Map::new();
         set.insert("title".into(), Value::String(params.title));
+        // A name the user gave: no generated or retired-home title replaces it (`nameMap` of
+        // `desktop-session-metadata.ts`; a locked title without `titleSource` is the user's).
+        set.insert("titleLocked".into(), Value::Bool(true));
         let record = Record::Meta(MetaRecord {
             op: self.op_ref(req, Some(&value))?,
             change: Slot::Inline(HeaderChange {
                 set,
-                unset: Vec::new(),
+                unset: vec!["titleSource".to_owned()],
             }),
         });
         Ok(Plan {

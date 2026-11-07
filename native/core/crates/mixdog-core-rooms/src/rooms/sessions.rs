@@ -46,6 +46,9 @@ pub trait SessionOps: Send + Sync {
     async fn is_retired(&self, session_id: &str) -> Result<bool, RoomError>;
     async fn set_retired(&self, session_id: &str, retired: bool) -> Result<(), RoomError>;
     async fn rename(&self, session_id: &str, title: &str) -> Result<(), RoomError>;
+    /// A deleted bot's archived home titled with the bot's name at that deletion (`rememberRetiredTitle`),
+    /// replacing an earlier title; a name the user gave to the session still wins.
+    async fn set_retired_title(&self, session_id: &str, name: &str) -> Result<(), RoomError>;
     /// Clear in place, the transcript first copied to `archive_as`; rejects while a turn runs.
     async fn clear(&self, session_id: &str, archive_as: &str) -> Result<(), RoomError>;
     async fn delete(&self, session_id: &str) -> Result<(), RoomError>;
@@ -331,6 +334,9 @@ mod tests {
             Ok(false)
         }
         async fn set_retired(&self, _: &str, _: bool) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn set_retired_title(&self, _: &str, _: &str) -> Result<(), RoomError> {
             Ok(())
         }
         async fn rename(&self, id: &str, title: &str) -> Result<(), RoomError> {
