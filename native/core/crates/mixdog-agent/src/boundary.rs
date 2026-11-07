@@ -9,7 +9,9 @@ use mixdog_core_api::domain::provider::Usage;
 
 use crate::env::CompactError;
 use crate::env::CompactEvent;
+use crate::env::CompactPass;
 use crate::env::Dropped;
+use crate::env::PassStage;
 use crate::env::CompactRequest;
 use crate::env::CompactStatus;
 use crate::env::Clock;
@@ -348,6 +350,12 @@ impl Run {
             return Ok(false);
         }
         self.emit(RunEvent::Stage(Stage::Compacting));
+        let request_messages = self.messages.clone();
+        let request_tools = self.tools.definitions();
+        let pass = |stage: PassStage| {
+            RunEvent::CompactPass(Box::new(CompactPass { request: request_messages.clone(), tools: request_tools.clone(), reactive, trigger: trigger_kind.clone(), stage }))
+        };
+        self.emit(pass(PassStage::Started));
         // The one-shot reactive flag is consumed by this pass.
         self.reactive_overflow_retry_pending = false;
         let before = self.messages.len();
@@ -383,6 +391,8 @@ impl Run {
             Ok(output) => output,
             Err(CompactError::Aborted) => return Err(AgentError::Aborted),
             Err(error) => {
+                let (CompactError::Overflow(message) | CompactError::Failed(message)) = &error else { return Err(AgentError::Aborted) };
+                self.emit(pass(PassStage::Failed { message: message.clone(), duration_ms: duration(&*self.env.clock) }));
                 self.emit(RunEvent::Compact(event(CompactStatus::Failed, before, pressure, duration(&*self.env.clock), 0, None)));
                 // Agent mode retries a failed compaction quietly once per
                 // turn: the context is still under the model's boundary and
@@ -404,8 +414,10 @@ impl Run {
             }
         }
         if output.skipped {
+            self.emit(pass(PassStage::Skipped));
             return Ok(false);
         }
+        let summarized = output.usage.is_some();
         let changed = output.messages != self.messages;
         let rewrite = Rewrite { dropped_count: output.dropped_count, dropped: output.dropped };
         if changed {
@@ -416,6 +428,9 @@ impl Run {
         compactor.prepare(&self.messages).await;
         let after_tokens = policy.estimate_with_reserve(compactor.estimate_tokens(&self.messages));
         let status = if changed { CompactStatus::Compacted } else { CompactStatus::NoChange };
+        // The summary-less pass is the rules' (`freshContextResult.handoffSource`).
+        let handoff_source = if summarized { "session-local" } else { "rules" };
+        self.emit(pass(PassStage::Done { changed, handoff_source, after_tokens, duration_ms: duration(&*self.env.clock), after: self.messages.clone() }));
         self.emit(RunEvent::Compact(event(status, self.messages.len(), after_tokens, duration(&*self.env.clock), rewrite.dropped_count, rewrite.dropped)));
         Ok(changed)
     }

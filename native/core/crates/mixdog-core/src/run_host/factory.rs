@@ -481,6 +481,7 @@ enum Shown {
     Usage(mixdog_core_session::session::UsageReport),
     Compact(mixdog_agent::env::CompactEvent),
     Check(mixdog_core_session::session::run::SendCheck),
+    Pass(Box<mixdog_agent::env::CompactPass>),
     /// Answered once every report before it has reached the port.
     Barrier(tokio::sync::oneshot::Sender<()>),
     /// A hosted web search's spend, as `reportNativeWebSearchUsage` shapes it.
@@ -580,6 +581,9 @@ impl RunObserver for PortObserver {
             }
             RunEvent::Compact(event) => {
                 let _ = self.out.send(Shown::Compact(event));
+            }
+            RunEvent::CompactPass(pass) => {
+                let _ = self.out.send(Shown::Pass(pass));
             }
             // The context section is the route's window choice (`runtime.contextPercent`, exact `contextTokens` only for a
             // non-default window), never the usage reading: usage reaches clients as `thread/tokenUsage/updated`.
@@ -812,6 +816,7 @@ async fn drive(
                 Shown::Compact(event) => shown_port.compact_event(event).await,
                 Shown::Check(check) => shown_port.send_check(check).await,
                 Shown::SearchUsage(delta) => shown_port.search_usage(delta).await,
+                Shown::Pass(pass) => shown_port.compact_pass(pass).await,
                 Shown::Barrier(done) => {
                     let _ = done.send(());
                     Ok(())
@@ -1634,6 +1639,9 @@ mod tests {
     impl super::super::host_seams::ConfigSeams for Config {
         fn hidden_agent(&self, _: Option<&str>) -> bool {
             false
+        }
+        fn synced_compaction(&self, _: &mixdog_store::schema::record::Header) -> Option<Value> {
+            None
         }
         fn run_settings(&self, _: &ThreadId, _: &mixdog_store::schema::record::Header) -> super::super::assemble::RunSettings {
             super::super::assemble::RunSettings {

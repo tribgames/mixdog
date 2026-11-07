@@ -138,8 +138,11 @@ const iteration = (name, session, over) => {
 const usageDelta = (name, session, messages, over, sendTools = tools, native = []) => {
   const sent = native.length ? finalizeProviderRequestTools([...clone(native), ...sendTools], native.length) : sendTools;
   const delta = { ...callDelta(session, over), sendTools: wireTools(sent) };
-  const args = { delta, native, tools: wireTools(sendTools), excludesCache: excludesCache(session), calibration: utils.providerTokenCalibration(session.provider) };
+  const sentAt = clock - 7;
+  const args = { delta, native, tools: wireTools(sendTools), sentAt, excludesCache: excludesCache(session), calibration: utils.providerTokenCalibration(session.provider) };
   step(name, 'usage', session, messages, args, () => {
+    // send-phase.mjs: the response arrived, so the send's start is the provider cache's last use.
+    session.lastProviderSendAt = sentAt;
     const d = clone(delta);
     d.sendTools = sent;
     metrics.persistIterationMetrics(d);
@@ -293,31 +296,76 @@ terminal('terminal-exclusive-input', newSession('s-t8', { provider: 'anthropic',
 settled('settled-exclusive-input', newSession('s-settled-ex', { provider: 'anthropic', model: 'claude-x' }), transcript('user', 'answer'), { usage: usage(10, 5, { cachedTokens: 300, cacheWriteTokens: 40 }), lastTurnUsage: usage(10, 5, { cachedTokens: 300, cacheWriteTokens: 40 }), toolCallsTotal: 0 }, false);
 settled('settled-unmeasured-records-no-baseline', newSession('s-settled-none'), transcript('user', 'answer'), { usage: usage(0, 0), lastTurnUsage: usage(0, 0), toolCallsTotal: 0 }, true);
 
-// ---- an adopted compaction: the epoch and the voided reading (rememberCompactTelemetry with compactChanged) ----------------
+// ---- a compaction pass (compactBeforeSend): its 'compacting' stage, then the way it ended --------------------------------
+// `end`: { kind: 'done', changed, handoffSource, afterTokens, durationMs, after: [row names] } | { kind: 'failed', message,
+// durationMs } | { kind: 'skipped' }. The whole header after both stages is compared.
+const passFlow = (name, session, messages, end, { trigger = 'auto', reactive = false, native = [], sendTools = tools } = {}) => {
+  const afterRows = end.kind === 'done' ? transcript(...end.after) : [];
+  const args = { tools: wireTools(sendTools), native, reactive, trigger, agentMode: agentMode.isAgentModeSession(session), end: { ...end, after: undefined }, after: clone(afterRows) };
+  step(name, 'pass', session, messages, args, () => {
+    const live = clone(messages);
+    const pol = policy.resolveWorkerCompactPolicy(session, native.length ? finalizeProviderRequestTools([...clone(native), ...sendTools], native.length) : sendTools);
+    const estimate = providerAwareTokens(debug.estimateMessagesTokensSafe(live), live, session);
+    const pressure = policy.compactionTelemetryPressureTokens(estimate, pol, { reactivePending: reactive, messages: live, sessionRef: session });
+    const remember = (stage, extra) =>
+      policy.rememberCompactTelemetry(session, pol, { stage, beforeTokens: pressure, afterTokens: pressure, messageTokensEst: estimate, pressureTokens: pressure, ...extra });
+    remember('compacting', { trigger });
+    if (end.kind === 'failed') {
+      remember('overflow_failed', { trigger, freshContextError: end.message, compactError: end.message, durationMs: end.durationMs });
+    } else if (end.kind === 'skipped') {
+      remember('pre_send_check', { skipReason: 'no_token_reduction' });
+    } else {
+      if (end.changed) metrics.bumpUsageMetricsEpoch(session);
+      remember('pre_send', {
+        afterTokens: end.afterTokens,
+        compactChanged: end.changed,
+        freshContext: true,
+        freshContextError: null,
+        handoffSource: end.handoffSource,
+        compactError: null,
+        durationMs: end.durationMs,
+      });
+      if (end.changed) {
+        const rest = clone(afterRows);
+        policy.recordContextUsageSnapshot(session, pol, {
+          messages: rest,
+          usedTokens: end.afterTokens,
+          messageTokensEst: providerAwareTokens(debug.estimateMessagesTokensSafe(rest), rest, session),
+          source: 'post_compact',
+        });
+      }
+    }
+  });
+};
 {
   const session = newSession('s-compacted');
   turnStart('turn-start-compacted', session);
-  usageDelta('usage-before-compaction', session, transcript('user'), { deltaInput: 800, deltaOutput: 20, deltaPrompt: 800 });
-  const before = header(session);
-  metrics.bumpUsageMetricsEpoch(session);
-  const pol = policy.resolveWorkerCompactPolicy(session, tools);
-  policy.rememberCompactTelemetry(session, pol, { stage: 'pre_send', beforeTokens: 800, afterTokens: 300, messageTokensEst: 300, pressureTokens: 800, compactChanged: true });
-  const after = header(session);
-  // The record keeps only what the adoption itself writes: the telemetry of the pass is another writer's.
-  const keys = ['usageMetricsEpoch', 'lastContextTokensStaleAfterCompact', ...Object.keys(after).filter((key) => key.startsWith('contextPressureBaseline'))];
-  const picked = Object.fromEntries(keys.map((key) => [key, after[key]]));
-  cases.push({
-    name: 'compacted-bumps-the-epoch-and-voids-the-reading',
-    op: 'compacted',
-    header: before,
-    messages: [],
-    args: {},
-    now: clock,
-    result: { ...picked, lastChangedAt: after.compaction.lastChangedAt, lastCompactAt: after.compaction.lastCompactAt },
-    after: picked,
-  });
-  clock += 1000;
+  usageDelta('usage-before-compaction', session, transcript('user', 'call', 'tool'), { deltaInput: 800, deltaOutput: 20, deltaPrompt: 800 });
+  passFlow('pass-compacted-bumps-the-epoch-and-voids-the-reading', session, transcript('user', 'call', 'tool'), { kind: 'done', changed: true, handoffSource: 'session-local', afterTokens: 300, durationMs: 1234.4, after: ['user', 'answer'] });
 }
+passFlow('pass-no-change-keeps-the-reading', newSession('s-pass-same'), transcript('user'), { kind: 'done', changed: false, handoffSource: 'rules', afterTokens: 40, durationMs: 12, after: ['user'] });
+passFlow('pass-skipped-is-a-plain-check', newSession('s-pass-skip'), transcript('user', 'call', 'tool'), { kind: 'skipped' }, { trigger: 'cache_expired' });
+passFlow(
+  'pass-failed-records-the-error',
+  newSession('s-pass-fail', { compaction: { boundaryTokens: 128000, auto: true, compactCount: 2, lastTrigger: 'auto' } }),
+  transcript('user', 'call', 'tool'),
+  { kind: 'failed', message: 'summary send failed', durationMs: 90 },
+  { trigger: 'reactive', reactive: true }
+);
+passFlow(
+  'pass-after-an-earlier-error-clears-it',
+  newSession('s-pass-clear', { compaction: { boundaryTokens: 128000, auto: true, lastError: 'boom', lastFreshContextError: 'bad', compactCount: 1, lastDurationMs: 77 } }),
+  transcript('user', 'call', 'tool'),
+  { kind: 'done', changed: true, handoffSource: 'rules', afterTokens: 55, durationMs: 0, after: ['user'] }
+);
+
+// ---- syncSessionCompaction: a session follows the saved compaction settings (session-compaction-sync.mjs) -------------------
+const { syncSessionCompaction } = await load('src/session-runtime/session-compaction-sync.mjs');
+const syncCase = (name, session, config) => step(name, 'sync', session, [], { config }, () => syncSessionCompaction(session, clone(config)));
+const created = { boundaryTokens: 128000, auto: true, model: null, summaryModel: null, timeoutMs: null, bufferTokens: 4000, bufferRatio: 0.03, mainBufferTokens: null, reservedTokens: null, contextWindow: 128000, lastStage: 'pre_send_check', compactCount: 2 };
+syncCase('sync-seeds-the-config-fields-and-strips-the-buffer', newSession('s-sync', { compaction: created }), { compaction: { auto: true } });
+syncCase('sync-takes-the-saved-values', newSession('s-sync-saved', { compaction: created }), { compaction: { auto: false, summaryModel: 'm-sum', bufferTokens: 9000, summaryMode: 'self', onModelChange: false } });
+syncCase('sync-without-a-section-leaves-the-session-alone', newSession('s-sync-none', { compaction: created }), { other: 1 });
 
 writeFileSync(join(here, 'golden', 'usage.json'), `${JSON.stringify({ cases }, null, 2)}\n`);
 refreshSetManifest(agentDir, nodeRoot);

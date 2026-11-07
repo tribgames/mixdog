@@ -74,13 +74,18 @@ pub struct ManualParts {
     pub blobs: Arc<dyn BlobReads>,
 }
 
+/// The meters of a thread's pressure on one provider, as the latest `prepare_books` left them.
+type Meters = (Arc<dyn mixdog_agent::compact::estimate::MediaMeter>, Arc<dyn mixdog_agent::compact::pressure::ImageIdentities>);
+
 pub struct HostManualCompaction {
     parts: ManualParts,
+    /// Per thread and provider: the lowering whose store facts were read for the pressure being recorded.
+    prepared: Mutex<HashMap<(String, String), Meters>>,
 }
 
 impl HostManualCompaction {
     pub fn new(parts: ManualParts) -> Self {
-        Self { parts }
+        Self { parts, prepared: Mutex::new(HashMap::new()) }
     }
 }
 
@@ -374,9 +379,20 @@ impl ManualCompaction for HostManualCompaction {
         self.parts.gauge.invalidate(thread);
     }
 
+    fn synced_compaction(&self, header: &Header) -> Option<Value> {
+        self.parts.config.synced_compaction(header)
+    }
+
+    async fn prepare_books(&self, thread: &ThreadId, provider: &str, messages: &[AgentMessage]) {
+        let meters = self.parts.world.lowering(thread, provider);
+        meters.0.prepare(messages).await;
+        self.prepared.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert((thread.as_str().to_owned(), provider.to_owned()), meters);
+    }
+
     fn books(&self, thread: &ThreadId, header: &Header) -> Option<Books> {
         let provider = header.get("provider").and_then(Value::as_str).unwrap_or_default();
-        let (media, images) = self.parts.world.lowering(thread, provider);
+        // Only the meters whose facts were read: an unprepared lowering would price stored media cold.
+        let (media, images) = self.prepared.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).get(&(thread.as_str().to_owned(), provider.to_owned())).cloned()?;
         Some(Books { media, images, native: native_request_tools(&Value::Object(header.clone())), agent_mode: super::session_cache_opts::is_agent_mode_session(header) })
     }
 }

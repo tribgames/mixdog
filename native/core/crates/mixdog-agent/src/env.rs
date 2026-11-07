@@ -179,6 +179,43 @@ pub enum CompactTrigger {
     CacheExpired,
 }
 
+impl CompactTrigger {
+    /// Node's `compactTrigger`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Reactive => "reactive",
+            Self::CacheExpired => "cache_expired",
+        }
+    }
+}
+
+/// One stage of a pre-send compaction pass, with the request it ran for: what the header's
+/// compaction telemetry records of it (`compactTelemetry` of `compactBeforeSend`).
+#[derive(Clone, PartialEq, Debug)]
+pub struct CompactPass {
+    /// The transcript about to go out, as the pass found it, and the request's tools.
+    pub request: Vec<AgentMessage>,
+    pub tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+    /// A context-overflow retry was pending when the pass was decided.
+    pub reactive: bool,
+    pub trigger: CompactTrigger,
+    pub stage: PassStage,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub enum PassStage {
+    /// The compaction stage began.
+    Started,
+    /// The pass ended without a compaction having been adopted or refused: `changed` says whether
+    /// the transcript changed, `after` is the transcript now, `after_tokens` its gauge figure.
+    Done { changed: bool, handoff_source: &'static str, after_tokens: u64, duration_ms: u64, after: Vec<AgentMessage> },
+    /// The pass found no token reduction (`freshContextResult.skipped`).
+    Skipped,
+    /// The pass failed with `message`.
+    Failed { message: String, duration_ms: u64 },
+}
+
 /// What a compaction took out of the model context: the stable ids of the
 /// messages whose text left and the tool calls that left.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -257,6 +294,8 @@ pub struct UsageDelta {
     /// `outgoing`: the transcript the request carried, which the provider's reading is aligned to
     /// (`recordProviderContextBaseline`).
     pub outgoing: Vec<AgentMessage>,
+    /// `sendStartedAt`: when the request's send began (`lastProviderSendAt`).
+    pub sent_at_ms: i64,
 }
 
 #[derive(Clone, PartialEq, Debug)]
@@ -282,6 +321,8 @@ pub enum RunEvent {
         reactive: bool,
     },
     Compact(CompactEvent),
+    /// A stage of a pre-send compaction pass, for the header's compaction telemetry.
+    CompactPass(Box<CompactPass>),
 }
 
 #[derive(Clone, PartialEq, Debug)]

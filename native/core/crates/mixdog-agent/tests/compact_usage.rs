@@ -20,12 +20,17 @@ use mixdog_agent::compact::pressure::Settled;
 use mixdog_agent::compact::pressure::TerminalUsage;
 use mixdog_agent::compact::pressure::TranscriptSigner;
 use mixdog_agent::compact::pressure::check_change;
-use mixdog_agent::compact::pressure::compacted_change;
 use mixdog_agent::compact::pressure::iteration_metrics;
+use mixdog_agent::compact::pressure::pass_change;
 use mixdog_agent::compact::pressure::settled_change;
 use mixdog_agent::compact::pressure::terminal_usage;
 use mixdog_agent::compact::pressure::turn_started;
+use mixdog_agent::compact::settings::adopt_session_compaction;
+use mixdog_agent::compact::settings::normalize_compaction;
 use mixdog_agent::compact::pressure::usage_change;
+use mixdog_agent::env::CompactPass;
+use mixdog_agent::env::CompactTrigger;
+use mixdog_agent::env::PassStage;
 use mixdog_agent::message::AgentMessage;
 use mixdog_core_api::domain::provider::ContentPart;
 use mixdog_core_api::domain::provider::ToolDefinition;
@@ -121,7 +126,7 @@ fn usage_bookkeeping_equals_node() {
                 (patch, id)
             }
             "iteration" => (Some(iteration_metrics(&header, &args["delta"], excludes, now)), Value::Null),
-            "usage" => (usage_change(&header, &args["delta"], &messages, &tools, Some(&books), excludes, now), Value::Null),
+            "usage" => (usage_change(&header, &args["delta"], &messages, &tools, Some(&books), excludes, args["sentAt"].as_f64().expect("sentAt"), now), Value::Null),
             "terminal" | "settled" => {
                 let result = &args["result"];
                 let usage = result.get("usage").filter(|u| !u.is_null());
@@ -152,14 +157,47 @@ fn usage_bookkeeping_equals_node() {
                 let recorded = Value::Bool(patch.is_some());
                 (patch, recorded)
             }
-            "compacted" => {
-                let patch = compacted_change(&header, now);
-                let after = applied(&header, &patch);
-                let picked: serde_json::Map<String, Value> = case["after"].as_object().expect("after").keys().map(|key| (key.clone(), after[key].clone())).collect();
-                assert_eq!(Value::Object(picked), case["after"], "{name}: header after");
-                let stamp = |key: &str| after["compaction"][key].clone();
-                assert_eq!(case["result"]["lastChangedAt"], stamp("lastChangedAt"), "{name}: lastChangedAt");
-                assert_eq!(case["result"]["lastCompactAt"], stamp("lastCompactAt"), "{name}: lastCompactAt");
+            "sync" => {
+                // `syncSessionCompaction(session, config)`: a config without the section leaves the session alone.
+                let mut working = header.clone();
+                if let Some(section) = args["config"].get("compaction").filter(|section| section.is_object()) {
+                    let mut record = working.get("compaction").and_then(Value::as_object).cloned().unwrap_or_default();
+                    adopt_session_compaction(&mut record, &normalize_compaction(Some(section)));
+                    working.insert("compaction".into(), Value::Object(record));
+                }
+                assert_eq!(Value::Object(working), case["after"], "{name}: header after");
+                continue;
+            }
+            "pass" => {
+                // The two stages the pass records: it starts, then it ends as the case says.
+                let trigger = match args["trigger"].as_str().expect("trigger") {
+                    "auto" => CompactTrigger::Auto,
+                    "reactive" => CompactTrigger::Reactive,
+                    "cache_expired" => CompactTrigger::CacheExpired,
+                    other => panic!("unknown trigger {other}"),
+                };
+                let end = &args["end"];
+                let stage = match end["kind"].as_str().expect("kind") {
+                    "done" => PassStage::Done {
+                        changed: end["changed"].as_bool().expect("changed"),
+                        handoff_source: if end["handoffSource"] == "rules" { "rules" } else { "session-local" },
+                        after_tokens: end["afterTokens"].as_u64().expect("afterTokens"),
+                        duration_ms: end["durationMs"].as_f64().expect("durationMs").round() as u64,
+                        after: args["after"].as_array().expect("after").iter().map(node_message).collect(),
+                    },
+                    "failed" => PassStage::Failed { message: end["message"].as_str().expect("message").to_owned(), duration_ms: end["durationMs"].as_u64().expect("durationMs") },
+                    "skipped" => PassStage::Skipped,
+                    other => panic!("unknown end {other}"),
+                };
+                let reactive = args["reactive"].as_bool().expect("reactive");
+                let mut working = header.clone();
+                for stage in [PassStage::Started, stage] {
+                    let pass = CompactPass { request: messages.clone(), tools: tools.clone(), reactive, trigger: trigger.clone(), stage };
+                    if let Some(patch) = pass_change(&working, &pass, &books, now) {
+                        patch.apply(&mut working);
+                    }
+                }
+                assert_eq!(Value::Object(working), case["after"], "{name}: header after");
                 continue;
             }
             other => panic!("unknown op {other}"),
@@ -169,6 +207,6 @@ fn usage_bookkeeping_equals_node() {
             assert_eq!(result, case["result"], "{name}: result");
         }
     }
-    assert_eq!(ops.into_iter().collect::<Vec<_>>(), ["check", "compacted", "iteration", "settled", "terminal", "turnStart", "usage"]);
+    assert_eq!(ops.into_iter().collect::<Vec<_>>(), ["check", "iteration", "pass", "settled", "sync", "terminal", "turnStart", "usage"]);
     assert!(cases.len() > 50, "the golden holds every writer's cases");
 }
