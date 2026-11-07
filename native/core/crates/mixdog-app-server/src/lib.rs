@@ -36,6 +36,7 @@ pub use late::LateServerRequests;
 pub use media::HostMedia;
 pub use media::StreamTarget;
 pub use outgoing::ClaimHook;
+pub use outgoing::ClientHook;
 pub use outgoing::Outgoing;
 pub use server::AppServer;
 pub use server::ConnectionHandle;

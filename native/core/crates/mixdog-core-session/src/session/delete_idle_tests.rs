@@ -305,7 +305,7 @@ async fn goal_recovery_materializes_through_the_turn_gate() {
     let handle = start_thread(&directory).await;
     let data = tempfile::tempdir().expect("data dir");
     let stored = StoredGoals::new(data.path().to_string_lossy().into_owned(), mixdog_rt::testing::tokens().durability_io);
-    let recovery = super::goal_recovery_host::SessionGoalRecovery::new(directory.clone(), stored);
+    let recovery = super::goal_recovery_host::SessionGoalRecovery::new(directory.clone(), stored, Arc::new(|_: &str| {}));
     let fence = directory.turn_gate().fence(&handle.id).expect("not being admitted");
     assert!(recovery.materialize_session(handle.id.as_str()).await.is_err(), "refused while an idle delete fences the thread");
     drop(fence);
