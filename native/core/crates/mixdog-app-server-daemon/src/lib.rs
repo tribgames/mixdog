@@ -51,6 +51,7 @@ pub mod exec;
 pub mod exec_events;
 pub mod ownership;
 pub mod pair_code;
+pub mod project_workspaces;
 pub mod server;
 pub mod serving;
 pub mod server_ensure;

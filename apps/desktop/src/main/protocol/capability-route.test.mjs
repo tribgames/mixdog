@@ -566,3 +566,36 @@ test('renameSession keeps the host check for the session id before the title', a
   await assert.rejects(client.renameSession('bad id!', ''), { name: 'TypeError', message: 'session id is invalid.' });
   assert.deepEqual(all, []);
 });
+
+
+// Node's `forwardedArgs` (session-host-lifecycle.ts) resolved a project path before the call: `skillsStatus({ projectPath })`
+// to `{ cwd }`, and the five session-less project-branch capabilities to the registered Project. On a core connection the
+// host sends the renderer's arguments as they are and the core resolves them: `skills/skillsStatus` reads `options.projectPath`
+// (skills_service.rs `requested_cwd`, folder from `SessionProjectWorkspaces`) and `project/*Branch*` read `input.projectPath`
+// (project/service.rs `registered_project`). This pins what reaches the core for every capability Node's host rewrote.
+test('a draft skillsStatus names its Project in options, never a folder, and a session call still addresses its thread', async () => {
+  const { calls, lane } = recordingLane(async () => ({ cwd: '/resolved' }));
+  await lane.invoke('skillsStatus', [{ projectPath: 'C:\\work\\app' }]);
+  await lane.read([{ capability: 'skillsStatus', args: [{ projectPath: 'C:\\work\\app' }] }, { capability: 'skillsStatus', args: [] }]);
+  await lane.invoke('skillsStatus', [{ projectPath: '' }], 'pane-1');
+  assert.deepEqual(calls, [
+    { method: 'skills/skillsStatus', params: { options: { projectPath: 'C:\\work\\app' } } },
+    { method: 'skills/skillsStatus', params: { options: { projectPath: 'C:\\work\\app' } } },
+    { method: 'skills/skillsStatus', params: {} },
+    { method: 'skills/skillsStatus', params: { threadId: 'pane-1', options: { projectPath: '' } } },
+  ]);
+});
+
+test('the project-branch capabilities Node resolved through the registry send their projectPath for the core to resolve', () => {
+  const projectScoped = {
+    getProjectBranchMenu: 'project/getProjectBranchMenu',
+    selectProjectBranch: 'project/selectProjectBranch',
+    mergeProjectBranch: 'project/mergeProjectBranch',
+    inspectProjectBranch: 'project/inspectProjectBranch',
+    manageProjectBranch: 'project/manageProjectBranch',
+  };
+  for (const [capability, method] of Object.entries(projectScoped)) {
+    const input = { projectPath: 'C:\\work\\app', branch: 'feature' };
+    assert.deepEqual(routeCapability(capability, [input]), { method, params: { input } }, capability);
+  }
+});

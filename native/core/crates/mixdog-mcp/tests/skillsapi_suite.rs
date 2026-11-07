@@ -26,6 +26,7 @@ use mixdog_mcp::skill_catalog::SkillSettingsSource;
 use mixdog_mcp::skills::SkillGate;
 use mixdog_mcp::skills::SkillRoot;
 use mixdog_mcp::skills::SkillSource;
+use mixdog_mcp::skills_service::ProjectWorkspaces;
 use mixdog_mcp::skills_service::SkillsService;
 use mixdog_mcp::skills_watch::SkillsWatch;
 use serde_json::Map;
@@ -182,14 +183,18 @@ async fn every_skill_method_answers_and_leaves_what_node_does() {
     let root = SkillRoot { dir: data.join("skills"), source: SkillSource::Global, plugin: None };
     let settings: Arc<dyn SkillSettingsSource> = Arc::new(Settings(settings));
     let catalog = SkillCatalog::new(data.clone(), tokens.maintenance_io.clone(), Arc::new(move |_| vec![root.clone()]), Arc::clone(&settings), &SkillsWatch::new());
-    let service = SkillsService::new(catalog, settings, config.clone(), host, tokens.maintenance_io, tokens.durability_io, data.clone());
+    let projects = Arc::new(Projects { asked: Mutex::default(), folder: Path::new(&base).join("proj2") });
+    let service = SkillsService::new(catalog, settings, config.clone(), host, projects.clone(), tokens.maintenance_io, tokens.durability_io, data.clone());
     for step in golden["steps"].as_array().unwrap() {
         let name = step["name"].as_str().unwrap();
         log.lock().unwrap().clear();
         config.writes.lock().unwrap().clear();
+        // The golden's params are the runtime API's `options` argument; the wire carries it as `params.options`.
+        let params = unmask(&base, &step["params"]);
+        let params = if step["method"] == "skills/skillsStatus" { json!({"options": params}) } else { params };
         let request = CoreRequest {
             method: Method(Box::leak(step["method"].as_str().unwrap().to_owned().into_boxed_str())),
-            params: unmask(&base, &step["params"]),
+            params,
             op: None,
             ctx: CallContext::internal("test"),
         };
@@ -210,5 +215,40 @@ async fn every_skill_method_answers_and_leaves_what_node_does() {
         overrides.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
         files.insert("overrides".to_owned(), Value::Array(overrides));
         assert_eq!(Value::Object(files), step["files"], "{name}: files afterwards");
+    }
+    // A new-task draft asks by `projectPath` (the desktop's `skillsStatus({ projectPath })`): the status is of the folder
+    // the task would run in, as Node's host forwarded it as `{ cwd }` (the golden's "status for another folder" step).
+    let ask = |options: Value| CoreRequest {
+        method: Method("skills/skillsStatus"),
+        params: json!({"options": options}),
+        op: None,
+        ctx: CallContext::internal("test"),
+    };
+    let another = golden["steps"].as_array().unwrap().iter().find(|step| step["name"] == "status for another folder").unwrap();
+    let Reply::Value(drafted) = service.call(ask(json!({"projectPath": "draft"}))).await.unwrap() else { panic!("not a value") };
+    assert_eq!(serde_json::from_str::<Value>(&mask(&base, &drafted.to_string())).unwrap(), another["result"], "draft: status of the resolved folder");
+    let Reply::Value(task) = service.call(ask(json!({"projectPath": ""}))).await.unwrap() else { panic!("not a value") };
+    assert_eq!(task["cwd"], another["result"]["cwd"], "draft without a Project: the resolver answers");
+    match service.call(ask(json!({"projectPath": "unknown"}))).await {
+        Err(CoreError::DomainError { message: Some(got), .. }) => assert_eq!(&*got, "Project is not available."),
+        other => panic!("an unknown Project: got {other:?}"),
+    }
+    assert_eq!(*projects.asked.lock().unwrap(), ["draft", "", "unknown"], "the resolver was asked exactly the paths the drafts named");
+}
+
+/// The resolver of the desktop draft's Project: `proj2` for any path but `unknown`.
+struct Projects {
+    asked: Mutex<Vec<String>>,
+    folder: PathBuf,
+}
+
+#[async_trait]
+impl ProjectWorkspaces for Projects {
+    async fn workspace_cwd(&self, project_path: &str) -> Result<PathBuf, String> {
+        self.asked.lock().unwrap().push(project_path.to_owned());
+        if project_path == "unknown" {
+            return Err("Project is not available.".to_owned());
+        }
+        Ok(self.folder.clone())
     }
 }

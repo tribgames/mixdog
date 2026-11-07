@@ -67,9 +67,19 @@ pub struct SkillsService {
     settings: Arc<dyn SkillSettingsSource>,
     config: Arc<dyn ExtensionConfig>,
     host: Arc<dyn ExtensionHost>,
+    projects: Arc<dyn ProjectWorkspaces>,
     maintenance: MaintenanceIo,
     durability: DurabilityIo,
     data_dir: PathBuf,
+}
+
+/// The folder a task opened in a Project runs in (Node `SessionHost.resolveSessionWorkspace`): a registered
+/// Project, or a managed worktree of one, anything else refused; no Project is the task workspace. The
+/// desktop's new-task draft asks the skill status for it by `projectPath`.
+#[async_trait]
+pub trait ProjectWorkspaces: Send + Sync {
+    /// The folder's real path, or the text of the refusal.
+    async fn workspace_cwd(&self, project_path: &str) -> Result<PathBuf, String>;
 }
 
 /// A failure worded as Node's `error.message`.
@@ -145,11 +155,12 @@ impl SkillsService {
         settings: Arc<dyn SkillSettingsSource>,
         config: Arc<dyn ExtensionConfig>,
         host: Arc<dyn ExtensionHost>,
+        projects: Arc<dyn ProjectWorkspaces>,
         maintenance: MaintenanceIo,
         durability: DurabilityIo,
         data_dir: PathBuf,
     ) -> Self {
-        Self { catalog, settings, config, host, maintenance, durability, data_dir }
+        Self { catalog, settings, config, host, projects, maintenance, durability, data_dir }
     }
 
     fn global_root(&self) -> PathBuf {
@@ -220,9 +231,19 @@ impl SkillsService {
         self.host.current_cwd(params.get("threadId").and_then(Value::as_str)).await
     }
 
-    /// `statusCwd`: the folder a caller asked the status for, if it asked.
-    async fn requested_cwd(&self, params: &Value) -> Result<Option<PathBuf>, Failure> {
-        let Some(value) = params.get("cwd").filter(|v| !v.is_null()) else { return Ok(None) };
+    /// `statusCwd`: the folder a caller asked the status for, if it asked. The wire carries Node's `options`
+    /// argument as `params.options`. A new-task draft names a `projectPath` instead of a folder: the folder the
+    /// task would run in (`forwardedArgs` of the Node desktop host); the renderer never names the folder itself.
+    async fn requested_cwd(&self, options: &Value) -> Result<Option<PathBuf>, Failure> {
+        if let Some(project) = options.get("projectPath") {
+            let project = match project {
+                Value::String(path) => path.as_str(),
+                Value::Null => "",
+                _ => return Err("projectPath must be a string.".to_owned()),
+            };
+            return self.projects.workspace_cwd(project).await.map(Some);
+        }
+        let Some(value) = options.get("cwd").filter(|v| !v.is_null()) else { return Ok(None) };
         let absolute = value.as_str().filter(|s| !s.is_empty() && !s.contains('\0') && Path::new(s).is_absolute());
         let Some(cwd) = absolute else { return Err("skillsStatus cwd must be an absolute path.".to_owned()) };
         let cwd = PathBuf::from(cwd);
@@ -234,7 +255,7 @@ impl SkillsService {
     }
 
     async fn skills_status(&self, params: &Value) -> Result<Value, Failure> {
-        let cwd = match self.requested_cwd(params).await? {
+        let cwd = match self.requested_cwd(params.get("options").unwrap_or(&Value::Null)).await? {
             Some(cwd) => cwd,
             None => self.current_cwd(params).await?,
         };
