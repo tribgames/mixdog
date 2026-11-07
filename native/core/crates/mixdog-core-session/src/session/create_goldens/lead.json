@@ -1,0 +1,40 @@
+{
+  "parts": {
+    "agentCatalogContext": "# Available Agents\n\n- Worker (worker): Default implementation agent.",
+    "contactCatalogContext": ""
+  },
+  "record": {
+    "agent": "lead",
+    "owner": "cli",
+    "lane": "cli",
+    "sourceName": "main",
+    "sourceType": "lead",
+    "clientHostPid": "<pid>",
+    "mcpPid": "<pid>",
+    "scopeKey": null,
+    "desktopSession": null,
+    "taskType": null,
+    "agentTag": null,
+    "permission": null,
+    "toolPermission": null,
+    "permissionMode": null,
+    "schemaAllowedTools": null,
+    "parentSessionId": null,
+    "ownerSessionId": null,
+    "visibility": null,
+    "profileId": null,
+    "skipInstructionFiles": false,
+    "providerCacheOptsOverride": false,
+    "wireRoute": null,
+    "lastHeartbeatAt": null,
+    "lastUsedAt": "<ts>",
+    "totalInputTokens": 0,
+    "totalOutputTokens": 0,
+    "totalToolCalls": 0,
+    "tokensCumulative": 0,
+    "generation": 0,
+    "closed": false,
+    "agentProfileRevision": "coding-lead",
+    "agentRosterRevision": "cf0d452e0633b6cb4ac73dbe"
+  }
+}
