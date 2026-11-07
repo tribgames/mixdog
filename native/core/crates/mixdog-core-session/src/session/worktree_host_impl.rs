@@ -55,8 +55,9 @@ pub trait HostRuntime: Send + Sync + 'static {
     /// The prompt's `presentedWorkspace`: `{cwd, environmentContext, coreMemoryContext,
     /// instructionFilesContext}`.
     async fn presented_workspace(&self, session_id: &str) -> Value;
-    /// The slices the prompt gets at `cwd`; resets the read state and observed-file snapshots.
-    async fn workspace_context(&self, session_id: &str, cwd: &str) -> WorkspaceContext;
+    /// The slices the prompt gets at `cwd`; resets the read state and observed-file snapshots. Reading them runs lane jobs; one that is dropped is a typed
+    /// failure, never an empty context.
+    async fn workspace_context(&self, session_id: &str, cwd: &str) -> Result<WorkspaceContext, ScmFailure>;
     /// Re-root the prompt of a session without a conversation in place; the undo puts it back.
     async fn reroot_prompt(&self, session_id: &str, cwd: &str, context: &WorkspaceContext) -> Result<Undo, ScmFailure>;
     async fn activity(&self, session_id: &str) -> LeadActivity;
@@ -217,7 +218,13 @@ impl WorkspaceHost for SessionWorkspaceHost {
             self.runtime.set_runtime_cwd(session_id, &change.cwd).await?;
             let (runtime, id, back) = (self.runtime.clone(), session_id.to_owned(), prior_cwd.clone());
             undos.push(undo_with(async move { runtime.set_runtime_cwd(&id, &back).await }));
-            let context = self.runtime.workspace_context(session_id, &change.cwd).await;
+            let context = match self.runtime.workspace_context(session_id, &change.cwd).await {
+                Ok(context) => context,
+                Err(error) => {
+                    run_undos(undos).await;
+                    return Err(error);
+                }
+            };
             if self.runtime.has_messages(session_id) {
                 let presented = self.runtime.presented_workspace(session_id).await;
                 let from = change.moved.as_ref().map(|m| (m.from.as_str(), m.changes.as_deref()));

@@ -23,7 +23,7 @@ use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::fs::FileService;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::provider::RequestOptions;
-use mixdog_core_api::domain::tool::{ProgressSink, SurfaceKind, ToolIo};
+use mixdog_core_api::domain::tool::{ProgressSink, SurfaceKind, ToolIo, ToolProgress};
 use mixdog_core_api::ids::ThreadId;
 use mixdog_protocol::{ApprovalResolution, TurnId};
 use mixdog_rt::{InLane, InteractiveIo};
@@ -43,6 +43,14 @@ use crate::run_host::summary_routes::{MaintainerRoute, SessionRoute, SummaryHost
 /// The Maintainer's agent id (the settings role of `cycle1-agent`'s `maintKey: memory`).
 const MAINTAINER_ROLE: &str = "maintainer";
 const DAY_MS: f64 = 24.0 * 60.0 * 60_000.0;
+
+/// The summary's `ProgressSink`: it drops what it is given. Node's summary requests (`forked-summary.mjs` `provider.send(..)`, the isolated request in `runner.mjs`) carry no
+/// progress callback and offer no tool, so nothing about a summary is ever shown on the thread being summarized; there is no per-thread sink to build.
+pub struct DroppedProgress;
+
+impl ProgressSink for DroppedProgress {
+    fn progress(&self, _: ToolProgress) {}
+}
 
 /// What the process supplies. `config` is the agent config (`loadConfig()`: providers, agents,
 /// disabled agents); `data_dir` holds the providers' saved catalogs.

@@ -6,6 +6,8 @@
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
+use std::time::SystemTime;
 
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::repo::RepoEvidence;
@@ -38,9 +40,10 @@ pub struct Scm {
     pub github: Arc<GhClient>,
     /// Diffs that handed out change ids for `action:stage`.
     pub snapshots: Arc<DiffSnapshots>,
-    /// Where commit transactions build their scratch index; owned by this core, so a boot
-    /// sweep can empty it without asking who is alive.
+    /// Owned by this core: the review inspections' scratch.
     scratch_dir: PathBuf,
+    /// Where commit transactions build their scratch index (the OS temp folder, as Node).
+    commit_root: PathBuf,
     processes: Arc<dyn ProcessManager>,
     gh_program: Arc<dyn Fn() -> String + Send + Sync>,
 }
@@ -72,6 +75,7 @@ impl Scm {
             github: Arc::new(GhClient::new(runner, locks.clone())),
             snapshots: DiffSnapshots::new(),
             scratch_dir,
+            commit_root: std::env::temp_dir(),
             locks,
             lane,
             processes,
@@ -83,24 +87,19 @@ impl Scm {
         &self.scratch_dir
     }
 
-    /// Removes what a crashed commit left in the scratch directory. Called once at boot: one
-    /// core owns the directory, so nothing in it is in use.
-    pub async fn boot_sweep(&self, cancel: &CancellationToken) -> Result<usize, ScmFailure> {
-        let dir = self.scratch_dir.clone();
-        on_lane(self.lane, cancel, move || {
-            let Ok(entries) = std::fs::read_dir(&dir) else {
-                return 0;
-            };
-            entries
-                .flatten()
-                .filter(|entry| {
-                    // Restarts the lane lease per scratch folder removed.
-                    mixdog_rt::job_progress();
-                    std::fs::remove_dir_all(entry.path()).is_ok()
-                })
-                .count()
-        })
-        .await
+    /// The folder the per-commit scratch directories (`mixdog-commit-<pid>-<random>`) live in:
+    /// the OS temp folder, shared with other processes (and other Mixdog cores), so only
+    /// [`Self::sweep_commit_scratch`] may remove anything in it.
+    pub fn commit_scratch_root(&self) -> &Path {
+        &self.commit_root
+    }
+
+    /// Node's `sweepScratchIndexes`, run before each commit: removes the commit scratch
+    /// directories of processes that are gone (a killed commit never ran its cleanup), and
+    /// nothing else. Returns how many it removed.
+    pub async fn sweep_commit_scratch(&self, cancel: &CancellationToken) -> Result<usize, ScmFailure> {
+        let root = self.commit_root.clone();
+        on_lane(self.lane, cancel, move || sweep_dead_commit_scratch(&root, SystemTime::now())).await
     }
 
     /// The GitHub sign-in flow (DS §5.4).
@@ -123,6 +122,69 @@ impl Scm {
             cancel: cancel.clone(),
         })
     }
+}
+
+/// `SCRATCH_PREFIX` (`git-commit-transaction.ts`): a commit scratch directory is named for the
+/// process that owns it from the moment it exists.
+pub(crate) const COMMIT_SCRATCH_PREFIX: &str = "mixdog-commit-";
+/// `SCRATCH_GRACE_MS`: how old an entry with no owner in its name must be to be removed.
+const COMMIT_SCRATCH_GRACE: Duration = Duration::from_secs(60 * 60);
+
+/// `Number.parseInt(name.split('-')[0], 10)` of the text after the prefix, kept when it is a
+/// positive integer. A number too large for any pid is still the owner it names.
+fn scratch_owner(after_prefix: &str) -> Option<u64> {
+    let head = mixdog_js::js_trim_start(after_prefix.split('-').next().unwrap_or(""));
+    let digits = head.strip_prefix('+').unwrap_or(head);
+    let digits = &digits[..digits.find(|c: char| !c.is_ascii_digit()).unwrap_or(digits.len())];
+    if digits.is_empty() {
+        return None;
+    }
+    let owner = digits.parse::<u64>().unwrap_or(u64::MAX);
+    (owner > 0).then_some(owner)
+}
+
+/// Whether a process may still own a scratch directory. A pid no operating system hands out
+/// owns nothing; otherwise death must be proven (the worktree ownership check: an unanswered
+/// probe reads as alive).
+fn scratch_owner_alive(owner: u64) -> bool {
+    u32::try_from(owner).is_ok_and(|pid| crate::worktree::ownership::pid_alive_or_unknown(Some(pid)))
+}
+
+/// Removes, among `root`'s entries, the `mixdog-commit-*` ones whose owner is gone. A name with
+/// a pid decides by liveness alone (no age override: a commit parked in a slow hook for a day
+/// still owns its index); a name without one (an older build, a foreign copy) only ages out
+/// after an hour. Every other entry is left alone.
+pub(crate) fn sweep_dead_commit_scratch(root: &Path, now: SystemTime) -> usize {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return 0;
+    };
+    entries
+        .flatten()
+        .filter(|entry| {
+            let name = entry.file_name();
+            let Some(after) = name.to_str().and_then(|name| name.strip_prefix(COMMIT_SCRATCH_PREFIX)) else {
+                return false;
+            };
+            let Ok(info) = std::fs::metadata(entry.path()) else {
+                return false;
+            };
+            let orphaned = match scratch_owner(after) {
+                Some(owner) => !scratch_owner_alive(owner),
+                None => info
+                    .modified()
+                    .ok()
+                    .and_then(|at| now.duration_since(at).ok())
+                    .is_some_and(|age| age > COMMIT_SCRATCH_GRACE),
+            };
+            if !orphaned {
+                return false;
+            }
+            // Restarts the lane lease per scratch folder removed.
+            mixdog_rt::job_progress();
+            let removed = if info.is_dir() { std::fs::remove_dir_all(entry.path()) } else { std::fs::remove_file(entry.path()) };
+            removed.is_ok()
+        })
+        .count()
 }
 
 /// One repository as seen from a request: where the request ran and the caller's cancellation.

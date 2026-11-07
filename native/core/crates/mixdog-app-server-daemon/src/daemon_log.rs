@@ -224,6 +224,10 @@ impl DaemonLog {
                 if state.queue.is_empty() && state.dropped == 0 && !state.scheduled {
                     return;
                 }
+                // A cancelled run drops its drainer unstarted; asking again would be answered the same.
+                if self.shared.cancel.is_cancelled() && !state.scheduled {
+                    return;
+                }
                 !std::mem::replace(&mut state.scheduled, true)
             };
             if schedule && !self.submit_drainer() {
@@ -453,6 +457,10 @@ mod tests {
             };
             let log = DaemonLog::with_parts(probe.clone(), tokens().maintenance_io, CancellationToken::new(), clock, stderr);
             let mut held = None;
+            // Node writes 10 ms after a line, so lines logged back to back share one append. The
+            // inline test lane would drain each line at once; refusing the drainer keeps them queued
+            // until the flush, which is the same window.
+            let mut window = Some(mixdog_rt::testing::refuse_jobs_on_this_thread());
             for op in scenario["ops"].as_array().unwrap() {
                 match op["op"].as_str().unwrap() {
                     "log" => {
@@ -470,10 +478,15 @@ mod tests {
                     "gate" => *locked(&probe.gated) = true,
                     "held" => entered.recv_timeout(Duration::from_secs(30)).unwrap(),
                     "release" => release_tx.send(()).unwrap(),
-                    "flush" => log.flush().await,
+                    "flush" => {
+                        window = None;
+                        log.flush().await;
+                        window = Some(mixdog_rt::testing::refuse_jobs_on_this_thread());
+                    }
                     other => panic!("unknown op {other}"),
                 }
             }
+            drop(window);
             if let Some(thread) = held {
                 thread.join().unwrap();
             }

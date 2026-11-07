@@ -38,7 +38,7 @@ use mixdog_core_session::session::route_session::ContextStatusCache;
 use mixdog_core_session::session::run::{Compaction, Dropped};
 use mixdog_core_session::session::thread_context::{ContextSnapshot, ContextWorld};
 use mixdog_core_session::session::turn_ops::{CompactionCommit, CompactionHeader, ManualCompaction};
-use mixdog_protocol::message_class::user_text::Blobs;
+use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_store::schema::record::{Header, HeaderChange};
 use serde_json::{Value, json};
 
@@ -70,7 +70,7 @@ pub struct ManualParts {
     /// Where a dropped execution is archived: the tool-result store of the thread.
     pub io: ToolIo,
     pub data_dir: PathBuf,
-    pub blobs: Arc<dyn Blobs + Send + Sync>,
+    pub blobs: Arc<dyn BlobReads>,
 }
 
 pub struct HostManualCompaction {
@@ -269,6 +269,7 @@ impl ManualCompaction for HostManualCompaction {
         let Some(compactor) = parts.compactors.compactor(thread, &snapshot.header, &rows, input).await else { return Err(failed(DOMAIN, "no compactor for this session")) };
         // `plan.requireReduction`: an explicit request (a manual pass is not automatic) unless the
         // request's media alone would need the compaction.
+        compactor.prepare(&messages).await;
         let require = require_reduction && !compactor.request_media(&messages);
         let request = |require_reduction: bool| CompactRequest { messages: &messages, budget_tokens: plan.budget as u64, trigger: CompactTrigger::Auto, require_reduction, reference_latest_attachments: false };
         if require && !compactor.reduces(&request(true)).await {

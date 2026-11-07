@@ -586,13 +586,13 @@ impl Run {
             if let (Some(id), Some(kind)) = (message.tool_call_id(), message.tool_kind) {
                 self.emit(RunEvent::ToolResult { call_id: id.to_owned(), kind });
             }
-            self.push(message);
+            self.push(message).await?;
         }
         if aborted {
             return Err(AgentError::Aborted);
         }
         for message in follow_ups {
-            self.push(message);
+            self.push(message).await?;
         }
         // PostToolBatch: the whole batch resolved; a blocking decision injects
         // its reason as a system note for the next send.
@@ -605,7 +605,8 @@ impl Run {
                 self.push(AgentMessage::sourced(
                     Source::Hook,
                     format!("<system-reminder>\n{reason}\n</system-reminder>"),
-                ));
+                ))
+                .await?;
             }
         }
         Ok(())

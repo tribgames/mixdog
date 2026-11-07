@@ -32,6 +32,14 @@ pub trait CoreHandle: Send + Sync + 'static {
     fn host_media(&self) -> &dyn HostMediaSink;
 
     fn lifecycle(&self) -> watch::Receiver<CoreState>;
+
+    /// `connection` has ended, by whichever path: a clean close, a transport error, a heartbeat or slow-consumer close, or the server
+    /// stopping. Every owner of per-connection state (terminal focus and size ownership, UI screen sessions, watches, searches and
+    /// transfers, port viewers, paired-device rows) releases it here.
+    ///
+    /// The server calls it exactly once per opened connection, when that connection's `ConnectionHandle` drops (P §4.5). It is
+    /// required, with no default, so an implementor cannot ignore connection ends by omission.
+    fn connection_closed(&self, connection: crate::ids::ConnectionId);
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

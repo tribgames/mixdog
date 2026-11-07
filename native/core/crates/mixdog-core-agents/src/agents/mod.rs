@@ -8,6 +8,7 @@
 //! of its status pulse is a speed device and is not ported.
 
 mod avatar;
+mod catalog_json;
 mod connector_api;
 mod connectors;
 mod contact_ids;

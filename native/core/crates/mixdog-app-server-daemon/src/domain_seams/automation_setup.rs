@@ -139,11 +139,14 @@ mod tests {
     struct Fake {
         state: Mutex<Value>,
         calls: Mutex<Vec<Value>>,
+        /// The runtime's own signal: ticks when a call is noted (a run's call arrives on its own task).
+        noted: watch::Sender<()>,
     }
 
     impl Fake {
         fn note(&self, method: &str, args: Vec<Value>) {
             self.calls.lock().unwrap().push(json!({"method": method, "args": args}));
+            self.noted.send_replace(());
         }
 
         fn saved(entry: &Value) -> Value {
@@ -317,7 +320,7 @@ mod tests {
         .unwrap();
         let modules = ToolModules::new(config.clone(), Arc::new(Host(watch::channel(0).0)), publisher, mixdog_rt::CancellationToken::new());
         let callers = Arc::new(Callers(Mutex::new(String::new())));
-        let fake = Arc::new(Fake { state: Mutex::new(Value::Null), calls: Mutex::new(Vec::new()) });
+        let fake = Arc::new(Fake { state: Mutex::new(Value::Null), calls: Mutex::new(Vec::new()), noted: watch::channel(()).0 });
         let owner = Arc::new(AutomationActions::with_directory(fake.clone(), Arc::new(Directory(agents)), callers.clone()));
         assert_eq!(owner.actions(), mixdog_services::channels::setup::AUTOMATION_ACTIONS);
         let service = Arc::new(
@@ -343,14 +346,22 @@ mod tests {
         let agents: Vec<String> = golden["agents"].as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect();
         let Rig { _dir, service, tool, callers, fake } = rig(agents).await;
 
-        let thread = ThreadId::from("s");
         let cwd = AbsPath::new(std::env::temp_dir()).unwrap();
         let cancel = mixdog_rt::CancellationToken::new();
         let mut failures = Vec::new();
         for (index, case) in cases.iter().enumerate() {
+            // The recorder's sessions: an agent's home thread for its `_home` callers, else any.
+            let home = |agent: &str| ThreadId::from(mixdog_core_base::rooms::ids::agent_home_session_id(agent).unwrap().as_str());
+            let thread = match case["caller"].as_str().unwrap() {
+                "mixy_home" => home(MIXY_AGENT_ID),
+                "reviewer_home" => home("reviewer"),
+                "writer_home" => home("writer"),
+                _ => ThreadId::from("s"),
+            };
             *callers.0.lock().unwrap() = case["caller"].as_str().unwrap().to_owned();
             *fake.state.lock().unwrap() = golden["states"][case["state"].as_str().unwrap()].clone();
             fake.calls.lock().unwrap().clear();
+            let mut noted = fake.noted.subscribe();
             let args = &case["args"];
             let answer: Result<String, String> = match mixdog_tools::orch::setup_input::validate(args, &tool.spec().input_schema) {
                 Err(error) => Err(error.message_for_model),
@@ -362,13 +373,11 @@ mod tests {
                     Err(error) => Err(message(&error)),
                 },
             };
-            // A run starts on its own task: wait for the calls Node made, not for a fixed delay.
+            // A run starts on its own task: wait for the calls Node made, woken by the runtime's
+            // own note of each (the receiver was made before the call).
             let expected = case["calls"].as_array().unwrap().len();
-            for _ in 0..2000 {
-                if fake.calls.lock().unwrap().len() >= expected {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+            while fake.calls.lock().unwrap().len() < expected {
+                noted.changed().await.expect("the runtime is alive");
             }
             let label = format!("#{index} {} {} {} {}", case["caller"], case["state"], args["action"], args["name"]);
             match (&answer, case.get("reply"), case.get("error")) {

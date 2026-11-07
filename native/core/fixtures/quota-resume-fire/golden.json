@@ -1,0 +1,1444 @@
+{
+  "cases": [
+    {
+      "name": "no entry",
+      "sessionId": "sess_fire_1",
+      "items": [
+        {
+          "id": "u0",
+          "kind": "user",
+          "text": "earlier"
+        },
+        {
+          "id": "a0",
+          "kind": "assistant",
+          "text": "earlier answer"
+        },
+        {
+          "id": "d0",
+          "kind": "turndone",
+          "status": "done"
+        },
+        {
+          "id": "u1",
+          "kind": "user",
+          "text": "build the parser"
+        },
+        {
+          "id": "n1",
+          "kind": "notice",
+          "text": "limit reached"
+        },
+        {
+          "id": "d1",
+          "kind": "turndone",
+          "status": "failed",
+          "quota": {
+            "provider": "openai-oauth",
+            "model": "gpt-x",
+            "resetAt": 2000000000000
+          },
+          "attemptId": "att-1"
+        }
+      ],
+      "failureKey": "attempt:att-1",
+      "entry": null,
+      "firedGeneration": 7,
+      "suspendedGoal": "",
+      "messages": [
+        {
+          "role": "system",
+          "content": "rules"
+        }
+      ],
+      "state": {
+        "busy": false,
+        "commandBusy": false,
+        "pending": 0
+      },
+      "goalAnswer": null,
+      "enqueueAnswer": true,
+      "answers": [
+        {
+          "outcome": "stale"
+        }
+      ],
+      "after": {
+        "entry": null,
+        "suspendedGoal": "",
+        "enqueued": [],
+        "notices": [],
+        "reactivations": [],
+        "effects": []
+      }
+    },
+    {
+      "name": "another generation",
+      "sessionId": "sess_fire_2",
+      "items": [
+        {
+          "id": "u0",
+          "kind": "user",
+          "text": "earlier"
+        },
+        {
+          "id": "a0",
+          "kind": "assistant",
+          "text": "earlier answer"
+        },
+        {
+          "id": "d0",
+          "kind": "turndone",
+          "status": "done"
+        },
+        {
+          "id": "u1",
+          "kind": "user",
+          "text": "build the parser"
+        },
+        {
+          "id": "n1",
+          "kind": "notice",
+          "text": "limit reached"
+        },
+        {
+          "id": "d1",
+          "kind": "turndone",
+          "status": "failed",
+          "quota": {
+            "provider": "openai-oauth",
+            "model": "gpt-x",
+            "resetAt": 2000000000000
+          },
+          "attemptId": "att-1"
+        }
+      ],
+      "failureKey": "attempt:att-1",
+      "entry": {
+        "turnKey": "attempt:att-1",
+        "generation": 1
+      },
+      "firedGeneration": 101,
+      "suspendedGoal": "",
+      "messages": [
+        {
+          "role": "system",
+          "content": "rules"
+        }
+      ],
+      "state": {
+        "busy": false,
+        "commandBusy": false,
+        "pending": 0
+      },
+      "goalAnswer": null,
+      "enqueueAnswer": true,
+      "answers": [
+        {
+          "outcome": "stale"
+        }
+      ],
+      "after": {
+        "entry": {
+          "turnKey": "attempt:att-1",
+          "generation": 1
+        },
+        "suspendedGoal": "",
+        "enqueued": [],
+        "notices": [],
+        "reactivations": [],
+        "effects": []
+      }
+    },
+    {
+      "name": "busy turn",
+      "sessionId": "sess_fire_3",
+      "items": [
+        {
+          "id": "u0",
+          "kind": "user",
+          "text": "earlier"
+        },
+        {
+          "id": "a0",
+          "kind": "assistant",
+          "text": "earlier answer"
+        },
+        {
+          "id": "d0",
+          "kind": "turndone",
+          "status": "done"
+        },
+        {
+          "id": "u1",
+          "kind": "user",
+          "text": "build the parser"
+        },
+        {
+          "id": "n1",
+          "kind": "notice",
+          "text": "limit reached"
+        },
+        {
+          "id": "d1",
+          "kind": "turndone",
+          "status": "failed",
+          "quota": {
+            "provider": "openai-oauth",
+            "model": "gpt-x",
+            "resetAt": 2000000000000
+          },
+          "attemptId": "att-1"
+        }
+      ],
+      "failureKey": "attempt:att-1",
+      "entry": {
+        "turnKey": "attempt:att-1",
+        "generation": 2
+      },
+      "firedGeneration": 2,
+      "suspendedGoal": "",
+      "messages": [
+        {
+          "role": "system",
+          "content": "rules"
+        }
+      ],
+      "state": {
+        "busy": true,
+        "commandBusy": false,
+        "pending": 0
+      },
+      "goalAnswer": null,
+      "enqueueAnswer": true,
+      "answers": [
+        {
+          "outcome": "busy"
+        }
+      ],
+      "after": {
+        "entry": {
+          "turnKey": "attempt:att-1",
+          "generation": 2
+        },
+        "suspendedGoal": "",
+        "enqueued": [],
+        "notices": [],
+        "reactivations": [],
+        "effects": []
+      }
+    },
+    {
+      "name": "busy command",
+      "sessionId": "sess_fire_4",
+      "items": [
+        {
+          "id": "u0",
+          "kind": "user",
+          "text": "earlier"
+        },
+        {
+          "id": "a0",
+          "kind": "assistant",
+          "text": "earlier answer"
+        },
+        {
+          "id": "d0",
+          "kind": "turndone",
+          "status": "done"
+        },
+        {
+          "id": "u1",
+          "kind": "user",
+          "text": "build the parser"
+        },
+        {
+          "id": "n1",
+          "kind": "notice",
+          "text": "limit reached"
+        },
+        {
+          "id": "d1",
+          "kind": "turndone",
+          "status": "failed",
+          "quota": {
+            "provider": "openai-oauth",
+            "model": "gpt-x",
+            "resetAt": 2000000000000
+          },
+          "attemptId": "att-1"
+        }
+      ],
+      "failureKey": "attempt:att-1",
+      "entry": {
+        "turnKey": "attempt:att-1",
+        "generation": 3
+      },
+      "firedGeneration": 3,
+      "suspendedGoal": "",
+      "messages": [
+        {
+          "role": "system",
+          "content": "rules"
+        }
+      ],
+      "state": {
+        "busy": false,
+        "commandBusy": true,
+        "pending": 0
+      },
+      "goalAnswer": null,
+      "enqueueAnswer": true,
+      "answers": [
+        {
+          "outcome": "busy"
+        }
+      ],
+      "after": {
+        "entry": {
+          "turnKey": "attempt:att-1",
+          "generation": 3
+        },
+        "suspendedGoal": "",
+        "enqueued": [],
+        "notices": [],
+        "reactivations": [],
+        "effects": []
+      }
+    },
+    {
+      "name": "queued input",
+      "sessionId": "sess_fire_5",
+      "items": [
+        {
+          "id": "u0",
+          "kind": "user",
+          "text": "earlier"
+        },
+        {
+          "id": "a0",
+          "kind": "assistant",
+          "text": "earlier answer"
+        },
+        {
+          "id": "d0",
+          "kind": "turndone",
+          "status": "done"
+        },
+        {
+          "id": "u1",
+          "kind": "user",
+          "text": "build the parser"
+        },
+        {
+          "id": "n1",
+          "kind": "notice",
+          "text": "limit reached"
+        },
+        {
+          "id": "d1",
+          "kind": "turndone",
+          "status": "failed",
+          "quota": {
+            "provider": "openai-oauth",
+            "model": "gpt-x",
+            "resetAt": 2000000000000
+          },
+          "attemptId": "att-1"
+        }
+      ],
+      "failureKey": "attempt:att-1",
+      "entry": {
+        "turnKey": "attempt:att-1",
+        "generation": 4
+      },
+      "firedGeneration": 4,
+      "suspendedGoal": "",
+      "messages": [
+        {
+          "role": "system",
+          "content": "rules"
+        }
+      ],
+      "state": {
+        "busy": false,
+        "commandBusy": false,
+        "pending": 1
+      },
+      "goalAnswer": null,
+      "enqueueAnswer": true,
+      "answers": [
+        {
+          "outcome": "busy"
+        }
+      ],
+      "after": {
+        "entry": {
+          "turnKey": "attempt:att-1",
+          "generation": 4
+        },
+        "suspendedGoal": "",
+        "enqueued": [],
+        "notices": [],
+        "reactivations": [],
+        "effects": []
+      }
+    },
+    {
+      "name": "a later turn began",
+      "sessionId": "sess_fire_6",
+      "items": [
+        {
+          "id": "u0",
+          "kind": "user",
+          "text": "earlier"
+        },
+        {
+          "id": "a0",
+          "kind": "assistant",
+          "text": "earlier answer"
+        },
+        {
+          "id": "d0",
+          "kind": "turndone",
+          "status": "done"
+        },
+        {
+          "id": "u1",
+          "kind": "user",
+          "text": "build the parser"
+        },
+        {
+          "id": "n1",
+          "kind": "notice",
+          "text": "limit reached"
+        },
+        {
+          "id": "d1",
+          "kind": "turndone",
+          "status": "failed",
+          "quota": {
+            "provider": "openai-oauth",
+            "model": "gpt-x",
+            "resetAt": 2000000000000
+          },
+          "attemptId": "att-1"
+        },
+        {
+          "id": "u2",
+          "kind": "user",
+          "text": "next"
+        }
+      ],
+      "failureKey": "turn:u2",
+      "entry": {
+        "turnKey": "turn:u2",
+        "generation": 5
+      },
+      "firedGeneration": 5,
+      "suspendedGoal": "",
+      "messages": [
+        {
+          "role": "system",
+          "content": "rules"
+        }
+      ],
+      "state": {
+        "busy": false,
+        "commandBusy": false,
+        "pending": 0
+      },
+      "goalAnswer": null,
+      "enqueueAnswer": true,
+      "answers": [
+        {
+          "outcome": "superseded"
+        }
+      ],
+      "after": {
+        "entry": null,
+        "suspendedGoal": "",
+        "enqueued": [],
+        "notices": [],
+        "reactivations": [],
+        "effects": []
+      }
+    },
+    {
+      "name": "the entry is for another turn",
+      "sessionId": "sess_fire_7",
+      "items": [
+        {
+          "id": "u0",
+          "kind": "user",
+          "text": "earlier"
+        },
+        {
+          "id": "a0",
+          "kind": "assistant",
+          "text": "earlier answer"
+        },
+        {
+          "id": "d0",
+          "kind": "turndone",
+          "status": "done"
+        },
+        {
+          "id": "u1",
+          "kind": "user",
+          "text": "build the parser"
+        },
+        {
+          "id": "n1",
+          "kind": "notice",
+          "text": "limit reached"
+        },
+        {
+          "id": "d1",
+          "kind": "turndone",
+          "status": "failed",
+          "quota": {
+            "provider": "openai-oauth",
+            "model": "gpt-x",
+            "resetAt": 2000000000000
+          },
+          "attemptId": "att-1"
+        }
+      ],
+      "failureKey": "attempt:att-1",
+      "entry": {
+        "turnKey": "turn:u0",
+        "generation": 6
+      },
+      "firedGeneration": 6,
+      "suspendedGoal": "",
+      "messages": [
+        {
+          "role": "system",
+          "content": "rules"
+        }
+      ],
+      "state": {
+        "busy": false,
+        "commandBusy": false,
+        "pending": 0
+      },
+      "goalAnswer": null,
+      "enqueueAnswer": true,
+      "answers": [
+        {
+          "outcome": "superseded"
+        }
+      ],
+      "after": {
+        "entry": null,
+        "suspendedGoal": "",
+        "enqueued": [],
+        "notices": [],
+        "reactivations": [],
+        "effects": []
+      }
+    },
+    {
+      "name": "attachment-only prompt",
+      "sessionId": "sess_fire_8",
+      "items": [
+        {
+          "id": "u0",
+          "kind": "user",
+          "text": "earlier"
+        },
+        {
+          "id": "a0",
+          "kind": "assistant",
+          "text": "earlier answer"
+        },
+        {
+          "id": "d0",
+          "kind": "turndone",
+          "status": "done"
+        },
+        {
+          "id": "u1",
+          "kind": "user",
+          "text": "",
+          "images": [
+            {
+              "token": "img"
+            }
+          ]
+        },
+        {
+          "id": "n1",
+          "kind": "notice",
+          "text": "limit reached"
+        },
+        {
+          "id": "d1",
+          "kind": "turndone",
+          "status": "failed",
+          "quota": {
+            "provider": "openai-oauth",
+            "model": "gpt-x",
+            "resetAt": 2000000000000
+          },
+          "attemptId": "att-1"
+        }
+      ],
+      "failureKey": "attempt:att-1",
+      "entry": {
+        "turnKey": "attempt:att-1",
+        "generation": 7
+      },
+      "firedGeneration": 7,
+      "suspendedGoal": "",
+      "messages": [
+        {
+          "role": "system",
+          "content": "rules"
+        }
+      ],
+      "state": {
+        "busy": false,
+        "commandBusy": false,
+        "pending": 0
+      },
+      "goalAnswer": null,
+      "enqueueAnswer": true,
+      "answers": [
+        {
+          "outcome": "unreplayable"
+        }
+      ],
+      "after": {
+        "entry": null,
+        "suspendedGoal": "",
+        "enqueued": [],
+        "notices": [
+          {
+            "text": "This turn cannot be resumed automatically. Send a new message to continue.",
+            "tone": "warn",
+            "options": {
+              "transcript": true
+            }
+          }
+        ],
+        "reactivations": [],
+        "effects": []
+      }
+    },
+    {
+      "name": "prompt replayed",
+      "sessionId": "sess_fire_9",
+      "items": [
+        {
+          "id": "u0",
+          "kind": "user",
+          "text": "earlier"
+        },
+        {
+          "id": "a0",
+          "kind": "assistant",
+          "text": "earlier answer"
+        },
+        {
+          "id": "d0",
+          "kind": "turndone",
+          "status": "done"
+        },
+        {
+          "id": "u1",
+          "kind": "user",
+          "text": "build the parser"
+        },
+        {
+          "id": "n1",
+          "kind": "notice",
+          "text": "limit reached"
+        },
+        {
+          "id": "d1",
+          "kind": "turndone",
+          "status": "failed",
+          "quota": {
+            "provider": "openai-oauth",
+            "model": "gpt-x",
+            "resetAt": 2000000000000
+          },
+          "attemptId": "att-1"
+        }
+      ],
+      "failureKey": "attempt:att-1",
+      "entry": {
+        "turnKey": "attempt:att-1",
+        "generation": 8
+      },
+      "firedGeneration": 8,
+      "suspendedGoal": "",
+      "messages": [
+        {
+          "role": "system",
+          "content": "rules"
+        }
+      ],
+      "state": {
+        "busy": false,
+        "commandBusy": false,
+        "pending": 0
+      },
+      "goalAnswer": null,
+      "enqueueAnswer": true,
+      "answers": [
+        {
+          "outcome": "fired"
+        },
+        {
+          "outcome": "stale"
+        }
+      ],
+      "after": {
+        "entry": null,
+        "suspendedGoal": "",
+        "enqueued": [
+          {
+            "content": "build the parser",
+            "options": {
+              "mode": "prompt",
+              "id": "id-1",
+              "displayText": "build the parser",
+              "retryFailedTurn": true
+            }
+          }
+        ],
+        "notices": [],
+        "reactivations": [],
+        "effects": []
+      }
+    },
+    {
+      "name": "sampled turn continues",
+      "sessionId": "sess_fire_10",
+      "items": [
+        {
+          "id": "u0",
+          "kind": "user",
+          "text": "earlier"
+        },
+        {
+          "id": "a0",
+          "kind": "assistant",
+          "text": "earlier answer"
+        },
+        {
+          "id": "d0",
+          "kind": "turndone",
+          "status": "done"
+        },
+        {
+          "id": "u1",
+          "kind": "user",
+          "text": "build the parser"
+        },
+        {
+          "id": "a1",
+          "kind": "assistant",
+          "text": "partial work"
+        },
+        {
+          "id": "n1",
+          "kind": "notice",
+          "text": "limit reached"
+        },
+        {
+          "id": "d1",
+          "kind": "turndone",
+          "status": "failed",
+          "quota": {
+            "provider": "openai-oauth",
+            "model": "gpt-x",
+            "resetAt": 2000000000000
+          },
+          "attemptId": "att-1"
+        }
+      ],
+      "failureKey": "attempt:att-1",
+      "entry": {
+        "turnKey": "attempt:att-1",
+        "generation": 9
+      },
+      "firedGeneration": 9,
+      "suspendedGoal": "",
+      "messages": [
+        {
+          "role": "system",
+          "content": "rules"
+        }
+      ],
+      "state": {
+        "busy": false,
+        "commandBusy": false,
+        "pending": 0
+      },
+      "goalAnswer": null,
+      "enqueueAnswer": true,
+      "answers": [
+        {
+          "outcome": "fired"
+        }
+      ],
+      "after": {
+        "entry": null,
+        "suspendedGoal": "",
+        "enqueued": [
+          {
+            "content": "Continue from where you left off.",
+            "options": {
+              "mode": "prompt",
+              "id": "id-1",
+              "displayText": "Continue from where you left off.",
+              "retryFailedTurn": true
+            }
+          }
+        ],
+        "notices": [],
+        "reactivations": [],
+        "effects": []
+      }
+    },
+    {
+      "name": "retained message resent",
+      "sessionId": "sess_fire_11",
+      "items": [
+        {
+          "id": "u0",
+          "kind": "user",
+          "text": "earlier"
+        },
+        {
+          "id": "a0",
+          "kind": "assistant",
+          "text": "earlier answer"
+        },
+        {
+          "id": "d0",
+          "kind": "turndone",
+          "status": "done"
+        },
+        {
+          "id": "u1",
+          "kind": "user",
+          "text": "build the parser"
+        },
+        {
+          "id": "n1",
+          "kind": "notice",
+          "text": "limit reached"
+        },
+        {
+          "id": "d1",
+          "kind": "turndone",
+          "status": "failed",
+          "quota": {
+            "provider": "openai-oauth",
+            "model": "gpt-x",
+            "resetAt": 2000000000000
+          },
+          "attemptId": "att-1"
+        }
+      ],
+      "failureKey": "attempt:att-1",
+      "entry": {
+        "turnKey": "attempt:att-1",
+        "generation": 10
+      },
+      "firedGeneration": 10,
+      "suspendedGoal": "",
+      "messages": [
+        {
+          "role": "system",
+          "content": "rules"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "build the parser"
+            }
+          ],
+          "meta": {
+            "transcript": {
+              "messageId": "u1",
+              "completion": {
+                "status": "failed",
+                "attemptId": "att-1"
+              }
+            }
+          }
+        }
+      ],
+      "state": {
+        "busy": false,
+        "commandBusy": false,
+        "pending": 0
+      },
+      "goalAnswer": null,
+      "enqueueAnswer": true,
+      "answers": [
+        {
+          "outcome": "fired"
+        }
+      ],
+      "after": {
+        "entry": null,
+        "suspendedGoal": "",
+        "enqueued": [
+          {
+            "content": [
+              {
+                "type": "text",
+                "text": "build the parser"
+              }
+            ],
+            "options": {
+              "mode": "prompt",
+              "id": "id-1",
+              "retryFailedTurn": true,
+              "retryTurnId": "u1",
+              "retryAttemptId": "att-1",
+              "suppressDisplay": true,
+              "skipSlashCommands": true
+            }
+          }
+        ],
+        "notices": [],
+        "reactivations": [],
+        "effects": []
+      }
+    },
+    {
+      "name": "enqueue refused",
+      "sessionId": "sess_fire_12",
+      "items": [
+        {
+          "id": "u0",
+          "kind": "user",
+          "text": "earlier"
+        },
+        {
+          "id": "a0",
+          "kind": "assistant",
+          "text": "earlier answer"
+        },
+        {
+          "id": "d0",
+          "kind": "turndone",
+          "status": "done"
+        },
+        {
+          "id": "u1",
+          "kind": "user",
+          "text": "build the parser"
+        },
+        {
+          "id": "n1",
+          "kind": "notice",
+          "text": "limit reached"
+        },
+        {
+          "id": "d1",
+          "kind": "turndone",
+          "status": "failed",
+          "quota": {
+            "provider": "openai-oauth",
+            "model": "gpt-x",
+            "resetAt": 2000000000000
+          },
+          "attemptId": "att-1"
+        }
+      ],
+      "failureKey": "attempt:att-1",
+      "entry": {
+        "turnKey": "attempt:att-1",
+        "generation": 11
+      },
+      "firedGeneration": 11,
+      "suspendedGoal": "",
+      "messages": [
+        {
+          "role": "system",
+          "content": "rules"
+        }
+      ],
+      "state": {
+        "busy": false,
+        "commandBusy": false,
+        "pending": 0
+      },
+      "goalAnswer": null,
+      "enqueueAnswer": false,
+      "answers": [
+        {
+          "outcome": "rejected"
+        }
+      ],
+      "after": {
+        "entry": {
+          "turnKey": "attempt:att-1",
+          "generation": 11
+        },
+        "suspendedGoal": "",
+        "enqueued": [
+          {
+            "content": "build the parser",
+            "options": {
+              "mode": "prompt",
+              "id": "id-1",
+              "displayText": "build the parser",
+              "retryFailedTurn": true
+            }
+          }
+        ],
+        "notices": [],
+        "reactivations": [],
+        "effects": []
+      }
+    },
+    {
+      "name": "goal revived with the replay",
+      "sessionId": "sess_fire_13",
+      "items": [
+        {
+          "id": "u0",
+          "kind": "user",
+          "text": "earlier"
+        },
+        {
+          "id": "a0",
+          "kind": "assistant",
+          "text": "earlier answer"
+        },
+        {
+          "id": "d0",
+          "kind": "turndone",
+          "status": "done"
+        },
+        {
+          "id": "u1",
+          "kind": "user",
+          "text": "build the parser"
+        },
+        {
+          "id": "n1",
+          "kind": "notice",
+          "text": "limit reached"
+        },
+        {
+          "id": "d1",
+          "kind": "turndone",
+          "status": "failed",
+          "quota": {
+            "provider": "openai-oauth",
+            "model": "gpt-x",
+            "resetAt": 2000000000000
+          },
+          "attemptId": "att-1"
+        }
+      ],
+      "failureKey": "attempt:att-1",
+      "entry": {
+        "turnKey": "attempt:att-1",
+        "generation": 12
+      },
+      "firedGeneration": 12,
+      "suspendedGoal": "goal-1",
+      "messages": [
+        {
+          "role": "system",
+          "content": "rules"
+        }
+      ],
+      "state": {
+        "busy": false,
+        "commandBusy": false,
+        "pending": 0
+      },
+      "goalAnswer": "active",
+      "enqueueAnswer": true,
+      "answers": [
+        {
+          "outcome": "fired"
+        }
+      ],
+      "after": {
+        "entry": null,
+        "suspendedGoal": "",
+        "enqueued": [
+          {
+            "content": "build the parser",
+            "options": {
+              "mode": "prompt",
+              "id": "id-1",
+              "displayText": "build the parser",
+              "retryFailedTurn": true
+            }
+          }
+        ],
+        "notices": [],
+        "reactivations": [
+          {
+            "goalId": "goal-1",
+            "admitted": true
+          }
+        ],
+        "effects": [
+          "drain"
+        ]
+      }
+    },
+    {
+      "name": "goal revived without a user turn",
+      "sessionId": "sess_fire_14",
+      "items": [
+        {
+          "id": "u0",
+          "kind": "user",
+          "text": "earlier"
+        },
+        {
+          "id": "a0",
+          "kind": "assistant",
+          "text": "earlier answer"
+        },
+        {
+          "id": "d0",
+          "kind": "turndone",
+          "status": "done"
+        },
+        {
+          "id": "n1",
+          "kind": "notice",
+          "text": "limit reached"
+        },
+        {
+          "id": "d1",
+          "kind": "turndone",
+          "status": "failed",
+          "quota": {
+            "provider": "openai-oauth",
+            "model": "gpt-x",
+            "resetAt": 2000000000000
+          },
+          "attemptId": "att-1"
+        }
+      ],
+      "failureKey": "attempt:att-1",
+      "entry": {
+        "turnKey": "attempt:att-1",
+        "generation": 13
+      },
+      "firedGeneration": 13,
+      "suspendedGoal": "goal-1",
+      "messages": [
+        {
+          "role": "system",
+          "content": "rules"
+        }
+      ],
+      "state": {
+        "busy": false,
+        "commandBusy": false,
+        "pending": 0
+      },
+      "goalAnswer": "active",
+      "enqueueAnswer": true,
+      "answers": [
+        {
+          "outcome": "fired"
+        }
+      ],
+      "after": {
+        "entry": null,
+        "suspendedGoal": "",
+        "enqueued": [],
+        "notices": [],
+        "reactivations": [
+          {
+            "goalId": "goal-1",
+            "admitted": true
+          }
+        ],
+        "effects": [
+          "drain",
+          "goal-continuation"
+        ]
+      }
+    },
+    {
+      "name": "goal not revived",
+      "sessionId": "sess_fire_15",
+      "items": [
+        {
+          "id": "u0",
+          "kind": "user",
+          "text": "earlier"
+        },
+        {
+          "id": "a0",
+          "kind": "assistant",
+          "text": "earlier answer"
+        },
+        {
+          "id": "d0",
+          "kind": "turndone",
+          "status": "done"
+        },
+        {
+          "id": "u1",
+          "kind": "user",
+          "text": "build the parser"
+        },
+        {
+          "id": "n1",
+          "kind": "notice",
+          "text": "limit reached"
+        },
+        {
+          "id": "d1",
+          "kind": "turndone",
+          "status": "failed",
+          "quota": {
+            "provider": "openai-oauth",
+            "model": "gpt-x",
+            "resetAt": 2000000000000
+          },
+          "attemptId": "att-1"
+        }
+      ],
+      "failureKey": "attempt:att-1",
+      "entry": {
+        "turnKey": "attempt:att-1",
+        "generation": 14
+      },
+      "firedGeneration": 14,
+      "suspendedGoal": "goal-1",
+      "messages": [
+        {
+          "role": "system",
+          "content": "rules"
+        }
+      ],
+      "state": {
+        "busy": false,
+        "commandBusy": false,
+        "pending": 0
+      },
+      "goalAnswer": "usage_limited",
+      "enqueueAnswer": true,
+      "answers": [
+        {
+          "outcome": "rejected"
+        }
+      ],
+      "after": {
+        "entry": {
+          "turnKey": "attempt:att-1",
+          "generation": 14
+        },
+        "suspendedGoal": "goal-1",
+        "enqueued": [],
+        "notices": [],
+        "reactivations": [
+          {
+            "goalId": "goal-1",
+            "admitted": false
+          }
+        ],
+        "effects": [
+          "drain"
+        ]
+      }
+    },
+    {
+      "name": "goal revival failed",
+      "sessionId": "sess_fire_16",
+      "items": [
+        {
+          "id": "u0",
+          "kind": "user",
+          "text": "earlier"
+        },
+        {
+          "id": "a0",
+          "kind": "assistant",
+          "text": "earlier answer"
+        },
+        {
+          "id": "d0",
+          "kind": "turndone",
+          "status": "done"
+        },
+        {
+          "id": "u1",
+          "kind": "user",
+          "text": "build the parser"
+        },
+        {
+          "id": "n1",
+          "kind": "notice",
+          "text": "limit reached"
+        },
+        {
+          "id": "d1",
+          "kind": "turndone",
+          "status": "failed",
+          "quota": {
+            "provider": "openai-oauth",
+            "model": "gpt-x",
+            "resetAt": 2000000000000
+          },
+          "attemptId": "att-1"
+        }
+      ],
+      "failureKey": "attempt:att-1",
+      "entry": {
+        "turnKey": "attempt:att-1",
+        "generation": 15
+      },
+      "firedGeneration": 15,
+      "suspendedGoal": "goal-1",
+      "messages": [
+        {
+          "role": "system",
+          "content": "rules"
+        }
+      ],
+      "state": {
+        "busy": false,
+        "commandBusy": false,
+        "pending": 0
+      },
+      "goalAnswer": "throw",
+      "enqueueAnswer": true,
+      "answers": [
+        {
+          "error": "Goal store unavailable"
+        }
+      ],
+      "after": {
+        "entry": {
+          "turnKey": "attempt:att-1",
+          "generation": 15
+        },
+        "suspendedGoal": "goal-1",
+        "enqueued": [],
+        "notices": [
+          {
+            "text": "Goal resume failed: Goal store unavailable",
+            "tone": "warn",
+            "options": {
+              "transcript": true
+            }
+          }
+        ],
+        "reactivations": [
+          {
+            "goalId": "goal-1",
+            "admitted": false
+          }
+        ],
+        "effects": [
+          "drain"
+        ]
+      }
+    },
+    {
+      "name": "attachment-only prompt with a goal",
+      "sessionId": "sess_fire_17",
+      "items": [
+        {
+          "id": "u0",
+          "kind": "user",
+          "text": "earlier"
+        },
+        {
+          "id": "a0",
+          "kind": "assistant",
+          "text": "earlier answer"
+        },
+        {
+          "id": "d0",
+          "kind": "turndone",
+          "status": "done"
+        },
+        {
+          "id": "u1",
+          "kind": "user",
+          "text": "",
+          "images": [
+            {
+              "token": "img"
+            }
+          ]
+        },
+        {
+          "id": "n1",
+          "kind": "notice",
+          "text": "limit reached"
+        },
+        {
+          "id": "d1",
+          "kind": "turndone",
+          "status": "failed",
+          "quota": {
+            "provider": "openai-oauth",
+            "model": "gpt-x",
+            "resetAt": 2000000000000
+          },
+          "attemptId": "att-1"
+        }
+      ],
+      "failureKey": "attempt:att-1",
+      "entry": {
+        "turnKey": "attempt:att-1",
+        "generation": 16
+      },
+      "firedGeneration": 16,
+      "suspendedGoal": "goal-1",
+      "messages": [
+        {
+          "role": "system",
+          "content": "rules"
+        }
+      ],
+      "state": {
+        "busy": false,
+        "commandBusy": false,
+        "pending": 0
+      },
+      "goalAnswer": "active",
+      "enqueueAnswer": true,
+      "answers": [
+        {
+          "outcome": "fired"
+        }
+      ],
+      "after": {
+        "entry": null,
+        "suspendedGoal": "",
+        "enqueued": [],
+        "notices": [],
+        "reactivations": [
+          {
+            "goalId": "goal-1",
+            "admitted": true
+          }
+        ],
+        "effects": [
+          "drain",
+          "goal-continuation"
+        ]
+      }
+    }
+  ]
+}

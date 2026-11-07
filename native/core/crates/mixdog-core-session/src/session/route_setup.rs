@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_tools::orch::util::PortError;
+use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
@@ -21,6 +22,9 @@ use mixdog_core_ports::ports::domain_sessions::CallerChain;
 use mixdog_core_ports::ports::domain_sessions::RouteSetupSessions;
 use mixdog_core_ports::ports::domain_sessions::SessionFacts;
 use mixdog_core_base::rooms::ids::agent_home_session_id;
+use mixdog_core_agents::setup::LiveRoute;
+use mixdog_core_agents::setup::RoutePositions;
+use mixdog_core_run::run_host::hop_host::ConfigSnapshot;
 use mixdog_core_run::run_host::route_chain::BotRoutes;
 use mixdog_core_run::run_host::route_chain::RouteReadUnavailable;
 use mixdog_core_ports::ports::domain_sessions::Obj;
@@ -196,6 +200,142 @@ fn truthy(value: Option<&Value>) -> bool {
     }
 }
 
+/// `liveRouteFallbackPositions(config, row => row.sessionId !== caller.id && row.kind !== 'lead')`
+/// for the `agents` status (`routePositionsStatus(...).sessions`): the fallback positions of the
+/// bots and agents this process holds that follow a chain or have hopped. The state is the one
+/// the run's route hops write, each thread's header (`routeFallback*`); nothing is tracked here.
+pub struct SessionRoutePositions {
+    directory: Arc<SessionDirectory>,
+    bots: Arc<dyn BotRoutes + Send + Sync>,
+    config: ConfigSnapshot,
+}
+
+impl SessionRoutePositions {
+    /// `bots` and `config` are the ones the run's hops read (`HopDeps.bots`, `HopDeps.config`).
+    pub fn new(directory: Arc<SessionDirectory>, bots: Arc<dyn BotRoutes + Send + Sync>, config: ConfigSnapshot) -> Self {
+        Self { directory, bots, config }
+    }
+
+    /// `liveRouteFallbackPositions(config, row => row.sessionId !== caller.id && (row.kind === 'lead') === lead)`.
+    async fn held(&self, caller: &ThreadId, lead: bool) -> Result<Vec<Value>, PortError> {
+        let config = (self.config)();
+        let mut rows = Vec::new();
+        for handle in self.directory.loaded_handles() {
+            let header = handle.cell.header.load_full();
+            let closed = handle.cell.closed.load(std::sync::atomic::Ordering::SeqCst) || header.get("closed") == Some(&Value::Bool(true));
+            // Only a session with an agent hops (`advanceAgentRoute`).
+            if closed || !truthy(header.get("agent")) {
+                continue;
+            }
+            let mut session = (*header).clone();
+            session.insert("id".into(), json!(handle.id.as_str()));
+            let session = Value::Object(session);
+            let position = route_fallback_position(&session, &config, &*self.bots).await.map_err(unavailable)?;
+            let follows_chain = position["fallbacks"].as_array().is_some_and(|chain| !chain.is_empty());
+            if !follows_chain && !route_fallback_hopped(&session) {
+                continue;
+            }
+            if handle.id == *caller || (position["kind"] == "lead") != lead {
+                continue;
+            }
+            rows.push(position);
+        }
+        Ok(rows)
+    }
+
+    /// `routePositionsStatus({ caller, config, keep })`: the calling session's own position when it
+    /// has an agent (`session`), then the held ones `keep` selects (`sessions`).
+    async fn status(&self, caller: &ThreadId, lead: bool) -> Result<Value, PortError> {
+        let mut out = Map::new();
+        if let Some(handle) = self.directory.handle(caller) {
+            let mut session = (*handle.cell.header.load_full()).clone();
+            if truthy(session.get("agent")) {
+                session.insert("id".into(), json!(caller.as_str()));
+                let position = route_fallback_position(&Value::Object(session), &(self.config)(), &*self.bots).await.map_err(unavailable)?;
+                out.insert("session".into(), position);
+            }
+        }
+        out.insert("sessions".into(), Value::Array(self.held(caller, lead).await?));
+        Ok(Value::Object(out))
+    }
+}
+
+#[async_trait]
+impl RoutePositions for SessionRoutePositions {
+    async fn others(&self, caller: &ThreadId) -> Result<Vec<Value>, PortError> {
+        self.held(caller, false).await
+    }
+}
+
+/// The `LiveRoute` the `summary` and `model` status domains read: the Lead preset's fallback
+/// chain from the config, and where the held sessions are on their chains
+/// ([`SessionRoutePositions`], the state the run's hops write). The route facade's own
+/// properties (`rt.provider`, `rt.fastCapable`, `rt.effortOptions`, ...) are read off the
+/// thread's live route cell, which `refresh_route_effort` fills from the provider registry's
+/// catalog; nothing about effort or Fast is computed here.
+pub struct SessionLiveRoute {
+    positions: Arc<SessionRoutePositions>,
+    cell: Arc<dyn mixdog_core_ports::ports::route::LiveRoute>,
+}
+
+impl SessionLiveRoute {
+    /// `cell` is the route cell the route writer fills (`SessionRoutes`, `RouteCell`).
+    pub fn new(positions: Arc<SessionRoutePositions>, cell: Arc<dyn mixdog_core_ports::ports::route::LiveRoute>) -> Self {
+        Self { positions, cell }
+    }
+}
+
+/// `value || fallback` of a facade getter.
+fn or_value(value: Option<&Value>, fallback: Value) -> Value {
+    value.filter(|v| truthy(Some(*v))).cloned().unwrap_or(fallback)
+}
+
+/// The runtime facade's getters over `state.route` (`runtime-facade.mjs:59-110`), as one object;
+/// a getter that answers `undefined` leaves its key out, as the JSON of the facade does.
+/// `session_context_percent` is `state.session?.contextPercent`.
+fn facade_properties(route: &Obj, session_context_percent: Option<&Value>) -> Value {
+    let mut out = Obj::new();
+    for key in ["provider", "model"] {
+        if let Some(value) = route.get(key) {
+            out.insert(key.into(), value.clone());
+        }
+    }
+    let preset_effort = route.get("preset").and_then(|preset| preset.get("effort"));
+    let effort = [route.get("effectiveEffort"), route.get("effort"), preset_effort].into_iter().find(|v| truthy(*v)).flatten();
+    out.insert("effort".into(), effort.cloned().unwrap_or(Value::Null));
+    out.insert("fast".into(), Value::Bool(route.get("fast") == Some(&Value::Bool(true))));
+    out.insert("autoEffort".into(), Value::Bool(route.get("autoEffort") != Some(&Value::Bool(false))));
+    out.insert("fastCapable".into(), Value::Bool(route.get("fastCapable") == Some(&Value::Bool(true))));
+    out.insert("modelParameters".into(), or_value(route.get("modelParameters"), json!({})));
+    out.insert("effortOptions".into(), or_value(route.get("effortOptions"), json!([])));
+    // `state.route?.contextPercent ?? state.session?.contextPercent ?? null`.
+    let percent = [route.get("contextPercent"), session_context_percent].into_iter().flatten().find(|v| !v.is_null());
+    out.insert("contextPercent".into(), percent.cloned().unwrap_or(Value::Null));
+    out.insert("contextTokens".into(), or_value(route.get("contextTokens"), Value::Null));
+    Value::Object(out)
+}
+
+#[async_trait]
+impl LiveRoute for SessionLiveRoute {
+    fn route(&self, thread: &ThreadId) -> Value {
+        let route = self.cell.route(thread);
+        let header = self.positions.directory.handle(thread).map(|handle| handle.cell.header.load_full());
+        facade_properties(&route, header.as_ref().and_then(|header| header.get("contextPercent")))
+    }
+
+    /// `listPresets().find(preset => preset?.id === 'workflow-lead')?.fallbacks`; `listPresets` is
+    /// the config's `presets` as they are.
+    fn lead_fallbacks(&self) -> Value {
+        let config = (self.positions.config)();
+        let lead = config.get("presets").and_then(Value::as_array).and_then(|presets| presets.iter().find(|preset| preset.get("id") == Some(&json!("workflow-lead"))));
+        lead.and_then(|preset| preset.get("fallbacks")).cloned().unwrap_or(Value::Null)
+    }
+
+    async fn positions(&self, thread: &ThreadId, lead: bool) -> Result<Value, PortError> {
+        self.positions.status(thread, lead).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Mutex;
@@ -212,6 +352,15 @@ mod tests {
         async fn stored_bot_route(&self, _: &str) -> Result<Option<Value>, mixdog_core_run::run_host::route_chain::RouteReadUnavailable> {
             Ok(None)
         }
+    }
+
+    /// The thread's live route cell, holding one route for every thread.
+    struct FixedRoute(Obj);
+    impl mixdog_core_ports::ports::route::LiveRoute for FixedRoute {
+        fn route(&self, _: &ThreadId) -> Obj {
+            self.0.clone()
+        }
+        fn adopt_held(&self, _: &ThreadId, _: &Obj) {}
     }
 
     #[derive(Default)]
@@ -280,5 +429,85 @@ mod tests {
             refused(setup.control(&caller, "s2", "setRoute", Some(&obj(json!({ "provider": "x" })))).await),
             "session: route provider and model are required"
         );
+    }
+
+    /// `routePositionsStatus({ caller, config, keep: kind !== 'lead' }).sessions` over the held
+    /// sessions (`fixtures/route-positions`, Node's real `liveRouteFallbackPositions`): the
+    /// rows, whole and in the order the sessions were held.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn held_sessions_answer_nodes_fallback_positions() {
+        const GOLDEN: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/route-positions/golden.json"));
+        let golden: Value = serde_json::from_str(GOLDEN).expect("golden");
+        let mut rows_checked = 0;
+        for case in golden["cases"].as_array().expect("cases") {
+            let rig = Rig::new();
+            let directory = Arc::new(SessionDirectory::new(rig.deps()));
+            for session in case["sessions"].as_array().expect("sessions") {
+                let id = session["id"].as_str().expect("id");
+                directory.create_with_id(ThreadId::from(id), obj(session.clone()), json!({})).await.expect("held");
+            }
+            let config = obj(case["config"].clone());
+            let positions = SessionRoutePositions::new(directory, Arc::new(NoBots), Arc::new(move || config.clone()));
+            let caller = ThreadId::from(case["caller"].as_str().unwrap_or_default());
+            let rows = positions.others(&caller).await.expect("positions");
+            assert_eq!(Value::Array(rows), case["rows"], "{}", case["name"]);
+            rows_checked += case["rows"].as_array().expect("rows").len();
+        }
+        assert!(rows_checked >= 10, "the golden holds rows");
+    }
+
+    /// The facade's route getters (`fixtures/live-route-facade`, Node's real `createRuntimeFacade`
+    /// over a route its real `refreshRouteEffort` filled) read off the thread's route cell: the
+    /// properties whole, and the `model` status printed from them.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_route_facade_properties_are_read_off_the_route_cell() {
+        use mixdog_core_agents::setup::ModelStatus;
+        use mixdog_core_agents::setup::StatusReader;
+        const GOLDEN: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/live-route-facade/golden.json"));
+        let golden: Value = serde_json::from_str(GOLDEN).expect("golden");
+        let thread = ThreadId::from("sess_lead");
+        for case in golden["cases"].as_array().expect("cases") {
+            let name = &case["name"];
+            let rig = Rig::new();
+            let directory = Arc::new(SessionDirectory::new(rig.deps()));
+            if let Some(percent) = case["session"].get("contextPercent") {
+                directory.create_with_id(thread.clone(), obj(json!({ "contextPercent": percent })), json!({})).await.expect("held");
+            }
+            let positions = Arc::new(SessionRoutePositions::new(directory, Arc::new(NoBots), Arc::new(Obj::new)));
+            let live = Arc::new(SessionLiveRoute::new(positions, Arc::new(FixedRoute(obj(case["route"].clone())))));
+            assert_eq!(live.route(&thread), case["facade"], "{name}");
+            let printed = ModelStatus::new(live).read("model", false, &thread).await.expect("model status");
+            assert_eq!((&printed["route"], &printed["effortOptions"]), (&case["model"]["route"], &case["model"]["effortOptions"]), "{name}");
+        }
+    }
+
+    /// The `model` status domain over `SessionLiveRoute` (`fixtures/live-route`, Node's real setup
+    /// executor over held sessions): the Lead preset's chain, the caller's own place, and the other
+    /// Lead conversations' places, printed whole and in key order; and the `agents` domain's
+    /// `sessions` beside it.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_model_status_prints_what_nodes_setup_executor_did() {
+        use mixdog_core_agents::setup::ModelStatus;
+        use mixdog_core_agents::setup::StatusReader;
+        const GOLDEN: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/live-route/golden.json"));
+        let golden: Value = serde_json::from_str(GOLDEN).expect("golden");
+        for case in golden["cases"].as_array().expect("cases") {
+            let name = &case["name"];
+            let rig = Rig::new();
+            let directory = Arc::new(SessionDirectory::new(rig.deps()));
+            for session in case["sessions"].as_array().expect("sessions") {
+                let id = session["id"].as_str().expect("id");
+                directory.create_with_id(ThreadId::from(id), obj(session.clone()), json!({})).await.expect("held");
+            }
+            let config = obj(case["config"].clone());
+            let positions = Arc::new(SessionRoutePositions::new(directory, Arc::new(NoBots), Arc::new(move || config.clone())));
+            let facts = case["facts"].clone();
+            let live = Arc::new(SessionLiveRoute::new(positions, Arc::new(FixedRoute(obj(facts)))));
+            let caller = ThreadId::from(case["caller"].as_str().unwrap_or_default());
+            let printed = ModelStatus::new(live.clone()).read("model", false, &caller).await.expect("model status");
+            assert_eq!(serde_json::to_string(&printed).unwrap(), serde_json::to_string(&case["model"]).unwrap(), "{name}");
+            let others = live.positions(&caller, false).await.expect("agents positions");
+            assert_eq!(others["sessions"], case["agentsSessions"], "{name}");
+        }
     }
 }

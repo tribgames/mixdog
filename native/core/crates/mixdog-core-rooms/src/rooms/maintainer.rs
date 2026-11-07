@@ -8,7 +8,20 @@ use async_trait::async_trait;
 use mixdog_agent::compact::summary_run::{RouteResolver, RouteStep, SummaryCall};
 use mixdog_agent::one_shot::CallShape;
 
-use super::scheduler::{Maintained, Maintainer};
+
+/// The Maintainer model's answer to one supervisor prompt.
+pub enum Maintained {
+    /// No Maintainer model is configured: nobody moderates.
+    Unmanaged,
+    /// The call failed or answered nothing.
+    Failed,
+    Text(String),
+}
+
+#[async_trait]
+pub trait Maintainer: Send + Sync {
+    async fn ask(&self, system: &str, user: &str) -> Maintained;
+}
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_OUTPUT_TOKENS: u64 = 400;

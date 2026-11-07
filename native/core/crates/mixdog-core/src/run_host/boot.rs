@@ -10,7 +10,7 @@ use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_core_api::domain::fs::FileService;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::tool::ToolIo;
-use mixdog_protocol::message_class::user_text::Blobs;
+use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_services::effort_judge::judge::EffortJudgeModel;
 use mixdog_tools::policy::{ConnectorPermissions, ToolPolicy, ToolResolver};
 
@@ -37,7 +37,7 @@ pub struct HostParts {
     pub connectors: Arc<dyn ConnectorPermissions>,
     pub resolver: Arc<dyn ToolResolver>,
     pub gate_env: Arc<dyn GateEnv>,
-    pub blobs: Arc<dyn Blobs + Send + Sync>,
+    pub blobs: Arc<dyn BlobReads>,
     /// The one table the react tool (`SessionReactions`) records into.
     pub reaction_targets: Arc<ReactionTargets>,
     pub reuses: Arc<super::result_reuse::LiveReuses>,

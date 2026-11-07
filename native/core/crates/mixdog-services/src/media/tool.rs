@@ -510,7 +510,9 @@ async fn read_references(paths: Option<&Value>, cwd: &Path, controls: &Value, io
             return Err(ToolFailure::new(format!("reference \"{entry}\" is not a png/jpg/webp/gif image")));
         };
         let read = file.clone();
-        let bytes = io_on_lane(io, move || read_file(&read)).await.map_err(|e| io_tool_failure(&FsFailure { error: e, step: FsStep::Open(file.clone()) }))?;
+        // Node's `fs` on Windows reports the namespaced path, i.e. `path.resolve`d: `\` separators.
+        let reported = mixdog_workspace::pathguard::lexical(&file);
+        let bytes = io_on_lane(io, move || read_file(&read)).await.map_err(|e| io_tool_failure(&FsFailure { error: e, step: FsStep::Open(reported) }))?;
         if bytes.len() > MAX_REFERENCE_BYTES {
             return Err(ToolFailure::new(format!("reference \"{entry}\" exceeds {} MB", MAX_REFERENCE_BYTES / 1024 / 1024)));
         }

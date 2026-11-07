@@ -172,8 +172,8 @@ fn conversation_rows(messages: &[AgentMessage], summary: bool) -> Vec<AgentMessa
 /// The conversation compaction measures against its summary threshold, or
 /// with `summary`, the input the summary is written from. The turn input (the
 /// latest request and unanswered notifications) is never replaced by a summary.
-pub fn conversation_compaction_input(ctx: &FreshContext<'_>, messages: &[AgentMessage], summary: bool) -> Vec<AgentMessage> {
-    let source = split_fresh_source(ctx, messages);
+pub async fn conversation_compaction_input(ctx: &FreshContext<'_>, messages: &[AgentMessage], summary: bool) -> Vec<AgentMessage> {
+    let source = split_fresh_source(ctx, messages).await;
     let mut turn_input: Vec<usize> = pending_task_notification_indexes(&source.live);
     turn_input.extend(latest_actual_user_instruction_index(&source.live));
     let rest: Vec<AgentMessage> = source

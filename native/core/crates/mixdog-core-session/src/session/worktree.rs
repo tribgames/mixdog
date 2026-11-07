@@ -61,6 +61,10 @@ mod worktree_service_tests;
 mod worktree_session;
 #[path = "worktree_maintenance.rs"]
 mod worktree_maintenance;
+#[path = "worktree_sessions.rs"]
+mod worktree_sessions;
+#[path = "worktree_snapshots.rs"]
+mod worktree_snapshots;
 #[path = "worktree_setup.rs"]
 mod worktree_setup;
 #[path = "worktree_reroot.rs"]
@@ -109,6 +113,8 @@ pub use self::worktree_maintenance::LiveSessions;
 pub use self::worktree_maintenance::WorktreeMaintenance;
 pub use self::worktree_maintenance::cleanup_summary;
 pub use self::worktree_maintenance::startup_summary;
+pub use self::worktree_sessions::StoredWorktreeSessions;
+pub use self::worktree_snapshots::SnapshotCleanups;
 pub use self::worktree_reroot::PendingReroot;
 pub use self::worktree_reroot::PromptReroot;
 pub use self::worktree_reroot::PromptRewrite;

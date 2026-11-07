@@ -994,7 +994,8 @@ impl AttachmentReader for StoreAttachments {
             .await
             .map_err(|e| ReadError::Other(format!("{e:?}")))?;
         match read {
-            Ok(bytes) if bytes.len() > MODEL_PROXY_INLINE_MAX_BYTES => Err(ReadError::Permanent),
+            // A file of no bytes is ATTACHMENT_INVALID (`readAttachmentBuffer`, size <= 0): permanent.
+            Ok(bytes) if bytes.is_empty() || bytes.len() > MODEL_PROXY_INLINE_MAX_BYTES => Err(ReadError::Permanent),
             Ok(bytes) => Ok(bytes),
             Err(BlobError::Missing { .. } | BlobError::Corrupt { .. }) => Err(ReadError::Permanent),
             Err(e) => Err(ReadError::Other(e.to_string())),

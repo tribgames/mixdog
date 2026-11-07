@@ -1,0 +1,18 @@
+{
+  "command": "node <repo>/benchmarks/rust-core/recorders/record-channel-settings.mjs --tree <tree> --out golden.json",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 37606,
+      "path": "golden.json",
+      "sha256": "c1f8e0db76da539030bdfd6fe83aad0c5c0d585fc2c03696a371ad3e206984d5"
+    }
+  ],
+  "product": {
+    "tree": "product tree loaded by the recorder",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-channel-settings.mjs",
+  "set": "channel-settings",
+  "totalBytes": 37606
+}

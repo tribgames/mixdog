@@ -94,9 +94,10 @@ impl AgentRuntime for FakeAgent {
 #[derive(Default)]
 struct FakeBase(Mutex<Option<String>>);
 
+#[async_trait]
 impl PublicBase for FakeBase {
-    fn hook_public_base(&self) -> Option<String> {
-        self.0.lock().unwrap().clone()
+    async fn hook_public_base(&self) -> Result<Option<String>, String> {
+        Ok(self.0.lock().unwrap().clone())
     }
 }
 
@@ -540,7 +541,7 @@ async fn the_webhook_settings_patch_and_the_setup_view() {
     *e.base.0.lock().unwrap() = Some("https://hooks.example".into());
     let patched = e.admin.set_webhook_config(&json!({"enabled": false, "port": "4000", "domain": " d.example "})).await.unwrap();
     assert_eq!(patched, json!({"webhook": {"enabled": false, "port": 4000, "domain": "d.example"}}));
-    assert_eq!(*e.settings.webhook.lock().unwrap(), WebhookSettings { enabled: false, port: 4000, domain: Some("d.example".into()) });
+    assert_eq!(*e.settings.webhook.lock().unwrap(), WebhookSettings { enabled: false, port: json!(4000), domain: Some("d.example".into()) });
     let setup = e.admin.get_channel_setup().await.unwrap();
     assert_eq!(setup["webhook"], json!({"enabled": false, "port": 4000, "domain": "d.example", "publicUrl": "https://hooks.example"}));
     assert_eq!((setup["schedules"].clone(), setup["webhooks"].clone()), (json!([]), json!([])));

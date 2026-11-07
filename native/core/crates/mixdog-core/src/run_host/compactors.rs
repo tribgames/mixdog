@@ -155,8 +155,9 @@ mod tests {
         }
     }
     struct NoAttachments;
+    #[async_trait]
     impl AttachmentSeam for NoAttachments {
-        fn reference_media(&self, message: &AgentMessage) -> AgentMessage {
+        async fn reference_media(&self, message: &AgentMessage) -> AgentMessage {
             message.clone()
         }
         fn has_referencable_media(&self, _: &AgentMessage) -> bool {
@@ -250,6 +251,13 @@ mod tests {
             Ok(None)
         }
     }
+    #[async_trait]
+    impl mixdog_agent::compact::blob_reads::BlobReads for NoBlobs {
+        async fn read_with(&self, work: mixdog_agent::compact::blob_reads::StoreWork) -> Result<(), mixdog_agent::compact::blob_reads::StoreUnavailable> {
+            work(self);
+            Ok(())
+        }
+    }
     struct Fixed;
     impl Clock for Fixed {
         fn now_ms(&self) -> i64 {
@@ -335,7 +343,7 @@ mod tests {
             let (compactors, rows) = (&compactors, &rows);
             async move {
                 let compactor = compactors.fresh(&thread(), &header("openai", compaction), &[], input(Some(200_000), rows)).await.unwrap();
-                compactor.summary.as_ref().unwrap().triggered(&short())
+                compactor.summary.as_ref().unwrap().triggered(&short()).await
             }
         };
         assert!(triggered(json!({ "conversationThresholdTokens": 1 })).await);

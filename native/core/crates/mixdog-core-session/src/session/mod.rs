@@ -22,6 +22,7 @@
 mod actor;
 mod agent_host;
 pub mod agent_registry;
+pub mod approval_surfaces;
 mod attachments;
 mod cards;
 pub mod close;
@@ -57,6 +58,9 @@ pub mod import_sessions;
 mod route_exclusions;
 pub mod route_session;
 pub mod agent_evidence;
+pub mod agent_activity;
+#[cfg(test)]
+mod agent_activity_tests;
 pub mod dispatch_sessions;
 pub mod search_backfill;
 pub mod secret_input;
@@ -74,11 +78,15 @@ pub mod pending_read;
 mod pending_read_tests;
 mod reads;
 mod routine_turn;
+pub mod room_member;
 pub mod prompt_history;
 pub mod session_title;
 pub mod quota_lane;
 #[cfg(test)]
 mod quota_lane_tests;
+pub mod quota_resume_host;
+#[cfg(test)]
+mod quota_resume_host_tests;
 pub mod quota_resume_scheduler;
 #[cfg(test)]
 mod quota_resume_scheduler_tests;
@@ -94,6 +102,9 @@ pub mod terminal_host;
 mod transcript;
 pub mod transcript_export;
 pub mod turn_snapshot;
+pub mod turn_snapshots;
+#[cfg(test)]
+mod turn_snapshots_tests;
 pub mod user_text;
 pub mod user_cwd;
 pub mod user_facts;
@@ -219,6 +230,8 @@ pub struct SessionDeps {
     pub turn_starts: Arc<dyn TurnStarts>,
     /// Told when a thread's actor starts and stops (the handed-off question copies follow it).
     pub runtime_hooks: Arc<dyn runtime_hooks::RuntimeHooks>,
+    /// The read-only snapshots a settled turn made are removed (`turn_snapshots.rs`).
+    pub snapshots: Arc<dyn turn_snapshots::TurnSnapshots>,
     /// The turn review: `thread/revertTurnReview` and `thread/revertTurnReviewFile` answer from it.
     pub turn_review: Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>,
     /// The saved requests and the fork behind `thread/askSide` and `thread/cancelSide`.
@@ -240,6 +253,9 @@ pub struct SessionDeps {
     /// guards begin at each genuine user prompt.
     pub todos: Arc<dyn mixdog_tools::state::todo::TodoStore>,
     pub work: Arc<dyn mixdog_core_run::run_host::guards::RunningWork>,
+    /// The agent tool's status for a session, published as its `agents` section when a job of
+    /// the session is added or finishes (`agent_activity.rs`).
+    pub agent_status: Arc<dyn agent_activity::AgentStatus>,
     pub cycles: Arc<mixdog_core_run::run_host::guards::UserCycles>,
     /// The quota-resume queue a quota-failed turn queues its resume on.
     pub quota: quota_lane::SessionQuota,

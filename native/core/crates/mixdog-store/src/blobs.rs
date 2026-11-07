@@ -156,6 +156,20 @@ impl BlobStore {
         self.put_unlaned(bytes, |path, bytes| crate::fsio::publish_file(lane, path, bytes))
     }
 
+    /// [`Self::put`], then the file's mtime set to now. Node's `saveBuffer` touches a reused blob so
+    /// the GC's age window protects the reference that is about to be recorded; a file just written
+    /// already has the time, and a blob already there keeps it only by this touch.
+    pub fn put_fresh<L: WriteLane>(&self, lane: &InLane<L>, bytes: &[u8]) -> Result<BlobPin, BlobError> {
+        let pin = self.put(lane, bytes)?;
+        let path = self.path(pin.digest());
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .and_then(|file| file.set_modified(SystemTime::now()))
+            .map_err(err(IoOp::Write, &path))?;
+        Ok(pin)
+    }
+
     pub(crate) fn put_unlaned(
         &self,
         bytes: &[u8],

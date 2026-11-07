@@ -1893,6 +1893,54 @@ async fn a_cancel_inside_the_quota_settling_window_keeps_the_suspension_unrecord
     assert!(rig.quota.entry(id).is_none());
 }
 
+/// No reading is asked of it in these tests.
+struct NoUsage;
+
+#[async_trait::async_trait]
+impl super::quota_resume_host::QuotaUsage for NoUsage {
+    async fn usable(&self, _: &str, _: &str) -> Result<bool, super::quota_resume_scheduler::UsageError> {
+        unreachable!("the fire is driven directly")
+    }
+}
+
+/// The scheduler's fire through the production `ResumeHost` (Node `fireQuotaResume`, recorded in
+/// `fixtures/quota-resume-fire`): while the quota-failed turn settles the fire is `busy`; then
+/// the queued resume of a user turn fires once (its prompt runs again as a new turn, the entry
+/// goes), and every repeat of that generation is `stale` ("prompt replayed").
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_scheduler_fire_replays_the_failed_turn_once() {
+    use super::quota_resume_host::SessionResumeHost;
+    use super::quota_resume_scheduler::FireOutcome;
+    use super::quota_resume_scheduler::ResumeHost;
+
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(rig.deps()));
+    rig.set_script(quota_failure());
+    let handle = start_thread(&directory).await;
+    let id = handle.id.as_str().to_owned();
+    turn(&handle, "build the parser", "op-failed").await;
+    let entry = eventually(|| rig.quota.entry(&id)).await;
+    rig.set_script(echo());
+    let host = SessionResumeHost::new(directory.clone(), Arc::new(NoUsage));
+    host.materialize(&id).await.expect("loaded");
+    // A generation that is not queued is stale at once.
+    assert_eq!(host.fire(&id, entry.generation + 1).await, Ok(FireOutcome::Stale));
+    let mut outcome = host.fire(&id, entry.generation).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while outcome == Ok(FireOutcome::Busy) {
+        assert!(tokio::time::Instant::now() < deadline, "the failed turn never settled");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        outcome = host.fire(&id, entry.generation).await;
+    }
+    assert_eq!(outcome, Ok(FireOutcome::Fired));
+    assert_eq!(host.fire(&id, entry.generation).await, Ok(FireOutcome::Stale), "a repeat of the generation");
+    eventually(|| rig.quota.entry(&id).is_none().then_some(())).await;
+    // The retry ran (the failed turn's own message, or its prompt, is what it answered).
+    eventually(|| rows(&handle).iter().any(|(role, text)| *role == "assistant" && text.starts_with("re: ")).then_some(())).await;
+    eventually(|| idle(&handle).then_some(())).await;
+    assert_eq!(host.fire(&id, entry.generation).await, Ok(FireOutcome::Stale), "after the retry ran");
+}
+
 /// `thread/clear` resets the environment in the same header change that drops the provider
 /// state (`resetSessionBp3Environment`): the `env` block becomes the environment tail alone and
 /// the next ask adds the `# Session` block again.

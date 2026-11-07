@@ -61,8 +61,8 @@ fn summary_pieces_equal_node() {
     }
 }
 
-#[test]
-fn conversation_input_equals_node() {
+#[tokio::test]
+async fn conversation_input_equals_node() {
     use compact_support::NoAttachments;
     use compact_support::PreviewArchive;
     use mixdog_agent::compact::conversation::conversation_compaction_input;
@@ -79,7 +79,8 @@ fn conversation_input_equals_node() {
     };
     let messages: Vec<_> = golden["messages"].as_array().expect("messages").iter().map(node_message).collect();
     for (key, summary) in [("plain", false), ("summary", true)] {
-        let got: Vec<_> = conversation_compaction_input(&ctx, &messages, summary)
+        let input = conversation_compaction_input(&ctx, &messages, summary).await;
+        let got: Vec<_> = input
             .iter()
             .map(|m| (compact_support::node_row(m)["role"].clone(), m.text()))
             .collect();

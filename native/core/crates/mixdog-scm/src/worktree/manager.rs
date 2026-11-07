@@ -508,8 +508,9 @@ impl Worktrees {
             vec!["worktree", "add", "-b", &branch, &target, &base_commit]
         };
         if let Err(failure) = self.scm.git.run(cancel, &facts.top_level, &args).await {
-            let id = record.id.clone();
-            let _ = self.with_registry(cancel, move |r| r.delete(&id)).await;
+            // `failCreation`: the same rollback as any later failure (the checkout may be half
+            // made, and `-b` may have made the branch); the git failure is the one surfaced.
+            self.undo_failed_creation(&mut record, &[("worktree", "pending")], &failure, cancel).await;
             return Err(failure);
         }
         let populated = self
@@ -523,12 +524,34 @@ impl Worktrees {
             Err((failure, carried)) => {
                 // Carried already: the changes go back to the project folder before the
                 // worktree that holds them is rolled back (the recovery ref keeps them either way).
-                if let Some(reference) = carried {
-                    let _ = self.restore_from_recovery_ref(&facts.top_level, &subdir, &reference, cancel).await;
+                if let Some(reference) = carried
+                    && let Err(error) = self.restore_from_recovery_ref(&facts.top_level, &subdir, &reference, cancel).await
+                {
+                    // Node keeps this as `carryRestore` on the failure, which nothing reads.
+                    tracing::warn!(id = %record.id, reference = %reference, "the carried changes were not put back: {error}");
                 }
-                self.rollback_creation(&record, &facts.top_level, cancel).await;
+                self.undo_failed_creation(&mut record, &[("worktree", "created"), ("lock", "created"), ("owner", "created")], &failure, cancel).await;
                 Err(failure)
             }
+        }
+    }
+
+    /// `failCreation`'s rollback: the record goes through the ledger-proved `rollbackCreation`
+    /// (`rollback_record`), never a forced removal of the branch: a branch that moved since the
+    /// creation holds someone's commits and stays. Node writes `pending` before it makes a resource
+    /// and `created` after; the resources named in `made` are the ones this failure may have made.
+    /// The creation's own failure is the one surfaced, so what the rollback could not undo is
+    /// logged (Node attaches it to that error as `rollback`, which nothing reads).
+    async fn undo_failed_creation(&self, record: &mut WorktreeRecord, made: &[(&str, &str)], failure: &ScmFailure, cancel: &CancellationToken) {
+        let mut resources = record.extra.get("resources").cloned().filter(Value::is_object).unwrap_or_else(|| json!({}));
+        for (key, state) in made {
+            resources[*key] = json!(state);
+        }
+        record.extra.insert("resources".into(), resources);
+        match self.rollback_record(record, Some(&failure.to_string()), cancel).await {
+            Ok((true, _)) => {}
+            Ok((false, remaining)) => tracing::warn!(id = %record.id, remaining = %json!(remaining), "a failed creation was not fully rolled back"),
+            Err(error) => tracing::warn!(id = %record.id, "a failed creation was not rolled back: {error}"),
         }
     }
 
@@ -668,8 +691,7 @@ impl Worktrees {
             .run(cancel, &facts.top_level, &["worktree", "add", "--detach", &target, commit])
             .await
         {
-            let id = record.id.clone();
-            let _ = self.with_registry(cancel, move |r| r.delete(&id)).await;
+            self.undo_failed_creation(&mut record, &[("worktree", "pending")], &failure, cancel).await;
             return Err(failure);
         }
         record.state = "ready".into();

@@ -381,7 +381,7 @@ impl ChannelAdmin {
     pub async fn get_channel_setup(&self) -> Done {
         let webhook = self.d.settings.webhook().await?;
         let mut view = serde_json::to_value(webhook).map_err(|e| e.to_string())?;
-        view["publicUrl"] = self.d.base.hook_public_base().into();
+        view["publicUrl"] = self.d.base.hook_public_base().await?.into();
         Ok(json!({"webhook": view, "schedules": self.list_schedules().await?, "webhooks": self.list_webhooks().await?}))
     }
 
@@ -693,7 +693,7 @@ impl ChannelAdmin {
         let id = assert_webhook_name(Some(&json!(name)))?;
         let endpoint = self.d.webhooks.load(&id).await?.ok_or_else(|| format!("webhook \"{id}\" does not exist"))?;
         let secret = endpoint.secret.clone().unwrap_or_default();
-        let base = self.d.base.hook_public_base().unwrap_or_default().trim_end_matches('/').to_string();
+        let base = self.d.base.hook_public_base().await?.unwrap_or_default().trim_end_matches('/').to_string();
         if base.is_empty() {
             return Ok(json!({
                 "name": id, "ok": false, "status": 0, "url": "", "code": "relay-unavailable",

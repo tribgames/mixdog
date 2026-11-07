@@ -1,0 +1,1796 @@
+{
+  "domain": "live-route-facade",
+  "recorder": "benchmarks/rust-core/recorders/record-live-route-facade.mjs",
+  "cases": [
+    {
+      "name": "a resolved route with an effort",
+      "requested": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "high"
+      },
+      "meta": {
+        "id": "gpt-5",
+        "provider": "openai",
+        "name": "GPT 5",
+        "reasoningLevels": [
+          "low",
+          "high"
+        ],
+        "contextWindow": 272000,
+        "maxContextWindow": 1000000
+      },
+      "refreshed": true,
+      "session": null,
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "high",
+        "fast": false,
+        "fastCapable": false,
+        "effectiveEffort": "high",
+        "effortOptions": [
+          {
+            "value": "low",
+            "label": "Low",
+            "description": ""
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": "current"
+          }
+        ],
+        "contextPercent": 30,
+        "contextDefaultPercent": 30,
+        "selectedContextWindow": 272000,
+        "modelDisplay": "GPT 5"
+      },
+      "facade": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "high",
+        "fast": false,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [
+          {
+            "value": "low",
+            "label": "Low",
+            "description": ""
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": "current"
+          }
+        ],
+        "contextPercent": 30,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "high",
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": 30,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": [
+          {
+            "value": "low",
+            "label": "Low",
+            "description": ""
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": "current"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a resolved route with an effort, not refreshed",
+      "requested": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "high"
+      },
+      "meta": {
+        "id": "gpt-5",
+        "provider": "openai",
+        "name": "GPT 5",
+        "reasoningLevels": [
+          "low",
+          "high"
+        ],
+        "contextWindow": 272000,
+        "maxContextWindow": 1000000
+      },
+      "refreshed": false,
+      "session": null,
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "high"
+      },
+      "facade": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "high",
+        "fast": false,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [],
+        "contextPercent": null,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "high",
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": null,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": []
+      }
+    },
+    {
+      "name": "an effort the model does not take",
+      "requested": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "ultra"
+      },
+      "meta": {
+        "id": "gpt-5",
+        "provider": "openai",
+        "name": "GPT 5",
+        "reasoningLevels": [
+          "low",
+          "high"
+        ],
+        "contextWindow": 272000,
+        "maxContextWindow": 1000000
+      },
+      "refreshed": true,
+      "session": null,
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "ultra",
+        "fast": false,
+        "fastCapable": false,
+        "effectiveEffort": "high",
+        "effortOptions": [
+          {
+            "value": "low",
+            "label": "Low",
+            "description": ""
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": "current"
+          }
+        ],
+        "contextPercent": 30,
+        "contextDefaultPercent": 30,
+        "selectedContextWindow": 272000,
+        "modelDisplay": "GPT 5"
+      },
+      "facade": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "high",
+        "fast": false,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [
+          {
+            "value": "low",
+            "label": "Low",
+            "description": ""
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": "current"
+          }
+        ],
+        "contextPercent": 30,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "high",
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": 30,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": [
+          {
+            "value": "low",
+            "label": "Low",
+            "description": ""
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": "current"
+          }
+        ]
+      }
+    },
+    {
+      "name": "an effort the model does not take, not refreshed",
+      "requested": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "ultra"
+      },
+      "meta": {
+        "id": "gpt-5",
+        "provider": "openai",
+        "name": "GPT 5",
+        "reasoningLevels": [
+          "low",
+          "high"
+        ],
+        "contextWindow": 272000,
+        "maxContextWindow": 1000000
+      },
+      "refreshed": false,
+      "session": null,
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "ultra"
+      },
+      "facade": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "ultra",
+        "fast": false,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [],
+        "contextPercent": null,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "ultra",
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": null,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": []
+      }
+    },
+    {
+      "name": "Fast on a fast-capable model",
+      "requested": {
+        "provider": "anthropic",
+        "model": "claude-opus",
+        "effort": "low",
+        "fast": true
+      },
+      "meta": {
+        "id": "claude-opus",
+        "provider": "anthropic",
+        "name": "Opus",
+        "supportsFastMode": true,
+        "contextWindow": 200000,
+        "maxContextWindow": 1000000,
+        "modelParameterOptions": [
+          {
+            "id": "context",
+            "options": [
+              {
+                "value": "1m",
+                "contextWindow": 1000000
+              },
+              {
+                "value": "200k",
+                "contextWindow": 200000
+              }
+            ]
+          }
+        ]
+      },
+      "refreshed": true,
+      "session": null,
+      "route": {
+        "provider": "anthropic",
+        "model": "claude-opus",
+        "effort": "low",
+        "fast": true,
+        "fastCapable": true,
+        "effectiveEffort": null,
+        "effortOptions": [],
+        "contextPercent": 20,
+        "contextDefaultPercent": 20,
+        "selectedContextWindow": 200000,
+        "modelDisplay": "Opus"
+      },
+      "facade": {
+        "provider": "anthropic",
+        "model": "claude-opus",
+        "effort": "low",
+        "fast": true,
+        "autoEffort": true,
+        "fastCapable": true,
+        "modelParameters": {},
+        "effortOptions": [],
+        "contextPercent": 20,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "anthropic",
+          "model": "claude-opus",
+          "effort": "low",
+          "fast": true,
+          "fastCapable": true,
+          "modelParameters": {},
+          "contextPercent": 20,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": []
+      }
+    },
+    {
+      "name": "Fast on a fast-capable model, not refreshed",
+      "requested": {
+        "provider": "anthropic",
+        "model": "claude-opus",
+        "effort": "low",
+        "fast": true
+      },
+      "meta": {
+        "id": "claude-opus",
+        "provider": "anthropic",
+        "name": "Opus",
+        "supportsFastMode": true,
+        "contextWindow": 200000,
+        "maxContextWindow": 1000000,
+        "modelParameterOptions": [
+          {
+            "id": "context",
+            "options": [
+              {
+                "value": "1m",
+                "contextWindow": 1000000
+              },
+              {
+                "value": "200k",
+                "contextWindow": 200000
+              }
+            ]
+          }
+        ]
+      },
+      "refreshed": false,
+      "session": null,
+      "route": {
+        "provider": "anthropic",
+        "model": "claude-opus",
+        "effort": "low",
+        "fast": true
+      },
+      "facade": {
+        "provider": "anthropic",
+        "model": "claude-opus",
+        "effort": "low",
+        "fast": true,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [],
+        "contextPercent": null,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "anthropic",
+          "model": "claude-opus",
+          "effort": "low",
+          "fast": true,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": null,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": []
+      }
+    },
+    {
+      "name": "Fast requested on a model without it",
+      "requested": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "fast": true
+      },
+      "meta": {
+        "id": "gpt-5",
+        "provider": "openai",
+        "name": "GPT 5",
+        "reasoningLevels": [
+          "low",
+          "high"
+        ],
+        "contextWindow": 272000,
+        "maxContextWindow": 1000000
+      },
+      "refreshed": true,
+      "session": null,
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "fast": false,
+        "fastCapable": false,
+        "effectiveEffort": null,
+        "effortOptions": [
+          {
+            "value": "low",
+            "label": "Low",
+            "description": ""
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": ""
+          }
+        ],
+        "contextPercent": 30,
+        "contextDefaultPercent": 30,
+        "selectedContextWindow": 272000,
+        "modelDisplay": "GPT 5"
+      },
+      "facade": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [
+          {
+            "value": "low",
+            "label": "Low",
+            "description": ""
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": ""
+          }
+        ],
+        "contextPercent": 30,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": null,
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": 30,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": [
+          {
+            "value": "low",
+            "label": "Low",
+            "description": ""
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "Fast requested on a model without it, not refreshed",
+      "requested": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "fast": true
+      },
+      "meta": {
+        "id": "gpt-5",
+        "provider": "openai",
+        "name": "GPT 5",
+        "reasoningLevels": [
+          "low",
+          "high"
+        ],
+        "contextWindow": 272000,
+        "maxContextWindow": 1000000
+      },
+      "refreshed": false,
+      "session": null,
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "fast": true
+      },
+      "facade": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": null,
+        "fast": true,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [],
+        "contextPercent": null,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": null,
+          "fast": true,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": null,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": []
+      }
+    },
+    {
+      "name": "a context selection",
+      "requested": {
+        "provider": "anthropic",
+        "model": "claude-opus",
+        "modelParameters": {
+          "context": "1m"
+        }
+      },
+      "meta": {
+        "id": "claude-opus",
+        "provider": "anthropic",
+        "name": "Opus",
+        "supportsFastMode": true,
+        "contextWindow": 200000,
+        "maxContextWindow": 1000000,
+        "modelParameterOptions": [
+          {
+            "id": "context",
+            "options": [
+              {
+                "value": "1m",
+                "contextWindow": 1000000
+              },
+              {
+                "value": "200k",
+                "contextWindow": 200000
+              }
+            ]
+          }
+        ]
+      },
+      "refreshed": true,
+      "session": null,
+      "route": {
+        "provider": "anthropic",
+        "model": "claude-opus",
+        "modelParameters": {
+          "context": "1m"
+        },
+        "fast": false,
+        "fastCapable": true,
+        "effectiveEffort": null,
+        "effortOptions": [],
+        "contextPercent": 20,
+        "contextDefaultPercent": 20,
+        "selectedContextWindow": 200000,
+        "modelDisplay": "Opus"
+      },
+      "facade": {
+        "provider": "anthropic",
+        "model": "claude-opus",
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "fastCapable": true,
+        "modelParameters": {
+          "context": "1m"
+        },
+        "effortOptions": [],
+        "contextPercent": 20,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "anthropic",
+          "model": "claude-opus",
+          "effort": null,
+          "fast": false,
+          "fastCapable": true,
+          "modelParameters": {
+            "context": "1m"
+          },
+          "contextPercent": 20,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": []
+      }
+    },
+    {
+      "name": "a context selection, not refreshed",
+      "requested": {
+        "provider": "anthropic",
+        "model": "claude-opus",
+        "modelParameters": {
+          "context": "1m"
+        }
+      },
+      "meta": {
+        "id": "claude-opus",
+        "provider": "anthropic",
+        "name": "Opus",
+        "supportsFastMode": true,
+        "contextWindow": 200000,
+        "maxContextWindow": 1000000,
+        "modelParameterOptions": [
+          {
+            "id": "context",
+            "options": [
+              {
+                "value": "1m",
+                "contextWindow": 1000000
+              },
+              {
+                "value": "200k",
+                "contextWindow": 200000
+              }
+            ]
+          }
+        ]
+      },
+      "refreshed": false,
+      "session": null,
+      "route": {
+        "provider": "anthropic",
+        "model": "claude-opus",
+        "modelParameters": {
+          "context": "1m"
+        }
+      },
+      "facade": {
+        "provider": "anthropic",
+        "model": "claude-opus",
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {
+          "context": "1m"
+        },
+        "effortOptions": [],
+        "contextPercent": null,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "anthropic",
+          "model": "claude-opus",
+          "effort": null,
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {
+            "context": "1m"
+          },
+          "contextPercent": null,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": []
+      }
+    },
+    {
+      "name": "Auto effort off",
+      "requested": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "low",
+        "autoEffort": false
+      },
+      "meta": {
+        "id": "gpt-5",
+        "provider": "openai",
+        "name": "GPT 5",
+        "reasoningLevels": [
+          "low",
+          "high"
+        ],
+        "contextWindow": 272000,
+        "maxContextWindow": 1000000
+      },
+      "refreshed": true,
+      "session": null,
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "low",
+        "autoEffort": false,
+        "fast": false,
+        "fastCapable": false,
+        "effectiveEffort": "low",
+        "effortOptions": [
+          {
+            "value": "low",
+            "label": "Low",
+            "description": "current"
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": ""
+          }
+        ],
+        "contextPercent": 30,
+        "contextDefaultPercent": 30,
+        "selectedContextWindow": 272000,
+        "modelDisplay": "GPT 5"
+      },
+      "facade": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "low",
+        "fast": false,
+        "autoEffort": false,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [
+          {
+            "value": "low",
+            "label": "Low",
+            "description": "current"
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": ""
+          }
+        ],
+        "contextPercent": 30,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "low",
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": 30,
+          "contextTokens": null,
+          "autoEffort": false,
+          "fallbacks": []
+        },
+        "effortOptions": [
+          {
+            "value": "low",
+            "label": "Low",
+            "description": "current"
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "Auto effort off, not refreshed",
+      "requested": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "low",
+        "autoEffort": false
+      },
+      "meta": {
+        "id": "gpt-5",
+        "provider": "openai",
+        "name": "GPT 5",
+        "reasoningLevels": [
+          "low",
+          "high"
+        ],
+        "contextWindow": 272000,
+        "maxContextWindow": 1000000
+      },
+      "refreshed": false,
+      "session": null,
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "low",
+        "autoEffort": false
+      },
+      "facade": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "low",
+        "fast": false,
+        "autoEffort": false,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [],
+        "contextPercent": null,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "low",
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": null,
+          "contextTokens": null,
+          "autoEffort": false,
+          "fallbacks": []
+        },
+        "effortOptions": []
+      }
+    },
+    {
+      "name": "a preset effort",
+      "requested": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "preset": {
+          "effort": "high"
+        }
+      },
+      "meta": {
+        "id": "gpt-5",
+        "provider": "openai",
+        "name": "GPT 5",
+        "reasoningLevels": [
+          "low",
+          "high"
+        ],
+        "contextWindow": 272000,
+        "maxContextWindow": 1000000
+      },
+      "refreshed": true,
+      "session": null,
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "preset": {
+          "effort": "high"
+        },
+        "fast": false,
+        "fastCapable": false,
+        "effectiveEffort": "high",
+        "effortOptions": [
+          {
+            "value": "low",
+            "label": "Low",
+            "description": ""
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": "current"
+          }
+        ],
+        "contextPercent": 30,
+        "contextDefaultPercent": 30,
+        "selectedContextWindow": 272000,
+        "modelDisplay": "GPT 5"
+      },
+      "facade": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "high",
+        "fast": false,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [
+          {
+            "value": "low",
+            "label": "Low",
+            "description": ""
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": "current"
+          }
+        ],
+        "contextPercent": 30,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "high",
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": 30,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": [
+          {
+            "value": "low",
+            "label": "Low",
+            "description": ""
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": "current"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a preset effort, not refreshed",
+      "requested": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "preset": {
+          "effort": "high"
+        }
+      },
+      "meta": {
+        "id": "gpt-5",
+        "provider": "openai",
+        "name": "GPT 5",
+        "reasoningLevels": [
+          "low",
+          "high"
+        ],
+        "contextWindow": 272000,
+        "maxContextWindow": 1000000
+      },
+      "refreshed": false,
+      "session": null,
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "preset": {
+          "effort": "high"
+        }
+      },
+      "facade": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "high",
+        "fast": false,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [],
+        "contextPercent": null,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "high",
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": null,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": []
+      }
+    },
+    {
+      "name": "a picker context share",
+      "requested": {
+        "provider": "gemini",
+        "model": "x",
+        "contextPercent": 40
+      },
+      "meta": {
+        "id": "x",
+        "provider": "gemini",
+        "displayName": "Gem",
+        "reasoningLevels": [
+          "minimal",
+          "medium"
+        ],
+        "maxContextWindow": 800000
+      },
+      "refreshed": true,
+      "session": null,
+      "route": {
+        "provider": "gemini",
+        "model": "x",
+        "contextPercent": 40,
+        "fast": false,
+        "fastCapable": false,
+        "effectiveEffort": null,
+        "effortOptions": [
+          {
+            "value": "minimal",
+            "label": "Minimal",
+            "description": ""
+          },
+          {
+            "value": "medium",
+            "label": "Medium",
+            "description": ""
+          }
+        ],
+        "contextDefaultPercent": 10,
+        "selectedContextWindow": 320000,
+        "modelDisplay": "Gem"
+      },
+      "facade": {
+        "provider": "gemini",
+        "model": "x",
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [
+          {
+            "value": "minimal",
+            "label": "Minimal",
+            "description": ""
+          },
+          {
+            "value": "medium",
+            "label": "Medium",
+            "description": ""
+          }
+        ],
+        "contextPercent": 40,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "gemini",
+          "model": "x",
+          "effort": null,
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": 40,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": [
+          {
+            "value": "minimal",
+            "label": "Minimal",
+            "description": ""
+          },
+          {
+            "value": "medium",
+            "label": "Medium",
+            "description": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "a picker context share, not refreshed",
+      "requested": {
+        "provider": "gemini",
+        "model": "x",
+        "contextPercent": 40
+      },
+      "meta": {
+        "id": "x",
+        "provider": "gemini",
+        "displayName": "Gem",
+        "reasoningLevels": [
+          "minimal",
+          "medium"
+        ],
+        "maxContextWindow": 800000
+      },
+      "refreshed": false,
+      "session": null,
+      "route": {
+        "provider": "gemini",
+        "model": "x",
+        "contextPercent": 40
+      },
+      "facade": {
+        "provider": "gemini",
+        "model": "x",
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [],
+        "contextPercent": 40,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "gemini",
+          "model": "x",
+          "effort": null,
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": 40,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": []
+      }
+    },
+    {
+      "name": "exact context tokens",
+      "requested": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "contextTokens": 123456
+      },
+      "meta": {
+        "id": "gpt-5",
+        "provider": "openai",
+        "name": "GPT 5",
+        "reasoningLevels": [
+          "low",
+          "high"
+        ],
+        "contextWindow": 272000,
+        "maxContextWindow": 1000000
+      },
+      "refreshed": true,
+      "session": null,
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "fast": false,
+        "fastCapable": false,
+        "effectiveEffort": null,
+        "effortOptions": [
+          {
+            "value": "low",
+            "label": "Low",
+            "description": ""
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": ""
+          }
+        ],
+        "contextPercent": 10,
+        "contextDefaultPercent": 30,
+        "contextTokens": 123456,
+        "selectedContextWindow": 123456,
+        "modelDisplay": "GPT 5"
+      },
+      "facade": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [
+          {
+            "value": "low",
+            "label": "Low",
+            "description": ""
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": ""
+          }
+        ],
+        "contextPercent": 10,
+        "contextTokens": 123456
+      },
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": null,
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": 10,
+          "contextTokens": 123456,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": [
+          {
+            "value": "low",
+            "label": "Low",
+            "description": ""
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "exact context tokens, not refreshed",
+      "requested": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "contextTokens": 123456
+      },
+      "meta": {
+        "id": "gpt-5",
+        "provider": "openai",
+        "name": "GPT 5",
+        "reasoningLevels": [
+          "low",
+          "high"
+        ],
+        "contextWindow": 272000,
+        "maxContextWindow": 1000000
+      },
+      "refreshed": false,
+      "session": null,
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "contextTokens": 123456
+      },
+      "facade": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [],
+        "contextPercent": null,
+        "contextTokens": 123456
+      },
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": null,
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": null,
+          "contextTokens": 123456,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": []
+      }
+    },
+    {
+      "name": "a cold catalog row keeps the requested route",
+      "requested": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "high",
+        "fast": true
+      },
+      "meta": {
+        "id": "gpt-5",
+        "provider": "openai"
+      },
+      "refreshed": true,
+      "session": null,
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "high",
+        "fast": true,
+        "fastCapable": true,
+        "effectiveEffort": "high",
+        "effortOptions": [
+          {
+            "value": "none",
+            "label": "None",
+            "description": ""
+          },
+          {
+            "value": "low",
+            "label": "Low",
+            "description": ""
+          },
+          {
+            "value": "medium",
+            "label": "Medium",
+            "description": ""
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": "current"
+          },
+          {
+            "value": "xhigh",
+            "label": "Extra High",
+            "description": ""
+          }
+        ]
+      },
+      "facade": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "high",
+        "fast": true,
+        "autoEffort": true,
+        "fastCapable": true,
+        "modelParameters": {},
+        "effortOptions": [
+          {
+            "value": "none",
+            "label": "None",
+            "description": ""
+          },
+          {
+            "value": "low",
+            "label": "Low",
+            "description": ""
+          },
+          {
+            "value": "medium",
+            "label": "Medium",
+            "description": ""
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": "current"
+          },
+          {
+            "value": "xhigh",
+            "label": "Extra High",
+            "description": ""
+          }
+        ],
+        "contextPercent": null,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "high",
+          "fast": true,
+          "fastCapable": true,
+          "modelParameters": {},
+          "contextPercent": null,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": [
+          {
+            "value": "none",
+            "label": "None",
+            "description": ""
+          },
+          {
+            "value": "low",
+            "label": "Low",
+            "description": ""
+          },
+          {
+            "value": "medium",
+            "label": "Medium",
+            "description": ""
+          },
+          {
+            "value": "high",
+            "label": "High",
+            "description": "current"
+          },
+          {
+            "value": "xhigh",
+            "label": "Extra High",
+            "description": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "a cold catalog row keeps the requested route, not refreshed",
+      "requested": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "high",
+        "fast": true
+      },
+      "meta": {
+        "id": "gpt-5",
+        "provider": "openai"
+      },
+      "refreshed": false,
+      "session": null,
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "high",
+        "fast": true
+      },
+      "facade": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": "high",
+        "fast": true,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [],
+        "contextPercent": null,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": "high",
+          "fast": true,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": null,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": []
+      }
+    },
+    {
+      "name": "no effort at all",
+      "requested": {
+        "provider": "gemini",
+        "model": "x"
+      },
+      "meta": {
+        "id": "x",
+        "provider": "gemini",
+        "displayName": "Gem",
+        "reasoningLevels": [
+          "minimal",
+          "medium"
+        ],
+        "maxContextWindow": 800000
+      },
+      "refreshed": true,
+      "session": null,
+      "route": {
+        "provider": "gemini",
+        "model": "x",
+        "fast": false,
+        "fastCapable": false,
+        "effectiveEffort": null,
+        "effortOptions": [
+          {
+            "value": "minimal",
+            "label": "Minimal",
+            "description": ""
+          },
+          {
+            "value": "medium",
+            "label": "Medium",
+            "description": ""
+          }
+        ],
+        "contextPercent": 10,
+        "contextDefaultPercent": 10,
+        "modelDisplay": "Gem"
+      },
+      "facade": {
+        "provider": "gemini",
+        "model": "x",
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [
+          {
+            "value": "minimal",
+            "label": "Minimal",
+            "description": ""
+          },
+          {
+            "value": "medium",
+            "label": "Medium",
+            "description": ""
+          }
+        ],
+        "contextPercent": 10,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "gemini",
+          "model": "x",
+          "effort": null,
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": 10,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": [
+          {
+            "value": "minimal",
+            "label": "Minimal",
+            "description": ""
+          },
+          {
+            "value": "medium",
+            "label": "Medium",
+            "description": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "no effort at all, not refreshed",
+      "requested": {
+        "provider": "gemini",
+        "model": "x"
+      },
+      "meta": {
+        "id": "x",
+        "provider": "gemini",
+        "displayName": "Gem",
+        "reasoningLevels": [
+          "minimal",
+          "medium"
+        ],
+        "maxContextWindow": 800000
+      },
+      "refreshed": false,
+      "session": null,
+      "route": {
+        "provider": "gemini",
+        "model": "x"
+      },
+      "facade": {
+        "provider": "gemini",
+        "model": "x",
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [],
+        "contextPercent": null,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "gemini",
+          "model": "x",
+          "effort": null,
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": null,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": []
+      }
+    },
+    {
+      "name": "a session context share behind an empty route share",
+      "requested": {
+        "provider": "openai",
+        "model": "gpt-5"
+      },
+      "meta": {
+        "id": "gpt-5",
+        "provider": "openai",
+        "name": "GPT 5",
+        "reasoningLevels": [
+          "low",
+          "high"
+        ],
+        "contextWindow": 272000,
+        "maxContextWindow": 1000000
+      },
+      "refreshed": false,
+      "session": {
+        "contextPercent": 55
+      },
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5"
+      },
+      "facade": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [],
+        "contextPercent": 55,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": null,
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": 55,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": []
+      }
+    },
+    {
+      "name": "a route share wins over the session",
+      "requested": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "contextPercent": 30
+      },
+      "meta": {
+        "id": "gpt-5",
+        "provider": "openai",
+        "name": "GPT 5",
+        "reasoningLevels": [
+          "low",
+          "high"
+        ],
+        "contextWindow": 272000,
+        "maxContextWindow": 1000000
+      },
+      "refreshed": false,
+      "session": {
+        "contextPercent": 55
+      },
+      "route": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "contextPercent": 30
+      },
+      "facade": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [],
+        "contextPercent": 30,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt-5",
+          "effort": null,
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": 30,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": []
+      }
+    },
+    {
+      "name": "an empty route",
+      "requested": {},
+      "meta": null,
+      "refreshed": false,
+      "session": null,
+      "route": {},
+      "facade": {
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "fastCapable": false,
+        "modelParameters": {},
+        "effortOptions": [],
+        "contextPercent": null,
+        "contextTokens": null
+      },
+      "model": {
+        "route": {
+          "provider": "",
+          "model": "",
+          "effort": null,
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": null,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": []
+        },
+        "effortOptions": []
+      }
+    }
+  ]
+}

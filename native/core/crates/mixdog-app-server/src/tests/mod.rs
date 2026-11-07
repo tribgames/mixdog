@@ -3,6 +3,7 @@
 mod actor;
 mod admission;
 mod approvals;
+mod closing;
 mod control;
 mod dispatch;
 mod errors;
@@ -226,6 +227,10 @@ impl CoreHandle for TestCore {
 
     fn lifecycle(&self) -> watch::Receiver<CoreState> {
         self.mock.lifecycle()
+    }
+
+    fn connection_closed(&self, connection: mixdog_core_api::ids::ConnectionId) {
+        self.mock.connection_closed(connection);
     }
 }
 

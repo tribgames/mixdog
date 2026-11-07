@@ -317,6 +317,8 @@ mod tests {
         let host = pair["hostName"].as_str().unwrap();
         let sent: Arc<Mutex<Vec<Value>>> = Arc::default();
         let leg = sent.clone();
+        // The core ticker needs the executors installed.
+        let _tokens = mixdog_rt::testing::tokens();
         let mut effects = ComposedPairCodeEffects::new(
             Box::new(|_| {}),
             mixdog_rt::ticker().clone(),

@@ -158,6 +158,10 @@ pub struct ComposedCore {
     models: Models,
     catalog: CatalogHost,
     tidy_processes: Processes,
+    /// The concrete manager behind `processes`/`tidy_processes` (it is `Clone`): the process and terminal services take it by value.
+    local_processes: LocalProcessManager,
+    /// The five owners of per-connection state, bound once the composition has built them (erify_bound checks it).
+    connection_owners: crate::connection_close::ConnectionOwnersCell,
     /// The one shell registry and kill route of the process (xec.runtime).
     shell_control: Arc<mixdog_tools::exec::ShellControl>,
     stop_steps: std::sync::Mutex<Vec<(&'static str, StopStep)>>,
@@ -334,6 +338,16 @@ impl ComposedCore {
         &self.tidy_processes
     }
 
+    /// Bind the terminal, screen, workspace, system and device owners once; a close before that is written to the daemon log.
+    pub fn connection_owners(&self) -> &crate::connection_close::ConnectionOwnersCell {
+        &self.connection_owners
+    }
+
+    /// The concrete `LocalProcessManager` (`ProcessFeeds`, `ProcessService`, `TerminalService`).
+    pub fn local_processes(&self) -> &LocalProcessManager {
+        &self.local_processes
+    }
+
     /// The shell control: ShellJobsService::new takes it.
     pub fn shell_control(&self) -> &Arc<mixdog_tools::exec::ShellControl> {
         &self.shell_control
@@ -387,6 +401,10 @@ impl CoreHandle for ComposedCore {
 
     fn lifecycle(&self) -> watch::Receiver<LifecycleState> {
         self.base.lifecycle()
+    }
+
+    fn connection_closed(&self, connection: mixdog_core_api::ids::ConnectionId) {
+        self.connection_owners.connection_closed(connection, &self.log);
     }
 }
 
@@ -520,8 +538,8 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
         })
         .map_err(ComposeError::ExtHost)?,
     );
-    let process_manager: Arc<dyn ProcessManager> =
-        Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default()));
+    let local_processes = LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default());
+    let process_manager: Arc<dyn ProcessManager> = Arc::new(local_processes.clone());
     let tidy_processes = Processes::new(process_manager.clone(), tokens.durability_io);
     let (domains, mocked) = domains(&Seams {
         tokens: tokens.clone(),
@@ -585,6 +603,8 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
         models,
         catalog,
         tidy_processes,
+        local_processes,
+        connection_owners: Default::default(),
         shell_control,
         stop_steps: std::sync::Mutex::new(Vec::new()),
         final_barriers: std::sync::Mutex::new(Vec::new()),

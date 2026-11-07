@@ -156,8 +156,8 @@ impl SteerSource for NoSteer {
 struct DiscardSink;
 #[async_trait]
 impl TranscriptSink for DiscardSink {
-    fn commit(&self, _message: &mixdog_agent::message::AgentMessage) -> Ticket {
-        Ticket(0)
+    async fn commit(&self, _message: &mixdog_agent::message::AgentMessage) -> Result<Ticket, mixdog_agent::env::CommitError> {
+        Ok(Ticket(0))
     }
     fn replace(&self, _messages: &[mixdog_agent::message::AgentMessage], _rewrite: &Rewrite) {}
     fn message_id(&self) -> String {
@@ -212,19 +212,14 @@ fn tool_env() -> ToolEnv {
     }
 }
 
-/// The test backend spawns the process-wide ticker on the ambient runtime, which
-/// would die with whichever test started it first; start it on one that lives
-/// for the whole process.
-fn long_lived_ticker() {
-    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
-    let runtime = RUNTIME.get_or_init(|| tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap());
-    let _entered = runtime.enter();
+/// Installs the test backend. Its ticker is per runtime (hang-lanes-138), so each test's deadlines
+/// run on its own runtime's clock, paused or not, and nothing outlives the test.
+fn backend() {
     mixdog_rt::testing::tokens();
-    mixdog_rt::ticker();
 }
 
 async fn explore(provider: Arc<Provider>, deadline: Duration) -> Result<mixdog_tools::orch::explore::ExploreAnswer, ExploreFailure> {
-    long_lived_ticker();
+    backend();
     let explorer = AgentExplorer::new(Arc::new(Host(provider)), &env(), tool_env());
     let thread = ThreadId::from("t");
     let cwd = mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir()).unwrap();
@@ -289,20 +284,20 @@ async fn explorer_results_equal_nodes() {
     }
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn deadline_returns_the_text_written_so_far_marked_late() {
     let provider = Provider::new(vec![StreamEvent::TextDelta("src/a.rs:1 foo".into())], true);
     let answer = explore(provider, Duration::from_millis(100)).await.unwrap();
     assert_eq!((answer.text.as_str(), answer.late), ("src/a.rs:1 foo", true));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn deadline_with_nothing_written_is_a_timeout() {
     let provider = Provider::new(Vec::new(), true);
     assert_eq!(explore(provider, Duration::from_millis(100)).await, Err(ExploreFailure::TimedOut));
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn a_finished_answer_is_trimmed_and_not_late() {
     let provider = Provider::new(
         vec![StreamEvent::TextDelta("  done \n".into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],

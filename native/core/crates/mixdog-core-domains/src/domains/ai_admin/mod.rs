@@ -4,6 +4,7 @@
 pub mod account_actions;
 pub mod agent_route_service;
 pub mod chain;
+pub mod chat_routes;
 pub mod model_list;
 pub mod model_proxy;
 pub mod model_proxy_service;
@@ -18,6 +19,8 @@ mod account_actions_tests;
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "test setup")]
 mod agent_route_tests;
+#[cfg(test)]
+mod chat_routes_tests;
 #[cfg(test)]
 mod model_list_tests;
 #[cfg(test)]

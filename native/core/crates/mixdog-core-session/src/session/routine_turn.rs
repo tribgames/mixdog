@@ -76,6 +76,7 @@ impl SessionDirectory {
             content: Value::String(prompt.to_owned()),
             trigger: None,
             hop: (hop > 0).then_some(hop),
+            room_row: None,
             skill_selection: None,
             on_start: Box::new(|| {}),
             done,
@@ -96,6 +97,34 @@ impl SessionDirectory {
         Some(status)
     }
 
+    /// A room member's turn (`submitToSession` of `agent-rooms.ts`): `content` is the prompt (text
+    /// or parts) submitted under `id` (empty for none) at bot-to-bot depth `hop`, with `room_row`
+    /// (the newest user row it shows; empty for none) stamped on its input row. It runs at once on
+    /// an idle thread, else rides the queue; false when the thread did not accept it. The turn's
+    /// end is read from the session, not awaited.
+    pub async fn submit_member_turn(&self, thread: &ThreadId, content: &Value, id: &str, hop: u32, room_row: &str) -> bool {
+        let ctx = CallContext::internal("room-turn");
+        let Ok(handle) = self.open_handle(thread, &ctx).await else { return false };
+        let (done, outcome) = oneshot::channel();
+        let start = RoutineStart {
+            content: content.clone(),
+            trigger: None,
+            hop: (hop > 0).then_some(hop),
+            room_row: Some(room_row.to_owned()).filter(|row| !row.is_empty()),
+            skill_selection: None,
+            on_start: Box::new(|| {}),
+            done,
+        };
+        let options = SubmitOptions { client_submission_id: Some(id.to_owned()).filter(|id| !id.is_empty()), ..SubmitOptions::default() };
+        let op = OpId::from(format!("room-turn:{}", uuid::Uuid::new_v4()));
+        if enqueue(&handle, id, &op, start, options, &ctx).await.is_err() {
+            return false;
+        }
+        drop(mixdog_rt::spawn("room-turn-settle", mixdog_rt::TaskClass::Work, async move {
+            let _ = outcome.await;
+        }));
+        true
+    }
     /// `liveSessionBusy`: the thread is loaded here and runs a turn or holds queued input.
     pub fn thread_busy(&self, id: &ThreadId) -> bool {
         self.handle(id).is_some_and(|handle| handle.cell.run.load().is_some() || !handle.cell.queued.load().is_empty())
@@ -122,6 +151,7 @@ impl SessionDirectory {
             content: turn.content.clone(),
             trigger: Some(trigger),
             hop: None,
+            room_row: None,
             skill_selection: Some(turn.skill_selection.clone()),
             on_start,
             done,
@@ -145,7 +175,7 @@ impl SessionDirectory {
                 if waiting {
                     if let Some(queued) = queued {
                         let unqueue = OpId::from(format!("{op}:unqueue"));
-                        let params = json!({ "threadId": thread, "opId": unqueue, "queuedId": queued });
+                        let params = json!({ "threadId": thread, "opId": unqueue, "queuedId": queued, "restore": false });
                         let _ = handle.request(CoreRequest { method: Method("thread/queue/delete"), params, op: Some(unqueue), ctx }).await;
                     }
                 } else {
@@ -285,7 +315,7 @@ mod tests {
             let (directory, cancel, thread) = (directory.clone(), cancel.clone(), handle.id.clone());
             tokio::spawn(async move { directory.run_routine_turn(routine("routine_2", &thread), Box::new(|| {}), cancel).await })
         };
-        eventually_on(&[&handle.cell.stepped], || handle.cell.routine_starts.lock().unwrap().contains_key("routine_2").then_some(())).await;
+        eventually_on(&[&handle.cell.stepped], || (handle.cell.queued.load().len() == 1).then_some(())).await;
         assert!(handle.cell.queued.load().len() == 1, "the fire rides the thread's queue");
         cancel.cancel();
         assert_eq!(waiting.await.unwrap(), TurnSettle::Cancelled);

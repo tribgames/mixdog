@@ -281,13 +281,18 @@ struct Sink {
     ids: AtomicU64,
     /// Storage that never acks.
     stalled: std::sync::atomic::AtomicBool,
+    /// A store that cannot classify a message: every commit is refused.
+    refused: std::sync::atomic::AtomicBool,
 }
 #[async_trait]
 impl TranscriptSink for Sink {
-    fn commit(&self, message: &AgentMessage) -> Ticket {
+    async fn commit(&self, message: &AgentMessage) -> Result<Ticket, mixdog_agent::env::CommitError> {
+        if self.refused.load(Ordering::Relaxed) {
+            return Err(mixdog_agent::env::CommitError::StoreUnavailable);
+        }
         let mut committed = self.committed.lock().unwrap();
         committed.push(message.clone());
-        Ticket(committed.len() as u64)
+        Ok(Ticket(committed.len() as u64))
     }
     fn replace(&self, messages: &[AgentMessage], rewrite: &Rewrite) {
         self.replaced.lock().unwrap().push((messages.to_vec(), rewrite.clone()));
@@ -1265,6 +1270,17 @@ async fn abort_does_not_wait_for_stalled_storage() {
     let failure = task.await.unwrap().expect_err("aborted");
     assert!(started.elapsed() < Duration::from_millis(50), "abort bound (RL G3)");
     assert_eq!(dump(&failure.transcript), ["user:go", "assistant[echo#c1]:"]);
+}
+
+/// A commit the store refuses fails the run with its typed error; nothing is added to the context.
+#[tokio::test]
+async fn a_refused_commit_fails_the_run_with_the_commit_error() {
+    let h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)])]);
+    h.sink.refused.store(true, Ordering::Relaxed);
+    let failure = h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await.expect_err("the commit was refused");
+    assert!(matches!(failure.error, AgentError::Commit(mixdog_agent::env::CommitError::StoreUnavailable)), "{:?}", failure.error);
+    assert_eq!(dump(&failure.transcript), ["user:go"]);
+    assert!(h.sink.committed.lock().unwrap().is_empty());
 }
 
 #[tokio::test]

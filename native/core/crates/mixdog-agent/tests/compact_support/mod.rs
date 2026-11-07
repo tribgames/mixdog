@@ -48,6 +48,14 @@ impl mixdog_protocol::message_class::user_text::Blobs for NoBlobs {
     }
 }
 
+#[async_trait::async_trait]
+impl mixdog_agent::compact::blob_reads::BlobReads for NoBlobs {
+    async fn read_with(&self, work: mixdog_agent::compact::blob_reads::StoreWork) -> Result<(), mixdog_agent::compact::blob_reads::StoreUnavailable> {
+        work(self);
+        Ok(())
+    }
+}
+
 pub fn replay_owner() -> ProviderId {
     ProviderId::from("golden")
 }
@@ -260,8 +268,9 @@ impl mixdog_agent::offload::ArtifactStore for PreviewArchive {
     }
 }
 pub struct NoAttachments;
+#[async_trait::async_trait]
 impl mixdog_agent::compact::fresh::AttachmentSeam for NoAttachments {
-    fn reference_media(&self, message: &AgentMessage) -> AgentMessage {
+    async fn reference_media(&self, message: &AgentMessage) -> AgentMessage {
         message.clone()
     }
     fn has_referencable_media(&self, _: &AgentMessage) -> bool {

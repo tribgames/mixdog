@@ -136,9 +136,29 @@ impl Drop for DisarmOnDrop {
 }
 
 /// The process-wide ticker, started on first use. Requires an installed backend.
+#[cfg(not(feature = "test-support"))]
 pub fn ticker() -> &'static Ticker {
     static TICKER: OnceLock<Ticker> = OnceLock::new();
     TICKER.get_or_init(Ticker::start)
+}
+
+/// Under the test backend there is no process-long runtime. A process-wide ticker would live on
+/// whichever test runtime asked first: it would die with that test, and while it lived it would run
+/// every other test's callbacks inside that runtime, with their deadlines converted on one clock
+/// and fired on another (a paused test's on a real one). So with `test-support` the ticker is per
+/// runtime: started inside the calling runtime, on its clock (paused or not), and gone with it.
+/// Outside a runtime it is the one process-wide ticker, as in production.
+#[cfg(feature = "test-support")]
+pub fn ticker() -> &'static Ticker {
+    use std::collections::HashMap;
+
+    static GLOBAL: OnceLock<Ticker> = OnceLock::new();
+    static PER_RUNTIME: OnceLock<Mutex<HashMap<tokio::runtime::Id, &'static Ticker>>> = OnceLock::new();
+    let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+        return GLOBAL.get_or_init(Ticker::start);
+    };
+    let mut tickers = PER_RUNTIME.get_or_init(Default::default).lock().unwrap_or_else(|p| p.into_inner());
+    tickers.entry(runtime.id()).or_insert_with(|| Box::leak(Box::new(Ticker::start())))
 }
 
 async fn run(shared: Arc<Shared>) {
@@ -190,5 +210,29 @@ mod tests {
         let waited = fired - started;
         assert!(waited > Duration::from_secs(9) && waited <= Duration::from_secs(10), "{waited:?}");
         task.abort();
+    }
+
+    /// With `test-support` each runtime has its own ticker, on its own paused clock: the same
+    /// runtime gets the same one, another runtime another, and a deadline fires at its distance.
+    #[cfg(feature = "test-support")]
+    #[test]
+    fn under_the_test_backend_each_runtime_has_its_own_ticker_on_its_own_clock() {
+        crate::testing::tokens();
+        let runtime = || tokio::runtime::Builder::new_current_thread().enable_time().start_paused(true).build().unwrap();
+        let (a, b) = (runtime(), runtime());
+        let address = |rt: &tokio::runtime::Runtime| rt.block_on(async { ticker() as *const Ticker as usize });
+        let (first, again, other) = (address(&a), address(&a), address(&b));
+        assert_eq!(first, again, "one ticker per runtime");
+        assert_ne!(first, other, "another runtime has its own");
+        a.block_on(async {
+            let (tx, mut rx) = oneshot::channel();
+            let _ = ticker().register(Instant::now() + Duration::from_secs(60), move || {
+                let _ = tx.send(());
+            });
+            tokio::time::sleep(Duration::from_secs(59)).await;
+            assert!(rx.try_recv().is_err(), "not before its time");
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            assert!(rx.try_recv().is_ok(), "at its time, on this runtime's clock");
+        });
     }
 }

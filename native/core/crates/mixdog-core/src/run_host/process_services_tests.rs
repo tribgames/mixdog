@@ -223,8 +223,9 @@ impl AttachmentReader for NoBlobs {
 
 struct NoFacts;
 
+#[async_trait]
 impl AttachmentFacts for NoFacts {
-    fn facts(&self, _: &str) -> Option<StoredFacts> {
+    async fn facts(&self, _: &str) -> Option<StoredFacts> {
         None
     }
 }

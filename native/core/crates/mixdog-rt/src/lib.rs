@@ -212,7 +212,20 @@ pub mod testing {
 
     impl Backend for InlineBackend {
         fn handle(&self, _class: TaskClass) -> tokio::runtime::Handle {
-            tokio::runtime::Handle::current()
+            // A file watcher's own thread has no ambient runtime; its tasks run on a shared one.
+            tokio::runtime::Handle::try_current().unwrap_or_else(|_| {
+                static OFF_THREAD: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+                OFF_THREAD
+                    .get_or_init(|| {
+                        tokio::runtime::Builder::new_multi_thread()
+                            .worker_threads(1)
+                            .enable_all()
+                            .build()
+                            .expect("the test runtime for threads without one")
+                    })
+                    .handle()
+                    .clone()
+            })
         }
 
         fn record_poll(&self, _task: &'static str, _class: TaskClass, _elapsed: Duration) {}

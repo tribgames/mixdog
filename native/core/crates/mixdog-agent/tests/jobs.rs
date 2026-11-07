@@ -60,13 +60,10 @@ impl TaskNotifier for Notices {
     }
 }
 
-/// The ticker task lives on the runtime that first asks for it; keep that one alive for the process.
-fn long_lived_ticker() {
-    static RUNTIME: std::sync::OnceLock<tokio::runtime::Runtime> = std::sync::OnceLock::new();
-    let runtime = RUNTIME.get_or_init(|| tokio::runtime::Builder::new_multi_thread().worker_threads(1).enable_all().build().unwrap());
-    let _entered = runtime.enter();
+/// Installs the test backend. Its ticker is per runtime (hang-lanes-138), so each test's deadlines
+/// run on its own runtime's clock, paused or not, and nothing outlives the test.
+fn backend() {
     mixdog_rt::testing::tokens();
-    mixdog_rt::ticker();
 }
 
 fn text(v: &Value, key: &str) -> Option<String> {
@@ -114,9 +111,9 @@ async fn settle(notices: &Notices, want: usize) {
         tokio::task::yield_now().await;
     }
 }
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test(start_paused = true)]
 async fn the_board_equals_nodes_background_tasks() {
-    long_lived_ticker();
+    backend();
     let board_rows = |board: &JobBoard, scope: &Scope| Value::Array(board.list_jobs(scope).iter().map(row).collect());
     for scenario in fixture("board.json") {
         let name = scenario["name"].as_str().unwrap();

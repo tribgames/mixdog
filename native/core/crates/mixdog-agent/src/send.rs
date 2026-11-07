@@ -619,7 +619,8 @@ impl Run {
                 self.push(AgentMessage::sourced(
                     Source::StreamCutRecovery,
                     TOOL_INPUT_CUT_NOTICE,
-                ));
+                ))
+                .await?;
             }
         }
         Ok(Recovery::Replay)
@@ -740,6 +741,9 @@ impl Run {
             self.context_overflow_retry_used = true;
             self.reactive_overflow_retry_pending = true;
             return Ok(Recovery::RetryRound);
+        }
+        if let Some(compactor) = self.env.compactor.as_ref() {
+            compactor.prepare(&self.messages).await;
         }
         let estimate = self
             .env

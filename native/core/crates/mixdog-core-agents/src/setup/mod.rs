@@ -10,6 +10,7 @@
 //! preparation of git and office go through [`SetupDesktop`].
 
 mod agent_settings;
+mod agents_status;
 mod definitions;
 mod mcp;
 mod requests;
@@ -32,6 +33,8 @@ pub use agent_settings::CardOutcome;
 pub use agent_settings::ProjectSwitches;
 pub use agent_settings::WidenCard;
 pub use agent_settings::WidenCards;
+pub use agents_status::AgentsStatus;
+pub use agents_status::RoutePositions;
 pub use definitions::DefinitionSetup;
 pub use mcp::McpSetup;
 pub use requests::SetupRequests;

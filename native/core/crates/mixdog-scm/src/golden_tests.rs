@@ -1100,18 +1100,59 @@ async fn an_automatic_removal_whose_final_check_runs_out_of_time_is_kept_busy() 
     assert!(std::path::Path::new(&record.path).exists());
 }
 
+/// The sweep keeps and removes exactly what Node's `sweepScratchIndexes` did over the same
+/// entries (`fixtures/commit-scratch/golden.json`, recorded from a real `gitCommitPaths`): a
+/// dead owner's entry goes whatever its age, a live owner's stays whatever its age, a name
+/// without an owner goes only after an hour, and nothing else in the folder is touched.
+#[test]
+fn the_sweep_removes_what_nodes_removed_and_nothing_else() {
+    let golden: Value = serde_json::from_str(include_str!("../../../fixtures/commit-scratch/golden.json")).unwrap();
+    let fill = |name: &str| name.replace("<dead>", &golden["dead"].to_string()).replace("<self>", &std::process::id().to_string());
+    let root = tempfile::tempdir().unwrap();
+    let now = std::time::SystemTime::now();
+    let entries = golden["entries"].as_array().unwrap();
+    for entry in entries {
+        let path = root.path().join(fill(entry["name"].as_str().unwrap()));
+        if entry["kind"] == "dir" {
+            std::fs::create_dir(&path).unwrap();
+            std::fs::write(path.join("commit.index"), b"x").unwrap();
+        } else {
+            std::fs::write(&path, b"x").unwrap();
+            // Only files are aged: a folder's time cannot be set portably.
+            let age = std::time::Duration::from_millis(entry["ageMs"].as_u64().unwrap());
+            std::fs::File::options().write(true).open(&path).unwrap().set_modified(now - age).unwrap();
+        }
+    }
+    let removed = entries.iter().filter(|entry| entry["kept"] == false).count();
+    assert_eq!(crate::engine::sweep_dead_commit_scratch(root.path(), now), removed);
+    for entry in entries {
+        let name = fill(entry["name"].as_str().unwrap());
+        assert_eq!(root.path().join(&name).exists(), entry["kept"] == true, "{name}");
+    }
+}
+
+/// An aged-out directory without an owner is removed too (Node ages the entry whatever its kind);
+/// a directory is not aged by this test, so the cutoff is moved instead.
+#[test]
+fn an_ownerless_directory_ages_out_after_an_hour() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("mixdog-commit-nobody-1");
+    std::fs::create_dir(&path).unwrap();
+    let now = std::time::SystemTime::now();
+    assert_eq!(crate::engine::sweep_dead_commit_scratch(root.path(), now), 0);
+    assert_eq!(crate::engine::sweep_dead_commit_scratch(root.path(), now + std::time::Duration::from_secs(2 * 60 * 60)), 1);
+    assert!(!path.exists());
+}
+
+/// A commit sweeps before it builds its own scratch, in the OS temp folder.
 #[tokio::test]
-async fn the_boot_sweep_empties_what_a_crashed_commit_left() {
-    let scm = Scm::new(
-        TestProcesses::shared(),
-        mixdog_rt::testing::tokens().maintenance_io,
-        std::env::temp_dir().join(format!("mixdog-scm-sweep-{}", std::process::id())),
-    );
-    let left = scm.scratch_dir().join("commit-1-2-3");
-    std::fs::create_dir_all(&left).unwrap();
-    std::fs::write(left.join("commit.index"), b"x").unwrap();
-    assert!(scm.boot_sweep(&CancellationToken::new()).await.unwrap() >= 1);
-    assert!(!left.exists());
+async fn a_commit_sweeps_the_temp_folder_it_builds_in() {
+    let scm = Scm::new(TestProcesses::shared(), mixdog_rt::testing::tokens().maintenance_io, std::env::temp_dir().join(format!("mixdog-scm-review-{}", std::process::id())));
+    assert_eq!(scm.commit_scratch_root(), std::env::temp_dir());
+    let orphan = scm.commit_scratch_root().join(format!("mixdog-commit-2147483646-{}", std::process::id()));
+    std::fs::create_dir(&orphan).unwrap();
+    assert!(scm.sweep_commit_scratch(&CancellationToken::new()).await.unwrap() >= 1);
+    assert!(!orphan.exists());
 }
 struct Recording {
     seen: std::sync::Mutex<Vec<crate::gh::commands::GhCommand>>,
@@ -1340,4 +1381,28 @@ async fn is_repository_reports_a_probe_that_never_ran() {
     assert!(!scm.is_repository(&folder, &cancel).await.unwrap());
     let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
     assert!(scm.is_repository(&folder, &cancel).await.is_err());
+}
+
+
+#[tokio::test]
+async fn a_failed_creation_is_rolled_back_whole_and_its_own_failure_is_the_one_surfaced() {
+    use crate::worktree::manager::CreateRequest;
+    use crate::worktree::manager::Worktrees;
+    let (_guard, repo, _head) = fixture_repo();
+    let data = tempfile::tempdir().unwrap();
+    let cancel = CancellationToken::new();
+    let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
+    // The owner-lease directory is a file: the creation fails after the checkout, its lock and
+    // (no carry) before anything else, so the rollback has a checkout, a lock and a branch to undo.
+    let facts = worktrees.inspect_repo(&repo, &cancel).await.unwrap();
+    let root = crate::worktree::names::managed_root(data.path(), &facts.common_dir);
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join(".owners"), "in the way").unwrap();
+    let request = CreateRequest { project_path: repo.clone(), session_id: "s1".into(), runtime_token: "rt".into(), tx_id: "t1".into(), name_hint: "doomed".into(), ..CreateRequest::default() };
+    let failure = worktrees.create_full(request, &cancel).await.unwrap_err();
+    assert!(!failure.to_string().is_empty());
+    assert_eq!(git(&repo, &["branch", "--list", "mixdog/*"]), "", "the branch the creation made went with it");
+    assert_eq!(git(&repo, &["worktree", "list", "--porcelain"]).matches("worktree ").count(), 1, "only the main checkout is left");
+    assert!(!root.join("doomed").exists());
+    assert!(worktrees.list(None, &NoRetention, &cancel).await.unwrap().is_empty(), "the record is gone");
 }

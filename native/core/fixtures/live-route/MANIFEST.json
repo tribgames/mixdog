@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-live-route.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 95989,
+      "path": "golden.json",
+      "sha256": "cda2d298260333a5197ac3635e39bf3a636a9322a2d8e9c9530664332273cdf6"
+    }
+  ],
+  "product": {
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 43481,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 34407
+    },
+    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-live-route.mjs",
+  "set": "live-route",
+  "totalBytes": 95989
+}

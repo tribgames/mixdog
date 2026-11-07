@@ -1,0 +1,3914 @@
+{
+  "domain": "live-route",
+  "recorder": "benchmarks/rust-core/recorders/record-live-route.mjs",
+  "cases": [
+    {
+      "name": "a Lead caller with the Lead chain",
+      "config": {
+        "default": "workflow-lead",
+        "presets": [
+          {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        ],
+        "agents": {
+          "helper": {
+            "provider": "openai",
+            "model": "gpt",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        }
+      },
+      "caller": "sess_lead_a",
+      "facts": {
+        "provider": "openai",
+        "model": "gpt",
+        "effort": "high",
+        "fast": true,
+        "fastCapable": true,
+        "autoEffort": false,
+        "modelParameters": {
+          "tier": "x"
+        },
+        "contextPercent": 34,
+        "contextTokens": 1200,
+        "effortOptions": [
+          "low",
+          "high"
+        ]
+      },
+      "sessions": [
+        {
+          "id": "sess_lead_a",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_home_helper",
+          "owner": "user",
+          "agent": "helper",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_b",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "gpt"
+        },
+        {
+          "id": "sess_worker_chain",
+          "owner": "agent",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt",
+          "routeFallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_closed",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ],
+          "closed": true
+        },
+        {
+          "id": "sess_lead_plain",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "other"
+        },
+        {
+          "id": "sess_noagent",
+          "owner": "user",
+          "provider": "openai",
+          "model": "gpt"
+        }
+      ],
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt",
+          "effort": "high",
+          "fast": true,
+          "fastCapable": true,
+          "modelParameters": {
+            "tier": "x"
+          },
+          "contextPercent": 34,
+          "contextTokens": 1200,
+          "autoEffort": false,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        "effortOptions": [
+          "low",
+          "high"
+        ],
+        "session": {
+          "sessionId": "sess_lead_a",
+          "kind": "lead",
+          "agent": "lead",
+          "current": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": false,
+          "fallbackIndex": 1,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "settings",
+          "next": {
+            "provider": "google",
+            "model": "gemini"
+          },
+          "failures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        "sessions": [
+          {
+            "sessionId": "sess_lead_b",
+            "kind": "lead",
+            "agent": "lead",
+            "current": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "primary": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "onPrimary": true,
+            "fallbackIndex": 0,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ],
+            "chainFrom": "settings",
+            "next": {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            "failures": []
+          }
+        ]
+      },
+      "modelKeys": [
+        "domain",
+        "route",
+        "effortOptions",
+        "session",
+        "sessions"
+      ],
+      "agentsSessions": [
+        {
+          "sessionId": "sess_home_helper",
+          "kind": "bot",
+          "agent": "helper",
+          "current": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": false,
+          "fallbackIndex": 1,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "settings",
+          "next": {
+            "provider": "google",
+            "model": "gemini"
+          },
+          "failures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "sessionId": "sess_worker_chain",
+          "kind": "agent",
+          "agent": "worker",
+          "current": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": true,
+          "fallbackIndex": 0,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "session",
+          "next": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "name": "a fresh Lead caller",
+      "config": {
+        "default": "workflow-lead",
+        "presets": [
+          {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        ],
+        "agents": {
+          "helper": {
+            "provider": "openai",
+            "model": "gpt",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        }
+      },
+      "caller": "sess_lead_b",
+      "facts": {
+        "provider": "openai",
+        "model": "gpt",
+        "effort": "high",
+        "fast": true,
+        "fastCapable": true,
+        "autoEffort": false,
+        "modelParameters": {
+          "tier": "x"
+        },
+        "contextPercent": 34,
+        "contextTokens": 1200,
+        "effortOptions": [
+          "low",
+          "high"
+        ]
+      },
+      "sessions": [
+        {
+          "id": "sess_lead_a",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_home_helper",
+          "owner": "user",
+          "agent": "helper",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_b",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "gpt"
+        },
+        {
+          "id": "sess_worker_chain",
+          "owner": "agent",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt",
+          "routeFallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_closed",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ],
+          "closed": true
+        },
+        {
+          "id": "sess_lead_plain",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "other"
+        },
+        {
+          "id": "sess_noagent",
+          "owner": "user",
+          "provider": "openai",
+          "model": "gpt"
+        }
+      ],
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt",
+          "effort": "high",
+          "fast": true,
+          "fastCapable": true,
+          "modelParameters": {
+            "tier": "x"
+          },
+          "contextPercent": 34,
+          "contextTokens": 1200,
+          "autoEffort": false,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        "effortOptions": [
+          "low",
+          "high"
+        ],
+        "session": {
+          "sessionId": "sess_lead_b",
+          "kind": "lead",
+          "agent": "lead",
+          "current": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": true,
+          "fallbackIndex": 0,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "settings",
+          "next": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "failures": []
+        },
+        "sessions": [
+          {
+            "sessionId": "sess_lead_a",
+            "kind": "lead",
+            "agent": "lead",
+            "current": {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            "primary": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "onPrimary": false,
+            "fallbackIndex": 1,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ],
+            "chainFrom": "settings",
+            "next": {
+              "provider": "google",
+              "model": "gemini"
+            },
+            "failures": [
+              {
+                "provider": "openai",
+                "model": "gpt",
+                "kind": "quota_exhausted",
+                "error": "limit"
+              }
+            ]
+          }
+        ]
+      },
+      "modelKeys": [
+        "domain",
+        "route",
+        "effortOptions",
+        "session",
+        "sessions"
+      ],
+      "agentsSessions": [
+        {
+          "sessionId": "sess_home_helper",
+          "kind": "bot",
+          "agent": "helper",
+          "current": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": false,
+          "fallbackIndex": 1,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "settings",
+          "next": {
+            "provider": "google",
+            "model": "gemini"
+          },
+          "failures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "sessionId": "sess_worker_chain",
+          "kind": "agent",
+          "agent": "worker",
+          "current": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": true,
+          "fallbackIndex": 0,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "session",
+          "next": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "name": "a bot caller",
+      "config": {
+        "default": "workflow-lead",
+        "presets": [
+          {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        ],
+        "agents": {
+          "helper": {
+            "provider": "openai",
+            "model": "gpt",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        }
+      },
+      "caller": "sess_home_helper",
+      "facts": {
+        "provider": "openai",
+        "model": "gpt",
+        "effort": "high",
+        "fast": true,
+        "fastCapable": true,
+        "autoEffort": false,
+        "modelParameters": {
+          "tier": "x"
+        },
+        "contextPercent": 34,
+        "contextTokens": 1200,
+        "effortOptions": [
+          "low",
+          "high"
+        ]
+      },
+      "sessions": [
+        {
+          "id": "sess_lead_a",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_home_helper",
+          "owner": "user",
+          "agent": "helper",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_b",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "gpt"
+        },
+        {
+          "id": "sess_worker_chain",
+          "owner": "agent",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt",
+          "routeFallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_closed",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ],
+          "closed": true
+        },
+        {
+          "id": "sess_lead_plain",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "other"
+        },
+        {
+          "id": "sess_noagent",
+          "owner": "user",
+          "provider": "openai",
+          "model": "gpt"
+        }
+      ],
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt",
+          "effort": "high",
+          "fast": true,
+          "fastCapable": true,
+          "modelParameters": {
+            "tier": "x"
+          },
+          "contextPercent": 34,
+          "contextTokens": 1200,
+          "autoEffort": false,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        "effortOptions": [
+          "low",
+          "high"
+        ],
+        "session": {
+          "sessionId": "sess_home_helper",
+          "kind": "bot",
+          "agent": "helper",
+          "current": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": false,
+          "fallbackIndex": 1,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "settings",
+          "next": {
+            "provider": "google",
+            "model": "gemini"
+          },
+          "failures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        "sessions": [
+          {
+            "sessionId": "sess_lead_a",
+            "kind": "lead",
+            "agent": "lead",
+            "current": {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            "primary": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "onPrimary": false,
+            "fallbackIndex": 1,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ],
+            "chainFrom": "settings",
+            "next": {
+              "provider": "google",
+              "model": "gemini"
+            },
+            "failures": [
+              {
+                "provider": "openai",
+                "model": "gpt",
+                "kind": "quota_exhausted",
+                "error": "limit"
+              }
+            ]
+          },
+          {
+            "sessionId": "sess_lead_b",
+            "kind": "lead",
+            "agent": "lead",
+            "current": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "primary": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "onPrimary": true,
+            "fallbackIndex": 0,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ],
+            "chainFrom": "settings",
+            "next": {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            "failures": []
+          }
+        ]
+      },
+      "modelKeys": [
+        "domain",
+        "route",
+        "effortOptions",
+        "session",
+        "sessions"
+      ],
+      "agentsSessions": [
+        {
+          "sessionId": "sess_worker_chain",
+          "kind": "agent",
+          "agent": "worker",
+          "current": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": true,
+          "fallbackIndex": 0,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "session",
+          "next": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "name": "a worker caller",
+      "config": {
+        "default": "workflow-lead",
+        "presets": [
+          {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        ],
+        "agents": {
+          "helper": {
+            "provider": "openai",
+            "model": "gpt",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        }
+      },
+      "caller": "sess_worker_chain",
+      "facts": {
+        "provider": "openai",
+        "model": "gpt",
+        "effort": "high",
+        "fast": true,
+        "fastCapable": true,
+        "autoEffort": false,
+        "modelParameters": {
+          "tier": "x"
+        },
+        "contextPercent": 34,
+        "contextTokens": 1200,
+        "effortOptions": [
+          "low",
+          "high"
+        ]
+      },
+      "sessions": [
+        {
+          "id": "sess_lead_a",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_home_helper",
+          "owner": "user",
+          "agent": "helper",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_b",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "gpt"
+        },
+        {
+          "id": "sess_worker_chain",
+          "owner": "agent",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt",
+          "routeFallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_closed",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ],
+          "closed": true
+        },
+        {
+          "id": "sess_lead_plain",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "other"
+        },
+        {
+          "id": "sess_noagent",
+          "owner": "user",
+          "provider": "openai",
+          "model": "gpt"
+        }
+      ],
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt",
+          "effort": "high",
+          "fast": true,
+          "fastCapable": true,
+          "modelParameters": {
+            "tier": "x"
+          },
+          "contextPercent": 34,
+          "contextTokens": 1200,
+          "autoEffort": false,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        "effortOptions": [
+          "low",
+          "high"
+        ],
+        "session": {
+          "sessionId": "sess_worker_chain",
+          "kind": "agent",
+          "agent": "worker",
+          "current": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": true,
+          "fallbackIndex": 0,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "session",
+          "next": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "failures": []
+        },
+        "sessions": [
+          {
+            "sessionId": "sess_lead_a",
+            "kind": "lead",
+            "agent": "lead",
+            "current": {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            "primary": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "onPrimary": false,
+            "fallbackIndex": 1,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ],
+            "chainFrom": "settings",
+            "next": {
+              "provider": "google",
+              "model": "gemini"
+            },
+            "failures": [
+              {
+                "provider": "openai",
+                "model": "gpt",
+                "kind": "quota_exhausted",
+                "error": "limit"
+              }
+            ]
+          },
+          {
+            "sessionId": "sess_lead_b",
+            "kind": "lead",
+            "agent": "lead",
+            "current": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "primary": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "onPrimary": true,
+            "fallbackIndex": 0,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ],
+            "chainFrom": "settings",
+            "next": {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            "failures": []
+          }
+        ]
+      },
+      "modelKeys": [
+        "domain",
+        "route",
+        "effortOptions",
+        "session",
+        "sessions"
+      ],
+      "agentsSessions": [
+        {
+          "sessionId": "sess_home_helper",
+          "kind": "bot",
+          "agent": "helper",
+          "current": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": false,
+          "fallbackIndex": 1,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "settings",
+          "next": {
+            "provider": "google",
+            "model": "gemini"
+          },
+          "failures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a caller without an agent",
+      "config": {
+        "default": "workflow-lead",
+        "presets": [
+          {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        ],
+        "agents": {
+          "helper": {
+            "provider": "openai",
+            "model": "gpt",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        }
+      },
+      "caller": "sess_noagent",
+      "facts": {
+        "provider": "openai",
+        "model": "gpt",
+        "effort": "high",
+        "fast": true,
+        "fastCapable": true,
+        "autoEffort": false,
+        "modelParameters": {
+          "tier": "x"
+        },
+        "contextPercent": 34,
+        "contextTokens": 1200,
+        "effortOptions": [
+          "low",
+          "high"
+        ]
+      },
+      "sessions": [
+        {
+          "id": "sess_lead_a",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_home_helper",
+          "owner": "user",
+          "agent": "helper",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_b",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "gpt"
+        },
+        {
+          "id": "sess_worker_chain",
+          "owner": "agent",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt",
+          "routeFallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_closed",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ],
+          "closed": true
+        },
+        {
+          "id": "sess_lead_plain",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "other"
+        },
+        {
+          "id": "sess_noagent",
+          "owner": "user",
+          "provider": "openai",
+          "model": "gpt"
+        }
+      ],
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt",
+          "effort": "high",
+          "fast": true,
+          "fastCapable": true,
+          "modelParameters": {
+            "tier": "x"
+          },
+          "contextPercent": 34,
+          "contextTokens": 1200,
+          "autoEffort": false,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        "effortOptions": [
+          "low",
+          "high"
+        ],
+        "sessions": [
+          {
+            "sessionId": "sess_lead_a",
+            "kind": "lead",
+            "agent": "lead",
+            "current": {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            "primary": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "onPrimary": false,
+            "fallbackIndex": 1,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ],
+            "chainFrom": "settings",
+            "next": {
+              "provider": "google",
+              "model": "gemini"
+            },
+            "failures": [
+              {
+                "provider": "openai",
+                "model": "gpt",
+                "kind": "quota_exhausted",
+                "error": "limit"
+              }
+            ]
+          },
+          {
+            "sessionId": "sess_lead_b",
+            "kind": "lead",
+            "agent": "lead",
+            "current": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "primary": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "onPrimary": true,
+            "fallbackIndex": 0,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ],
+            "chainFrom": "settings",
+            "next": {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            "failures": []
+          }
+        ]
+      },
+      "modelKeys": [
+        "domain",
+        "route",
+        "effortOptions",
+        "sessions"
+      ],
+      "agentsSessions": [
+        {
+          "sessionId": "sess_home_helper",
+          "kind": "bot",
+          "agent": "helper",
+          "current": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": false,
+          "fallbackIndex": 1,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "settings",
+          "next": {
+            "provider": "google",
+            "model": "gemini"
+          },
+          "failures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "sessionId": "sess_worker_chain",
+          "kind": "agent",
+          "agent": "worker",
+          "current": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": true,
+          "fallbackIndex": 0,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "session",
+          "next": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "name": "a caller that is not held",
+      "config": {
+        "default": "workflow-lead",
+        "presets": [
+          {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        ],
+        "agents": {
+          "helper": {
+            "provider": "openai",
+            "model": "gpt",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        }
+      },
+      "caller": "sess_other",
+      "facts": {
+        "provider": "openai",
+        "model": "gpt",
+        "effort": "high",
+        "fast": true,
+        "fastCapable": true,
+        "autoEffort": false,
+        "modelParameters": {
+          "tier": "x"
+        },
+        "contextPercent": 34,
+        "contextTokens": 1200,
+        "effortOptions": [
+          "low",
+          "high"
+        ]
+      },
+      "sessions": [
+        {
+          "id": "sess_lead_a",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_home_helper",
+          "owner": "user",
+          "agent": "helper",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_b",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "gpt"
+        },
+        {
+          "id": "sess_worker_chain",
+          "owner": "agent",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt",
+          "routeFallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_closed",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ],
+          "closed": true
+        },
+        {
+          "id": "sess_lead_plain",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "other"
+        },
+        {
+          "id": "sess_noagent",
+          "owner": "user",
+          "provider": "openai",
+          "model": "gpt"
+        }
+      ],
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt",
+          "effort": "high",
+          "fast": true,
+          "fastCapable": true,
+          "modelParameters": {
+            "tier": "x"
+          },
+          "contextPercent": 34,
+          "contextTokens": 1200,
+          "autoEffort": false,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        "effortOptions": [
+          "low",
+          "high"
+        ],
+        "sessions": [
+          {
+            "sessionId": "sess_lead_a",
+            "kind": "lead",
+            "agent": "lead",
+            "current": {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            "primary": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "onPrimary": false,
+            "fallbackIndex": 1,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ],
+            "chainFrom": "settings",
+            "next": {
+              "provider": "google",
+              "model": "gemini"
+            },
+            "failures": [
+              {
+                "provider": "openai",
+                "model": "gpt",
+                "kind": "quota_exhausted",
+                "error": "limit"
+              }
+            ]
+          },
+          {
+            "sessionId": "sess_lead_b",
+            "kind": "lead",
+            "agent": "lead",
+            "current": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "primary": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "onPrimary": true,
+            "fallbackIndex": 0,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ],
+            "chainFrom": "settings",
+            "next": {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            "failures": []
+          }
+        ]
+      },
+      "modelKeys": [
+        "domain",
+        "route",
+        "effortOptions",
+        "sessions"
+      ],
+      "agentsSessions": [
+        {
+          "sessionId": "sess_home_helper",
+          "kind": "bot",
+          "agent": "helper",
+          "current": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": false,
+          "fallbackIndex": 1,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "settings",
+          "next": {
+            "provider": "google",
+            "model": "gemini"
+          },
+          "failures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "sessionId": "sess_worker_chain",
+          "kind": "agent",
+          "agent": "worker",
+          "current": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": true,
+          "fallbackIndex": 0,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "session",
+          "next": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "name": "no caller",
+      "config": {
+        "default": "workflow-lead",
+        "presets": [
+          {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        ],
+        "agents": {
+          "helper": {
+            "provider": "openai",
+            "model": "gpt",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        }
+      },
+      "caller": null,
+      "facts": {
+        "provider": "openai",
+        "model": "gpt",
+        "effort": "high",
+        "fast": true,
+        "fastCapable": true,
+        "autoEffort": false,
+        "modelParameters": {
+          "tier": "x"
+        },
+        "contextPercent": 34,
+        "contextTokens": 1200,
+        "effortOptions": [
+          "low",
+          "high"
+        ]
+      },
+      "sessions": [
+        {
+          "id": "sess_lead_a",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_home_helper",
+          "owner": "user",
+          "agent": "helper",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_b",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "gpt"
+        },
+        {
+          "id": "sess_worker_chain",
+          "owner": "agent",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt",
+          "routeFallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_closed",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ],
+          "closed": true
+        },
+        {
+          "id": "sess_lead_plain",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "other"
+        },
+        {
+          "id": "sess_noagent",
+          "owner": "user",
+          "provider": "openai",
+          "model": "gpt"
+        }
+      ],
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt",
+          "effort": "high",
+          "fast": true,
+          "fastCapable": true,
+          "modelParameters": {
+            "tier": "x"
+          },
+          "contextPercent": 34,
+          "contextTokens": 1200,
+          "autoEffort": false,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        "effortOptions": [
+          "low",
+          "high"
+        ],
+        "sessions": [
+          {
+            "sessionId": "sess_lead_a",
+            "kind": "lead",
+            "agent": "lead",
+            "current": {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            "primary": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "onPrimary": false,
+            "fallbackIndex": 1,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ],
+            "chainFrom": "settings",
+            "next": {
+              "provider": "google",
+              "model": "gemini"
+            },
+            "failures": [
+              {
+                "provider": "openai",
+                "model": "gpt",
+                "kind": "quota_exhausted",
+                "error": "limit"
+              }
+            ]
+          },
+          {
+            "sessionId": "sess_lead_b",
+            "kind": "lead",
+            "agent": "lead",
+            "current": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "primary": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "onPrimary": true,
+            "fallbackIndex": 0,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ],
+            "chainFrom": "settings",
+            "next": {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            "failures": []
+          }
+        ]
+      },
+      "modelKeys": [
+        "domain",
+        "route",
+        "effortOptions",
+        "sessions"
+      ],
+      "agentsSessions": [
+        {
+          "sessionId": "sess_home_helper",
+          "kind": "bot",
+          "agent": "helper",
+          "current": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": false,
+          "fallbackIndex": 1,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "settings",
+          "next": {
+            "provider": "google",
+            "model": "gemini"
+          },
+          "failures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "sessionId": "sess_worker_chain",
+          "kind": "agent",
+          "agent": "worker",
+          "current": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": true,
+          "fallbackIndex": 0,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "session",
+          "next": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "name": "nothing held",
+      "config": {
+        "default": "workflow-lead",
+        "presets": [
+          {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        ],
+        "agents": {
+          "helper": {
+            "provider": "openai",
+            "model": "gpt",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        }
+      },
+      "caller": "sess_lead_a",
+      "facts": {
+        "provider": "openai",
+        "model": "gpt",
+        "effort": "high",
+        "fast": true,
+        "fastCapable": true,
+        "autoEffort": false,
+        "modelParameters": {
+          "tier": "x"
+        },
+        "contextPercent": 34,
+        "contextTokens": 1200,
+        "effortOptions": [
+          "low",
+          "high"
+        ]
+      },
+      "sessions": [],
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt",
+          "effort": "high",
+          "fast": true,
+          "fastCapable": true,
+          "modelParameters": {
+            "tier": "x"
+          },
+          "contextPercent": 34,
+          "contextTokens": 1200,
+          "autoEffort": false,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        "effortOptions": [
+          "low",
+          "high"
+        ],
+        "sessions": []
+      },
+      "modelKeys": [
+        "domain",
+        "route",
+        "effortOptions",
+        "sessions"
+      ],
+      "agentsSessions": []
+    },
+    {
+      "name": "a Lead preset without a chain",
+      "config": {
+        "default": "workflow-lead",
+        "presets": [
+          {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          }
+        ]
+      },
+      "caller": "sess_lead_a",
+      "facts": {
+        "provider": "openai",
+        "model": "gpt",
+        "effort": "high",
+        "fast": true,
+        "fastCapable": true,
+        "autoEffort": false,
+        "modelParameters": {
+          "tier": "x"
+        },
+        "contextPercent": 34,
+        "contextTokens": 1200,
+        "effortOptions": [
+          "low",
+          "high"
+        ]
+      },
+      "sessions": [
+        {
+          "id": "sess_lead_a",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_home_helper",
+          "owner": "user",
+          "agent": "helper",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_b",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "gpt"
+        },
+        {
+          "id": "sess_worker_chain",
+          "owner": "agent",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt",
+          "routeFallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_closed",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ],
+          "closed": true
+        },
+        {
+          "id": "sess_lead_plain",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "other"
+        },
+        {
+          "id": "sess_noagent",
+          "owner": "user",
+          "provider": "openai",
+          "model": "gpt"
+        }
+      ],
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt",
+          "effort": "high",
+          "fast": true,
+          "fastCapable": true,
+          "modelParameters": {
+            "tier": "x"
+          },
+          "contextPercent": 34,
+          "contextTokens": 1200,
+          "autoEffort": false,
+          "fallbacks": []
+        },
+        "effortOptions": [
+          "low",
+          "high"
+        ],
+        "session": {
+          "sessionId": "sess_lead_a",
+          "kind": "lead",
+          "agent": "lead",
+          "current": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": false,
+          "fallbackIndex": 1,
+          "fallbacks": [],
+          "chainFrom": "settings",
+          "next": null,
+          "failures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        "sessions": []
+      },
+      "modelKeys": [
+        "domain",
+        "route",
+        "effortOptions",
+        "session",
+        "sessions"
+      ],
+      "agentsSessions": [
+        {
+          "sessionId": "sess_home_helper",
+          "kind": "bot",
+          "agent": "helper",
+          "current": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": false,
+          "fallbackIndex": 1,
+          "fallbacks": [],
+          "chainFrom": "session",
+          "next": null,
+          "failures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "sessionId": "sess_worker_chain",
+          "kind": "agent",
+          "agent": "worker",
+          "current": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": true,
+          "fallbackIndex": 0,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "session",
+          "next": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "name": "a Lead preset with an empty chain",
+      "config": {
+        "default": "workflow-lead",
+        "presets": [
+          {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high",
+            "fallbacks": []
+          }
+        ],
+        "agents": {
+          "helper": {
+            "provider": "openai",
+            "model": "gpt",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        }
+      },
+      "caller": "sess_lead_a",
+      "facts": {
+        "provider": "openai",
+        "model": "gpt",
+        "effort": "high",
+        "fast": true,
+        "fastCapable": true,
+        "autoEffort": false,
+        "modelParameters": {
+          "tier": "x"
+        },
+        "contextPercent": 34,
+        "contextTokens": 1200,
+        "effortOptions": [
+          "low",
+          "high"
+        ]
+      },
+      "sessions": [
+        {
+          "id": "sess_lead_a",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_home_helper",
+          "owner": "user",
+          "agent": "helper",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_b",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "gpt"
+        },
+        {
+          "id": "sess_worker_chain",
+          "owner": "agent",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt",
+          "routeFallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_closed",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ],
+          "closed": true
+        },
+        {
+          "id": "sess_lead_plain",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "other"
+        },
+        {
+          "id": "sess_noagent",
+          "owner": "user",
+          "provider": "openai",
+          "model": "gpt"
+        }
+      ],
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt",
+          "effort": "high",
+          "fast": true,
+          "fastCapable": true,
+          "modelParameters": {
+            "tier": "x"
+          },
+          "contextPercent": 34,
+          "contextTokens": 1200,
+          "autoEffort": false,
+          "fallbacks": []
+        },
+        "effortOptions": [
+          "low",
+          "high"
+        ],
+        "session": {
+          "sessionId": "sess_lead_a",
+          "kind": "lead",
+          "agent": "lead",
+          "current": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": false,
+          "fallbackIndex": 1,
+          "fallbacks": [],
+          "chainFrom": "settings",
+          "next": null,
+          "failures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        "sessions": []
+      },
+      "modelKeys": [
+        "domain",
+        "route",
+        "effortOptions",
+        "session",
+        "sessions"
+      ],
+      "agentsSessions": [
+        {
+          "sessionId": "sess_home_helper",
+          "kind": "bot",
+          "agent": "helper",
+          "current": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": false,
+          "fallbackIndex": 1,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "settings",
+          "next": {
+            "provider": "google",
+            "model": "gemini"
+          },
+          "failures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "sessionId": "sess_worker_chain",
+          "kind": "agent",
+          "agent": "worker",
+          "current": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": true,
+          "fallbackIndex": 0,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "session",
+          "next": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "name": "no Lead preset",
+      "config": {
+        "default": "main",
+        "presets": [
+          {
+            "id": "main",
+            "name": "Main",
+            "provider": "openai",
+            "model": "gpt"
+          }
+        ]
+      },
+      "caller": "sess_lead_a",
+      "facts": {
+        "provider": "openai",
+        "model": "gpt",
+        "effort": "high",
+        "fast": true,
+        "fastCapable": true,
+        "autoEffort": false,
+        "modelParameters": {
+          "tier": "x"
+        },
+        "contextPercent": 34,
+        "contextTokens": 1200,
+        "effortOptions": [
+          "low",
+          "high"
+        ]
+      },
+      "sessions": [
+        {
+          "id": "sess_lead_a",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_home_helper",
+          "owner": "user",
+          "agent": "helper",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_b",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "gpt"
+        },
+        {
+          "id": "sess_worker_chain",
+          "owner": "agent",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt",
+          "routeFallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_closed",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ],
+          "closed": true
+        },
+        {
+          "id": "sess_lead_plain",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "other"
+        },
+        {
+          "id": "sess_noagent",
+          "owner": "user",
+          "provider": "openai",
+          "model": "gpt"
+        }
+      ],
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt",
+          "effort": "high",
+          "fast": true,
+          "fastCapable": true,
+          "modelParameters": {
+            "tier": "x"
+          },
+          "contextPercent": 34,
+          "contextTokens": 1200,
+          "autoEffort": false,
+          "fallbacks": []
+        },
+        "effortOptions": [
+          "low",
+          "high"
+        ],
+        "session": {
+          "sessionId": "sess_lead_a",
+          "kind": "lead",
+          "agent": "lead",
+          "current": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": false,
+          "fallbackIndex": 1,
+          "fallbacks": [],
+          "chainFrom": "settings",
+          "next": null,
+          "failures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        "sessions": []
+      },
+      "modelKeys": [
+        "domain",
+        "route",
+        "effortOptions",
+        "session",
+        "sessions"
+      ],
+      "agentsSessions": [
+        {
+          "sessionId": "sess_home_helper",
+          "kind": "bot",
+          "agent": "helper",
+          "current": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": false,
+          "fallbackIndex": 1,
+          "fallbacks": [],
+          "chainFrom": "session",
+          "next": null,
+          "failures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "sessionId": "sess_worker_chain",
+          "kind": "agent",
+          "agent": "worker",
+          "current": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": true,
+          "fallbackIndex": 0,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "session",
+          "next": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "name": "a facade with nothing set",
+      "config": {
+        "default": "workflow-lead",
+        "presets": [
+          {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        ],
+        "agents": {
+          "helper": {
+            "provider": "openai",
+            "model": "gpt",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        }
+      },
+      "caller": "sess_lead_a",
+      "facts": {},
+      "sessions": [
+        {
+          "id": "sess_lead_a",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_home_helper",
+          "owner": "user",
+          "agent": "helper",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_b",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "gpt"
+        },
+        {
+          "id": "sess_worker_chain",
+          "owner": "agent",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt",
+          "routeFallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_closed",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ],
+          "closed": true
+        },
+        {
+          "id": "sess_lead_plain",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "other"
+        },
+        {
+          "id": "sess_noagent",
+          "owner": "user",
+          "provider": "openai",
+          "model": "gpt"
+        }
+      ],
+      "model": {
+        "route": {
+          "provider": "",
+          "model": "",
+          "effort": null,
+          "fast": false,
+          "fastCapable": false,
+          "modelParameters": {},
+          "contextPercent": null,
+          "contextTokens": null,
+          "autoEffort": true,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        "effortOptions": [],
+        "session": {
+          "sessionId": "sess_lead_a",
+          "kind": "lead",
+          "agent": "lead",
+          "current": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": false,
+          "fallbackIndex": 1,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "settings",
+          "next": {
+            "provider": "google",
+            "model": "gemini"
+          },
+          "failures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        "sessions": [
+          {
+            "sessionId": "sess_lead_b",
+            "kind": "lead",
+            "agent": "lead",
+            "current": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "primary": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "onPrimary": true,
+            "fallbackIndex": 0,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ],
+            "chainFrom": "settings",
+            "next": {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            "failures": []
+          }
+        ]
+      },
+      "modelKeys": [
+        "domain",
+        "route",
+        "effortOptions",
+        "session",
+        "sessions"
+      ],
+      "agentsSessions": [
+        {
+          "sessionId": "sess_home_helper",
+          "kind": "bot",
+          "agent": "helper",
+          "current": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": false,
+          "fallbackIndex": 1,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "settings",
+          "next": {
+            "provider": "google",
+            "model": "gemini"
+          },
+          "failures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "sessionId": "sess_worker_chain",
+          "kind": "agent",
+          "agent": "worker",
+          "current": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": true,
+          "fallbackIndex": 0,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "session",
+          "next": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "failures": []
+        }
+      ]
+    },
+    {
+      "name": "held in another order",
+      "config": {
+        "default": "workflow-lead",
+        "presets": [
+          {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        ],
+        "agents": {
+          "helper": {
+            "provider": "openai",
+            "model": "gpt",
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ]
+          }
+        }
+      },
+      "caller": "sess_lead_b",
+      "facts": {
+        "provider": "openai",
+        "model": "gpt",
+        "effort": "high",
+        "fast": true,
+        "fastCapable": true,
+        "autoEffort": false,
+        "modelParameters": {
+          "tier": "x"
+        },
+        "contextPercent": 34,
+        "contextTokens": 1200,
+        "effortOptions": [
+          "low",
+          "high"
+        ]
+      },
+      "sessions": [
+        {
+          "id": "sess_noagent",
+          "owner": "user",
+          "provider": "openai",
+          "model": "gpt"
+        },
+        {
+          "id": "sess_lead_plain",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "other"
+        },
+        {
+          "id": "sess_lead_closed",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ],
+          "closed": true
+        },
+        {
+          "id": "sess_worker_chain",
+          "owner": "agent",
+          "agent": "worker",
+          "provider": "openai",
+          "model": "gpt",
+          "routeFallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_b",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "openai",
+          "model": "gpt"
+        },
+        {
+          "id": "sess_home_helper",
+          "owner": "user",
+          "agent": "helper",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        },
+        {
+          "id": "sess_lead_a",
+          "owner": "user",
+          "agent": "lead",
+          "provider": "anthropic",
+          "model": "opus",
+          "routeFallbackIndex": 1,
+          "routeFallbackPrimary": {
+            "provider": "openai",
+            "model": "gpt",
+            "effort": "high"
+          },
+          "routeFallbackFailures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        }
+      ],
+      "model": {
+        "route": {
+          "provider": "openai",
+          "model": "gpt",
+          "effort": "high",
+          "fast": true,
+          "fastCapable": true,
+          "modelParameters": {
+            "tier": "x"
+          },
+          "contextPercent": 34,
+          "contextTokens": 1200,
+          "autoEffort": false,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ]
+        },
+        "effortOptions": [
+          "low",
+          "high"
+        ],
+        "session": {
+          "sessionId": "sess_lead_b",
+          "kind": "lead",
+          "agent": "lead",
+          "current": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": true,
+          "fallbackIndex": 0,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "settings",
+          "next": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "failures": []
+        },
+        "sessions": [
+          {
+            "sessionId": "sess_lead_a",
+            "kind": "lead",
+            "agent": "lead",
+            "current": {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            "primary": {
+              "provider": "openai",
+              "model": "gpt"
+            },
+            "onPrimary": false,
+            "fallbackIndex": 1,
+            "fallbacks": [
+              {
+                "provider": "anthropic",
+                "model": "opus"
+              },
+              {
+                "provider": "google",
+                "model": "gemini"
+              }
+            ],
+            "chainFrom": "settings",
+            "next": {
+              "provider": "google",
+              "model": "gemini"
+            },
+            "failures": [
+              {
+                "provider": "openai",
+                "model": "gpt",
+                "kind": "quota_exhausted",
+                "error": "limit"
+              }
+            ]
+          }
+        ]
+      },
+      "modelKeys": [
+        "domain",
+        "route",
+        "effortOptions",
+        "session",
+        "sessions"
+      ],
+      "agentsSessions": [
+        {
+          "sessionId": "sess_worker_chain",
+          "kind": "agent",
+          "agent": "worker",
+          "current": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": true,
+          "fallbackIndex": 0,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "session",
+          "next": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "failures": []
+        },
+        {
+          "sessionId": "sess_home_helper",
+          "kind": "bot",
+          "agent": "helper",
+          "current": {
+            "provider": "anthropic",
+            "model": "opus"
+          },
+          "primary": {
+            "provider": "openai",
+            "model": "gpt"
+          },
+          "onPrimary": false,
+          "fallbackIndex": 1,
+          "fallbacks": [
+            {
+              "provider": "anthropic",
+              "model": "opus"
+            },
+            {
+              "provider": "google",
+              "model": "gemini"
+            }
+          ],
+          "chainFrom": "settings",
+          "next": {
+            "provider": "google",
+            "model": "gemini"
+          },
+          "failures": [
+            {
+              "provider": "openai",
+              "model": "gpt",
+              "kind": "quota_exhausted",
+              "error": "limit"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

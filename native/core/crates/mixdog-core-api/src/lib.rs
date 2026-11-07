@@ -44,6 +44,8 @@ pub use handle::CoreHandle;
 pub use handle::CoreState;
 pub use host::ClaimedHostChannel;
 pub use host::ConnectionNotifier;
+pub use host::ApprovalPresence;
+pub use host::ApprovalSurfaces;
 pub use host::DesktopPresence;
 pub use host::HostCapability;
 pub use host::HostClaim;

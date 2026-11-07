@@ -74,6 +74,15 @@
       "totalBytes": 12641
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-approval-surface.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "approval-surface/MANIFEST.json",
+      "manifestSha256": "ed5256d15f53b8e93f47ffe62cd5e1adea851507bf318d543c43cb8b875d780b",
+      "recorder": "benchmarks/rust-core/recorders/record-approval-surface.mjs",
+      "set": "approval-surface",
+      "totalBytes": 1008
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-auth-refresh.mjs --tree <tree>",
       "fileCount": 1,
       "manifest": "auth-refresh/MANIFEST.json",
@@ -117,6 +126,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-cache-warm-send.mjs",
       "set": "cache-warm-send",
       "totalBytes": 28159
+    },
+    {
+      "command": "node <repo>/benchmarks/rust-core/recorders/record-channel-settings.mjs --tree <tree> --out golden.json",
+      "fileCount": 1,
+      "manifest": "channel-settings/MANIFEST.json",
+      "manifestSha256": "f07dc4f975cd9afc37e2d2ca9243bdd1a5c4fe0f0a20150f4841b4cc72d13204",
+      "recorder": "benchmarks/rust-core/recorders/record-channel-settings.mjs",
+      "set": "channel-settings",
+      "totalBytes": 37606
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-automation-setup.mjs --tree <tree>",
@@ -623,6 +641,15 @@
       "totalBytes": 2361
     },
     {
+      "command": "node benchmarks/rust-core/recorders/record-quota-resume-fire.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "quota-resume-fire/MANIFEST.json",
+      "manifestSha256": "452572397096a8b7b738152ecc6258fc4cb43699443802375c5051e8b3915704",
+      "recorder": "benchmarks/rust-core/recorders/record-quota-resume-fire.mjs",
+      "set": "quota-resume-fire",
+      "totalBytes": 30995
+    },
+    {
       "command": "node benchmarks/rust-core/recorders/record-quota-scheduler.mjs --tree <tree>",
       "fileCount": 2,
       "manifest": "quota-scheduler/MANIFEST.json",
@@ -828,6 +855,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-side-question-store.mjs",
       "set": "side-question-store",
       "totalBytes": 29343
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-snapshot-cleanup-schedule.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "snapshot-cleanup-schedule/MANIFEST.json",
+      "manifestSha256": "b372bc10cb6783f2bfb89c8ebb8e44666a3beb5ee6a024f52a604e4db0e4d734",
+      "recorder": "benchmarks/rust-core/recorders/record-snapshot-cleanup-schedule.mjs",
+      "set": "snapshot-cleanup-schedule",
+      "totalBytes": 1330
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-statusline-route.mjs --tree <tree>",

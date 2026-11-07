@@ -166,7 +166,7 @@ pub(crate) struct Retained {
 
 /// `retainedRetryInput()`: the last non-system model message, when it is the failed turn's own
 /// user message.
-fn retained_retry_input(messages: &[Value]) -> Option<Retained> {
+pub(crate) fn retained_retry_input(messages: &[Value]) -> Option<Retained> {
     let message = messages.iter().rev().find(|m| m.get("role").and_then(Value::as_str) != Some("system"))?;
     let transcript = message.pointer("/meta/transcript");
     let id = transcript.and_then(|t| t.get("messageId")).filter(|id| truthy(Some(id)));
@@ -256,6 +256,72 @@ impl ResumeCheck {
             return false;
         }
         !self.quota.suspended(&self.session_id, key).is_empty() || !self.goal_id.is_empty()
+    }
+}
+
+/// What `fireQuotaResume({ generation })` decides before it acts, in Node's order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum FireStep {
+    /// No queued entry of this generation, or its turn is already claimed by a retry.
+    Stale,
+    /// Something runs, settles, closes or is queued: the scheduler re-checks later.
+    Busy,
+    /// The entry's turn is no longer the latest quota failure: the entry goes.
+    Superseded,
+    /// Nothing a resume could replay: the entry goes and the session hears why.
+    Unreplayable,
+    /// The Goal the failure `turn_key` suspended is revived, with the retry if there is one.
+    ResumeGoal { turn_key: String, goal_id: String },
+    /// The failed turn `turn_key` is retried.
+    Retry { turn_key: String },
+}
+
+/// The session state `fireQuotaResume` reads.
+pub(crate) struct FireFacts<'a> {
+    /// The queued entry: its turn key and generation.
+    pub entry: Option<(&'a str, u64)>,
+    /// `retryBlocked()`.
+    pub blocked: bool,
+    /// The transcript rows (`getState().items`).
+    pub items: &'a [Value],
+    /// `retainedRetryInput() !== null`.
+    pub retained: bool,
+    /// `quotaSuspendedGoal(id, turnKey)`.
+    pub suspended: &'a dyn Fn(&str) -> String,
+    /// `retryClaim === claim` for the turn key.
+    pub claimed: &'a dyn Fn(&str) -> bool,
+}
+
+/// `fireQuotaResume({ generation })`'s decision (`quota-resume.mjs:339`).
+pub(crate) fn fire_step(generation: u64, facts: &FireFacts) -> FireStep {
+    let Some((turn_key, _)) = facts.entry.filter(|(_, queued)| *queued == generation) else {
+        return FireStep::Stale;
+    };
+    if facts.blocked {
+        return FireStep::Busy;
+    }
+    if latest_quota_failure(facts.items).is_none_or(|failure| failure.turn_key != turn_key) {
+        return FireStep::Superseded;
+    }
+    let goal_id = (facts.suspended)(turn_key);
+    // A user turn replays its prompt; an automatic Goal turn has no user row and resumes as its
+    // Goal's next continuation.
+    if !facts.retained && failed_turn_retry_prompt(facts.items, turn_key).is_none() && goal_id.is_empty() {
+        return FireStep::Unreplayable;
+    }
+    if (facts.claimed)(turn_key) {
+        return FireStep::Stale;
+    }
+    let turn_key = turn_key.to_owned();
+    if goal_id.is_empty() { FireStep::Retry { turn_key } } else { FireStep::ResumeGoal { turn_key, goal_id } }
+}
+
+/// The text a session failure carries for the quota-resume clock: the failure's own message
+/// (Node's `error.message`), else the error as logged.
+pub(crate) fn failure_text(error: &CoreError) -> String {
+    match error {
+        CoreError::DomainError { message: Some(message), .. } => message.to_string(),
+        other => other.to_string(),
     }
 }
 

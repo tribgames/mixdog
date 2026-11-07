@@ -236,6 +236,9 @@ impl Drop for ConnectionHandle {
             sub.feed.detach(sub.id);
         }
         self.shared.outgoing.unregister(&self.conn);
+        // Last: the feed subscriptions and the server-request eligibility are gone, so the owners release what the connection held. Every end path
+        // (clean close, transport error, heartbeat or slow-consumer close, server stop) ends the drive loop that owns this handle: once per connection.
+        self.shared.core.connection_closed(self.conn.id);
     }
 }
 

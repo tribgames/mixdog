@@ -116,6 +116,8 @@ pub(crate) struct DirInner {
     /// Opens begun, ever: a retention delete that read its tree's stored activity at one count
     /// and finds another knows a member may have been opened, used and unloaded in between.
     opens: std::sync::atomic::AtomicU64,
+    /// Handles built, ever: each handle's `loaded_seq`.
+    loads: std::sync::atomic::AtomicU64,
     /// `onGoalStatusChange`: each change goes to its loaded thread's Goal lane.
     goal_events: Mutex<Option<mixdog_core_goal::goal::Subscription>>,
     /// Cancels the staged-originals deadline timer when the directory goes.
@@ -157,6 +159,7 @@ impl SessionDirectory {
             shards: (0..SHARDS).map(|_| Mutex::new(HashMap::new())).collect(),
             me: me.clone(),
             opens: Default::default(),
+            loads: Default::default(),
             goal_events: Mutex::new(None),
             _prune: prune.drop_guard(),
             #[cfg(any(test, feature = "test-support"))]
@@ -386,6 +389,27 @@ impl SessionDirectory {
             .collect()
     }
 
+    /// Every loaded thread's handle, in the order the threads were loaded (Node's `_liveSessions`
+    /// iteration order).
+    pub fn loaded_handles(&self) -> Vec<Arc<SessionHandle>> {
+        let mut handles: Vec<Arc<SessionHandle>> = self
+            .inner
+            .shards
+            .iter()
+            .flat_map(|shard| {
+                lock(shard)
+                    .values()
+                    .filter_map(|slot| match slot {
+                        Slot_::Loaded(handle) => Some(handle.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        handles.sort_by_key(|handle| handle.loaded_seq);
+        handles
+    }
+
     /// Creates the thread under a fixed `id` (agent homes and room sessions are derived keys, not
     /// minted ids) with `header` as its first durable write.
     pub async fn create_with_id(&self, id: ThreadId, header: Header, params: Value) -> Result<(), CoreError> {
@@ -445,6 +469,9 @@ impl SessionDirectory {
             }
         }));
         let _ = tokio::time::timeout(SHUTDOWN_INGEST_DEADLINE, all).await;
+        // Each runtime's teardown ends with `dispose()` of its side checkouts: no snapshot
+        // cleanup runs on, and what is left is the prune's and the startup reconcile's.
+        self.inner.deps.snapshots.dispose();
     }
 
     /// Opens (single-flight) and returns the concrete handle.
@@ -817,6 +844,8 @@ impl DirInner {
             closed: Default::default(),
             #[cfg(any(test, feature = "test-support"))]
             stepped: Default::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            busy: Default::default(),
         });
         let handle = Arc::new(SessionHandle {
             id: id.clone(),
@@ -829,6 +858,7 @@ impl DirInner {
             directory: self.me.clone(),
             reactions: Default::default(),
             submits: Default::default(),
+            loaded_seq: self.loads.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
         });
         let durability = DurabilityTask::new(
             id.clone(),

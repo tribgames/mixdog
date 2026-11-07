@@ -59,8 +59,8 @@ struct DiscardSink;
 
 #[async_trait]
 impl TranscriptSink for DiscardSink {
-    fn commit(&self, _message: &AgentMessage) -> Ticket {
-        Ticket(0)
+    async fn commit(&self, _message: &AgentMessage) -> Result<Ticket, crate::env::CommitError> {
+        Ok(Ticket(0))
     }
     fn replace(&self, _messages: &[AgentMessage], _rewrite: &crate::env::Rewrite) {}
     fn message_id(&self) -> String {

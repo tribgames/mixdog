@@ -1,0 +1,29 @@
+{
+  "note": "resolvePreToolAskApproval over the unattended port: who answers a run's ask with and without a toolApprovalHook",
+  "rows": [
+    {
+      "run": null,
+      "hookPresent": false,
+      "answeredBy": "nobody",
+      "denial": "Error: tool \"github\" denied by hook: approval required but no approval UI is available (posts)"
+    },
+    {
+      "run": null,
+      "hookPresent": true,
+      "answeredBy": "hook",
+      "denial": "Error: tool \"github\" was not approved: posts. Do not retry it or reach the same result another way; report it."
+    },
+    {
+      "run": "room",
+      "hookPresent": false,
+      "answeredBy": "held",
+      "denial": "Error: tool \"github\" was not approved: posts. Do not retry it or reach the same result another way; report it."
+    },
+    {
+      "run": "room",
+      "hookPresent": true,
+      "answeredBy": "hook",
+      "denial": "Error: tool \"github\" was not approved: posts. Do not retry it or reach the same result another way; report it."
+    }
+  ]
+}

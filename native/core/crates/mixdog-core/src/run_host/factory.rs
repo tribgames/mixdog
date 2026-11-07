@@ -19,12 +19,16 @@ use mixdog_agent::env::{
     Clock, Compactor, Reactions, ResultReuse, RouteFallback, RunEnv, RunEvent, RunObserver, SkillSelector, Stage, TailReminder, TextRetraction, Retracted, Ticket, ToolGate,
     ToolHooks, TranscriptSink, TurnGuards,
 };
+use mixdog_agent::compact::blob_reads::with_blobs;
+use mixdog_agent::env::CommitError;
 use mixdog_agent::message::AgentMessage;
 use mixdog_agent::tools::{ToolEnv, ToolSet};
 use mixdog_agent::{AgentError, Run, RunCarry, RunConfig};
 use mixdog_core_api::domain::provider::{Content, ProviderAdapter, Role};
 use mixdog_core_api::domain::retry::RetryDecider;
 use mixdog_core_api::ids::{ItemId, ThreadId, TurnId};
+use mixdog_protocol::message_class::row_facts;
+use mixdog_protocol::message_class::user_text::UserText;
 use mixdog_protocol::{ItemMeta, MaybeBlob, ThreadItem, TurnError};
 use mixdog_rt::TaskClass;
 use mixdog_tools::policy::SessionSurface;
@@ -137,7 +141,7 @@ pub struct Assembled {
     pub artifacts: Option<Arc<dyn mixdog_agent::offload::ArtifactStore>>,
     pub images: Option<Arc<dyn mixdog_agent::offload::ImageCompactor>>,
     /// The attachment blob reader, for the display facts of a user row (a pasted text's body).
-    pub blobs: Arc<dyn mixdog_protocol::message_class::user_text::Blobs + Send + Sync>,
+    pub blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>,
     /// The guard state that outlives one ask (the session record).
     pub carry: RunCarry,
 }
@@ -213,7 +217,7 @@ struct PortSink {
     streaming: Arc<Mutex<Option<ItemId>>>,
     iids: Mutex<HashMap<String, ItemId>>,
     clock: Arc<dyn Clock>,
-    blobs: Arc<dyn mixdog_protocol::message_class::user_text::Blobs + Send + Sync>,
+    blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>,
     /// A worker's turn hook (`onToolResult`): called with each tool result the turn gains.
     on_tool_result: Option<Arc<dyn Fn(&mixdog_agent::agent_tool::flow::seams::ToolResultMessage) + Send + Sync>>,
 }
@@ -229,7 +233,7 @@ impl PortSink {
         live: LiveTurnPublisher,
         streaming: Arc<Mutex<Option<ItemId>>>,
         clock: Arc<dyn Clock>,
-        blobs: Arc<dyn mixdog_protocol::message_class::user_text::Blobs + Send + Sync>,
+        blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>,
         on_tool_result: Option<Arc<dyn Fn(&mixdog_agent::agent_tool::flow::seams::ToolResultMessage) + Send + Sync>>,
     ) -> Arc<Self> {
         let (jobs, mut queue) = mpsc::unbounded_channel::<Job>();
@@ -282,18 +286,29 @@ fn dropped_of(dropped: &mixdog_agent::env::Dropped) -> mixdog_core_session::sess
 
 #[async_trait]
 impl TranscriptSink for PortSink {
-    fn commit(&self, message: &AgentMessage) -> Ticket {
-        let n = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
-        let mut row = row_of(message);
+    async fn commit(&self, message: &AgentMessage) -> Result<Ticket, CommitError> {
+        let row = row_of(message);
         // Node hides a row by what it is: a user row the transcript shows nothing for (a hook or
         // skill note, internal text) is not visible; a card or cancel line is written into its meta.
         // and the row that counts for prompt history carries its display text.
-        let (visible, prompt) = if message.role() == Role::User {
-            let mut text = mixdog_protocol::message_class::user_text::UserText::new(&*self.blobs);
-            mixdog_protocol::message_class::row_facts(&mut row, &mut text).map_or((true, None), |facts| (facts.visible, facts.prompt))
+        let (row, visible, prompt) = if message.role() == Role::User {
+            // The facts read the attachment store (paste line counts, offloaded prompt bodies): the
+            // read runs on the store's lane and this task awaits its answer.
+            let lane_row = row.clone();
+            let read = with_blobs(&*self.blobs, move |blobs| {
+                let mut classified = lane_row;
+                let facts = row_facts(&mut classified, &mut UserText::new(blobs));
+                (classified, facts)
+            })
+            .await;
+            // A store that cannot run the read is an error of the commit: nothing is queued.
+            let (row, facts) = read.map_err(|_| CommitError::StoreUnavailable)?;
+            let (visible, prompt) = facts.map_or((true, None), |facts| (facts.visible, facts.prompt));
+            (row, visible, prompt)
         } else {
-            (true, None)
+            (row, true, None)
         };
+        let n = self.seq.fetch_add(1, Ordering::SeqCst) + 1;
         self.rows.record(message, row.clone());
         if message.role() == Role::Tool {
             if let Some(hook) = &self.on_tool_result {
@@ -315,7 +330,7 @@ impl TranscriptSink for PortSink {
         };
         let item = ItemCommit { iid: shown.unwrap_or_else(|| self.iid_of(message)), role: Some(role.to_owned()), model: true, visible, body: row, prompt };
         let _ = self.jobs.send(Job::Commit(n, item));
-        Ticket(n)
+        Ok(Ticket(n))
     }
 
     fn replace(&self, messages: &[AgentMessage], rewrite: &mixdog_agent::env::Rewrite) {
@@ -651,7 +666,12 @@ async fn drive(parts: Arc<dyn RunParts>, run: RunStart) -> RunOutcome {
             }
             if let Some(mut message) = mixdog_agent::response::intermediate_message(&terminal) {
                 message.message_id = Some(sink.message_id());
-                sink.commit(&message);
+                if let Err(error) = sink.commit(&message).await {
+                    sink.flush().await;
+                    sink.live.clear();
+                    progress.error();
+                    return failed(error.to_string(), Value::Null);
+                }
             }
             sink.flush().await;
             sink.live.clear();
@@ -783,6 +803,14 @@ mod tests {
     impl mixdog_protocol::message_class::user_text::Blobs for NoBlobs {
         fn text_within(&self, _: &str, _: u64) -> Result<Option<String>, mixdog_protocol::message_class::user_text::ReadError> {
             Ok(None)
+        }
+    }
+
+    #[async_trait]
+    impl mixdog_agent::compact::blob_reads::BlobReads for NoBlobs {
+        async fn read_with(&self, work: mixdog_agent::compact::blob_reads::StoreWork) -> Result<(), mixdog_agent::compact::blob_reads::StoreUnavailable> {
+            work(self);
+            Ok(())
         }
     }
 
@@ -1402,7 +1430,8 @@ mod tests {
             policy: Arc::new(mixdog_tools::policy::ToolPolicy::new(Arc::new(mixdog_tools::policy::MemoryGrantStore::default()), connectors.clone())),
             connectors,
             resolver: Arc::new(PoolResolver(pool.clone())),
-            run_stamps: Arc::new(NoStamps),
+            unattended: crate::run_host::unattended::UnattendedRunRegistry::new(Arc::new(NoStamps)),
+            exclusions: Arc::default(),
             agents: Arc::new(mixdog_core_agents::agents::AgentDefinitions::new(workspace.path().join("shipped"), workspace.path().join("agents"), tokens.interactive_io, mixdog_core_config::config::AgentRoutes::new(compaction.config.clone(), workspace.path()), Arc::new(NoEvidence), Arc::new(|| json!({})), workspace.path())),
             allow_all: Arc::new(AllowNone),
             hub: (mixdog_mcp::McpHub::new(mixdog_mcp::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io }, workspace.path().to_path_buf(), Default::default())),
@@ -1432,7 +1461,7 @@ mod tests {
                     deps
                 }
             }),
-            compaction,
+            compactors: Arc::new(super::super::compactors::SessionCompactors::new(Arc::new(super::super::compaction_world::ProcessCompactionWorld::new(compaction)), clock.clone())),
             hops: Box::new({
                 let registry_dir = workspace.path().join("catalog");
                 move |_directory, registry| {

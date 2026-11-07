@@ -222,6 +222,18 @@ fn without_enabled(rule: &Value) -> Value {
     rule
 }
 
+/// `{ ...rule, enabled }`. A rule that is a JSON array spreads into an object keyed by its
+/// positions, as in JavaScript.
+fn with_enabled(rule: &Value, enabled: bool) -> Value {
+    let mut map = match rule {
+        Value::Object(map) => map.clone(),
+        Value::Array(items) => items.iter().enumerate().map(|(position, item)| (position.to_string(), item.clone())).collect(),
+        _ => Map::new(),
+    };
+    map.insert("enabled".to_owned(), Value::Bool(enabled));
+    Value::Object(map)
+}
+
 fn add_rule(lane: &InLane<MaintenanceIo>, path: &Path, rule: &Value) -> Result<Value, String> {
     let rewrites = ["modify", "rewrite"].iter().any(|kind| rule.get("action").and_then(Value::as_str) == Some(*kind));
     let edits: Vec<&str> = ["patch", "args"].into_iter().filter(|key| rule.get(*key).is_some()).collect();
@@ -249,18 +261,14 @@ fn set_enabled(lane: &InLane<MaintenanceIo>, path: &Path, at: usize, index: &Val
     }
     let enabled = *enabled != Value::Bool(false);
     let base = rules[at].clone();
-    if let Some(rule) = rules[at].as_object_mut() {
-        rule.insert("enabled".to_owned(), Value::Bool(enabled));
-    }
+    rules[at] = with_enabled(&base, enabled);
     let shown = public_rules(&rules);
     save_rules(lane, path, |mut current| {
         // `applyHookRulePatches`, strict: the rule must still be the one the toggle was made on.
         if !current.get(at).is_some_and(|rule| without_enabled(rule) == without_enabled(&base)) {
             return Err(format!("hook rule changed before its pending update could be saved: {at}"));
         }
-        if let Some(rule) = current[at].as_object_mut() {
-            rule.insert("enabled".to_owned(), Value::Bool(enabled));
-        }
+        current[at] = with_enabled(&current[at], enabled);
         Ok(current)
     })
     .map_err(Failed::Flush)?;

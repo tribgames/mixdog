@@ -1,0 +1,52 @@
+{
+  "files": {
+    "sess_bare.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"e75a725f95ddf62440edc80f\",\"id\":\"sess_bare\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_bare\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"archivedAt\":1700000000007,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello\",\"ts\":1700000001000}]}\n",
+    "sess_blank.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"4ec7931b7550117362dc00db\",\"id\":\"sess_blank\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_blank\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000010000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"title\":\"\",\"name\":\"Fallback\",\"lastUsedAt\":1700000040000,\"favoriteAt\":1700000000002,\"archivedAt\":1700000000008,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello\",\"ts\":1700000001000}]}\n",
+    "sess_closed.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"1dbc443ee7df8c7df10bbb12\",\"id\":\"sess_closed\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_closed\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":true,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000010000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"lastUsedAt\":1700000002000,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello\",\"ts\":1700000001000}]}\n",
+    "sess_legacy.json": "{\"id\":\"sess_legacy\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000003000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"messages\":[{\"role\":\"user\",\"content\":\"hello\",\"ts\":1700000001000}],\"title\":\"Legacy\"}",
+    "sess_named.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"f685d7fabab58fe76f5c08bb\",\"id\":\"sess_named\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_named\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000020000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"name\":\"Named one\",\"lastHeartbeatAt\":1700000030000,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello\",\"ts\":1700000001000}]}\n",
+    "sess_titled.log.jsonl": "{\"t\":\"session\",\"s\":0,\"v\":1,\"logId\":\"4e78830f91036ec27b8ef6ac\",\"id\":\"sess_titled\",\"prev\":null,\"legacy\":null,\"header\":{\"id\":\"sess_titled\",\"owner\":\"user\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"closed\":false,\"generation\":0,\"createdAt\":1700000000000,\"updatedAt\":1700000010000,\"cwd\":\"C:\\\\mixdog-golden\\\\project\",\"title\":\"Titled one\",\"lastUsedAt\":1700000005000,\"favoriteAt\":1700000000001,\"tools\":[]}}\n{\"t\":\"compacted\",\"s\":1,\"len\":1,\"messages\":[{\"role\":\"user\",\"content\":\"hello\",\"ts\":1700000001000}]}\n"
+  },
+  "ids": [
+    "sess_bare",
+    "sess_blank",
+    "sess_closed",
+    "sess_legacy",
+    "sess_named",
+    "sess_titled"
+  ],
+  "activity": {
+    "sess_bare": {
+      "lastActiveAt": 1700000000000,
+      "title": null
+    },
+    "sess_blank": {
+      "lastActiveAt": 1700000040000,
+      "title": "Fallback"
+    },
+    "sess_closed": {
+      "lastActiveAt": 1700000002000,
+      "title": null
+    },
+    "sess_legacy": {
+      "lastActiveAt": 1700000003000,
+      "title": "Legacy"
+    },
+    "sess_named": {
+      "lastActiveAt": 1700000030000,
+      "title": "Named one"
+    },
+    "sess_titled": {
+      "lastActiveAt": 1700000005000,
+      "title": "Titled one"
+    }
+  },
+  "favorites": [
+    "sess_blank",
+    "sess_titled"
+  ],
+  "archived": [
+    "sess_bare",
+    "sess_blank"
+  ]
+}

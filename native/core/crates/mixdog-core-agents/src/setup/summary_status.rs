@@ -21,14 +21,16 @@ use super::workflow_status::WorkflowFacts;
 /// The live Lead route as the runtime facade carries it (`rt.provider`, `rt.model`, `rt.effort`,
 /// `rt.fast`, `rt.fastCapable`, `rt.modelParameters`, `rt.contextPercent`, `rt.contextTokens`,
 /// and for the model status `rt.autoEffort`, `rt.effortOptions`): the session's fact.
+#[async_trait]
 pub trait LiveRoute: Send + Sync {
-    /// An object holding those properties as the session has them (absent when unset).
-    fn route(&self) -> Value;
+    /// An object holding those properties as the conversation `thread` has them (absent when unset).
+    fn route(&self, thread: &ThreadId) -> Value;
     /// `listPresets().find(preset => preset.id === 'workflow-lead')?.fallbacks`: the Lead route's fallback chain (absent: none).
     fn lead_fallbacks(&self) -> Value;
     /// `routePositionsStatus({ caller, config, keep })` for the Lead conversations (lead) or for the bot chats and sub-agents: an
-    /// object holding `session` (the caller's own place on its chain, when it acts as an agent) and `sessions`.
-    fn positions(&self, thread: &ThreadId, lead: bool) -> Value;
+    /// object holding `session` (the caller's own place on its chain, when it acts as an agent) and `sessions`. Async because a
+    /// position reads the bot route store on the IO lane; `Err` when that read never ran.
+    async fn positions(&self, thread: &ThreadId, lead: bool) -> Result<Value, PortError>;
 }
 
 /// The model domain: the Lead route with its fallback chain, the effort choices and where the live Lead conversations are on their chains.
@@ -49,7 +51,7 @@ impl StatusReader for ModelStatus {
     }
 
     async fn read(&self, _domain: &str, _detail: bool, thread: &ThreadId) -> Result<Value, PortError> {
-        let live = self.route.route();
+        let live = self.route.route(thread);
         let mut route = main_route(&live);
         route.insert("autoEffort".into(), Value::Bool(live.get("autoEffort") != Some(&Value::Bool(false))));
         let fallbacks = self.route.lead_fallbacks();
@@ -57,7 +59,7 @@ impl StatusReader for ModelStatus {
         let mut out = Map::new();
         out.insert("route".into(), Value::Object(route));
         out.insert("effortOptions".into(), or(&live, "effortOptions", Value::Array(Vec::new())));
-        if let Value::Object(positions) = self.route.positions(thread, true) {
+        if let Value::Object(positions) = self.route.positions(thread, true).await? {
             out.extend(positions);
         }
         Ok(Value::Object(out))
@@ -114,8 +116,8 @@ impl StatusReader for SummaryStatus {
         &["summary"]
     }
 
-    async fn read(&self, _domain: &str, _detail: bool, _thread: &ThreadId) -> Result<Value, PortError> {
-        let route = Value::Object(main_route(&self.route.route()));
+    async fn read(&self, _domain: &str, _detail: bool, thread: &ThreadId) -> Result<Value, PortError> {
+        let route = Value::Object(main_route(&self.route.route(thread)));
         let workflows = self.facts.workflows().await?;
         let workflow = workflows
             .as_array()
