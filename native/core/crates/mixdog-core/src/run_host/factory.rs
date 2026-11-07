@@ -482,6 +482,7 @@ enum Shown {
     Compact(mixdog_agent::env::CompactEvent),
     Check(mixdog_core_session::session::run::SendCheck),
     Pass(Box<mixdog_agent::env::CompactPass>),
+    ToolStream,
     /// Answered once every report before it has reached the port.
     Barrier(tokio::sync::oneshot::Sender<()>),
     /// A hosted web search's spend, as `reportNativeWebSearchUsage` shapes it.
@@ -584,6 +585,10 @@ impl RunObserver for PortObserver {
             }
             RunEvent::CompactPass(pass) => {
                 let _ = self.out.send(Shown::Pass(pass));
+            }
+            RunEvent::ToolStream => {
+                self.progress.stream_delta(StreamKind::Tool);
+                let _ = self.out.send(Shown::ToolStream);
             }
             // The context section is the route's window choice (`runtime.contextPercent`, exact `contextTokens` only for a
             // non-default window), never the usage reading: usage reaches clients as `thread/tokenUsage/updated`.
@@ -817,6 +822,7 @@ async fn drive(
                 Shown::Check(check) => shown_port.send_check(check).await,
                 Shown::SearchUsage(delta) => shown_port.search_usage(delta).await,
                 Shown::Pass(pass) => shown_port.compact_pass(pass).await,
+                Shown::ToolStream => shown_port.tool_stream().await,
                 Shown::Barrier(done) => {
                     let _ = done.send(());
                     Ok(())

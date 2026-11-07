@@ -48,6 +48,17 @@ use crate::run::Run;
 /// arguments would likely be cut again.
 const TOOL_INPUT_CUT_NOTICE: &str = "[mixdog-runtime] The previous response was cut off in transit while a tool call's arguments were still streaming, so that call never ran. This was a network interruption, not a tool failure; tools remain available. Do not resend the same large arguments in one call: split the content across several smaller tool calls (for example, write the first part, then append or patch the rest), keeping each call well under about 8K tokens of arguments.";
 
+/// The kind of model progress a provider stream event is, as the decoders report it through `onStreamDelta(kind)`
+/// (`providers/anthropic-sse-turn`, `openai-ws-stream/event-switch.mjs`): the text and thinking that stream, and a tool
+/// call's arguments streaming or completing. Opening a call is not progress.
+pub(crate) fn progress_kind(event: &StreamEvent) -> Option<&'static str> {
+    match event {
+        StreamEvent::TextDelta(_) => Some("text"),
+        StreamEvent::ReasoningDelta(_) => Some("reasoning"),
+        StreamEvent::ToolCallArgsDelta { .. } | StreamEvent::ToolCallDone(_) => Some("tool"),
+        _ => None,
+    }
+}
 pub(crate) enum SendResult {
     Proceed(Box<ModelResponse>),
     /// The transcript or route changed: start the round over.
@@ -435,6 +446,9 @@ impl Run {
                 }
                 Some(Ok(event)) => event,
             };
+            if progress_kind(&event) == Some("tool") {
+                self.emit(RunEvent::ToolStream);
+            }
             match &event {
                 StreamEvent::TextDelta(text) => {
                     shown_chars += mixdog_js::utf16_len(text);
@@ -767,6 +781,33 @@ impl Run {
             // A chain that ran out names every model tried: that error replaces the overflow.
             Route::Surface(annotated) if annotated.message != error.message => Err(AgentError::Provider(annotated)),
             Route::Surface(_) | Route::Stay => Err(overflow),
+        }
+    }
+}
+
+#[cfg(test)]
+mod progress_tests {
+    use super::*;
+    use mixdog_core_api::domain::provider::ToolCall;
+
+    /// The progress kinds Node's Anthropic SSE decoder reported for a tool_use block, a thinking block and a text block
+    /// (`fixtures/agent/compact/record_usage.mjs` -> `golden/stream_progress.json`) are the ones the Rust stream event
+    /// of the same wire event reports: opening a call reports none, its arguments and its end report `tool`.
+    #[test]
+    fn a_stream_event_reports_the_progress_kind_node_s_decoder_does() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/agent/compact/golden/stream_progress.json")).expect("golden");
+        for event in golden["events"].as_array().expect("events") {
+            let rust = match event["rust"].as_str().expect("rust") {
+                "ToolCallStart" => StreamEvent::ToolCallStart { id: "c1".into(), name: "read".into() },
+                "ToolCallArgsDelta" => StreamEvent::ToolCallArgsDelta { id: "c1".into(), delta: "{".into() },
+                "ToolCallDone" => StreamEvent::ToolCallDone(ToolCall { id: "c1".into(), name: "read".into(), arguments: serde_json::Value::Null, native_type: None }),
+                "ReasoningDelta" => StreamEvent::ReasoningDelta("hm".into()),
+                "TextDelta" => StreamEvent::TextDelta("Done.".into()),
+                other => panic!("unknown stream event {other}"),
+            };
+            let mut node: Vec<&str> = event["kinds"].as_array().expect("kinds").iter().filter_map(|kind| kind.as_str()).collect();
+            node.dedup();
+            assert_eq!(progress_kind(&rust).into_iter().collect::<Vec<_>>(), node, "{}", event["label"]);
         }
     }
 }

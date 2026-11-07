@@ -323,6 +323,8 @@ pub enum RunEvent {
     Compact(CompactEvent),
     /// A stage of a pre-send compaction pass, for the header's compaction telemetry.
     CompactPass(Box<CompactPass>),
+    /// A tool call's arguments streamed or completed in the provider stream: model progress of kind `tool`.
+    ToolStream,
 }
 
 #[derive(Clone, PartialEq, Debug)]

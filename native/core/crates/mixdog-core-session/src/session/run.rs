@@ -253,6 +253,8 @@ pub(crate) enum RunShown {
     Check(SendCheck),
     /// A stage of a pre-send compaction pass (`compactTelemetry` of `compactBeforeSend`).
     Pass(Box<mixdog_agent::env::CompactPass>),
+    /// A tool call's arguments streamed or completed in the provider stream (markSessionStreamDelta('tool')).
+    ToolStream,
     /// The ask's end (`applyAskTerminalUsageTotals`, `recordProviderContextBaseline`).
     Settled(Settled),
     /// A hosted web search's spend (`onNativeWebSearchUsage`): the delta `reportNativeWebSearchUsage` hands the turn.
@@ -505,6 +507,11 @@ impl RunPort {
     pub async fn send_check(&self, check: SendCheck) -> Result<(), RunError> {
         self.prepare_meters(&check.messages).await;
         self.shown(RunShown::Check(check)).await
+    }
+
+    /// A tool call's arguments streamed or completed: semantic model progress.
+    pub async fn tool_stream(&self) -> Result<(), RunError> {
+        self.shown(RunShown::ToolStream).await
     }
 
     /// A stage of the compaction pass before a send.

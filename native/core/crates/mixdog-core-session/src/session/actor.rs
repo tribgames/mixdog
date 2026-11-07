@@ -2530,7 +2530,6 @@ impl SessionActor {
                 }
                 if matches!(item, ThreadItem::ToolCall { .. }) {
                     self.visible_progress();
-                    self.stream_heartbeat();
                 }
                 let note = Note::new(
                     "item/started",
@@ -2905,6 +2904,7 @@ impl SessionActor {
                 let note = Note::new("thread/tokenUsage/updated", &mixdog_app_protocol::v2::thread::TokenUsageUpdatedParams { thread_id: self.id.clone(), usage });
                 self.accept_view(Change::Barrier, vec![note]);
             }
+            RunShown::ToolStream => self.stream_heartbeat(),
             RunShown::Pass(pass) => {
                 if let Some(books) = self.deps.compaction.books(&self.id, &self.projected.header) {
                     let change = super::usage_books::pass_change(&self.projected.header, &pass, &books, self.deps.clock.now_ms() as f64);
