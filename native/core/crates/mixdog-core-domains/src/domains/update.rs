@@ -442,15 +442,40 @@ impl UpdateService {
         }
         let checked = self.check_latest(cancel, force).await;
         let mut state = self.state();
-        state.check = CheckState {
+        state.check = Self::check_state(checked);
+        if state.process.phase == Phase::Checking {
+            state.process.phase = Phase::Idle;
+        }
+    }
+
+    fn check_state(checked: Checked) -> CheckState {
+        CheckState {
             current_version: Some(checked.current_version),
             latest_version: checked.latest_version,
             update_available: checked.update_available,
             last_checked_at: checked.last_checked_at,
-        };
-        if state.process.phase == Phase::Checking {
-            state.process.phase = Phase::Idle;
         }
+    }
+
+    /// `startBootCheck()` of the controller (`self-update.mjs`), run once right after boot: one
+    /// forced registry check (`checkLatestVersion({ force: true })`), remembered as the check
+    /// state without touching the phase. When `update.auto` is on, this is not a dev install and
+    /// a newer version was found, that version is staged in the background. The "update ready"
+    /// notice Node announces once the staging is complete is not sent.
+    pub fn start_boot_check(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
+        let service = self.clone();
+        mixdog_rt::spawn("update-boot-check", mixdog_rt::TaskClass::Work, async move {
+            let checked = service.check_latest(&mixdog_rt::CancellationToken::new(), true).await;
+            let version = checked.latest_version.clone().filter(|_| checked.update_available);
+            service.state().check = Self::check_state(checked);
+            if let Some(version) = version
+                && (service.config.auto_update)()
+                && !service.installer.is_dev_install()
+            {
+                // Best effort, like Node's detached `spawnStagedInstall`: a failure is retried by the next launch.
+                let _ = service.installer.stage(&version).await;
+            }
+        })
     }
 
     /// `getUpdateSettings()`.

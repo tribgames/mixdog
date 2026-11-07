@@ -322,3 +322,7 @@ impl DomainService for ConfigService {
         Admit::Accepted
     }
 }
+
+#[cfg(test)]
+#[path = "service_tests.rs"]
+mod tests;
