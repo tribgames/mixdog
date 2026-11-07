@@ -159,6 +159,46 @@ fn a_lost_owner_lock_names_its_file() {
     assert_eq!(release_reason(&fx.recorder.events()), ["owner lock file /data/daemon-owner.lock was deleted or replaced"]);
 }
 
+/// Node's `POST /shutdown` with and without a client attached, recorded from the real daemon
+/// (`fixtures/self-shutdown-deferral`, `record-self-shutdown-deferral.mjs`): the request with a client is put off, and the stop that
+/// follows it (the last client leaving) and the stop without one carry the text Node logged.
+#[test]
+fn a_stop_request_waits_for_zero_clients_as_node_s_shutdown_does() {
+    let twin: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/self-shutdown-deferral/twin.json")).unwrap();
+    let reason_of = |line: &str| line.split_once('(').and_then(|(_, rest)| rest.split_once(')')).map(|(reason, _)| reason.to_owned()).unwrap();
+    for case in twin["cases"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let alive = case["aliveAfter"].as_bool().unwrap();
+        let fx = fixture();
+        fx.lifecycle.set_serving().unwrap();
+        let clients: Vec<_> = (0..case["clients"].as_u64().unwrap()).map(|_| fx.lifecycle.connection(ClientKind::Session)).collect();
+        if alive {
+            fx.lifecycle.request_stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+            assert!(!fx.recorder.has_exited(), "{name}: the request is put off");
+            assert_eq!(fx.lifecycle.status().clients, clients.len(), "{name}: the clients are kept");
+            assert!(release_reason(&fx.recorder.events()).is_empty(), "{name}: nothing was released");
+            // The last client leaving then stops it, with the text of the same registry (`daemon.mjs:1245`).
+            drop(clients);
+        } else {
+            fx.lifecycle.request_stop(StopMode::WhenIdle, StopReason::Quit, None).unwrap();
+        }
+        fx.recorder.wait_exit();
+        assert_eq!(release_reason(&fx.recorder.events()), [reason_of(case["log"][0].as_str().unwrap())], "{name}");
+    }
+}
+
+#[test]
+fn a_replacement_and_the_users_own_stop_are_not_put_off_by_attached_clients() {
+    // `daemon.mjs:512`: `!replacing &&` precedes the client check; the user's stop command waits for the exit.
+    for reason in [StopReason::Update, StopReason::UserStop] {
+        let fx = fixture();
+        fx.lifecycle.set_serving().unwrap();
+        let _client = fx.lifecycle.connection(ClientKind::Session);
+        fx.lifecycle.request_stop(StopMode::WhenIdle, reason, None).unwrap();
+        fx.recorder.wait_exit();
+    }
+}
+
 #[test]
 fn the_causes_without_a_fact_to_carry_read_as_node_has_them() {
     // The control listener's stop of an idle core is Node's `POST /shutdown`, which calls `onClientsEmpty` (`routes.mjs:189-196`, `daemon.mjs:1245`).
