@@ -269,7 +269,9 @@ impl McpLogins {
                 open_browser: options.open_browser,
                 deadline: self.login_deadline,
             };
-            mixdog_rt::spawn("mcp.login.flow", mixdog_rt::TaskClass::Work, driver.run(url_tx));
+            // The flow outlives the request: it keeps addressing the scope that began it.
+            let scope = crate::scope_runtime::request_scope();
+            mixdog_rt::spawn("mcp.login.flow", mixdog_rt::TaskClass::Work, crate::scope_runtime::with_request_scope(scope, driver.run(url_tx)));
             flow
         };
         let mut url_rx = url_rx;
@@ -395,7 +397,9 @@ impl Driver {
         let flow = &self.flow;
         flow.settle(State::Complete, None);
         let (backend, name) = (Arc::clone(&self.backend), flow.name.clone());
-        mixdog_rt::spawn("mcp.login.completed", mixdog_rt::TaskClass::Work, async move { backend.completed(&name).await });
+        // The follow-up is spawned, and task-locals do not follow a spawn: it carries the request scope by hand.
+        let scope = crate::scope_runtime::request_scope();
+        mixdog_rt::spawn("mcp.login.completed", mixdog_rt::TaskClass::Work, crate::scope_runtime::with_request_scope(scope, async move { backend.completed(&name).await }));
     }
 
     async fn drive(&self, url_tx: oneshot::Sender<String>) {

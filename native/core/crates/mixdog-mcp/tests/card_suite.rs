@@ -71,7 +71,7 @@ async fn the_gmail_card_gets_what_node_gave_it_in_every_recorded_case() {
         let mut card = OutboundCard::build(&name, args, category_of(tool));
         assert_eq!(card.account, case["baseline"]["account"].as_str().unwrap(), "{label}: account before the lookup");
         assert_eq!(card.details, details_of(&case["baseline"]["details"]), "{label}: details before the lookup");
-        GmailCardEnricher::new(Arc::clone(&hub)).enrich(&name, args, &mut card).await;
+        GmailCardEnricher::new(Arc::clone(&hub)).enrich(None, &name, args, &mut card).await;
         assert_eq!(card.account, case["card"]["account"].as_str().unwrap(), "{label}: account");
         assert_eq!(card.details, details_of(&case["card"]["details"]), "{label}: details");
         // What the lookup was asked: nothing when Node asked nothing.
@@ -107,7 +107,7 @@ async fn a_card_of_another_kind_is_left_alone() {
     let args = json!({"channel": "#x"});
     let mut card = OutboundCard::build("mcp__gmail-acct__send_message", &args, ActionKind::Message);
     let before = card.clone();
-    GmailCardEnricher::new(Arc::clone(&hub)).enrich("mcp__gmail-acct__send_message", &args, &mut card).await;
+    GmailCardEnricher::new(Arc::clone(&hub)).enrich(None, "mcp__gmail-acct__send_message", &args, &mut card).await;
     assert_eq!(card, before);
     hub.close_all().await;
 }

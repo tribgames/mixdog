@@ -28,6 +28,7 @@ use mixdog_mcp::mcp_service::McpService;
 use mixdog_mcp::mcp_service::OAuthState;
 use mixdog_mcp::plugin_servers::Catalog;
 use mixdog_mcp::plugin_servers::resolve_mcp_server_catalog;
+use mixdog_mcp::scope_runtime::request_scope;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -59,6 +60,8 @@ impl ExtensionConfig for Config {
 struct Host {
     /// The failure of the working-folder read, when the test switches one on.
     cwd_error: Option<&'static str>,
+    /// Each host call a request made, with the scope the request was running for (`request_scope()`).
+    seen: Mutex<Vec<(&'static str, Option<String>)>>,
 }
 
 #[async_trait]
@@ -76,6 +79,7 @@ impl ExtensionHost for Host {
     }
 
     async fn reconnect_all_mcp_and_announce(&self) -> Value {
+        self.seen.lock().unwrap().push(("reconnect_all", request_scope()));
         json!({})
     }
 
@@ -94,6 +98,7 @@ impl ExtensionHost for Host {
     async fn flush_skills_save(&self) {}
 
     async fn current_cwd(&self, _: Option<&str>) -> Result<PathBuf, String> {
+        self.seen.lock().unwrap().push(("current_cwd", request_scope()));
         match self.cwd_error {
             Some(message) => Err(message.to_owned()),
             None => Ok(std::env::temp_dir()),
@@ -109,6 +114,11 @@ struct Runtime(Arc<Config>);
 
 #[async_trait]
 impl McpRuntime for Runtime {
+    /// Every thread holds a scope of its own name here; the control session holds none.
+    async fn scope_of_request(&self, thread: Option<&str>) -> Result<Option<String>, String> {
+        Ok(thread.map(|thread| format!("scope-of-{thread}")))
+    }
+
     async fn catalog(&self) -> Catalog {
         resolve_mcp_server_catalog(&Value::Object(self.0.agent()), &[], "", "")
     }
@@ -242,6 +252,7 @@ impl SecretOps for Ops {
 }
 
 struct Fixture {
+    host: Arc<Host>,
     service: McpService,
     config: Arc<Config>,
     ops: Arc<Ops>,
@@ -249,7 +260,7 @@ struct Fixture {
 }
 
 fn fixture(servers: Value) -> Fixture {
-    fixture_over(servers, Host { cwd_error: None })
+    fixture_over(servers, Host { cwd_error: None, seen: Mutex::default() })
 }
 
 fn fixture_over(servers: Value, host: Host) -> Fixture {
@@ -267,8 +278,9 @@ fn fixture_over(servers: Value, host: Host) -> Fixture {
         fail_gmail_forget: AtomicBool::new(false),
     });
     let secrets = Arc::new(McpServerSecrets::new(ops.clone(), Default::default()));
-    let service = McpService::new(config.clone(), Arc::new(host), Arc::new(Runtime(Arc::clone(&config))), secrets, home.path().join("home"));
-    Fixture { service, config, ops, _home: home }
+    let host = Arc::new(host);
+    let service = McpService::new(config.clone(), host.clone(), Arc::new(Runtime(Arc::clone(&config))), secrets, home.path().join("home"));
+    Fixture { host, service, config, ops, _home: home }
 }
 
 async fn call(f: &Fixture, method: &'static str, params: Value) -> Result<Value, String> {
@@ -350,7 +362,7 @@ async fn a_failed_release_is_reported_at_once_and_the_others_still_run() {
 /// A working folder that cannot be read (the read never ran) is the caller's error, not the process folder.
 #[tokio::test]
 async fn a_working_folder_that_cannot_be_read_is_the_failure_reported() {
-    let f = fixture_over(json!({}), Host { cwd_error: Some("the interactive lane is full") });
+    let f = fixture_over(json!({}), Host { cwd_error: Some("the interactive lane is full"), seen: Mutex::default() });
     assert_eq!(call(&f, "mcp/mcpStatus", json!({})).await.unwrap_err(), "the interactive lane is full");
 }
 
@@ -366,4 +378,19 @@ async fn a_rollback_that_fails_is_the_failure_reported() {
     // The rollback fails too: that failure is what the caller gets, as in Node.
     f.ops.fail_gmail_forget.store(true, Ordering::SeqCst);
     assert_eq!(call(&f, "connector/addConnectorAccount", add).await.unwrap_err(), "keychain locked");
+}
+
+/// A management request runs under the scope its `threadId` resolves to (`McpRuntime::scope_of_request`), so
+/// the MCP glue reads and changes that scope; one that names no thread runs for the control session.
+#[tokio::test]
+async fn a_management_request_runs_under_the_scope_its_thread_resolves_to() {
+    let f = fixture(json!({}));
+    call(&f, "mcp/mcpStatus", json!({"threadId": "t1"})).await.unwrap();
+    call(&f, "mcp/reconnectMcp", json!({"threadId": "t2"})).await.unwrap();
+    call(&f, "mcp/reconnectMcp", json!({})).await.unwrap();
+    let seen = f.host.seen.lock().unwrap().clone();
+    assert_eq!(
+        seen,
+        vec![("current_cwd", Some("scope-of-t1".to_owned())), ("reconnect_all", Some("scope-of-t2".to_owned())), ("reconnect_all", None)]
+    );
 }

@@ -295,6 +295,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let desktop_notices = mixdog_core_domains::notify::desktop_notice::DesktopNotices::new(state.publisher.clone());
     hub.set_sign_in_notices(Arc::new(mixdog_core::run_host::desktop_notices::ConnectorDesktopNotices(desktop_notices.clone())));
     let late = Arc::new(LateDirectory::default());
+    hook_bus.bind_scopes(compose_parts::hook_scope(late.clone())).map_err(|_| ComposeError::AlreadyBound("hook scopes"))?;
     // The heartbeat state file: the user-activity probe and the `session` tool's suggestions share the one store.
     let heartbeat_store = mixdog_services::bots::beat::HeartbeatStore::new(mixdog_services::bots::state_json::StateJson::new(b.data_dir.join("heartbeat.json"), b.tokens.durability_io));
     // The one UserActivity: the setup/user-activity domain and Mixy's heartbeat both read it (heartbeat-1).
@@ -1079,6 +1080,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             },
         },
     });
+    // The runtime scope connects while the daemon boots, without holding the boot up (boot/tools.mjs:57).
+    drop(mcp.glue.start_runtime_scope());
 
     // ---- 8. the tool pool and the early rows --------------------------------------------------
     // The agent job board: finished jobs are delivered through the (late-bound) session directory. FINDING: `on_change(owner)` is Node's session
@@ -1589,6 +1592,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             pool: tool_pool.clone(),
             agent_tools: std::collections::HashSet::from(["agent"]),
             mcp: session_mcp.clone(),
+            scopes: mcp.glue.clone(), // a new thread's own MCP scope (`rt.mcpScopeId`), opened on the hub by the glue
             cwd: startup_cwd.clone(), // `rt.currentCwd` before any session exists
             routes: routes.clone() as Arc<dyn mixdog_core_ports::ports::route::LiveRoute>,
             feature_denied: run_workflow_surface.clone(), // `Arc<dyn FeatureDenied>`, read fresh per use
@@ -1658,6 +1662,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             policy: Arc::new(mixdog_core::run_host::rules::ConfigRulesPolicy), // run-host-44
         }),
         hidden_agent: Arc::new(|agent| agent.is_some_and(|a| mixdog_core_config::config::hidden_agents::hidden_agents().contains(a))),
+        scopes: mcp.glue.clone(), // a resumed thread takes (or opens) its MCP scope
     });
     let route_facts: Arc<dyn mixdog_core::run_host::route_change::RouteFacts> = route_facts_ai.clone();
     let delegated = mixdog_core_session::session::delegated_host::DelegatedApprovalHost::new(); // also the hub below and `HostHandoffs`
@@ -1780,6 +1785,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             let (config, gateway_routes, exclusions, registry, worktree_maintenance, surface_host, worktrees, owned_shells, job_board, blobs) = (config.clone(), gateway_routes.clone(), exclusions.clone(), registry.clone(), worktree_maintenance.clone(), surface_host.clone(), worktrees.clone(), owned_shells.clone(), job_board.clone(), blobs.clone());
             let (late_agent_status, late_turn_admission, late_room_members, handoff_hub, activity, turn_review, computer_pool) = (late_agent_status.clone(), late_turn_admission.clone(), late_room_members.clone(), handoff_hub.clone(), activity.clone(), turn_review.clone(), computer_pool.clone());
             let late_new_route = late_new_route.clone();
+            let mcp_glue = mcp.glue.clone();
             let (early_todos, early_work) = (early.todos.clone(), early.work.clone());
             let (process_unsupported, early_cycles, early_goals, hop_codex_declared, hop_source, mcp_catalog, memory_module, memory_search) = (process.unsupported.clone(), early.cycles.clone(), early.goals.clone(), ready.hop.codex_declared.clone(), ready.hop.source.clone(), mcp.catalog.clone(), memory.module(), memory.search());
             // `SessionQuota::over_config(goals, config)` is exactly `{ goals, auto_resume: over_config }`; the closure is the one hoisted above.
@@ -1832,6 +1838,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                     gateway_routes: gateway_routes.clone(),
                     shells: owned_shells.clone(),
                     tool_events: Arc::new(mixdog_core_session::session::tool_events::ToolEventsLog::new(&data_dir, tokens.maintenance_io, clock.clone())),
+                    mcp_scopes: mcp_glue.clone(), // a closed session's MCP scope goes with it
                 }),
                 purge,
                 goals: early_goals.clone(),
@@ -2359,7 +2366,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             windows: Arc::new(mixdog_core::run_host::agent_world::CatalogWindows(b.catalog.clone())),
             statusline: Arc::new(gateway_routes.clone()),
             runs: unattended.clone(),
-            mcp_scope_id: None,
         }),
         spawn_admission: Arc::new(workspaces.clone()),
         send_world: agent_send_world.clone(),

@@ -39,6 +39,7 @@ pub mod pre_tool;
 pub mod result;
 pub mod rpc;
 pub mod server;
+pub mod scope_runtime;
 pub mod scopes;
 pub mod skill_catalog;
 pub mod skill_deps;

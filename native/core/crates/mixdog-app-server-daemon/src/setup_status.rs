@@ -33,8 +33,8 @@ impl ServiceStatus {
     }
 }
 
-async fn ask(service: &Arc<dyn DomainService>, method: &'static str) -> Result<Value, PortError> {
-    call(service.as_ref(), method, json!({})).await.map_err(|message| PortError::Failed { capability: "setup".into(), message })
+async fn ask(service: &Arc<dyn DomainService>, method: &'static str, params: Value) -> Result<Value, PortError> {
+    call(service.as_ref(), method, params).await.map_err(|message| PortError::Failed { capability: "setup".into(), message })
 }
 
 /// `hookStatus(rt)`: the public part of the hooks status, in Node's key order. A key the status
@@ -63,18 +63,19 @@ impl StatusReader for ServiceStatus {
         &["mcp", "skills", "plugins", "hooks"]
     }
 
-    async fn read(&self, domain: &str, _detail: bool, _thread: &ThreadId) -> Result<Value, PortError> {
+    async fn read(&self, domain: &str, _detail: bool, thread: &ThreadId) -> Result<Value, PortError> {
         match domain {
-            "mcp" => Ok(mcp_rows(&ask(&self.mcp, "mcp/mcpStatus").await?)),
+            // The status of the calling session's runtime (`rt.mcpStatus()` of the runtime the setup tool runs in).
+            "mcp" => Ok(mcp_rows(&ask(&self.mcp, "mcp/mcpStatus", json!({"threadId": thread.as_str()})).await?)),
             "skills" => {
                 // `{ ...skillsStatus(), disabled: getDisabledSkills().disabled || [] }`: a
                 // `disabled` the status carries keeps its place.
-                let Value::Object(mut out) = ask(&self.skills, "skills/skillsStatus").await? else { unreachable!("skillsStatus answers an object") };
-                let disabled = ask(&self.skills, "skills/getDisabledSkills").await?;
+                let Value::Object(mut out) = ask(&self.skills, "skills/skillsStatus", json!({})).await? else { unreachable!("skillsStatus answers an object") };
+                let disabled = ask(&self.skills, "skills/getDisabledSkills", json!({})).await?;
                 out.insert("disabled".to_owned(), disabled.get("disabled").filter(|list| !list.is_null()).cloned().unwrap_or_else(|| json!([])));
                 Ok(Value::Object(out))
             }
-            "plugins" => ask(&self.plugins, "plugins/pluginsStatus").await,
+            "plugins" => ask(&self.plugins, "plugins/pluginsStatus", json!({})).await,
             "hooks" => Ok(hook_status(&self.hooks.status().await)),
             other => Err(PortError::Failed { capability: "setup".into(), message: format!("setup: unknown status domain \"{other}\"") }),
         }

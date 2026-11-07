@@ -120,6 +120,9 @@ pub trait DeleteSeams: Send + Sync {
     /// its life measured to `closed_at_ms`, the instant the close landed. `reason` is the close
     /// reason (`desktop-session-delete`), not the abort text.
     fn session_closed(&self, session_id: &str, reason: &str, header: &mixdog_store::schema::record::Header, closed_at_ms: i64);
+    /// The close's tombstone landed: the MCP scope the session holds is released and its servers
+    /// close (the runtime's teardown, `disconnectAll({ scopeId })`, `runtime-stops.mjs:24`). Not awaited.
+    fn release_mcp_scope(&self, session_id: &str);
     /// `forgetSessionSearch(id)`, not awaited.
     fn forget_session_search(&self, session_id: &str);
     /// `releaseDeletedWorktree(id)`: the worktree maintenance's `cleanupDeletedSession`, off the
@@ -240,6 +243,7 @@ async fn remove(
         return false;
     }
     deps.deletion.session_closed(thread.as_str(), closed.reason, &closed.header, closed.at_ms);
+    deps.deletion.release_mcp_scope(thread.as_str());
     // A failed purge leaves the marked session's files for the next delete's purge or the
     // boot purge; the session is deleted either way.
     drop(deps.store.purge_deleted().await);

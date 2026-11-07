@@ -380,6 +380,8 @@ pub(crate) enum Init {
         session: Record,
         tx: Option<Waiter>,
         value: Value,
+        /// What the tool seed opened; kept once the `session` record is durable, abandoned if it fails.
+        seed: Option<super::seams::SeededThread>,
     },
     /// An opened log: interrupted runs and their approvals are recovered (P §5.2, §8.2); the
     /// ops its scope fenced are refused from the start (P §9.4).
@@ -472,6 +474,8 @@ pub(crate) struct ActorChannels {
 
 pub(crate) struct SessionActor {
     id: ThreadId,
+    /// The create's seed until the thread's first record is acknowledged (`Init::Create`).
+    seed: Option<super::seams::SeededThread>,
     deps: Arc<SessionDeps>,
     cell: Arc<ControlCell>,
     feed: Arc<dyn Feed>,
@@ -640,6 +644,7 @@ impl SessionActor {
             surface,
             feed_id: FeedId::from(id.as_str()),
             outbox: Outbox::new(deps.limits),
+            seed: None,
             id,
             cell,
             feed,
@@ -704,7 +709,8 @@ impl SessionActor {
 
     pub async fn run(mut self, init: Init) {
         match init {
-            Init::Create { session, tx, value } => {
+            Init::Create { session, tx, value, seed } => {
+                self.seed = seed;
                 self.accept_record(
                     session,
                     Class::Normal,
@@ -1730,6 +1736,10 @@ impl SessionActor {
     fn effect_done(&mut self, effect: Effect) {
         match effect {
             Effect::Reply { op, tx, value } => {
+                // The first reply of a created thread is its `session` record's: the thread exists.
+                if let Some(seed) = self.seed.take() {
+                    seed.keep();
+                }
                 if let Some(op) = &op {
                     self.ops.applied(op, &value);
                 }
@@ -1767,6 +1777,8 @@ impl SessionActor {
         for effect in entry.effects {
             match effect {
                 Effect::Reply { op, tx, .. } => {
+                    // A failed `session` record: the thread is not created, the seed is abandoned.
+                    self.seed = None;
                     if let Some(op) = &op {
                         self.ops.failed(op, error);
                     }

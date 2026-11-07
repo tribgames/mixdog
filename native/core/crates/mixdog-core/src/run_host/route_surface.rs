@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use mixdog_agent::env::Clock;
 use mixdog_ai::catalog::CatalogService;
+use mixdog_mcp::mcp_glue::McpScopes;
 use mixdog_store::schema::record::{Header, HeaderChange};
 use serde_json::{Map, Value};
 
@@ -17,6 +18,7 @@ use mixdog_core_ports::ports::route::Route;
 use super::deferred_manifest::apply_initial_manifest;
 use mixdog_core_run::run_host::session_context_meta::ContextMeta;
 use super::route_change::RouteFacts;
+use super::session_tools::header_scope;
 use super::session_cache_opts::session_provider_cache_opts;
 use mixdog_core_run::run_host::session_context_meta::session_context_meta;
 use super::tool_exposure::{
@@ -206,6 +208,38 @@ pub struct AiRouteFacts {
     pub prepare_tools: Arc<dyn PrepareTools>,
     /// `getHiddenAgent(agent)`.
     pub hidden_agent: Arc<dyn Fn(Option<&str>) -> bool + Send + Sync>,
+    /// The MCP scope a resumed thread takes (`resumeSession`'s `mcpScopeId` option).
+    pub scopes: Arc<dyn McpScopes>,
+}
+
+impl AiRouteFacts {
+    /// The header a resumed thread is prepared from, with its MCP scope open: the scope it names, else
+    /// a new one (`resumeSession` gives the session the runtime's scope, `session-lifecycle.mjs:646`),
+    /// which is also returned so that the change writes it. A closed session holds no scope: Node does
+    /// not resume it (`session-lifecycle.mjs:640`).
+    async fn scoped_header(&self, thread: &mixdog_core_api::ids::ThreadId, header: &Header) -> (Header, Option<String>) {
+        if header.get("closed") == Some(&Value::Bool(true)) {
+            return (header.clone(), None);
+        }
+        let cwd = header.get("cwd").and_then(Value::as_str).map(std::path::PathBuf::from).unwrap_or_default();
+        let fresh = || uuid::Uuid::new_v4().to_string();
+        // A scope that was released (its owner closed, a worker's Lead among them) is not the thread's
+        // any more: it takes a new one, as a resume takes the runtime's current scope.
+        let (scope, minted) = match header_scope(header) {
+            Some(scope) if self.scopes.open(scope, thread.as_str(), &cwd).await.is_ok() => (scope.to_owned(), false),
+            _ => {
+                let scope = fresh();
+                if self.scopes.open(&scope, thread.as_str(), &cwd).await.is_err() {
+                    // The thread itself was released: it holds no scope.
+                    return (header.clone(), None);
+                }
+                (scope, true)
+            }
+        };
+        let mut scoped = header.clone();
+        scoped.insert("mcpScopeId".to_owned(), Value::String(scope.clone()));
+        (scoped, minted.then_some(scope))
+    }
 }
 
 #[async_trait::async_trait]
@@ -230,11 +264,20 @@ impl RouteFacts for AiRouteFacts {
 /// with the same producer a route change uses.
 #[async_trait::async_trait]
 impl mixdog_core_session::session::ResumedTools for AiRouteFacts {
-    async fn refreshed(&self, _thread: &mixdog_core_api::ids::ThreadId, header: &Header) -> Option<HeaderChange> {
-        let prepared = self.prepare_tools.prepare(header).await?;
+    async fn refreshed(&self, thread: &mixdog_core_api::ids::ThreadId, header: &Header) -> Option<HeaderChange> {
+        let (scoped, minted) = self.scoped_header(thread, header).await;
         let surface = ToolSurface { host: self.surface_host.as_ref(), clock: self.clock.as_ref() };
         let agent = header.get("agent").and_then(Value::as_str);
-        Some(resumed_surface_change(&surface, self.clock.as_ref(), header, prepared, (self.hidden_agent)(agent)))
+        let mut change = match self.prepare_tools.prepare(&scoped).await {
+            Some(prepared) => resumed_surface_change(&surface, self.clock.as_ref(), header, prepared, (self.hidden_agent)(agent)),
+            // The tools stay as stored, but a scope just minted for the thread is still written.
+            None if minted.is_some() => HeaderChange { set: Map::new(), unset: Vec::new() },
+            None => return None,
+        };
+        if let Some(scope) = minted {
+            change.set.insert("mcpScopeId".to_owned(), Value::String(scope));
+        }
+        Some(change)
     }
 }
 

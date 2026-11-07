@@ -105,7 +105,13 @@ pub fn stamped_header(spec: &PrepareSpec, registered: impl Fn(&str) -> bool) -> 
 #[async_trait]
 impl DispatchSessions for SessionDispatch {
     async fn prepare(&self, spec: PrepareSpec) -> Result<Prepared, String> {
-        let header = stamped_header(&spec, |name| self.providers.registered(name).is_some())?;
+        let mut header = stamped_header(&spec, |name| self.providers.registered(name).is_some())?;
+        // The MCP scope of the session that asked for the run (`mcpScopeId` of the spawning runtime).
+        if let Some(parent) = spec.parent_session_id.as_deref().filter(|parent| !parent.is_empty())
+            && let Some(scope) = self.threads.mcp_scope_of(parent).await
+        {
+            header.insert("mcpScopeId".into(), json!(scope));
+        }
         let id = self.threads.create(header).await?;
         Ok(Prepared { tools: self.threads.tools(&id), id })
     }

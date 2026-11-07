@@ -82,9 +82,11 @@ pub trait PreToolHook: Send + Sync {
     async fn pre_tool(&self, call: &HookCall<'_>) -> Result<Option<HookDecision>, HookFailure>;
 }
 
-/// The registry, as far as the policy needs it: the tool a name resolves to.
+/// The registry, as far as the policy needs it: the tool a name resolves to. An MCP tool resolves
+/// against `scope`, the calling session's MCP scope (`session.mcpScopeId`); a session that holds none
+/// resolves no MCP tool, and no other session's server is ever consulted.
 pub trait ToolResolver: Send + Sync {
-    fn resolve(&self, name: &str) -> Option<Arc<dyn Tool>>;
+    fn resolve(&self, scope: Option<&str>, name: &str) -> Option<Arc<dyn Tool>>;
 }
 
 /// Per-agent connector tool permissions.
@@ -273,7 +275,7 @@ impl ToolPolicy {
 
         let kind = rq
             .tools
-            .resolve(&call_name)
+            .resolve(rq.surface.mcp_scope.as_deref(), &call_name)
             .and_then(|tool| tool.outbound_kind(&call_args));
         let cx = GateCx {
             facts: rq.facts,
@@ -281,6 +283,7 @@ impl ToolPolicy {
             store: self.store.as_ref(),
             session_grants: rq.session_grants,
             enricher: self.enricher.as_deref(),
+            mcp_scope: rq.surface.mcp_scope.as_deref(),
         };
         let verdict = decide(
             &cx,
@@ -699,7 +702,7 @@ mod tests {
     }
 
     impl ToolResolver for Tools {
-        fn resolve(&self, name: &str) -> Option<Arc<dyn Tool>> {
+        fn resolve(&self, _scope: Option<&str>, name: &str) -> Option<Arc<dyn Tool>> {
             self.0.iter().find(|(n, _)| n == name).map(|(_, t)| t.clone())
         }
     }
@@ -848,6 +851,48 @@ mod tests {
         Some(Arc::new(FixedHook(Ok(Some(HookDecision::default())))))
     }
 
+    /// A resolver that records the scope each lookup was made in.
+    struct Recorder(std::sync::Mutex<Vec<Option<String>>>);
+
+    impl ToolResolver for Recorder {
+        fn resolve(&self, scope: Option<&str>, _name: &str) -> Option<Arc<dyn Tool>> {
+            self.0.lock().expect("scopes").push(scope.map(str::to_owned));
+            None
+        }
+    }
+
+    /// The call's tool is looked up in the calling session's MCP scope (`sessionRef.mcpScopeId`,
+    /// `tool-exec/dispatch.mjs:57-59`), so another session's server never supplies its metadata; a
+    /// session that holds no scope looks in none.
+    #[tokio::test]
+    async fn the_tool_is_resolved_in_the_calling_sessions_scope() {
+        let h = Harness::new(Tools::default());
+        let recorder = Recorder(std::sync::Mutex::default());
+        let policy = h.policy(allow_hook());
+        for scope in [Some("s1"), Some("s2"), None] {
+            let surface = SessionSurface { mcp_scope: scope.map(str::to_owned), ..SessionSurface::default() };
+            policy
+                .authorize(AuthorizeRequest {
+                    call_id: &ToolCallId::from("call-1"),
+                    thread_id: &ThreadId::from("thread-1"),
+                    name: "mcp__a__b",
+                    args: json!({}),
+                    cwd: Path::new("work"),
+                    facts: &bot(),
+                    surface: &surface,
+                    schema_name: None,
+                    settings: PolicySettings::default(),
+                    account: None,
+                    session_grants: &h.grants,
+                    tools: &recorder,
+                    approvals: &h.gate,
+                    cancel: &h.cancel,
+                })
+                .await
+                .expect("runs");
+        }
+        assert_eq!(*recorder.0.lock().expect("scopes"), [Some("s1".to_owned()), Some("s2".to_owned()), None]);
+    }
     #[tokio::test]
     async fn connector_and_project_switches_refuse_per_called_tool() {
         let mut h = Harness::new(Tools::default().with("mcp__a__b", None).with("mcp__a__c", None));

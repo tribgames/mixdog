@@ -120,6 +120,7 @@ pub(crate) async fn close_idle(directory: &super::directory::DirInner, id: &str,
     }
     // `_logSessionCloseMetric`, once the tombstone is acknowledged.
     deps.deletion.session_closed(id, IDLE_SWEEP_REASON, &header, at);
+    deps.deletion.release_mcp_scope(id);
     Ok(true)
 }
 
@@ -202,6 +203,7 @@ impl SessionClose {
         stop_session_work(&self.directory, &*self.shells, &self.read_state, &thread, reason, "session-close").await;
         self.directory.deps().side.forget(&thread, true);
         self.providers.release_session(session_id);
+        self.directory.deps().deletion.release_mcp_scope(session_id);
         if let Some(handle) = self.directory.handle(&thread) {
             let _ = handle.cell.ctl_tx.send(Ctl::Closed).await;
         }

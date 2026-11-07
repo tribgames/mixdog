@@ -7,7 +7,9 @@
 //!
 //! The in-process runtime is single: every session shares the one hub, so Node's fan-out to
 //! "the other session runtimes of this process" has no receiver and only the surface refresh and
-//! the cross-process announcement remain.
+//! the cross-process announcement remain. The management operations below act on the hub's
+//! default scope; a session's own scope (Node's `rt.mcpScopeId`) is a key into the same hub that
+//! [`McpScopes`] opens and releases.
 //!
 //! The accounts of a catalog connector connect as one hub server each, named by the account;
 //! Node's single connector server that merges their tools behind an `account` argument is not
@@ -15,6 +17,7 @@
 
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -54,6 +57,7 @@ use crate::declaration_cache::DeclarationCache;
 use crate::extension_service::ExtensionConfig;
 use crate::extension_service::ExtensionHost;
 use crate::hub::McpHub;
+use crate::hub::ScopeReleased;
 use crate::mcp_logins::LoginBackend;
 use crate::mcp_logins::McpLogins;
 use crate::mcp_logins::Started;
@@ -75,6 +79,12 @@ use crate::plugin_admin::truthy;
 use crate::plugin_servers::Catalog;
 use crate::plugin_servers::declarations_of;
 use crate::plugin_servers::resolve_mcp_server_catalog;
+use crate::scope_runtime::Op;
+use crate::scope_runtime::Resolved;
+use crate::scope_runtime::ScopeConfigs;
+use crate::scope_runtime::ScopeRuntime;
+use crate::scope_runtime::request_scope;
+use crate::server::McpServer;
 use crate::server::ServerState;
 use crate::skill_catalog::SkillCatalog;
 use crate::skills_service::SkillsService;
@@ -88,6 +98,10 @@ const INITIALIZE_PROBE: &str = r#"{"jsonrpc":"2.0","id":0,"method":"initialize",
 pub trait McpSurface: Send + Sync {
     /// The folder the caller's session works in.
     async fn current_cwd(&self, thread: Option<&str>) -> Result<PathBuf, String>;
+    /// The MCP scope the thread's session holds: the `mcpScopeId` of its stored header, which a spawned
+    /// child takes from the session that spawned it (`spawn-plan.mjs:108`) and a session takes from its
+    /// own seed. `Ok(None)`: no such thread, or it holds none; an `Err` read never ran.
+    async fn thread_scope(&self, thread: &str) -> Result<Option<String>, String>;
     /// Rebuilds what new sessions see of the tool surface.
     async fn refresh_surface(&self);
     /// The names of the tools the session offers; a surface that cannot be read is the error.
@@ -114,6 +128,9 @@ pub struct GlueInputs {
     pub health: Arc<AccountHealth>,
 }
 
+/// The name Node gives a connect failure that names no server (connect.mjs:124).
+pub const GENERIC_FAILURE: &str = "mcp";
+
 /// A server that did not connect.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failure {
@@ -128,11 +145,7 @@ pub struct LiveServer {
     pub capabilities: Value,
 }
 
-enum Op {
-    Reset,
-    Only(String, bool),
-    Reconcile,
-}
+/// The owner of the runtime's own scope: the daemon, which closes it by exiting.
 
 pub struct McpGlue {
     hub: Arc<McpHub>,
@@ -146,15 +159,34 @@ pub struct McpGlue {
     health: Arc<AccountHealth>,
     logins: McpLogins,
     oauths: Mutex<HashMap<String, Arc<McpOAuth>>>,
-    /// Servers whose configuration could not be turned into a connection.
-    bad_configs: Mutex<HashMap<String, String>>,
     /// The plugin servers of the last catalog (`SecretOps::configured_servers` is synchronous).
     plugin_servers: Mutex<Map<String, Value>>,
-    /// Serializes whole connect operations.
-    connect_gate: Arc<mixdog_rt::SerialChain>,
     /// One chain per server for its toggles; `desired` is the last state requested.
     toggle_turns: Arc<mixdog_rt::KeyedChains>,
     desired: Mutex<HashMap<String, bool>>,
+    /// The scopes' connection lifecycle (serialization, generations, readiness, ownership).
+    scopes: Arc<ScopeRuntime>,
+}
+
+/// The MCP scope of a session as the session layer opens and releases it. Node creates the
+/// scope id at boot (`rt.mcpScopeId = randomUUID()`, `boot/begin.mjs:24`), connects the
+/// effective servers under it (`connectMcpServers(servers, { scopeId })`, `mcp-glue/connect.mjs:18,120`)
+/// and disconnects them when the runtime closes (`disconnectAll({ scopeId })`,
+/// `lifecycle/teardown/runtime-stops.mjs:24`).
+#[async_trait]
+pub trait McpScopes: Send + Sync {
+    /// Opens `scope`, which `owner` holds, for the servers configured for `cwd`, and returns once
+    /// the scope's first connect settled (a second opener waits for the first's). `Err`: the scope
+    /// or the owner was released, so nothing is opened.
+    async fn open(&self, scope: &str, owner: &str, cwd: &Path) -> Result<(), ScopeReleased>;
+    /// Releases every scope `owner` holds, exactly once: its servers close. Not awaited.
+    fn release(&self, owner: &str);
+    /// The runtime scope (the one `rt.mcpScopeId` of the runtime the daemon's own callers act as,
+    /// `begin.mjs:24`): opened once, for `cwd`, and returned once its first connect settled. The
+    /// pre-session preview reads it, as Node's preview reads its serving runtime's scope
+    /// (`tool-surface.mjs:100,109,142`). It is never handed to a session: each session is created with a
+    /// scope of its own, as each Node `createSession` boots a runtime of its own.
+    async fn open_runtime(&self, cwd: &Path) -> Result<String, ScopeReleased>;
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -178,6 +210,7 @@ impl McpGlue {
         inputs.hub.set_oauth_env(inputs.oauth_env.clone());
         Arc::new_cyclic(|me| Self {
             logins: McpLogins::new(Arc::new(Bridge(me.clone()))),
+            scopes: ScopeRuntime::new(inputs.hub.clone(), Arc::new(GlueConfigs { glue: me.clone() })),
             hub: inputs.hub,
             config: inputs.config,
             admin: inputs.admin,
@@ -188,9 +221,7 @@ impl McpGlue {
             surface: inputs.surface,
             health: inputs.health,
             oauths: Mutex::default(),
-            bad_configs: Mutex::default(),
             plugin_servers: Mutex::default(),
-            connect_gate: mixdog_rt::SerialChain::new(),
             toggle_turns: mixdog_rt::KeyedChains::new(),
             desired: Mutex::default(),
         })
@@ -200,6 +231,43 @@ impl McpGlue {
         &self.hub
     }
 
+    /// Connects the runtime scope, the one scope the daemon's own callers read, and returns once its
+    /// first connect settled.
+    pub async fn connect_runtime_scope(&self) -> Result<(), String> {
+        let cwd = self.surface.current_cwd(None).await?;
+        self.scopes.open_runtime(&cwd.to_string_lossy()).await.map(drop).map_err(|error| error.to_string())
+    }
+
+    /// Starts [`connect_runtime_scope`](Self::connect_runtime_scope) in the background and does not wait
+    /// for it, as Node starts `void boot.connectConfiguredMcp()` while it boots (`boot/tools.mjs:57`); a
+    /// failure is logged, as Node's `mcp:failed` profile line. The daemon calls this once at boot.
+    pub fn start_runtime_scope(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
+        let glue = Arc::clone(self);
+        mixdog_rt::spawn("mcp-runtime-scope", mixdog_rt::TaskClass::Work, async move {
+            if let Err(error) = glue.connect_runtime_scope().await {
+                tracing::warn!(%error, "[mcp] the runtime scope did not connect");
+            }
+        })
+    }
+
+    /// The scope the request being served addresses (`McpRuntime::scope_of_request`, resolved when the
+    /// request began), as Node's management calls read the calling runtime's own `getMcpScopeId()`
+    /// (`mcp-glue/server-catalog.mjs:150`). `None`: nothing is connected for it, so nothing live is read.
+    fn request_scope(&self) -> Option<String> {
+        request_scope()
+    }
+
+    fn live_server(&self, name: &str) -> Option<Arc<McpServer>> {
+        self.hub.server_in(&self.request_scope()?, name)
+    }
+
+    fn live_servers(&self) -> Vec<Arc<McpServer>> {
+        self.request_scope().map(|scope| self.hub.servers_in(&scope)).unwrap_or_default()
+    }
+
+    fn live_oauth(&self, name: &str) -> Option<Arc<McpOAuth>> {
+        self.hub.oauth_in(&self.request_scope()?, name)
+    }
     /// `collectSkills`'s roots: the global `skills` folder, the skill folders of each enabled
 /// registered plugin, and the package's own bundle (`defaults/`, a plugin root outside the
 /// registry), in that precedence. An unreadable registry contributes no plugin root, as in Node.
@@ -239,11 +307,19 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
 
     /// `resolveConfiguredCatalog()`: user and plugin servers, disabled included.
     async fn resolve_configured_catalog(&self) -> Catalog {
+        let cwd = self.surface.current_cwd(None).await.map(|cwd| cwd.to_string_lossy().into_owned());
+        let catalog = self.catalog_at(cwd).await;
+        *lock(&self.plugin_servers) =
+            catalog.servers.iter().filter(|(name, _)| catalog.sources.get(*name) == Some(&json!("plugin"))).map(|(k, v)| (k.clone(), v.clone())).collect();
+        catalog
+    }
+
+    /// The configured servers for a working folder (`resolveMcpServerCatalog` at `cwd`).
+    async fn catalog_at(&self, cwd: Result<String, String>) -> Catalog {
         let config = Value::Object(self.config.agent());
         let (admin, declarations) = (Arc::clone(&self.admin), Arc::clone(&self.declarations));
         // A working folder that cannot be read is reported as the registry failing to load is: the
         // catalog is empty and says why.
-        let cwd = self.surface.current_cwd(None).await.map(|cwd| cwd.to_string_lossy().into_owned());
         let ran = match cwd {
             Ok(cwd) => {
                 let config = config.clone();
@@ -271,8 +347,6 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
         if let Some(message) = registry_error {
             catalog.warnings.insert(0, json!({"message": format!("plugin MCP servers unavailable: {message}")}));
         }
-        *lock(&self.plugin_servers) =
-            catalog.servers.iter().filter(|(name, _)| catalog.sources.get(*name) == Some(&json!("plugin"))).map(|(k, v)| (k.clone(), v.clone())).collect();
         catalog
     }
 
@@ -287,8 +361,9 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
         }
     }
 
-    /// The connections the catalog asks for, one per server and one per switched-on account.
-    fn connection_configs(&self, catalog: &Catalog) -> Vec<McpServerConfig> {
+    /// The connections the catalog asks for, and the servers whose configuration could not be
+    /// turned into one.
+    fn configs_of(&self, catalog: &Catalog) -> (Vec<McpServerConfig>, HashMap<String, String>) {
         let mut out = Vec::new();
         let mut bad = HashMap::new();
         for (name, cfg) in &catalog.servers {
@@ -318,70 +393,37 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
                 }
             }
         }
-        *lock(&self.bad_configs) = bad;
-        out
+        (out, bad)
     }
 
-    /// Waits until every server of `names` stopped starting.
-    async fn settled(&self, names: &[String]) {
-        for name in names {
-            let Some(server) = self.hub.server(name) else { continue };
-            let mut rx = server.subscribe();
-            let wait = server.config().startup_timeout + Duration::from_secs(5);
-            let _ = tokio::time::timeout(wait, rx.wait_for(|s| !matches!(**s, ServerState::Starting))).await;
-        }
-    }
-
-    /// `connectConfiguredMcp`: serialized, answers the status.
+    /// `connectConfiguredMcp`: every open scope runs `op` behind its own earlier operations, each
+    /// resolving its configuration in its own turn (the caller's runtime and Node's fan-out to the
+    /// process's other runtimes, `resource-extension-sync.mjs`, alike). With no scope open nothing
+    /// connects: the change is configuration only, and the next scope opened reads it. The answer
+    /// is the status now.
     async fn connect_configured(&self, op: Op) -> Value {
-        if mcp_disabled() {
-            self.hub.apply(Vec::new());
-            lock(&self.bad_configs).clear();
-            return self.status_now().await;
+        for task in self.scopes.fan_out(&op) {
+            let _ = task.await;
         }
-        {
-            let _turn = self.connect_gate.acquire().await;
-            let catalog = self.resolve_configured_catalog().await;
-            let mut configs = self.connection_configs(&catalog);
-            match op {
-                Op::Reset => {
-                    self.hub.apply(Vec::new());
-                    let names: Vec<String> = configs.iter().filter(|c| c.enabled).map(|c| c.name.clone()).collect();
-                    self.hub.apply(configs);
-                    self.settled(&names).await;
-                }
-                Op::Reconcile => {
-                    let before: HashSet<String> = self.hub.servers().iter().map(|s| s.name().to_owned()).collect();
-                    let names: Vec<String> = configs.iter().filter(|c| c.enabled).map(|c| c.name.clone()).collect();
-                    self.hub.apply(configs);
-                    self.settled(&names.iter().filter(|n| !before.contains(*n)).cloned().collect::<Vec<_>>()).await;
-                    // A server whose last connect failed is retried (a sign-in or a stored credential may have changed).
-                    for server in self.hub.servers() {
-                        if matches!(&*server.state(), ServerState::Failed { .. }) {
-                            let _ = server.reconnect().await;
-                        }
-                    }
-                }
-                Op::Only(name, enabled) => {
-                    let targets = Self::targets_of(&catalog, &name);
-                    if !enabled {
-                        configs.retain(|c| !targets.contains(&c.name));
-                        self.hub.apply(configs);
-                    } else {
-                        let kept: Vec<_> =
-                            targets.iter().filter_map(|t| self.hub.server(t)).filter(|s| configs.iter().any(|c| c.name == s.name() && c == s.config())).collect();
-                        self.hub.apply(configs);
-                        for server in kept {
-                            let _ = server.reconnect().await;
-                        }
-                        self.settled(&targets).await;
-                    }
-                }
-            }
-        }
-        self.status_now().await
+        self.runtime_scoped(self.status_now()).await
     }
 
+    /// Runs `work` for the scope a read with no request in flight uses: the runtime's own (Node's
+    /// `getMcpScopeId()` of the runtime serving the call), never nothing. Inside a request the request's
+    /// scope stands.
+    async fn runtime_scoped<F: std::future::Future>(&self, work: F) -> F::Output {
+        if crate::scope_runtime::in_request() {
+            return work.await;
+        }
+        let scope = match self.scope_of_request(None).await {
+            Ok(scope) => scope,
+            Err(error) => {
+                tracing::warn!(%error, "the runtime's MCP scope is not connected");
+                None
+            }
+        };
+        crate::scope_runtime::with_request_scope(scope, work).await
+    }
     // ── Sign-in state ─────────────────────────────────────────────────────────────────────
 
     fn binding_of(&self, cfg: &Value) -> Option<crate::config::OAuthBinding> {
@@ -389,11 +431,21 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
         McpServerConfig::from_entry(name, cfg, &self.env).ok()?.oauth
     }
 
+    /// The sign-in object of the configured server or account `name`.
+    fn oauth_for(&self, catalog: &Catalog, name: &str) -> Option<Arc<McpOAuth>> {
+        let mut cfg = match account_target(&catalog.servers, name) {
+            Some(target) => target.account_cfg.clone(),
+            None => catalog.servers.get(name)?.clone(),
+        };
+        cfg.as_object_mut()?.insert("name".to_owned(), json!(name));
+        self.oauth_of(&cfg)
+    }
+
     /// The sign-in object of `cfg`: the live server's own, else one shared by credential key.
     fn oauth_of(&self, cfg: &Value) -> Option<Arc<McpOAuth>> {
         let binding = self.binding_of(cfg)?;
         if let Some(name) = cfg.get("name").and_then(Value::as_str)
-            && let Some(live) = self.hub.oauth(name)
+            && let Some(live) = self.live_oauth(name)
             && live.binding().credential_key == binding.credential_key
         {
             return Some(live);
@@ -443,7 +495,7 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
         let mut failures = HashMap::new();
         let mut account_names = HashSet::new();
         let one = |server: &Arc<crate::server::McpServer>| -> (Option<LiveServer>, Option<Failure>) {
-            let oauth_needed = self.hub.oauth(server.name()).is_some_and(|o| o.sign_in_required());
+            let oauth_needed = self.live_oauth(server.name()).is_some_and(|o| o.sign_in_required());
             match &*server.state() {
                 ServerState::Ready(ready) => {
                     let tools = ready.catalog.entries.iter().map(|e| (e.qualified.clone(), e.description.clone())).collect();
@@ -456,7 +508,7 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
         for (name, cfg) in &catalog.servers {
             let accounts = account_servers(cfg);
             if accounts.is_empty() {
-                if let Some(server) = self.hub.server(name) {
+                if let Some(server) = self.live_server(name) {
                     let (l, f) = one(&server);
                     live.extend(l.map(|l| (name.clone(), l)));
                     failures.extend(f.map(|f| (name.clone(), f)));
@@ -468,7 +520,7 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
             for account in &accounts {
                 let account_name = clean(&account["name"]);
                 account_names.insert(account_name.clone());
-                let Some(server) = self.hub.server(&account_name) else { continue };
+                let Some(server) = self.live_server(&account_name) else { continue };
                 let (l, f) = one(&server);
                 if let Some(l) = l {
                     let slot = merged.get_or_insert(LiveServer { tools: Vec::new(), capabilities: l.capabilities.clone() });
@@ -490,11 +542,16 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
                 failures.insert(name.clone(), Failure { msg: first.msg.clone(), auth_required: all_auth });
             }
         }
-        for (name, msg) in lock(&self.bad_configs).iter() {
+        for (name, msg) in self.configs_of(catalog).1.iter() {
             failures.entry(name.clone()).or_insert(Failure { msg: msg.clone(), auth_required: false });
         }
+        // A scope whose first connect did not return carries one generic failure named `mcp`
+        // (`connect.mjs:121-124`: `[{ name: 'mcp', msg }]`), which the status matches by server name
+        // (`server-catalog.mjs:151,159`): an ordinary unconnected server stays `disconnected`, and only a
+        // server literally named `mcp` shows `failed`. A reset, reconnect or reconcile that applies clears it.
+        record_scope_failure(&mut failures, self.request_scope().and_then(|scope| self.scopes.failure_of(&scope)));
         // Servers the catalog does not name (and that are no connector account): listed as connected.
-        for server in self.hub.servers() {
+        for server in self.live_servers() {
             if catalog.servers.contains_key(server.name()) || account_names.contains(server.name()) {
                 continue;
             }
@@ -568,10 +625,10 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
 
     fn account_error(&self, catalog: &Catalog, name: &str) -> String {
         let _ = catalog;
-        let Some(server) = self.hub.server(name) else { return String::new() };
+        let Some(server) = self.live_server(name) else { return String::new() };
         match &*server.state() {
             ServerState::Failed { cause } => {
-                if self.hub.oauth(name).is_some_and(|o| o.sign_in_required()) { "Sign-in required".to_owned() } else { cause.clone() }
+                if self.live_oauth(name).is_some_and(|o| o.sign_in_required()) { "Sign-in required".to_owned() } else { cause.clone() }
             }
             _ => String::new(),
         }
@@ -583,7 +640,7 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
         let catalog = self.resolve_configured_catalog().await;
         let mut error = None;
         for target in Self::targets_of(&catalog, name) {
-            let Some(server) = self.hub.server(&target) else { continue };
+            let Some(server) = self.live_server(&target) else { continue };
             match &*server.state() {
                 ServerState::Ready(_) => return (true, None),
                 ServerState::Failed { cause } => error = error.or(Some(cause.clone())),
@@ -594,6 +651,36 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
     }
 }
 
+#[async_trait]
+impl McpScopes for McpGlue {
+    async fn open(&self, scope: &str, owner: &str, cwd: &Path) -> Result<(), ScopeReleased> {
+        self.scopes.open(scope, owner, &cwd.to_string_lossy()).await
+    }
+
+    fn release(&self, owner: &str) {
+        self.scopes.release(owner);
+    }
+
+    async fn open_runtime(&self, cwd: &Path) -> Result<String, ScopeReleased> {
+        self.scopes.open_runtime(&cwd.to_string_lossy()).await
+    }
+}
+
+/// The configuration a scope connects: the catalog at the folder the scope works in.
+struct GlueConfigs {
+    glue: std::sync::Weak<McpGlue>,
+}
+
+#[async_trait]
+impl ScopeConfigs for GlueConfigs {
+    async fn resolve(&self, _scope: &str, cwd: &str, only: Option<&str>) -> Resolved {
+        let Some(glue) = self.glue.upgrade() else { return Resolved { configs: Vec::new(), targets: Vec::new() } };
+        let catalog = if mcp_disabled() { empty_catalog() } else { glue.catalog_at(Ok(cwd.to_owned())).await };
+        let (configs, _) = glue.configs_of(&catalog);
+        let targets = only.map(|name| McpGlue::targets_of(&catalog, name)).unwrap_or_default();
+        Resolved { configs, targets }
+    }
+}
 #[async_trait]
 impl LoginBackend for Bridge {
     async fn start(&self, name: &str, mode: AccountMode, beside: bool) -> Result<Started, String> {
@@ -616,7 +703,8 @@ impl LoginBackend for Bridge {
                 return Ok(Started::Connected);
             }
         }
-        let oauth = glue.hub.oauth(name).ok_or_else(|| format!("MCP server \"{name}\" does not use OAuth sign-in"))?;
+        // The server need not be connected: its sign-in is the one its credential key names (Node reads it from the config too).
+        let oauth = glue.oauth_of(&named).ok_or_else(|| format!("MCP server \"{name}\" does not use OAuth sign-in"))?;
         let started = if beside || mode == AccountMode::Switch { oauth.login_flow_beside(name, mode).start().await } else { oauth.login_flow(name, mode).start().await };
         match started {
             Ok(session) => Ok(Started::Browser(session)),
@@ -631,7 +719,7 @@ impl LoginBackend for Bridge {
         let target = account_target(&catalog.servers, name);
         let transactional = beside || mode == AccountMode::Switch;
         let rollback = || async {
-            if transactional && let Some(oauth) = glue.hub.oauth(name) {
+            if transactional && let Some(oauth) = glue.oauth_for(&catalog, name) {
                 // No Node step to compare (the transactional switch is Rust's own); a sign-in that is not
                 // put back stays the new account, so the failure is logged rather than lost.
                 if let Err(error) = oauth.rollback_switch().await {
@@ -757,6 +845,14 @@ fn account_row(input: &StatusInput<'_>, account_cfg: &Value, enabled: bool, in_u
         row.insert("error".to_owned(), json!(error));
     }
     Value::Object(row)
+}
+
+/// A scope's recorded connect failure as the failure list Node keeps (`connect.mjs:121-124`): one row named
+/// [`GENERIC_FAILURE`], which the status then matches by server name like any other.
+pub fn record_scope_failure(failures: &mut HashMap<String, Failure>, recorded: Option<String>) {
+    if let Some(msg) = recorded {
+        failures.entry(GENERIC_FAILURE.to_owned()).or_insert(Failure { msg, auth_required: false });
+    }
 }
 
 /// `statusRows` and `mcpStatus` of `server-catalog.mjs`.
@@ -908,6 +1004,19 @@ fn without_markers(cfg: &Value) -> Map<String, Value> {
 
 #[async_trait]
 impl McpRuntime for McpGlue {
+    /// A thread addresses the scope its header names while that scope is open (a child names its
+    /// parent's, so it reads the parent's servers); no thread is a read of the runtime's own scope, the
+    /// one connected at boot ([`McpGlue::connect_runtime_scope`]).
+    async fn scope_of_request(&self, thread: Option<&str>) -> Result<Option<String>, String> {
+        match thread {
+            Some(thread) => Ok(self.surface.thread_scope(thread).await?.filter(|scope| self.scopes.is_open(scope))),
+            None => match self.scopes.runtime_ready().await {
+                Some(scope) => Ok(Some(scope)),
+                None => Err("the runtime's MCP scope is not connected".to_owned()),
+            },
+        }
+    }
+
     async fn catalog(&self) -> Catalog {
         self.resolve_catalog().await
     }
@@ -984,8 +1093,11 @@ impl McpRuntime for McpGlue {
     }
 
     async fn clear_oauth(&self, cfg: &Value) -> Result<bool, String> {
-        let Some(oauth) = self.oauth_of(cfg) else { return Ok(false) };
-        oauth.sign_out(true).await.map_err(|e| e.to_string())
+        self.runtime_scoped(async {
+            let Some(oauth) = self.oauth_of(cfg) else { return Ok(false) };
+            oauth.sign_out(true).await.map_err(|e| e.to_string())
+        })
+        .await
     }
 
     fn forget_account_health(&self, name: &str) {
@@ -998,7 +1110,7 @@ impl McpRuntime for McpGlue {
 
     fn tools(&self) -> Vec<Value> {
         let mut out = Vec::new();
-        for server in self.hub.servers() {
+        for server in self.live_servers() {
             let ServerState::Ready(ready) = &*server.state() else { continue };
             for entry in &ready.catalog.entries {
                 let a = &entry.annotations;

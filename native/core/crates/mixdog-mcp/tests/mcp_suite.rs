@@ -218,6 +218,48 @@ async fn a_hung_or_missing_server_never_blocks_another() {
     hub.close_all().await;
 }
 
+/// A scope is a key into the one hub (Node's registry key `scope\0name`, `mcp/client.mjs:110-118`): the
+/// servers connected under it are its tools and its lookups only, an empty id is the default scope, a
+/// scope never connected has nothing, and releasing a scope (`disconnectAll({ scopeId })`) closes its
+/// servers and leaves every other scope's running.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_scope_holds_its_own_servers_and_releasing_it_closes_only_them() {
+    let dir = tempfile::tempdir().unwrap();
+    let hub = McpHub::new(io(), dir.path().to_path_buf(), OutputPolicy::default());
+    hub.apply(vec![config("shared", json!({}))]);
+    hub.apply_in("runtime-a", vec![config("own", json!({}))]);
+    hub.apply_in(" runtime-b ", vec![config("shared", json!({}))]);
+    for (scope, name) in [("global", "shared"), ("runtime-a", "own"), ("runtime-b", "shared")] {
+        until(&hub.server_in(scope, name).unwrap(), |s| matches!(s, ServerState::Ready(_))).await;
+    }
+    let names = |scope: &str| -> Vec<String> { hub.tools_in(scope).iter().map(|tool| tool.spec().name.clone()).collect() };
+    let of = |scope: &str, server: &str| names(scope).iter().all(|name| name.starts_with(&format!("mcp__{server}__"))) && !names(scope).is_empty();
+    assert!(of("runtime-a", "own") && of("global", "shared") && of("runtime-b", "shared"));
+    assert_eq!(names(""), names("global"), "an empty id is the default scope");
+    assert!(names("runtime-c").is_empty() && !hub.has_scope("runtime-c"), "a scope never connected has nothing");
+
+    assert!(hub.tool_target_in("runtime-a", "mcp__own__echo").is_some());
+    assert!(hub.tool_target_in("runtime-b", "mcp__own__echo").is_none(), "another scope's server is not found");
+    assert!(hub.tool_target("mcp__own__echo").is_none() && hub.tool("mcp__own__echo").is_none());
+    assert!(hub.tool_in("runtime-a", "mcp__own__echo").is_some());
+    assert!(hub.tool_in("runtime-b", "mcp__own__echo").is_none(), "a lookup in another scope does not find it");
+    assert_eq!(hub.status().len(), 1, "the default scope's status lists its own servers");
+
+    // Changing one scope's servers leaves the others': a scope applied again keeps what is unchanged.
+    let before = hub.server_in("runtime-b", "shared").unwrap();
+    hub.apply_in("runtime-a", vec![config("own", json!({})), config("more", json!({}))]);
+    assert!(Arc::ptr_eq(&before, &hub.server_in("runtime-b", "shared").unwrap()));
+    assert_eq!(hub.servers_in("runtime-a").iter().map(|s| s.name().to_owned()).collect::<Vec<_>>(), ["own", "more"]);
+
+    let own = hub.server_in("runtime-a", "own").unwrap();
+    hub.release_scope("runtime-a").await;
+    assert!(!hub.has_scope("runtime-a") && names("runtime-a").is_empty());
+    assert!(matches!(&*own.state(), ServerState::Closed));
+    assert!(of("global", "shared") && of("runtime-b", "shared"), "the other scopes are untouched");
+    hub.close_all().await;
+    assert!(!hub.has_scope("global") && !hub.has_scope("runtime-b"));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn admission_queues_beyond_max_concurrency() {
     let dir = tempfile::tempdir().unwrap();
@@ -274,18 +316,39 @@ async fn an_mcp_tool_hook_runs_the_tool_and_a_timeout_cancels_it() {
     let cancel = CancellationToken::new();
 
     let echo = hook_handler(json!({"type": "mcp_tool", "server": "mock", "tool": "echo"}));
-    let ran = run_mcp_tool_handler(&hub, &echo, json!({"text": "from hook"}), "PreToolUse", &cancel).await;
+    let ran = run_mcp_tool_handler(&hub, None, &echo, json!({"text": "from hook"}), "PreToolUse", &cancel).await;
     assert_eq!((ran.exit_code, ran.stdout.as_str(), ran.timed_out), (0, "from hook", false));
 
     let hang = hook_handler(json!({"type": "mcp_tool", "tool": "mcp__mock__hang", "timeout": 0.3}));
     let started = std::time::Instant::now();
-    let ran = run_mcp_tool_handler(&hub, &hang, json!({}), "PreToolUse", &cancel).await;
+    let ran = run_mcp_tool_handler(&hub, None, &hang, json!({}), "PreToolUse", &cancel).await;
     assert_eq!((ran.exit_code, ran.timed_out), (-1, true));
     assert!(ran.stderr.contains("timed out"), "{}", ran.stderr);
     assert!(started.elapsed() < Duration::from_secs(5));
 
     let none = hook_handler(json!({"type": "mcp_tool"}));
-    let ran = run_mcp_tool_handler(&hub, &none, json!({}), "PreToolUse", &cancel).await;
+    let ran = run_mcp_tool_handler(&hub, None, &none, json!({}), "PreToolUse", &cancel).await;
     assert_eq!(ran.stderr, "mcp_tool handler missing tool name");
+    hub.close_all().await;
+}
+
+/// An `mcp_tool` hook finds its tool among the servers of the scope its session holds
+/// (`scopeId: rt.mcpScopeId`, `boot/infrastructure.mjs:97`), never another session's.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_mcp_tool_hook_runs_in_its_sessions_scope_only() {
+    use mixdog_mcp::hook_runner::run_mcp_tool_handler;
+    let dir = tempfile::tempdir().unwrap();
+    let hub = McpHub::new(io(), dir.path().to_path_buf(), OutputPolicy::default());
+    hub.apply_in("session-a", vec![config("mock", json!({}))]);
+    until(&hub.server_in("session-a", "mock").unwrap(), |s| matches!(s, ServerState::Ready(_))).await;
+    let cancel = CancellationToken::new();
+    let echo = hook_handler(json!({"type": "mcp_tool", "server": "mock", "tool": "echo"}));
+
+    let own = run_mcp_tool_handler(&hub, Some("session-a"), &echo, json!({"text": "from a"}), "PreToolUse", &cancel).await;
+    assert_eq!((own.exit_code, own.stdout.as_str()), (0, "from a"));
+    let other = run_mcp_tool_handler(&hub, Some("session-b"), &echo, json!({"text": "from b"}), "PreToolUse", &cancel).await;
+    assert_eq!(other.stderr, "MCP server \"mock\" not connected", "another session's server is not used");
+    let none = run_mcp_tool_handler(&hub, None, &echo, json!({"text": "from none"}), "PreToolUse", &cancel).await;
+    assert_eq!(none.stderr, "MCP server \"mock\" not connected", "a session with no scope reads the default scope, which holds nothing here");
     hub.close_all().await;
 }

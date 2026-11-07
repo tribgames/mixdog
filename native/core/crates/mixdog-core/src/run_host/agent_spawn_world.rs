@@ -71,8 +71,6 @@ pub struct DirectorySpawnWorld {
     pub windows: Arc<dyn RouteWindows>,
     pub statusline: Arc<dyn RouteStatusline>,
     pub runs: Arc<dyn SessionRuns>,
-    /// `mcpScopeId` of the spawn flow.
-    pub mcp_scope_id: Option<String>,
 }
 
 fn text(value: Option<&Value>) -> String {
@@ -176,7 +174,10 @@ impl DirectorySpawnWorld {
         let tag = nonempty(text(spec.get("agentTag"))).or_else(|| nonempty(tag.to_owned()));
         header.insert("agentTag".into(), tag.map_or(Value::Null, Value::String));
         header.insert("clientHostPid".into(), spec.get("clientHostPid").filter(|pid| pid.as_u64().is_some_and(|p| p > 0)).cloned().unwrap_or(Value::Null));
-        header.insert("mcpScopeId".into(), self.mcp_scope_id.clone().map_or(Value::Null, Value::String));
+        // The scope of the runtime that spawns it (`spawn-plan.mjs:108`, `rt.mcpScopeId`): the child shares
+        // its creator's servers, and the creator's close releases them.
+        let creator_scope = self.directory.stored_header(&ThreadId::from(parent)).await.and_then(|creator| creator.get("mcpScopeId").cloned());
+        header.insert("mcpScopeId".into(), creator_scope.filter(Value::is_string).unwrap_or(Value::Null));
         if let Some(mode) = nonempty(text(spec.get("permissionMode"))) {
             header.insert("permissionMode".into(), json!(mode));
         }

@@ -110,6 +110,10 @@ pub struct OAuthState {
 /// What the MCP side of the process answers (`mcp-glue` and the MCP client of Node).
 #[async_trait]
 pub trait McpRuntime: Send + Sync {
+    /// The MCP scope a request addresses (`getMcpScopeId()` of the calling runtime): the one the named
+    /// thread's session holds or inherited from the session that spawned it, else (no thread) the
+    /// control session's. `Ok(None)`: it holds none, so nothing live is read. An `Err` read never ran.
+    async fn scope_of_request(&self, thread: Option<&str>) -> Result<Option<String>, String>;
     /// `resolveMcpCatalog()`: the servers this runtime would connect, now.
     async fn catalog(&self) -> Catalog;
     ///`mcpStatus()`, undecorated.
@@ -960,6 +964,21 @@ impl DomainService for McpService {
     }
 
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+        // The request addresses its session by `threadId` (absent: the control session), and what it
+        // reads of the connected servers is that session's, as Node's calls read the calling runtime's.
+        let thread = req.params.get("threadId").and_then(Value::as_str).map(str::to_owned);
+        let scope = self.runtime.scope_of_request(thread.as_deref()).await.map_err(domain_error)?;
+        let value = crate::scope_runtime::with_request_scope(scope, self.dispatch(&req)).await?;
+        value.map(Reply::Value).map_err(domain_error)
+    }
+
+    fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
+        Admit::Accepted
+    }
+}
+
+impl McpService {
+    async fn dispatch(&self, req: &CoreRequest) -> Result<Result<Value, Failure>, CoreError> {
         let p = &req.params;
         let cancelled = || CoreError::Cancelled { by: "caller".into() };
         let value = match req.method.as_str() {
@@ -983,10 +1002,6 @@ impl DomainService for McpService {
                 return Err(CoreError::CapabilityUnavailable { capability: other.into(), detail: "not served by the MCP service".into() });
             }
         };
-        value.map(Reply::Value).map_err(domain_error)
-    }
-
-    fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
-        Admit::Accepted
+        Ok(value)
     }
 }

@@ -474,6 +474,48 @@ pub trait ToolSurfaceSource: Send + Sync + 'static {
 #[async_trait::async_trait]
 pub trait NewThreadTools: Send + Sync + 'static {
     async fn seed(&self, thread: &ThreadId, header: &Header) -> Result<Header, String>;
+
+    /// [`seed`](Self::seed) for the desktop's control thread (`thread/start{kind:"control"}`), which
+    /// Node runs as the separate `ensureControlSession` runtime: a thread that is seeded like any other
+    /// unless its owner says otherwise.
+    async fn seed_control(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+        self.seed(thread, header).await
+    }
+
+    /// `thread` was seeded and then not created (`thread/start` failed in between): whatever the
+    /// seed opened for it is released. Called once per such thread, never for a created one.
+    fn abandon(&self, _thread: &ThreadId) {}
+}
+
+/// A thread whose tools are being seeded, and whatever the seed opened for it. Dropped before
+/// [`keep`](Self::keep) (the seed failed, the create was refused, the request was cancelled before the
+/// thread existed, or the thread's first record failed), it abandons the thread. The thread's actor
+/// owns it from the moment the thread is published, so a caller that goes away after that cannot
+/// release the scope of a thread that is created; the actor keeps it once the first record is
+/// durable, and from then on the thread's close or delete releases the scope.
+pub(crate) struct SeededThread {
+    tools: std::sync::Arc<dyn NewThreadTools>,
+    id: ThreadId,
+    created: bool,
+}
+
+impl SeededThread {
+    pub(crate) fn new(tools: std::sync::Arc<dyn NewThreadTools>, id: ThreadId) -> Self {
+        Self { tools, id, created: false }
+    }
+
+    /// The thread was created: its close or delete releases what the seed opened.
+    pub(crate) fn keep(mut self) {
+        self.created = true;
+    }
+}
+
+impl Drop for SeededThread {
+    fn drop(&mut self) {
+        if !self.created {
+            self.tools.abandon(&self.id);
+        }
+    }
 }
 
 /// The route a new Lead thread begins on. Node's session takes it from the runtime's route

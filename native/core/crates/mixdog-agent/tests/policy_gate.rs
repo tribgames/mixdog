@@ -105,7 +105,7 @@ impl ConnectorPermissions for Connectors {
 struct NoTools;
 
 impl ToolResolver for NoTools {
-    fn resolve(&self, _name: &str) -> Option<Arc<dyn mixdog_core_api::domain::tool::Tool>> {
+    fn resolve(&self, _scope: Option<&str>, _name: &str) -> Option<Arc<dyn mixdog_core_api::domain::tool::Tool>> {
         None
     }
 }

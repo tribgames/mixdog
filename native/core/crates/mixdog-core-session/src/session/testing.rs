@@ -207,6 +207,8 @@ pub struct MemStore {
     pub fail_next: Arc<AtomicBool>,
     /// The catalog lists every session (session_meta answers a bare row, not None).
     pub listed: AtomicBool,
+    /// The next `create_log` tells `.0` it arrived, then waits for `.1` before it commits.
+    pub create_gate: Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>,
 }
 
 impl MemStore {
@@ -418,6 +420,11 @@ impl ThreadStore for MemStore {
         id: &ThreadId,
         session: &CommitRecord,
     ) -> Result<(Box<dyn SessionLog>, u64), BarrierError> {
+        let gate = lock(&self.create_gate).take();
+        if let Some((arrived, go)) = gate {
+            arrived.notify_one();
+            let _ = go.recv();
+        }
         let mut log = MemLog {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
@@ -1147,9 +1154,10 @@ impl super::agent_activity::AgentStatus for TestAgents {
     }
 }
 
-/// The delete seams and purge hooks, recording each call as `<step>:<session>[:<detail>]`.
+/// The delete seams and purge hooks, recording each call as `<step>:<session>[:<detail>]`; the
+/// sessions whose MCP scope was released are kept apart, in order.
 #[derive(Default)]
-pub struct Deletes(pub Mutex<Vec<String>>, pub tokio::sync::Notify);
+pub struct Deletes(pub Mutex<Vec<String>>, pub tokio::sync::Notify, pub Mutex<Vec<String>>);
 
 impl Deletes {
     fn note(&self, step: String) {
@@ -1174,6 +1182,9 @@ impl super::delete::DeleteSeams for Deletes {
     }
     fn session_closed(&self, session_id: &str, reason: &str, _: &mixdog_store::schema::record::Header, _: i64) {
         self.note(format!("sessionClosed:{session_id}:{reason}"));
+    }
+    fn release_mcp_scope(&self, session_id: &str) {
+        lock(&self.2).push(session_id.to_owned());
     }
     fn forget_session_search(&self, session_id: &str) {
         self.note(format!("forgetSessionSearch:{session_id}"));

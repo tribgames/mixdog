@@ -118,6 +118,10 @@ impl Runtime {
 
 #[async_trait]
 impl McpRuntime for Runtime {
+    async fn scope_of_request(&self, _: Option<&str>) -> Result<Option<String>, String> {
+        Ok(None)
+    }
+
     async fn catalog(&self) -> Catalog {
         self.catalog_now()
     }
