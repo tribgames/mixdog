@@ -276,7 +276,7 @@ impl WorkflowSurface for Workflow {
     async fn live_denied_tools(&self, _: &Header, _: &Value) -> Result<Vec<String>, SurfaceFailure> {
         Ok(self.denied.clone())
     }
-    async fn standalone_tools(&self, _: &Header) -> Result<Vec<Value>, SurfaceFailure> {
+    async fn internal_tools(&self, _: &Header) -> Result<Vec<Value>, SurfaceFailure> {
         Ok(self.standalone.clone())
     }
     async fn orchestration_instructions(&self, _: &str) -> Result<String, SurfaceFailure> {
@@ -348,7 +348,7 @@ fn try_rig(g: &Value, setup: Setup) -> Result<Rig, VariantError> {
     let prompts = Arc::new(FakePrompt(Mutex::default()));
     let connectors = Arc::new(Connectors(Mutex::default()));
     let generation = SurfaceGeneration::default();
-    let standalone = standalone.unwrap_or_else(|| standalone_tools(&pool).iter().map(tool_doc).collect());
+    let standalone = standalone.unwrap_or_else(|| internal_tools(&pool).iter().map(tool_doc).collect());
     let host = LeadSurfaceHost::new(SurfaceSources {
         mode,
         tool_host: Arc::new(Bridge(bridge_docs(&pool))),
@@ -1219,6 +1219,6 @@ async fn the_provider_tool_array_follows_node_for_every_recorded_session() {
 fn the_standalone_tools_are_in_nodes_order_whatever_the_pool_order() {
     let r = recording();
     let pool = recorded_pool(&r);
-    let ours: Vec<String> = standalone_tools(&pool).iter().map(|tool| tool.spec().name.clone()).collect();
+    let ours: Vec<String> = internal_tools(&pool).iter().map(|tool| tool.spec().name.clone()).collect();
     assert_eq!(ours, names(&r["pool"]["standalone"]));
 }

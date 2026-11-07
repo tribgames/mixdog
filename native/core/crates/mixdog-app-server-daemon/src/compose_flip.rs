@@ -1577,7 +1577,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         env: b.env.clone(),
         tool_profile: mixdog_app_protocol::v2::thread::ToolProfile::Interactive, // `normalizeToolProfile(undefined)`: the daemon's lead runtime is interactive; headless and heartbeat sessions carry their own profile in the header
         // `standaloneTools`, not the whole pool: the built-ins, `todo` and `call_tool` are no standalone tools (`collectStandaloneToolDefs`).
-        standalone: mixdog_core::run_host::session_tools::standalone_tools(&tool_pool),
+        standalone: mixdog_core::run_host::session_tools::internal_tools(&tool_pool),
         agent_tools: vec!["agent".to_owned()],
     }));
     // The connected servers' tools per folder, read by the surface host and by the route change's tool refill (ResumeTools).

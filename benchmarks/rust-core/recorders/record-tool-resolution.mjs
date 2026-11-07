@@ -112,7 +112,7 @@ const poolTools = [...poolByName.values()].map((tool) => {
 function record(name, input) {
   const {
     kind = 'lead', provider = 'anthropic', model = 'claude-opus-4-6', mode = 'full', agent = null, schemaAllowedTools = null,
-    callerDisallowed = [], featureDenied = [], mcpConnected = false, sessionId = 'sess_recorder',
+    callerDisallowed = [], featureDenied = [], mcpConnected = false, sessionId = 'sess_recorder', tools = null,
   } = input;
   const worker = kind === 'worker';
   if (mcpConnected && !mcpRegistered) registerMcp();
@@ -120,7 +120,7 @@ function record(name, input) {
   const mcpScopeId = null;
   // A Lead's session is created with `tools: toolSpecForMode(rt.mode)` (`session-create/session-options.mjs`); a worker's is `full`.
   const readonlyLead = kind === 'lead' && mode === 'readonly';
-  const toolPreset = readonlyLead ? toolSpecForMode('readonly') : 'full';
+  const toolPreset = readonlyLead ? toolSpecForMode('readonly') : (tools ?? 'full');
   const opts = {
     id: sessionId,
     cwd: sandbox,
@@ -201,6 +201,9 @@ add('worker, feature gates off, bridge route', { kind: 'worker', provider: 'xai'
 add('lead with MCP tools, native', { provider: 'anthropic', model: 'claude-opus-4-6', mcpConnected: true });
 add('lead with MCP tools, bridge route', { provider: 'xai', model: 'grok-4', mcpConnected: true });
 add('lead with MCP tools, openai native, feature gates off', { provider: 'openai', model: 'gpt-5', mcpConnected: true, featureDenied: ['web_search', 'web_fetch', 'recall', 'memory'] });
+// The specs that hold the internal and MCP tools without the built-ins: code_graph is among the internal ones.
+add('lead, spec mcp, MCP tools', { provider: 'anthropic', model: 'claude-opus-4-6', mcpConnected: true, tools: 'mcp' });
+add('lead, spec tools:mcp, MCP tools', { provider: 'anthropic', model: 'claude-opus-4-6', mcpConnected: true, tools: ['tools:mcp'] });
 add('worker with MCP tools, native', { kind: 'worker', provider: 'anthropic', model: 'claude-opus-4-6', mcpConnected: true });
 add('worker with MCP tools, bridge route', { kind: 'worker', provider: 'xai', model: 'grok-4', mcpConnected: true });
 add('hidden worker with an MCP tool in its allowlist', { kind: 'worker', agent: 'explore-agent', provider: 'anthropic', model: 'claude-opus-4-6', schemaAllowedTools: ['read', 'mcp__alpha__zeta', 'todo'], mcpConnected: true });

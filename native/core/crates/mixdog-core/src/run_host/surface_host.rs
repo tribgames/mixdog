@@ -88,7 +88,7 @@ use super::session_tools::BRIDGE;
 use super::session_tools::Resolve;
 use super::session_tools::SessionMcp;
 use super::session_tools::SkillsListed;
-use super::session_tools::standalone_tools;
+use super::session_tools::internal_tools;
 use super::session_tools::resolve;
 use super::session_tools::route_rank;
 use super::session_tools::session_doc;
@@ -329,8 +329,8 @@ impl LeadSurfaceHost {
         }
         denied.push(REACTION_TOOL_NAME.to_owned());
         let docs: Vec<Value> = resolved.iter().map(|tool| session_doc(&s.pool, tool)).collect();
-        let standalone = standalone_tools(&s.pool);
-        let extra: Vec<Value> = model_standalone_tools(&standalone, &s.agent_tools, &inputs).iter().map(tool_doc).collect();
+        let standalone = internal_tools(&s.pool);
+        let extra: Vec<Value> = model_internal_tools(&standalone, &s.agent_tools, &inputs).iter().map(tool_doc).collect();
         let mut surface = json!({
             "tools": filter_disallowed_tools(&docs, &denied),
             "mcpScopeId": Value::Null,
@@ -847,7 +847,7 @@ impl NewThreadTools for LeadSurfaceHost {
         session["workflow"] = workflow_meta(&target.summary);
         session["orchestrationMode"] = json!(target.orchestration_mode);
         session["sessionMode"] = json!(session_mode_of(header));
-        let standalone = standalone_tools(&s.pool);
+        let standalone = internal_tools(&s.pool);
         let mut extra: Vec<Value> = {
             let inputs = SurfaceInputs {
                 session: session.as_object(),
@@ -856,7 +856,7 @@ impl NewThreadTools for LeadSurfaceHost {
                 // A session that has an orchestration mode never counts the delegatable agents.
                 delegatable_agents: &|| 0,
             };
-            model_standalone_tools(&standalone, &s.agent_tools, &inputs).iter().map(tool_doc).collect()
+            model_internal_tools(&standalone, &s.agent_tools, &inputs).iter().map(tool_doc).collect()
         };
         extra.extend(s.mcp.tools(&cwd).iter().map(tool_doc));
         // `composeSessionSystem`: a Lead's identity is the default one (no caller prompt, no skips), of the `lead` agent
