@@ -1738,7 +1738,8 @@ async fn an_idle_delete_refuses_as_node_does_and_deletes_an_idle_archived_sessio
     turn(&handle, "work", "op-1").await;
     assert_eq!(ask(json!({})).await, refused("busy"));
     release.notify_one();
-    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    // Not settled yet, the turn still holds what Node's ask lock is held for (`busy`).
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.turn_held.load(std::sync::atomic::Ordering::SeqCst)).then_some(())).await;
     // The turn moved `lastUsedAt` past what the caller saw.
     let used = tokio::time::timeout(std::time::Duration::from_secs(10), async {
         loop {
@@ -1753,7 +1754,7 @@ async fn an_idle_delete_refuses_as_node_does_and_deletes_an_idle_archived_sessio
     .expect("the completed turn stamps lastUsedAt");
     assert_eq!(ask(json!({ "lastUsedAt": used - 1.0 })).await, refused("changed"));
     assert!(lock(&rig.deletes.0).is_empty(), "a refusal deletes nothing");
-    assert_eq!(ask(json!({ "lastUsedAt": used })).await, json!({ "deleted": true }));
+    assert_eq!(ask(json!({ "lastUsedAt": used })).await, super::delete_idle_tests::recorded("deleted")["reply"]);
     let s = id.as_str();
     let worktree = format!("releaseDeletedWorktree:{s}");
     eventually_on(&[&handle.cell.stepped, &rig.deletes.1], || lock(&rig.deletes.0).contains(&worktree).then_some(())).await;

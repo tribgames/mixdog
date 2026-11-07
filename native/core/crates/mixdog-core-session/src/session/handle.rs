@@ -228,6 +228,10 @@ impl SessionHandle {
     /// that is gone (or cannot be claimed in time) is dropped from the message, leaving the
     /// resized copy. The claim and the enqueue are not interleaved with another send's.
     async fn turn_start(&self, mut req: CoreRequest) -> Result<Reply, CoreError> {
+        // An admitted start (`admitted`, turn-gate.mjs): the idle-only delete refuses while one is
+        // in its intake, and the thread refuses starts while that delete runs.
+        let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
+        let _admitted = directory.gate().enter(&self.id).ok_or_else(|| self.closing())?;
         let cancel = req.ctx.cancel.clone();
         let in_order = self.submits.enter(&cancel).await.map_err(caller_cancelled)?;
         let named = super::staged_originals::named_originals(&req.params);
