@@ -81,6 +81,15 @@ impl LeadService {
         Ok(self.agents.lead_status().await.map_err(refused)?.to_json())
     }
 
+    /// `withMixyExists` (`tui/session/session-api/routes-agent-definitions.mjs`): the read of
+    /// `getLeadStatus` adds `exists`, the one rule; `null` when her routines cannot be read. The
+    /// mutations answer the bare status.
+    async fn status_with_exists(&self) -> Result<Value, CoreError> {
+        let mut status = self.status().await?;
+        status["exists"] = self.agents.mixy_exists().await.map_or(Value::Null, Value::Bool);
+        Ok(status)
+    }
+
     async fn read(&self, req: &CoreRequest) -> Result<Value, CoreError> {
         match req.method.as_str() {
             "agent/getLeadPersona" => {
@@ -93,7 +102,7 @@ impl LeadService {
             }
             "agent/getLeadStatus" => {
                 decode::<AgentGetLeadStatusParams>(req)?;
-                self.status().await
+                self.status_with_exists().await
             }
             "agent/getLeadHomeRoute" => {
                 decode::<AgentGetLeadHomeRouteParams>(req)?;

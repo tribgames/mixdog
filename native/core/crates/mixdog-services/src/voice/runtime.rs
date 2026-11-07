@@ -19,6 +19,9 @@ pub struct RuntimeManifest {
     pub version: String,
     /// `(variant id, executable relative to the version dir)`.
     pub variants: Vec<(String, String)>,
+    /// The selected model (`selectVoiceModelId()`, the key of `models`): what the runtime reports as `modelId`.
+    pub model_key: String,
+    /// The `id` of the manifest's model entry.
     pub model_id: String,
     pub model_filename: String,
     pub model_size: u64,
@@ -43,6 +46,7 @@ impl RuntimeManifest {
         Some(Self {
             version: manifest.get("version")?.as_str()?.to_owned(),
             variants,
+            model_key: model.to_owned(),
             model_id: model_entry.get("id")?.as_str()?.to_owned(),
             model_filename: model_entry.get("filename")?.as_str()?.to_owned(),
             model_size: model_entry.get("size").and_then(Value::as_u64).unwrap_or(0),
@@ -82,7 +86,7 @@ impl VoiceRuntime {
             whisper_cmd: None,
             server_cmd: None,
             model_path: None,
-            model_id: manifest.model_id.clone(),
+            model_id: manifest.model_key.clone(),
             model_name: String::new(),
             ffmpeg_path: None,
         }
@@ -144,7 +148,7 @@ pub fn resolve_voice_runtime(data_dir: &Path, manifest: &RuntimeManifest) -> Voi
         whisper_cmd,
         server_cmd,
         model_path,
-        model_id: manifest.model_id.clone(),
+        model_id: manifest.model_key.clone(),
         ffmpeg_path,
     }
 }
@@ -192,6 +196,7 @@ mod tests {
         RuntimeManifest {
             version: "1.10.1".into(),
             variants: vec![("vulkan".into(), "Release/whisper-cli".into())],
+            model_key: "standard".into(),
             model_id: "large-v3-turbo-q8_0".into(),
             model_filename: "ggml.bin".into(),
             model_size: 9,

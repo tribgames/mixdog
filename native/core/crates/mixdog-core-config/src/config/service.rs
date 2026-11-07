@@ -221,7 +221,7 @@ async fn settings_call(settings: &Settings, method: &str, params: &Value) -> Res
         "config/getTheme" => return Ok(settings.theme()),
         "config/setTheme" => settings.set_theme(&arg("id"), &arg("options")).await,
         "config/getProfile" => return Ok(settings.profile()),
-        "config/setProfile" => settings.set_profile(params).await,
+        "config/setProfile" => settings.set_profile(&arg("input")).await,
         "config/setHeartbeatEnabled" => settings.set_heartbeat_enabled(&arg("enabled")).await,
         "config/setHeartbeatInterval" => settings.set_heartbeat_interval(&arg("minutes")).await,
         "config/setReactionsEnabled" => settings.set_reactions_enabled(&arg("enabled")).await,

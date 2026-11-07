@@ -121,6 +121,38 @@ fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
     value.get(key).unwrap_or(&Value::Null)
 }
 
+/// The envelope of `pluginsStatus()` (`cwd-plugins/plugin-status.mjs`) over the registry status: the
+/// entries whose root exists are `plugins` and counted, those whose root is gone are `missing`, and the
+/// registry and install paths are `roots`. The rows stay the registry's enriched entries.
+fn plugins_status(admin: &Value) -> Value {
+    let first = |candidates: &[&str]| candidates.iter().find(|s| !s.is_empty()).copied().unwrap_or_default().to_owned();
+    let mut plugins = Vec::new();
+    let mut missing = Vec::new();
+    for entry in admin.get("plugins").and_then(Value::as_array).into_iter().flatten() {
+        let root = clean(field(entry, "root"));
+        if root.is_empty() {
+            continue;
+        }
+        if field(entry, "exists") == &Value::Bool(true) {
+            plugins.push(entry.clone());
+            continue;
+        }
+        let (id, name) = (clean(field(entry, "id")), clean(field(entry, "name")));
+        let tail = root.rsplit(['/', '\\']).next().unwrap_or_default();
+        missing.push(json!({
+            "id": first(&[id.as_str(), name.as_str(), root.as_str()]),
+            "name": first(&[name.as_str(), id.as_str(), tail, root.as_str()]),
+            "enabled": field(entry, "enabled") != &Value::Bool(false),
+        }));
+    }
+    json!({
+        "count": plugins.len(),
+        "plugins": plugins,
+        "missing": missing,
+        "roots": { "registry": field(admin, "registryPath"), "installed": field(admin, "installRoot") },
+    })
+}
+
 /// `clean(plugin.id || plugin.name || plugin)`; reading a property of null throws in Node.
 fn plugin_key(plugin: &Value) -> Result<String, String> {
     if plugin.is_null() {
@@ -210,7 +242,8 @@ impl PluginsService {
 
     async fn status(&self) -> Result<Value, CoreError> {
         let admin = Arc::clone(&self.admin);
-        self.on_lane(move |lane| admin.status(lane)).await?.map_err(|e| domain_error("plugins", e.0))
+        let status = self.on_lane(move |lane| admin.status(lane)).await?.map_err(|e| domain_error("plugins", e.0))?;
+        Ok(plugins_status(&status))
     }
 
     fn scopes(&self) -> ExtensionScopes {
