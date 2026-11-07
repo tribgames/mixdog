@@ -1371,14 +1371,17 @@ export type HeldRunKind = "schedule" | "webhook" | "room";
 export type HistoryResetReason = "rewind" | "clear";
 
 /**
- * First viewer → `on`, last viewer gone → `off` (SPEC §4.7.3).
+ * `host/browser/surface` (host → core notification): the window process's browser host asked its
+ * window to reveal or hide a session's browser surface (`browserRemoteOpen`). The core publishes
+ * it as `ui/openRequested { kind: "browser" }` so every attached client, paired phones included,
+ * opens the same surface. Fields are `UiOpenBrowser`'s.
  */
 export type HostBrowserSurfaceParams = { sessionId: string, reveal?: boolean, hide?: boolean, handoff?: boolean, tabId?: string, title?: string, error?: string, };
 
 /**
- * `host/browser/surface` (host → core notification): the window process's browser host asked its window to reveal or hide a session's browser surface (`browserRemoteOpen`). The core publishes it as `ui/openRequested { kind: "browser" }`.
+ * First viewer → `on`, last viewer gone → `off` (SPEC §4.7.3).
  */
-export type HostBrowserViewFramesParams = { tabId: string,
+export type HostBrowserViewFramesParams = { tabId: string, 
 /**
  * The X17 `streamId` the host stamps on this tab's frames.
  */
@@ -3157,7 +3160,7 @@ patch?: boolean,
 /**
  * The client's review key; an unchanged review answers `{unchanged:true}`.
  */
-known?: string, cursor?: string,
+known?: string, cursor?: string, 
 /**
  * Leave the patch text out of a turn review (today's `getTurnReviewDiff {summary: true}`).
  */
@@ -3509,7 +3512,7 @@ export type ThreadClearSessionChangeHistoryParams = { opId: OpId, threadId?: Thr
 
 export type ThreadCompactStartParams = { threadId: ThreadId, opId: OpId, options?: JsonValue, };
 
-export type ThreadContext = { contextPercent?: number, contextTokens?: number, contextDefaultPercent?: number, contextWindow?: number, displayContextWindow?: number, autoCompactTokenLimit?: number, stats?: JsonValue, };
+export type ThreadContext = { contextPercent?: number, contextTokens?: number, contextDefaultPercent?: number, contextWindow: number, displayContextWindow: number, autoCompactTokenLimit: number, stats?: JsonValue, };
 
 /**
  * Params of `thread/contextStatus`.
@@ -3706,7 +3709,7 @@ submissionId?: string,
 /**
  * Hand the entry back to the composer.
  */
-restore: boolean,
+restore: boolean, 
 /**
  * The composer's text when the entry is handed back (today's `restoreQueued` first
  * argument): the reply's `text` ends with it.
@@ -4227,7 +4230,7 @@ export type TurnStartResponse = { "kind": "started", turnId: TurnId, } | { "kind
 
 export type TurnStatus = "inProgress" | "completed" | "interrupted" | "failed";
 
-export type TurnSteerParams = { threadId: ThreadId,
+export type TurnSteerParams = { threadId: ThreadId, 
 /**
  * Absent: the core steers the thread's active turn (today's `prioritizeQueued` names none).
  */
@@ -13035,7 +13038,7 @@ export const methodTable = {
         "relay"
       ],
       "params": "FsWatchParams",
-      "result": "JsonValue",
+      "result": "v2::feed::Subscription",
       "scope": {
         "field": "watchId",
         "kind": "fsWatch"
@@ -14898,7 +14901,7 @@ export const methodTable = {
       "result": "JsonValue",
       "scope": {
         "field": "tabId",
-        "kind": "terminal"
+        "kind": "terminalOrNone"
       }
     },
     {
@@ -14916,7 +14919,7 @@ export const methodTable = {
         "relay"
       ],
       "params": "TerminalAttachParams",
-      "result": "v2::feed::Subscription",
+      "result": "JsonValue",
       "scope": {
         "field": "tabId",
         "kind": "terminal"

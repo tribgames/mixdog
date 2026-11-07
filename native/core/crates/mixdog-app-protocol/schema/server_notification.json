@@ -2403,7 +2403,7 @@
           "type": "string"
         },
         {
-          "description": "Remote access: `{info, settings, claims, clients, controllerKeys, owedKeys, pairCode}`; `pairCode` is a `RemotePairCode`, or `null` while no live code is held.",
+          "description": "Remote access: `{info, settings, claims, clients, controllerKeys, owedKeys, pairCode, pushRegistered}`; `pairCode` is a `RemotePairCode`, or `null` while no live code is held; `pushRegistered` lists the ids of the paired clients holding a native push registration.",
           "enum": [
             "remote"
           ],
