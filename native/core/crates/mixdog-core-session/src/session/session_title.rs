@@ -476,7 +476,7 @@ impl SessionTitles {
 }
 
 /// `normalizeSessionTitle`.
-fn normalize_title(title: &str) -> String {
+pub(super) fn normalize_title(title: &str) -> String {
     let squeezed = SPACES.replace_all_with(title, |_| " ".to_owned());
     let trimmed = js_trim(&squeezed);
     let units: Vec<u16> = trimmed.encode_utf16().take(100).collect();

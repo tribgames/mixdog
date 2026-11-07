@@ -20,6 +20,7 @@
 //! directory's sharded map, whose shard locks guard O(1) work only.
 
 mod actor;
+mod restore_hydrate;
 mod agent_host;
 pub mod agent_registry;
 pub mod approval_surfaces;
@@ -115,6 +116,7 @@ pub mod quota_lane;
 mod quota_lane_tests;
 mod usage_books;
 mod usage_metadata;
+pub mod goal_recovery_host;
 pub mod quota_resume_host;
 #[cfg(test)]
 mod quota_resume_host_tests;
@@ -131,6 +133,7 @@ mod state;
 pub mod store;
 mod surface;
 pub mod terminal_host;
+mod turn_gate;
 pub mod transcript;
 pub mod transcript_export;
 pub mod turn_snapshot;
@@ -167,6 +170,8 @@ mod goal_lane_tests;
 #[cfg(test)]
 mod turn_admission_tests;
 #[cfg(test)]
+mod delete_idle_tests;
+#[cfg(test)]
 mod assembly_tests;
 
 use std::sync::Arc;
@@ -201,8 +206,11 @@ pub use self::seams::CommitRecord;
 pub use self::seams::EncodedRecord;
 pub use self::seams::EffortPrewarm;
 pub use self::seams::FeedFactory;
+pub use self::seams::EmptyToolSurface;
 pub use self::seams::NewThreadRoute;
 pub use self::seams::NewThreadTools;
+pub use self::seams::NewThreadPlace;
+pub use self::seams::TaskWorkspace;
 pub use self::seams::ResumedTools;
 pub use self::seams::RoomMemberEvents;
 pub use self::seams::HeadRead;
@@ -248,6 +256,12 @@ pub struct SessionDeps {
     pub new_tools: Arc<dyn NewThreadTools>,
     /// The route a `thread/start` thread begins on (its draft's pick, else the config's default).
     pub new_route: Arc<dyn NewThreadRoute>,
+    /// The tool surface and prompt an emptied thread (`thread/clear` with `rebuildPrompt`) are composed again with.
+    pub empty_surface: Arc<dyn EmptyToolSurface>,
+    /// The folder a `thread/start` of `kind: task` begins in.
+    pub task_workspace: Arc<dyn TaskWorkspace>,
+    /// The registered Projects and the draft's worktree step for the threads the desktop starts and forks.
+    pub new_place: Arc<dyn NewThreadPlace>,
     /// The tool surface a stored thread opened for use takes (`_refreshResumedTools`).
     pub resumed_tools: Arc<dyn ResumedTools>,
     /// A room member's handed-off questions moved or its approval resolved: its room follows.

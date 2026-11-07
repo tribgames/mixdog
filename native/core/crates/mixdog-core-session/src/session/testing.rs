@@ -217,6 +217,8 @@ pub struct MemStore {
     pub fail_next: Arc<AtomicBool>,
     /// The catalog lists every session (session_meta answers a bare row, not None).
     pub listed: AtomicBool,
+    /// The next `create_log` tells `.0` it arrived, then waits for `.1` before it commits.
+    pub create_gate: Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>,
 }
 
 impl MemStore {
@@ -428,6 +430,11 @@ impl ThreadStore for MemStore {
         id: &ThreadId,
         session: &CommitRecord,
     ) -> Result<(Box<dyn SessionLog>, u64), BarrierError> {
+        let gate = lock(&self.create_gate).take();
+        if let Some((arrived, go)) = gate {
+            arrived.notify_one();
+            let _ = go.recv();
+        }
         let mut log = MemLog {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
@@ -851,6 +858,16 @@ impl super::NewThreadTools for KeepHeader {
     }
 }
 
+/// An emptied thread's surface is always rebuilt (no surface host behind it).
+pub struct NoEmptySurface;
+
+#[async_trait::async_trait]
+impl super::EmptyToolSurface for NoEmptySurface {
+    async fn refresh_empty(&self, _: &ThreadId) -> Result<bool, String> {
+        Ok(true)
+    }
+}
+
 /// A new thread begins with no route of its own (no route service behind it).
 pub struct NoRoute;
 
@@ -860,7 +877,46 @@ impl super::NewThreadRoute for NoRoute {
         Ok(serde_json::Map::new())
     }
 
+    async fn adopt_control(&self, _: &ThreadId) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+        Ok(serde_json::Map::new())
+    }
+
     async fn seat(&self, _: &ThreadId) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// A task workspace that is a fixed path (no folder is made).
+pub struct FixedTaskWorkspace(pub &'static str);
+
+#[async_trait::async_trait]
+impl super::TaskWorkspace for FixedTaskWorkspace {
+    async fn path(&self) -> Result<String, String> {
+        Ok(self.0.to_owned())
+    }
+}
+
+/// A new-thread place with fixed Projects that records the worktree steps it is asked for (thread, worktree, input).
+#[derive(Default)]
+pub struct RecordingPlace {
+    pub projects: Vec<String>,
+    pub entered: std::sync::Mutex<Vec<(String, Value, Option<Value>)>>,
+}
+
+#[async_trait::async_trait]
+impl super::NewThreadPlace for RecordingPlace {
+    async fn projects(&self) -> Result<Vec<String>, String> {
+        Ok(self.projects.clone())
+    }
+
+    async fn enter_worktree(
+        &self,
+        thread: &ThreadId,
+        worktree: &Value,
+        input: Option<&Value>,
+        _: &mixdog_rt::CancellationToken,
+    ) -> Result<(), mixdog_core_api::CoreError> {
+        self.entered.lock().expect("entered").push((thread.as_str().to_owned(), worktree.clone(), input.cloned()));
         Ok(())
     }
 }
@@ -1122,9 +1178,19 @@ impl super::agent_activity::AgentStatus for TestAgents {
     }
 }
 
-/// The delete seams and purge hooks, recording each call as `<step>:<session>[:<detail>]`.
+/// The delete seams and purge hooks, recording each call as `<step>:<session>[:<detail>]`; the
+/// sessions whose MCP scope was released are kept apart, in order. The last three are what the
+/// idle delete asks of its runtime: the session it has current, whether the caller gave no
+/// `isHostedBusy` guard, and whether a hosting runtime holds input for the session.
 #[derive(Default)]
-pub struct Deletes(pub Mutex<Vec<String>>, pub tokio::sync::Notify);
+pub struct Deletes(
+    pub Mutex<Vec<String>>,
+    pub tokio::sync::Notify,
+    pub Mutex<Vec<String>>,
+    pub Mutex<Option<String>>,
+    pub Mutex<bool>,
+    pub Mutex<bool>,
+);
 
 impl Deletes {
     fn note(&self, step: String) {
@@ -1150,6 +1216,9 @@ impl super::delete::DeleteSeams for Deletes {
     fn session_closed(&self, session_id: &str, reason: &str, _: &mixdog_store::schema::record::Header, _: i64) {
         self.note(format!("sessionClosed:{session_id}:{reason}"));
     }
+    fn release_mcp_scope(&self, session_id: &str) {
+        lock(&self.2).push(session_id.to_owned());
+    }
     fn forget_session_search(&self, session_id: &str) {
         self.note(format!("forgetSessionSearch:{session_id}"));
     }
@@ -1158,6 +1227,12 @@ impl super::delete::DeleteSeams for Deletes {
     }
     fn thread_deleted(&self, thread: &ThreadId) {
         self.note(format!("thread/deleted:{thread}"));
+    }
+    fn current_session(&self) -> Option<String> {
+        lock(&self.3).clone()
+    }
+    fn hosted_busy(&self, _: &str) -> Option<bool> {
+        (!*lock(&self.4)).then(|| *lock(&self.5))
     }
 }
 
@@ -1373,6 +1448,9 @@ impl Rig {
             new_tools: Arc::new(KeepHeader),
             surface: mixdog_core_base::surface::SurfaceGeneration::default(),
             new_route: Arc::new(NoRoute),
+            empty_surface: Arc::new(NoEmptySurface),
+            task_workspace: Arc::new(FixedTaskWorkspace("/tasks")),
+            new_place: Arc::new(RecordingPlace::default()),
             resumed_tools: self.resumed.clone(),
             room_members: self.room_members.clone(),
             wakes: self.wakes.clone(),

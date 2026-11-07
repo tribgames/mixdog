@@ -252,18 +252,17 @@ impl Settings {
 
     // --- starter guide ---
 
-    /// `saveStarterGuideState(state)`; answers the stored guide (the rest of the onboarding
-    /// status needs the route summary, which the route service adds).
+    /// `saveStarterGuideState(state)`; answers `getOnboardingStatus()` of the config it adopted.
     pub async fn save_starter_guide_state(&self, state: &Value) -> Result<Value, ToolModulesError> {
         let next = required_starter_guide(state)?;
         let before = self.config.agent();
         let mut onboarding = before.get("onboarding").and_then(Value::as_object).cloned().unwrap_or_default();
         let merged = merge_starter_guide(stored_starter_guide(onboarding.get("starterGuide")), next);
-        onboarding.insert("starterGuide".into(), merged.clone());
+        onboarding.insert("starterGuide".into(), merged);
         let mut after = before.clone();
         after.insert("onboarding".into(), Value::Object(onboarding));
         self.save(&before, &after).await?;
-        Ok(merged)
+        crate::workflow::onboarding::adopted_status(&before, &after).map_err(failed)
     }
 }
 

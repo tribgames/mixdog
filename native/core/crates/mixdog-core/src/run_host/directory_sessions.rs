@@ -125,6 +125,17 @@ impl SessionOps for DirectorySessions {
         self.request(&thread, "thread/name/set", params).await.map(|_| ()).map_err(port)
     }
 
+    async fn set_retired_title(&self, session_id: &str, name: &str) -> Result<(), RoomError> {
+        let Some(header) = self.header(session_id).await? else { return Ok(()) };
+        // `this.nameMap?.[sessionId]`: a name the user gave (a locked title that no model chose) always wins.
+        let user_named = header.get("titleLocked") == Some(&Value::Bool(true)) && header.get("titleSource").and_then(Value::as_str) != Some("ai");
+        let title = mixdog_store::title::generated_session_title(name, "", 32);
+        if user_named || title.is_empty() || header.get("title").and_then(Value::as_str) == Some(title.as_str()) {
+            return Ok(());
+        }
+        self.patch(session_id, Map::from_iter([("title".to_owned(), json!(title))])).await
+    }
+
     async fn clear(&self, session_id: &str, archive_as: &str) -> Result<(), RoomError> {
         let thread = ThreadId::from(session_id);
         let view = self.request(&thread, "thread/read", json!({ "threadId": thread })).await.map_err(port)?;
@@ -183,6 +194,16 @@ mod tests {
         sessions.set_retired("home_bench", false).await.unwrap();
         assert!(!sessions.is_retired("home_bench").await.unwrap());
         sessions.rename("home_bench", "Bench").await.unwrap();
+        // A name the user gave wins over the retired home's: the title stays theirs.
+        sessions.set_retired_title("home_bench", "Ada the bot").await.unwrap();
+        assert_eq!(sessions.header("home_bench").await.unwrap().unwrap().get("title"), Some(&json!("Bench")));
+        // A session nobody named is titled with the bot's name, replacing an earlier title; a name that cleans to nothing changes nothing.
+        sessions.create("home_free", &json!({ "provider": "openai", "model": "gpt-x", "title": "Old title" })).await.unwrap();
+        sessions.set_retired_title("home_free", "Ada   the bot").await.unwrap();
+        assert_eq!(sessions.header("home_free").await.unwrap().unwrap().get("title"), Some(&json!("Ada the bot")));
+        sessions.set_retired_title("home_free", "[mixdog-runtime]").await.unwrap();
+        assert_eq!(sessions.header("home_free").await.unwrap().unwrap().get("title"), Some(&json!("Ada the bot")));
+        sessions.set_retired_title("nope", "Ada").await.unwrap();
         sessions.set_archived("home_bench", true).await.unwrap();
         // An empty conversation keeps no archive copy and clears in place.
         sessions.clear("home_bench", "arch_1").await.unwrap();

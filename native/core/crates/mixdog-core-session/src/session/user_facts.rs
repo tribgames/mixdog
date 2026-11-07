@@ -31,6 +31,46 @@ impl AttachmentStore {
     pub fn facts(&self, lane: &InLane<InteractiveIo>, body: &mut Value) -> RowFacts {
         user_facts(body, &LaneBlobs { root: &self.0, _lane: lane })
     }
+
+    /// `readAttachmentBuffer(ref)` (`attachments/store.mjs`): the blob's bytes, read on `lane`. A blob that is
+    /// gone, empty, over `MAX_ATTACHMENT_BLOB_BYTES` or whose digest is not its reference will never become
+    /// readable ([`BlobError::Permanent`]); any other failure may pass.
+    #[allow(clippy::disallowed_methods, reason = "runs inside an interactive-io lane job (lane proof argument)")]
+    pub fn read_blob(&self, _lane: &InLane<InteractiveIo>, reference: &str) -> Result<Vec<u8>, BlobError> {
+        use sha2::Digest;
+        let reference_ok = reference.len() == 64 && reference.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+        if !reference_ok {
+            return Err(BlobError::Invalid("prompt attachment reference is invalid".into()));
+        }
+        let path = self.0.join("prompt-attachments/sha256").join(&reference[..2]).join(reference);
+        let info = match std::fs::metadata(&path) {
+            Ok(info) => info,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(BlobError::Permanent),
+            Err(e) => return Err(BlobError::Transient(e.to_string())),
+        };
+        if !info.is_file() || info.len() == 0 || info.len() > MAX_ATTACHMENT_BLOB_BYTES {
+            return Err(BlobError::Permanent);
+        }
+        let bytes = std::fs::read(&path).map_err(|e| BlobError::Transient(e.to_string()))?;
+        if format!("{:x}", sha2::Sha256::digest(&bytes)) != reference {
+            return Err(BlobError::Permanent);
+        }
+        Ok(bytes)
+    }
+}
+
+/// `MAX_ATTACHMENT_BLOB_BYTES` (`attachments/limits.mjs`).
+const MAX_ATTACHMENT_BLOB_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Why a blob could not be read.
+#[derive(Debug, PartialEq, Eq)]
+pub enum BlobError {
+    /// `isPermanentAttachmentError`: gone, impossible size, or failed integrity.
+    Permanent,
+    /// The reference is not a content address (Node's `TypeError`).
+    Invalid(String),
+    /// A system error that may pass (`EBUSY`, `EACCES`, …): the caller must not rewrite around it.
+    Transient(String),
 }
 
 /// The store as read inside a lane job (`_lane` is the proof).

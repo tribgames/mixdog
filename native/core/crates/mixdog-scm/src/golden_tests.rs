@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 use crate::engine::Scm;
 use crate::testing::TestProcesses;
 
-fn git(cwd: &Path, args: &[&str]) -> String {
+pub(crate) fn git(cwd: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
         .args(["-c", "core.autocrlf=false", "-c", "commit.gpgsign=false"])
         .args(args)
@@ -33,7 +33,7 @@ fn git(cwd: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_owned()
 }
 
-fn fixture_repo() -> (tempfile::TempDir, std::path::PathBuf, String) {
+pub(crate) fn fixture_repo() -> (tempfile::TempDir, std::path::PathBuf, String) {
     let dir = tempfile::tempdir().unwrap();
     let repo = std::fs::canonicalize(dir.path()).unwrap().join("repo");
     std::fs::create_dir_all(repo.join("src")).unwrap();
@@ -1587,4 +1587,90 @@ async fn a_second_taken_folder_fails_the_creation_and_rolls_the_second_name_back
 #[tokio::test]
 async fn a_branch_asked_for_by_name_is_not_retried() {
     assert_eq!(taken_folder_outcome(1, Some("feature/login")).await, add_retry_golden()["exactBranch"]);
+}
+
+#[tokio::test]
+async fn a_repository_review_names_the_default_branch_it_diffs_against() {
+    let (_guard, repo, _head) = fixture_repo();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "clean"]);
+    let scm = scm();
+    let (name, point) = crate::inspect::review::repo_base(&scm.git, &CancellationToken::new(), &repo, "branch").await.unwrap();
+    assert_eq!(name, "main");
+    assert_eq!(point.0, git(&repo, &["rev-parse", "HEAD"]));
+    let (uncommitted, _) = crate::inspect::review::repo_base(&scm.git, &CancellationToken::new(), &repo, "uncommitted").await.unwrap();
+    assert_eq!(uncommitted, "HEAD");
+}
+#[tokio::test]
+async fn a_status_that_skips_line_stats_has_no_counts_and_leaves_the_counted_scan_alone() {
+    let (_guard, repo, _head) = fixture_repo();
+    let scm = scm();
+    let cancel = CancellationToken::new();
+    let skipped = scm.git_status_counting(&repo, &cancel, false).await.unwrap();
+    let files = skipped["files"].as_array().unwrap();
+    assert!(!files.is_empty());
+    assert!(files.iter().all(|file| file["additions"] == 0 && file["deletions"] == 0));
+    let counted = scm.git_status_counting(&repo, &cancel, true).await.unwrap();
+    assert!(counted["files"].as_array().unwrap().iter().any(|file| file["additions"].as_u64().unwrap_or(0) > 0));
+}
+#[test]
+fn a_review_revision_names_the_file_identity_or_deleted() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "abc").unwrap();
+    let revision = crate::inspect::status::worktree_revision(dir.path(), "a.txt");
+    assert!(revision.starts_with("3:"), "size first: {revision}");
+    assert_eq!(revision.split(':').count(), 4);
+    assert_eq!(crate::inspect::status::worktree_revision(dir.path(), "gone.txt"), "deleted");
+}
+/// Node's `gitReviewDiffs` answers (`fixtures/desktop/review-batch/record.mjs`), replayed with the
+/// patches Node read: a quoted-header name, the command-line budget, the patch budget, duplicates.
+#[test]
+fn review_batches_match_the_recorded_node_answers() {
+    use crate::inspect::review::{BatchFile, review_batch};
+    let recorded: serde_json::Value = serde_json::from_str(include_str!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/desktop/review-batch/corpus.json"
+    )))
+    .unwrap();
+    let patch_of = |path: &str| match &recorded["patchOf"][path] {
+        entry if entry["patch"].is_string() => entry["patch"].as_str().unwrap().to_owned(),
+        entry => "x".repeat(entry["length"].as_u64().unwrap_or(0) as usize),
+    };
+    for case in recorded["cases"].as_array().unwrap() {
+        let files: Vec<BatchFile> = case["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| BatchFile { path: f["path"].as_str().unwrap().to_owned(), untracked: f["untracked"] == true })
+            .collect();
+        let got = review_batch(&files, patch_of);
+        let label = case["label"].as_str().unwrap();
+        let want = &case["answer"];
+        assert_eq!(got["omitted"], want["omitted"], "{label}");
+        let shape = |patches: &serde_json::Value| -> Vec<(String, String)> {
+            patches
+                .as_array()
+                .unwrap_or_else(|| panic!("{label}: patches must be an array"))
+                .iter()
+                .map(|p| {
+                    let text = p["patch"].as_str().map_or_else(|| p["length"].to_string(), |t| t.to_owned());
+                    (p["path"].as_str().unwrap().to_owned(), text)
+                })
+                .collect()
+        };
+        // Long patches are recorded by length: ours are `x` runs of that length.
+        let ours: Vec<(String, String)> = got["patches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| {
+                let (path, patch) = (p["path"].as_str().unwrap(), p["patch"].as_str().unwrap());
+                let recorded_long = want["patches"].as_array().unwrap().iter().any(|w| w["path"] == path && w["length"].is_number());
+                (path.to_owned(), if recorded_long { patch.encode_utf16().count().to_string() } else { patch.to_owned() })
+            })
+            .collect();
+        assert_eq!(ours, shape(&want["patches"]), "{label}");
+    }
+    // No files: both arrays are empty, never null.
+    assert_eq!(review_batch(&[], patch_of), serde_json::json!({ "patches": [], "omitted": [] }));
 }

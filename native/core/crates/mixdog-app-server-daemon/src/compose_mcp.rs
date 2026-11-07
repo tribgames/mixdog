@@ -167,6 +167,9 @@ impl ExtensionHost for LateExtensionHost {
     async fn skills_status(&self) -> Value {
         self.get().skills_status().await
     }
+    async fn plugin_mcp_summary(&self, thread_id: Option<&str>) -> Result<Value, String> {
+        self.get().plugin_mcp_summary(thread_id).await
+    }
 }
 
 /// What gates a skill now (`getDisabledSkillNameSet`, `featureConfig`, `extensionScopesFromConfig`),
@@ -526,6 +529,8 @@ pub struct McpInputs {
     pub extensions: Arc<crate::compose_domains::ConfigExtensions>,
     /// The host `compose_domains` gave the `PluginsService` (`PluginSeams.host`).
     pub extension_host: Arc<LateExtensionHost>,
+    /// The folder a task in a Project runs in (`skills/skillsStatus{options:{projectPath}}`), bound once the workspace exists.
+    pub project_workspaces: Arc<crate::project_workspaces::LateProjectWorkspaces>,
     /// The `PluginsService` `compose_domains` registered.
     pub plugins: Arc<dyn DomainService>,
     /// The config service (`config/getWorkflowPack`): `WorkflowConfig`.
@@ -601,6 +606,7 @@ pub fn mcp_services(inputs: McpInputs) -> McpComposed {
         settings,
         ext_config,
         host,
+        inputs.project_workspaces.clone(),
         tokens.maintenance_io,
         tokens.durability_io,
         data_dir.clone(),
@@ -712,6 +718,9 @@ mod tests {
     impl McpSurface for Quiet {
         async fn current_cwd(&self, _: Option<&str>) -> Result<PathBuf, String> {
             Ok(PathBuf::new())
+        }
+        async fn thread_scope(&self, _: &str) -> Result<Option<String>, String> {
+            Ok(None)
         }
         async fn refresh_surface(&self) {}
         async fn tool_names(&self) -> Result<Vec<String>, String> {
@@ -902,10 +911,15 @@ mod tests {
         }
     }
 
-    /// The composition over a temp data dir: every `mcp/*`, `connector/*` and `skills/*` method
-    /// resolves to a real service, each served by exactly one, and a call reaches the data dir.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn the_services_serve_their_methods_over_a_temp_data_dir() {
+    /// The composition over a temp data dir, with `surface` as the session layer.
+    struct Composed {
+        composed: McpComposed,
+        extensions: Arc<crate::compose_domains::ConfigExtensions>,
+        dir: tempfile::TempDir,
+        data: PathBuf,
+    }
+
+    async fn compose_over(surface: Arc<dyn McpSurface>) -> Composed {
         let dir = tempfile::tempdir().unwrap();
         let data = dir.path().join("data");
         std::fs::create_dir_all(&data).unwrap();
@@ -945,6 +959,7 @@ mod tests {
                 now: Arc::new(|| "2026-01-01T00:00:00.000Z".into()),
             },
         );
+        let extensions = Arc::new(crate::compose_domains::ConfigExtensions::new(config.clone()));
         let composed = mcp_services(McpInputs {
             tokens,
             data_dir: data.clone(),
@@ -955,13 +970,14 @@ mod tests {
             hub,
             config: config.clone(),
             tool_modules,
-            extensions: Arc::new(crate::compose_domains::ConfigExtensions::new(config)),
+            extensions: extensions.clone(),
             extension_host: late,
+            project_workspaces: Arc::default(),
             plugins: Arc::new(mixdog_core_api::mock::MockDomain::serving(&[])),
             workflow: Arc::new(mixdog_core_api::mock::MockDomain::serving(&[])),
             secret_store: Arc::new(Memory(Default::default())),
             verifier: quiet.clone(),
-            surface: quiet.clone(),
+            surface,
             bridges: quiet.clone(),
             hooks: quiet.clone(),
             hook_observer: quiet.clone(),
@@ -982,7 +998,14 @@ mod tests {
                 other_status: Vec::new(),
             },
         });
+        Composed { composed, extensions, dir, data }
+    }
 
+    /// The composition over a temp data dir: every `mcp/*`, `connector/*` and `skills/*` method
+    /// resolves to a real service, each served by exactly one, and a call reaches the data dir.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_services_serve_their_methods_over_a_temp_data_dir() {
+        let Composed { composed, dir, data, .. } = compose_over(Arc::new(Quiet)).await;
         let mut served: Vec<&str> = composed.services.iter().flat_map(|s| s.methods().iter().copied()).collect();
         let total = served.len();
         served.sort_unstable();
@@ -1003,6 +1026,173 @@ mod tests {
         assert!(tools.is_array() || tools.is_object(), "{tools}");
     }
 
+    /// A session layer that knows which scope each thread's stored header names.
+    struct Headers(std::sync::Mutex<std::collections::HashMap<String, String>>);
+
+    impl Headers {
+        fn of(pairs: &[(&str, &str)]) -> Self {
+            Self(std::sync::Mutex::new(pairs.iter().map(|(thread, scope)| ((*thread).to_owned(), (*scope).to_owned())).collect()))
+        }
+    }
+
+    #[async_trait]
+    impl McpSurface for Headers {
+        async fn current_cwd(&self, thread: Option<&str>) -> Result<PathBuf, String> {
+            Quiet.current_cwd(thread).await
+        }
+        async fn thread_scope(&self, thread: &str) -> Result<Option<String>, String> {
+            Ok(self.0.lock().unwrap().get(thread).cloned())
+        }
+        async fn refresh_surface(&self) {}
+        async fn tool_names(&self) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn open_browser(&self, _: &str) {}
+        fn announce_plugins(&self) {}
+        async fn flush_skills_save(&self) {}
+    }
+
+    /// A management call made on a child thread reads the scope the child inherited from the session
+    /// that spawned it (`spawn-plan.mjs:108`; the child's header names its parent's scope), not only the
+    /// scope its own session opened: the status of the parent's servers is the same through either thread,
+    /// a thread whose header names no scope reads nothing live, a request with no thread reads the runtime's own scope, and
+    /// once the parent's close releases the scope the child reads nothing either.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_management_call_on_a_child_thread_reads_the_scope_it_inherited() {
+        use mixdog_mcp::mcp_glue::McpScopes;
+        let surface = Arc::new(Headers::of(&[("lead", "s1"), ("child", "s1")]));
+        let Composed { composed, extensions, dir, .. } = compose_over(surface).await;
+        // A server whose command does not exist: it is registered under the scope it was connected for and fails there.
+        let mut agent = extensions.agent();
+        agent.insert("mcpServers".to_owned(), serde_json::json!({"ghost": {"command": "mixdog-no-such-server-binary"}}));
+        extensions.save_agent(&extensions.agent(), &agent).await.unwrap();
+        composed.glue.open("s1", "lead", dir.path()).await.unwrap();
+        // The runtime scope connects at boot, whatever the sessions do.
+        composed.glue.connect_runtime_scope().await.unwrap();
+
+        let status_of = |thread: Option<&'static str>| {
+            let service = composed.mcp_domain.clone();
+            async move {
+                let params = thread.map_or_else(|| serde_json::json!({}), |thread| serde_json::json!({"threadId": thread}));
+                let status = call(&service, "mcp/mcpStatus", params).await;
+                let rows = status["servers"].as_array().unwrap().clone();
+                rows.iter().find(|row| row["name"] == "ghost").map(|row| row["status"].clone())
+            }
+        };
+        assert_eq!(status_of(Some("lead")).await, Some(serde_json::json!("failed")), "the owner reads its scope");
+        assert_eq!(status_of(Some("child")).await, Some(serde_json::json!("failed")), "the child reads its parent's scope");
+        assert_eq!(status_of(Some("stranger")).await, Some(serde_json::json!("disconnected")), "a thread whose header names no scope reads nothing live");
+        // A request naming no thread reads the runtime's own scope, connected at boot with the same configured servers.
+        assert_eq!(status_of(None).await, Some(serde_json::json!("failed")), "a thread-less read uses the runtime's scope, never nothing");
+        composed.glue.release("lead");
+        assert_eq!(status_of(Some("child")).await, Some(serde_json::json!("disconnected")), "the parent's release leaves the child nothing");
+    }
+    /// The boot starts the runtime scope in the background and does not wait for it: a thread-less read that
+    /// follows finds it connected (`scope_of_request(None)` waits for the first connect), and starting
+    /// it again starts no second connection set.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_boot_starts_the_runtime_scope_and_a_read_finds_it_connected() {
+        let Composed { composed, extensions, .. } = compose_over(Arc::new(Quiet)).await;
+        let mut agent = extensions.agent();
+        agent.insert("mcpServers".to_owned(), serde_json::json!({"ghost": {"command": "mixdog-no-such-server-binary"}}));
+        extensions.save_agent(&extensions.agent(), &agent).await.unwrap();
+        let hub = composed.glue.hub();
+        let started = composed.glue.start_runtime_scope();
+        started.await.unwrap();
+        assert_eq!(hub.servers_in(hub.runtime_scope()).len(), 1, "the boot connected the configured server");
+        composed.glue.start_runtime_scope().await.unwrap();
+        assert_eq!(hub.servers_in(hub.runtime_scope()).len(), 1, "a second start opens no second connection set");
+        let status = call(&composed.mcp_domain, "mcp/mcpStatus", serde_json::json!({})).await;
+        assert_eq!(status["servers"][0]["status"], "failed", "a read with no session reads the runtime scope");
+    }
+    /// A read with no session that arrives before the boot's spawn has run (or in a composition that never
+    /// spawns it) starts the runtime scope itself and answers; the boot's start that follows waits for
+    /// that connect and opens no second connection set.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_thread_less_read_before_the_boot_spawn_starts_the_runtime_scope() {
+        let Composed { composed, extensions, .. } = compose_over(Arc::new(Quiet)).await;
+        let mut agent = extensions.agent();
+        agent.insert("mcpServers".to_owned(), serde_json::json!({"ghost": {"command": "mixdog-no-such-server-binary"}}));
+        extensions.save_agent(&extensions.agent(), &agent).await.unwrap();
+        let hub = composed.glue.hub();
+        assert!(hub.servers_in(hub.runtime_scope()).is_empty(), "nothing started the runtime scope");
+        let status = call(&composed.mcp_domain, "mcp/mcpStatus", serde_json::json!({})).await;
+        assert!(status["servers"].is_array(), "the read answered: {status}");
+        composed.glue.start_runtime_scope().await.unwrap();
+        assert_eq!(hub.servers_in(hub.runtime_scope()).len(), 1, "the read started the connect and the boot's start opened no second set");
+        let status = call(&composed.mcp_domain, "mcp/mcpStatus", serde_json::json!({})).await;
+        assert_eq!(status["servers"][0]["status"], "failed", "once settled, the read sees the failure");
+    }
+    /// While the runtime scope's first connect is still pending, a thread-less status read answers at once
+    /// with the status of the moment (Node's `mcpStatus()` does not wait for the boot's background
+    /// `connectConfiguredMcp()`), and so do the config reads; a write (`reconnectMcp`) queues behind the connect and
+    /// finishes only after it. The connect is held by a server that accepted the connection and never answers.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_read_during_a_pending_first_connect_answers_at_once_and_a_write_waits_for_it() {
+        let Composed { composed, extensions, .. } = compose_over(Arc::new(Quiet)).await;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+        let mut agent = extensions.agent();
+        agent.insert("mcpServers".to_owned(), serde_json::json!({"held": {"type": "http", "url": url}}));
+        extensions.save_agent(&extensions.agent(), &agent).await.unwrap();
+        let hub = composed.glue.hub();
+        let boot = composed.glue.start_runtime_scope();
+        // The connect reached the server: it is pending now, and nothing answers it.
+        let accepted = tokio::task::spawn_blocking(move || (listener.accept().unwrap().0, listener));
+        let (held, listener) = accepted.await.unwrap();
+        assert!(hub.servers_in(hub.runtime_scope()).is_empty() && !boot.is_finished(), "the first connect is pending");
+
+        let status = call(&composed.mcp_domain, "mcp/mcpStatus", serde_json::json!({})).await;
+        assert_eq!(status["servers"][0]["name"], "held", "the status read answered during the connect: {status}");
+        assert_eq!(status["servers"][0]["connected"], false);
+        let config = call(&composed.mcp_domain, "mcp/getMcpServerConfig", serde_json::json!({"name": "held"})).await;
+        assert_eq!(config["name"], "held", "the config read answered during the connect");
+
+        let write = tokio::spawn({
+            let service = composed.mcp_domain.clone();
+            async move { call(&service, "mcp/reconnectMcp", serde_json::json!({})).await }
+        });
+        assert!(!write.is_finished() && !boot.is_finished(), "the write queues behind the pending connect");
+        // The server goes away: the pending connect fails, and the write that queued behind it runs and finishes.
+        drop(held);
+        drop(listener);
+        let reconnected = write.await.unwrap();
+        assert!(reconnected["servers"].is_array(), "{reconnected}");
+        boot.await.unwrap();
+    }    /// The control thread (`thread/start{kind:"control"}`) is seeded in the runtime scope, so a call
+    /// naming it and a call naming no thread read the same servers of the same scope, and no second
+    /// connection set exists besides the runtime scope and the sessions' own.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_control_thread_and_a_thread_less_read_share_the_runtime_scope() {
+        use mixdog_mcp::mcp_glue::McpScopes;
+        let surface = Arc::new(Headers::of(&[("lead", "s1")]));
+        let Composed { composed, extensions, dir, .. } = compose_over(surface.clone()).await;
+        let mut agent = extensions.agent();
+        agent.insert("mcpServers".to_owned(), serde_json::json!({"ghost": {"command": "mixdog-no-such-server-binary"}}));
+        extensions.save_agent(&extensions.agent(), &agent).await.unwrap();
+        composed.glue.connect_runtime_scope().await.unwrap();
+        let runtime_scope = composed.glue.hub().runtime_scope().to_owned();
+        // The control thread's header names the runtime scope (`LeadSurfaceHost::seed_control`).
+        surface.0.lock().unwrap().insert("control".to_owned(), runtime_scope.clone());
+        composed.glue.open("s1", "lead", dir.path()).await.unwrap();
+
+        let rows = |params: Value| {
+            let service = composed.mcp_domain.clone();
+            async move { call(&service, "mcp/mcpStatus", params).await["servers"].clone() }
+        };
+        let thread_less = rows(serde_json::json!({})).await;
+        let control = rows(serde_json::json!({"threadId": "control"})).await;
+        assert_eq!(control, thread_less, "the control thread reads what a thread-less call reads");
+        assert_eq!(thread_less[0]["status"], "failed");
+        // One connection set for both: the hub has exactly the runtime scope's server, plus the one session's.
+        let hub = composed.glue.hub();
+        assert_eq!(hub.servers_in(&runtime_scope).len(), 1);
+        assert_eq!(hub.servers_in("s1").len(), 1);
+        // Closing the control thread releases nothing.
+        composed.glue.release("control");
+        assert_eq!(rows(serde_json::json!({})).await[0]["status"], "failed");
+        assert_eq!(hub.servers_in(&runtime_scope).len(), 1);
+    }
     /// `tests/golden/skilllist.json` (recorded from Node by `skilllist.mjs`): the skill list of a
     /// sample setup, every row and what a session offers at three folders under two configs.
     #[tokio::test(flavor = "multi_thread")]

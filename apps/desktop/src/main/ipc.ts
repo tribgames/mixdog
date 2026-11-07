@@ -23,7 +23,7 @@ import type { BrowserHost } from './browser/host';
 import type { BrowserLoginPopup } from './browser/login-popup';
 import { registerBrowserIpc } from './ipc-browser';
 import type { ProtocolConnection } from './protocol/connection';
-import { registerProtocolWindowIpc } from './protocol/window-ipc';
+import { registerNoProtocolWindowIpc, registerProtocolWindowIpc } from './protocol/window-ipc';
 import { registerComputerIpc, type ComputerIpcHost } from './ipc-computer';
 import { registerFileDialogIpc } from './ipc-file-dialogs';
 import { registerPaneLayoutIpc } from './ipc-pane-layout';
@@ -396,7 +396,8 @@ export function registerDesktopIpc(
     app,
     host,
     handle,
-    readsLocalOnboardingStatus: connectionKind === 'local',
+    // A core connection answers `getOnboardingStatus` from the `config` section; only the Node-hosted one reads the file.
+    readsLocalOnboardingStatus: connectionKind === 'local' && !protocol,
     raiseOnSignIn: connectionKind === 'local',
     pcHost: connectionKind === 'local' ? undefined : pcHost,
     invokeDesktopOperation,
@@ -425,7 +426,7 @@ export function registerDesktopIpc(
         },
         removeHandler: (channel) => ipcMain.removeHandler(channel),
       })
-    : () => undefined;
+    : registerNoProtocolWindowIpc({ handle, removeHandler: (channel) => ipcMain.removeHandler(channel) });
   // Renderer perf lines ride a fire-and-forget event channel (no invoke).
   const onPerfLog = (_event: Electron.IpcMainEvent, line: unknown): void => {
     (host as { perfLog?: (line: string) => void }).perfLog?.(String(line ?? ''));

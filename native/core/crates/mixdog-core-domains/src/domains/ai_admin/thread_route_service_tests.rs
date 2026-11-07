@@ -91,7 +91,7 @@ fn continue_case(want_error: bool) -> Value {
 #[tokio::test]
 async fn continue_in_model_answers_what_the_route_service_answers() {
     let ok = continue_case(false);
-    let (service, _, _dir, _state) = build(&ok, facts(None, false)).await;
+    let (service, _, _dir, _state) = build(&ok, facts(Some(failure(None)), false)).await;
     let params = with_op(json!({ "threadId": "t", "route": ok["request"] }), 1);
     let first = value(&service, request("thread/continueInModel", params.clone(), Some(1))).await.unwrap();
     assert_eq!(first, ok["value"]);
@@ -100,10 +100,25 @@ async fn continue_in_model_answers_what_the_route_service_answers() {
     assert_eq!(second, first);
 
     let bad = continue_case(true);
-    let (service, _, _dir, _state) = build(&bad, facts(None, false)).await;
+    let (service, _, _dir, _state) = build(&bad, facts(Some(failure(None)), false)).await;
     let params = with_op(json!({ "threadId": "t", "route": bad["request"] }), 2);
     let error = value(&service, request("thread/continueInModel", params, Some(2))).await.unwrap_err();
     assert_eq!(message(error), bad["error"].as_str().unwrap());
+}
+
+/// The session API refuses the escape hatch unless the latest settled turn failed on exhausted provider quota (a
+/// reset time is not needed, unlike a scheduled resume), and the route stays as it was.
+#[tokio::test]
+async fn continue_in_model_is_refused_unless_the_latest_turn_failed_on_quota() {
+    let ok = continue_case(false);
+    let (service, sessions, _dir, _state) = build(&ok, facts(None, false)).await;
+    let params = with_op(json!({ "threadId": "t", "route": ok["request"] }), 1);
+    let error = value(&service, request("thread/continueInModel", params.clone(), Some(1))).await.unwrap_err();
+    assert_eq!(message(error), "latest turn did not fail on exhausted provider quota");
+    // The same call goes through once that turn is the session's latest.
+    *sessions.facts.lock().unwrap() = facts(Some(failure(None)), false);
+    let answered = value(&service, request("thread/continueInModel", with_op(json!({ "threadId": "t", "route": ok["request"] }), 2), Some(2))).await.unwrap();
+    assert_eq!(answered, ok["value"]);
 }
 
 #[tokio::test]

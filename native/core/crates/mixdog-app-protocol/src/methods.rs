@@ -279,7 +279,7 @@ crate::client_request_definitions! {
         mutation: op(Thread),
         origins: [Local, Ssh, Relay],
     },
-    /// Delete; `ifIdle` → `preconditionFailed` when not idle.
+    /// Delete; `ifIdle` answers `{deleted: false, reason}` when not idle, never an error.
     ThreadDelete => "thread/delete" {
         params: v2::thread::ThreadDeleteParams,
         result: JsonValue,
@@ -317,7 +317,7 @@ crate::client_request_definitions! {
     },
     /// Clear history.
     ThreadClear => "thread/clear" {
-        params: v2::thread::ThreadOpParams,
+        params: v2::thread::ThreadClearParams,
         result: JsonValue,
         scope: thread(thread_id),
         class: C2,
@@ -3234,7 +3234,7 @@ crate::client_request_definitions! {
     /// Abort an upload.
     TransferAbort => "transfer/abort" {
         params: TransferAbortParams,
-        result: v2::feed::EmptyResult,
+        result: JsonValue,
         scope: none,
         class: C2,
         mutation: none,
@@ -3257,6 +3257,15 @@ crate::client_request_definitions! {
         class: C2,
         mutation: op(Transfer),
         origins: [Local, Ssh],
+    },
+    /// Mint a one-file grant for a paired device's path outside every project (Node's `rememberFileGrant`).
+    TransferGrantMint => "transfer/grant/mint" {
+        params: TransferGrantMintParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
+        origins: [Relay],
     },
     /// Subscribes the project's language-server feed `lsp:<root>`
     /// (`lsp/status/updated`, `lsp/diagnostics/updated`).
@@ -3911,7 +3920,7 @@ crate::client_request_definitions! {
     TerminalEnsure => "terminal/ensure" {
         params: TerminalEnsureParams,
         result: JsonValue,
-        scope: terminal(tab_id),
+        scope: terminal_or_none(tab_id),
         class: C2,
         mutation: op(Terminal),
         origins: [Local, Ssh, Relay],
@@ -3919,7 +3928,7 @@ crate::client_request_definitions! {
     /// Subscribe `process:<tabId>`; snapshot = screen text.
     TerminalAttach => "terminal/attach" {
         params: TerminalAttachParams,
-        result: v2::feed::Subscription,
+        result: JsonValue,
         scope: terminal(tab_id),
         class: C2,
         mutation: none,
@@ -4112,6 +4121,24 @@ crate::client_request_definitions! {
         scope: global("remoteAccess"),
         class: C2,
         mutation: op(RemoteAccess),
+        origins: [Local, Ssh, Relay],
+    },
+    /// Activate remote access, an explicit user action (Node `remote.start(true)`), and answer the full `remote` section value as it stands afterwards.
+    RemoteAccessActivate => "remoteAccess/activate" {
+        params: RemoteAccessActivateParams,
+        result: JsonValue,
+        scope: global("remoteAccess"),
+        class: C2,
+        mutation: op(RemoteAccess),
+        origins: [Local, Ssh],
+    },
+    /// The full `remote` section value: the list method of the section when it is published as a stub.
+    RemoteAccessState => "remoteAccess/state" {
+        params: RemoteAccessStateParams,
+        result: JsonValue,
+        scope: none,
+        class: C1,
+        mutation: none,
         origins: [Local, Ssh, Relay],
     },
     /// UI-originated in-app browser control; forwarded as `host/browser/command`.

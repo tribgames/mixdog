@@ -218,7 +218,7 @@ impl DomainService for TerminalService {
                 };
                 let attached = self
                     .tabs
-                    .ensure(Some(params.tab_id.as_str()), request)
+                    .ensure(params.tab_id.as_ref().map(|id| id.as_str()), request)
                     .await
                     .map_err(terminal_failure)?;
                 let _ = self.changes.send(Change::Tabs);
@@ -231,15 +231,14 @@ impl DomainService for TerminalService {
             "terminal/attach" => {
                 let params: TerminalAttachParams = decode(&req.params)?;
                 let resume_from = resume_of(params.resume_from)?;
-                let attached = self
-                    .tabs
-                    .attach(params.tab_id.as_str())
-                    .await
-                    .ok_or_else(|| domain_error("terminal", "NOT_RUNNING"))?;
+                // A tab that is not running answers `null` (Node's `termAttach`), never an error.
+                let Some(attached) = self.tabs.attach(params.tab_id.as_str()).await else {
+                    return Ok(Reply::Value(Value::Null));
+                };
                 Ok(Reply::Subscribe(Subscribe {
                     result: json!({
                         "id": attached.id,
-                        "hasReplay": !attached.replay.is_empty(),
+                        "replay": attached.replay,
                         "sizeOwner": client_owner(attached.size_owner.as_ref(), &client),
                     }),
                     feed: self.feeds.feed(&attached.id, true),
@@ -265,7 +264,7 @@ impl DomainService for TerminalService {
             }
             "terminal/focus" => {
                 let params: TerminalFocusParams = decode(&req.params)?;
-                self.tabs.focus(params.tab_id.as_str(), &client, true);
+                self.tabs.focus(params.tab_id.as_str(), &client, params.focused);
                 Ok(Reply::Value(json!({})))
             }
             "terminal/pause" => {

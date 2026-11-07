@@ -43,6 +43,13 @@ impl SessionCwds for HeaderCwds {
     }
 }
 
+#[async_trait]
+impl mixdog_scm::service::ThreadWorktrees for HeaderCwds {
+    async fn cwd(&self, thread: &mixdog_core_api::ids::ThreadId) -> Result<Option<String>, mixdog_core_api::CoreError> {
+        SessionCwds::cwd(self, thread.as_str()).await
+    }
+}
+
 pub(super) struct HostExportRenderer {
     host: Arc<dyn HostChannel>,
     cwds: Arc<dyn SessionCwds>,

@@ -12,11 +12,12 @@
 //! The core routes by exact method, so the service is registered with its [`METHODS`].
 
 pub mod ids;
-mod onboarding;
+pub(crate) mod onboarding;
 pub mod pack;
 mod prefs;
 pub(crate) mod presets;
 mod search;
+pub mod sections;
 pub mod thread_settings;
 #[cfg(test)]
 mod tests;
@@ -129,6 +130,8 @@ pub struct WorkflowConfig {
     interactive: InteractiveIo,
     durability: DurabilityIo,
     now: Arc<dyn Fn() -> String + Send + Sync>,
+    /// Woken after a workflow pack was saved, created or deleted: the `workflows` section follows.
+    pack_changes: Arc<tokio::sync::Notify>,
 }
 
 fn utc_now() -> String {
@@ -177,6 +180,7 @@ impl WorkflowConfig {
             interactive: tokens.interactive_io,
             durability: tokens.durability_io,
             now: Arc::new(utc_now),
+            pack_changes: Arc::new(tokio::sync::Notify::new()),
         })
     }
 
@@ -189,9 +193,9 @@ impl WorkflowConfig {
     pub async fn call(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         match req.method.as_str() {
             "config/getWorkflowPack" => self.get_pack(req).await,
-            "config/saveWorkflowPack" => self.save_pack(req).await,
-            "config/createWorkflow" => self.create_pack(req).await,
-            "config/deleteWorkflow" => self.delete_pack(req).await,
+            "config/saveWorkflowPack" => self.packs_changed(self.save_pack(req).await),
+            "config/createWorkflow" => self.packs_changed(self.create_pack(req).await),
+            "config/deleteWorkflow" => self.packs_changed(self.delete_pack(req).await),
             "config/getOrchestrationMode" => self.orchestration_mode(req).await,
             "config/getConfiguredOrchestrationMode" => {
                 Ok(Reply::Value(Value::String(configured_orchestration_mode(&self.config.agent()))))
@@ -202,6 +206,13 @@ impl WorkflowConfig {
             "config/completeOnboarding" => self.complete_onboarding(req).await,
             other => Err(wrong_method(DOMAIN, other)),
         }
+    }
+
+    fn packs_changed(&self, result: Result<Reply, CoreError>) -> Result<Reply, CoreError> {
+        if result.is_ok() {
+            self.pack_changes.notify_one();
+        }
+        result
     }
 
     /// Writes `after` against `before` (what the caller started from).

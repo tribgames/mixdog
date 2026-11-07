@@ -13,6 +13,7 @@ import { fetchProviderModels } from '../model-catalog-cache';
 import { t, uiFormatLocale } from '../i18n';
 import { uiTimeUnit } from '../ui-format';
 import { record } from '../record-utils';
+import { invokeOrHeld, readOrHeld } from '../section-capabilities';
 import type { SettingsCategory } from './settings-items';
 import { errorMessage } from '../editor-pane-session-errors';
 
@@ -342,7 +343,7 @@ async function readAllCapabilitySettings(
           publish(
             key,
             (
-              await api.invokeCapability!({
+              await invokeOrHeld(api, {
                 capability: request.capability,
                 args: request.args,
               })
@@ -372,7 +373,7 @@ async function readAllCapabilitySettings(
       await Promise.all(
         chunks.map(async (chunk) => {
           trace('chunk-start', { keys: chunk.map((entry) => entry.key) });
-          const results = await api.readCapabilities!(chunk.map((entry) => entry.request));
+          const results = await readOrHeld(api, chunk.map((entry) => entry.request));
           trace('chunk-done', {
             keys: chunk.map((entry) => entry.key),
             ok: results.map((entry) => entry?.ok === true),
@@ -424,7 +425,7 @@ async function readAllCapabilitySettings(
           publish(
             key,
             (
-              await api.invokeCapability!({
+              await invokeOrHeld(api, {
                 capability: entry.request.capability,
                 args: entry.request.args,
               })
@@ -532,7 +533,7 @@ export async function refreshCapabilitySections(
     await Promise.all(
       wanted.map(async ([key], position) => {
         try {
-          land(key, (await api.invokeCapability!(requests[position]))?.value);
+          land(key, (await invokeOrHeld(api, requests[position]))?.value);
         } catch {
           /* keep the previous section value */
         }
@@ -541,7 +542,7 @@ export async function refreshCapabilitySections(
   };
   if (api.readCapabilities) {
     try {
-      const results = await api.readCapabilities(requests);
+      const results = await readOrHeld(api, requests);
       wanted.forEach(([key], position) => {
         const result = results[position];
         if (result?.ok) land(key, result.value);

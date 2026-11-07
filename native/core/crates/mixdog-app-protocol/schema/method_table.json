@@ -737,7 +737,7 @@
         "ssh",
         "relay"
       ],
-      "params": "v2::thread::ThreadOpParams",
+      "params": "v2::thread::ThreadClearParams",
       "result": "JsonValue",
       "scope": {
         "field": "threadId",
@@ -8034,7 +8034,7 @@
         "ssh"
       ],
       "params": "TransferAbortParams",
-      "result": "v2::feed::EmptyResult",
+      "result": "JsonValue",
       "scope": {
         "kind": "none"
       }
@@ -8074,6 +8074,24 @@
         "ssh"
       ],
       "params": "TransferTrashEntryParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "transfer/grant/mint",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "relay"
+      ],
+      "params": "TransferGrantMintParams",
       "result": "JsonValue",
       "scope": {
         "kind": "none"
@@ -9653,7 +9671,7 @@
       "result": "JsonValue",
       "scope": {
         "field": "tabId",
-        "kind": "terminal"
+        "kind": "terminalOrNone"
       }
     },
     {
@@ -9671,7 +9689,7 @@
         "relay"
       ],
       "params": "TerminalAttachParams",
-      "result": "v2::feed::Subscription",
+      "result": "JsonValue",
       "scope": {
         "field": "tabId",
         "kind": "terminal"
@@ -10132,6 +10150,48 @@
     },
     {
       "class": "C2",
+      "method": "remoteAccess/activate",
+      "mutation": {
+        "domain": "remoteAccess",
+        "kind": "op"
+      },
+      "opScope": {
+        "domain": "remoteAccess",
+        "kind": "domain"
+      },
+      "origins": [
+        "local",
+        "ssh"
+      ],
+      "params": "RemoteAccessActivateParams",
+      "result": "JsonValue",
+      "scope": {
+        "key": "remoteAccess",
+        "kind": "global"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "remoteAccess/state",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "RemoteAccessStateParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
       "method": "browser/command",
       "mutation": {
         "kind": "none"
@@ -10312,6 +10372,11 @@
       "delivery": null,
       "method": "host/update/report",
       "params": "HostUpdateReportParams"
+    },
+    {
+      "delivery": null,
+      "method": "host/browser/surface",
+      "params": "HostBrowserSurfaceParams"
     },
     {
       "delivery": null,

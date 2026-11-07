@@ -3,8 +3,8 @@
 //! result and refusal sentence is today's: a setting returns the settings view, `rotate` and
 //! `revokeClient` return the descriptor, `resolveClaim` a boolean, the rest `null` or `true`.
 //!
-//! `input` is the operation's argument list as the Node dispatcher received it: `resolveClaim`
-//! `[claimId, approved]`, `settleOwedControllerKeys` `[keys, unknown]`; `registerNativePush`
+//! `resolveClaim` carries `claimId` and `approve`, `pairCode` its `action`; `input` is the operation's
+//! argument list as the Node dispatcher received it for `settleOwedControllerKeys` `[keys, unknown]`; `registerNativePush`
 //! carries the one record; `deliverScreenControllerKey` the key itself. The paired device of a
 //! phone-side call is the credential id the relay named for the caller's connection.
 //!
@@ -15,9 +15,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::params::{
-    RemoteAccessDeliverScreenControllerKeyParams, RemoteAccessRegisterNativePushParams, RemoteAccessRemoveNativePushParams,
+    RemoteAccessActivateParams, RemoteAccessDeliverScreenControllerKeyParams, RemoteAccessRegisterNativePushParams, RemoteAccessRemoveNativePushParams,
     RemoteAccessRegisterPushSubscriptionParams, RemoteAccessRemovePushSubscriptionParams,
-    RemoteAccessResolveClaimParams, RemoteAccessRevokeClientParams, RemoteAccessSetClientAliasParams,
+    RemoteAccessPairCodeParams, RemoteAccessResolveClaimParams, RemoteAccessRevokeClientParams, RemoteAccessSetClientAliasParams,
     RemoteAccessSetEnabledParams, RemoteAccessSetNameParams, RemoteAccessSettleOwedControllerKeysParams,
 };
 use mixdog_core_api::call::Caller;
@@ -58,12 +58,6 @@ fn arguments(input: &Value) -> &[Value] {
     input.as_array().map_or(&[], Vec::as_slice)
 }
 
-fn text(value: Option<&Value>) -> String {
-    match value {
-        None | Some(Value::Null) => String::new(),
-        Some(other) => mixdog_js::value_to_string(other),
-    }
-}
 
 impl RemoteAccessService {
     pub fn new(runtime: Arc<RemoteRuntime>, registry: Arc<DeviceRegistry>, ops: OpScopes) -> Self {
@@ -123,6 +117,36 @@ impl RemoteAccessService {
             .await
     }
 
+    /// The whole `remote` section value (`RemoteSectionValue`, camelCase): what a client that holds the section as a stub reads.
+    fn state_value(&self) -> Result<Value, CoreError> {
+        serde_json::to_value(self.runtime.section_value()).map_err(|error| failed(DOMAIN, error.to_string()))
+    }
+
+    /// A window asking: the client list is asked for first when the leg has not answered one (what `descriptor()` did).
+    async fn state(&self, _req: &CoreRequest) -> Result<Reply, CoreError> {
+        self.runtime.list_if_unanswered().await;
+        Ok(Reply::Value(self.state_value()?))
+    }
+
+    /// Node's `remoteAccessInfo` with `activate`: `remote.start(true)`. A start that fails is not this call's failure (Node
+    /// caught it, reported `remote-access-status {status: "failed"}` and scheduled the retry; the runtime does the same), so
+    /// the answer is the state as it stands, which shows the relay not live.
+    async fn activate(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
+        let _params: RemoteAccessActivateParams = decode(req)?;
+        self.ops
+            .run(
+                req,
+                None,
+                || async {
+                    let _ = self.runtime.start(true).await;
+                    self.runtime.list_if_unanswered().await;
+                    self.state_value()
+                },
+                || async { self.state_value() },
+            )
+            .await
+    }
+
     async fn rotate(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         self.ops
             .run(
@@ -139,25 +163,27 @@ impl RemoteAccessService {
 
     async fn resolve_claim(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         let params: RemoteAccessResolveClaimParams = decode(req)?;
-        let args = arguments(&params.input);
-        let (claim_id, approved) = (text(args.first()), args.get(1) == Some(&Value::Bool(true)));
         self.ops
             .run(
                 req,
                 None,
-                || async { Ok(json!(self.runtime.resolve_claim(&claim_id, approved).await.map_err(refused)?)) },
+                || async { Ok(json!(self.runtime.resolve_claim(&params.claim_id, params.approve).await.map_err(refused)?)) },
                 || async { Ok(json!(false)) },
             )
             .await
     }
 
-    /// `ensure` is the Node default; the desktop follows `remote.pairCode` for the rest.
+    /// `action` is `ensure`, `renew` or `release`, as the settings screen asks.
     async fn pair_code(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
+        let params: RemoteAccessPairCodeParams = decode(req)?;
+        if !matches!(params.action.as_str(), "ensure" | "renew" | "release") {
+            return Err(CoreError::InvalidParams { path: "action".into(), expected: "ensure, renew or release".into() });
+        }
         self.ops
             .run(
                 req,
                 None,
-                || async { self.runtime.pair_code("ensure").await.map_err(refused) },
+                || async { self.runtime.pair_code(&params.action).await.map_err(refused) },
                 || async { Ok(Value::Null) },
             )
             .await
@@ -301,6 +327,8 @@ impl DomainService for RemoteAccessService {
             "remoteAccess/setName" => self.set_name(&req).await,
             "remoteAccess/setClientAlias" => self.set_client_alias(&req).await,
             "remoteAccess/rotate" => self.rotate(&req).await,
+            "remoteAccess/activate" => self.activate(&req).await,
+            "remoteAccess/state" => self.state(&req).await,
             "remoteAccess/resolveClaim" => self.resolve_claim(&req).await,
             "remoteAccess/pairCode" => self.pair_code(&req).await,
             "remoteAccess/revokeClient" => self.revoke_client(&req).await,
@@ -321,6 +349,8 @@ impl DomainService for RemoteAccessService {
             "remoteAccess/setName",
             "remoteAccess/setClientAlias",
             "remoteAccess/rotate",
+            "remoteAccess/activate",
+            "remoteAccess/state",
             "remoteAccess/resolveClaim",
             "remoteAccess/pairCode",
             "remoteAccess/revokeClient",
@@ -425,6 +455,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn state_is_the_whole_remote_section_and_activate_answers_it_without_activating_a_relay_less_install() {
+        let dir = tempfile::tempdir().unwrap();
+        let (service, _) = rig(dir.path()).await;
+        value(&service, request("remoteAccess/setName", with_op(json!({ "name": "Desk" }), 1), Some(1))).await.unwrap();
+        let state = value(&service, request("remoteAccess/state", json!({}), None)).await.unwrap();
+        assert_eq!(state["settings"]["name"], json!("Desk"));
+        for member in ["info", "settings", "claims", "clients", "controllerKeys", "owedKeys", "pairCode", "disabled"] {
+            assert!(state.get(member).is_some(), "the section value has {member}");
+        }
+        // Node: with no relay URL `start(true)` returns before it activates anything, and the answer is the state.
+        let activated = value(&service, request("remoteAccess/activate", with_op(json!({}), 2), Some(2))).await.unwrap();
+        assert_eq!(activated, state);
+        assert!(!dir.path().join("remote-activated.json").exists());
+        // Only the user's own switch-off is `disabled`: an install that never chose is not off.
+        assert_eq!(state["disabled"], json!(false));
+        value(&service, request("remoteAccess/setEnabled", with_op(json!({ "enabled": false }), 3), Some(3))).await.unwrap();
+        let off = value(&service, request("remoteAccess/state", json!({}), None)).await.unwrap();
+        assert_eq!(off["disabled"], json!(true));
+    }
+    #[tokio::test]
     async fn the_web_push_methods_refuse_with_todays_sentence_while_the_relay_is_off() {
         let dir = tempfile::tempdir().unwrap();
         let (service, _) = rig(dir.path()).await;
@@ -457,7 +507,7 @@ mod tests {
             .unwrap_err();
         assert!(sentence(&native).contains("Native push needs a paired client."), "{native:?}");
         // A claim nobody is asking about is not resolved.
-        let claim = value(&service, request("remoteAccess/resolveClaim", with_op(json!({ "input": ["nope", true] }), 6), Some(6))).await.unwrap();
+        let claim = value(&service, request("remoteAccess/resolveClaim", with_op(json!({ "claimId": "nope", "approve": true }), 6), Some(6))).await.unwrap();
         assert_eq!(claim, json!(false));
         let owed = value(
             &service,

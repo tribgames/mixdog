@@ -202,6 +202,10 @@ impl NotificationClicks for Quiet {
     fn clicked(&self, _: &ThreadId) {}
 }
 
+impl mixdog_core_domains::domains::host::BrowserSurfaces for Quiet {
+    fn requested(&self, _: mixdog_app_protocol::v2::host::UiOpenBrowser) {}
+}
+
 #[async_trait]
 impl mixdog_core_domains::domains::ai_admin::provider_status::ProviderRoster for Quiet {
     async fn accounts(&self, _: &str) -> Result<serde_json::Value, String> {
@@ -283,6 +287,10 @@ impl ExtensionHost for Quiet {
     async fn current_cwd(&self, _: Option<&str>) -> Result<std::path::PathBuf, String> {
         Ok(std::path::PathBuf::new())
     }
+    async fn plugin_mcp_summary(&self, _: Option<&str>) -> Result<Value, String> {
+        Ok(Value::Object(serde_json::Map::new()))
+    }
+
     async fn skills_status(&self) -> Value {
         json!({})
     }
@@ -537,6 +545,7 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
             remote: remote(&dir.path().join("remote")),
             local_target: Arc::new(NoDial),
             notification_clicks: quiet.clone(),
+            browser_surfaces: quiet.clone(),
             instructions_changed: quiet.clone(),
             system_proxy: Arc::new(mixdog_ai::netproxy::system::SystemProxy::default()),
             plugins: PluginSeams { host: quiet.clone(), git: quiet.clone(), announce: Arc::new(|| {}) },

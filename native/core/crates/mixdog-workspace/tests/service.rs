@@ -74,6 +74,7 @@ fn env_with(turn_review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReview
         sources: vec![Arc::new(FixedSource(base.join("export.bin")))],
         code_graph: Some(Arc::new(EchoGraph)),
         turn_review,
+        releases: mixdog_workspace::release::FolderReleases::new(),
     })
     .unwrap();
     futures_block(service.catalog().add(&root.to_string_lossy(), &CancellationToken::new(), None)).unwrap();
@@ -89,6 +90,128 @@ async fn call(env: &Env, method: &'static str, params: Value) -> Result<Value, C
         Reply::Value(v) => Ok(v),
         Reply::Subscribe(_) => panic!("unexpected subscribe"),
     }
+}
+
+struct NoneGone;
+
+#[async_trait::async_trait]
+impl mixdog_workspace::grants::SessionCatalog for NoneGone {
+    async fn has(&self, _: &str) -> mixdog_workspace::error::WsResult<bool> {
+        Ok(true)
+    }
+}
+
+/// The paired device's side of the spec's `transfer/*` (SPEC.md R44): a path outside every project is described
+/// with a one-file grant (`transfer/grant/mint`), which `transfer/beginRead` redeems for exactly that file; the
+/// request is a relay connection (origin Relay), paired as "phone-1".
+#[tokio::test(flavor = "multi_thread")]
+async fn a_paired_device_reads_one_granted_file_outside_its_projects_and_nothing_else() {
+    let env = env();
+    env.service.set_phone_grants(
+        Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(NoneGone))),
+        Arc::new(|connection: ConnectionId| (connection.0 == 1).then(|| "phone-1".to_owned())),
+    );
+    let outside = env.root.parent().unwrap().join("granted-outside");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("note.txt"), "hi\n").unwrap();
+    std::fs::write(outside.join("other.txt"), "secret\n").unwrap();
+
+    // Outside every project: the row Node's `resolveLocalPaths` answers, with a grant.
+    let minted = call(&env, "transfer/grant/mint", json!({ "path": outside.join("note.txt").to_string_lossy() })).await.unwrap();
+    assert_eq!(minted["relPath"], "note.txt");
+    assert_eq!(minted["projectPath"], outside.to_string_lossy().as_ref());
+    assert_eq!((minted["name"].clone(), minted["size"].clone(), minted["dir"].clone()), (json!("note.txt"), json!(3), json!(false)));
+    let token = minted["accessToken"].as_str().unwrap().to_owned();
+    // Inside a registered project: the project and path, no grant.
+    let inside = call(&env, "transfer/grant/mint", json!({ "path": env.root.join("a.txt").to_string_lossy() })).await.unwrap();
+    assert_eq!((inside["projectPath"].clone(), inside["relPath"].clone()), (json!(env.root.to_string_lossy()), json!("a.txt")));
+    assert!(inside.get("accessToken").is_none());
+    // A conversation's attachment is always granted.
+    let attachment = call(&env, "transfer/grant/mint", json!({ "path": env.root.join("a.txt").to_string_lossy(), "sessionId": "s1" })).await.unwrap();
+    assert!(attachment["accessToken"].is_string());
+
+    let source = |rel: &str, token: &str| json!({ "source": { "kind": "granted", "accessToken": token, "projectPath": outside.to_string_lossy(), "relPath": rel } });
+    let began = call(&env, "transfer/beginRead", source("note.txt", &token)).await.unwrap();
+    assert_eq!(began["size"], 3);
+    let range = call(&env, "transfer/readRange", json!({ "transferId": began["transferId"], "offset": 0, "length": 3 })).await.unwrap();
+    assert_eq!(range["data"], "aGkK");
+    // The editor calls over the same grant answer as they do for a project file (Node's `readProjectTextFileAuthorized` and
+    // `statProjectFileIn` over `remoteFileTarget`): the phone sends `(projectPath, relPath, accessToken)` as `root`, `rel`, `accessToken`.
+    let text = call(&env, "projectFs/readText", json!({ "root": outside.to_string_lossy(), "rel": "note.txt", "accessToken": token })).await.unwrap();
+    let project_file = call(&env, "projectFs/readText", json!({ "root": env.root.to_string_lossy(), "rel": "a.txt" })).await.unwrap();
+    let keys = |value: &Value| value.as_object().unwrap().keys().cloned().collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(keys(&text), keys(&project_file), "the same reply shape as a project file's");
+    assert_eq!((text["content"].clone(), text["binary"].clone(), text["tooLarge"].clone()), (json!("hi\n"), json!(false), json!(false)));
+    let stat = call(&env, "projectFs/stat", json!({ "root": outside.to_string_lossy(), "rel": "note.txt", "accessToken": token })).await.unwrap();
+    assert_eq!((stat["size"].clone(), stat["directory"].clone()), (json!(3), json!(false)));
+    let wrong = call(&env, "projectFs/readText", json!({ "root": outside.to_string_lossy(), "rel": "other.txt", "accessToken": token })).await;
+    assert!(format!("{wrong:?}").contains("The selected-file permission does not match this path."), "{wrong:?}");
+    let missing = call(&env, "projectFs/stat", json!({ "root": outside.to_string_lossy(), "rel": "note.txt", "accessToken": "not-a-token" })).await;
+    assert!(format!("{missing:?}").contains("SELECTED_FILE_GRANT_UNAVAILABLE"), "{missing:?}");
+    // The grant names one exact file, and a token that was never issued opens nothing.
+    let other = call(&env, "transfer/beginRead", source("other.txt", &token)).await;
+    assert!(format!("{other:?}").contains("The selected-file permission does not match this path."), "{other:?}");
+    let unknown = call(&env, "transfer/beginRead", source("note.txt", "not-a-token")).await;
+    assert!(format!("{unknown:?}").contains("SELECTED_FILE_GRANT_UNAVAILABLE"), "{unknown:?}");
+    // Without a grant a relay connection reads no absolute path.
+    let plain = call(&env, "transfer/beginRead", json!({ "source": { "kind": "localFile", "path": outside.join("other.txt").to_string_lossy() } })).await;
+    assert!(matches!(plain, Err(CoreError::PermissionDenied { .. })), "{plain:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_local_connection_reads_any_absolute_folder_while_a_relay_is_held_to_the_projects() {
+    let env = env();
+    let outside = env.root.parent().unwrap().join("unregistered");
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("note.txt"), "hello\n").unwrap();
+    let params = json!({ "root": outside.to_string_lossy(), "rel": "note.txt" });
+    // The `…In` operations of Node take any root the window resolved; the relay is the strict origin.
+    assert!(matches!(call(&env, "projectFs/readText", params.clone()).await, Err(CoreError::PermissionDenied { .. })));
+    let mut local = request("projectFs/readText", params.clone());
+    local.ctx = CallContext::connection(ConnectionId(1), Origin::Local, CancellationToken::new());
+    let Reply::Value(read) = env.service.call(local).await.unwrap() else { panic!("readText answers with a value") };
+    assert_eq!(read["content"], "hello\n");
+    let mut stat = request("projectFs/stat", params);
+    stat.ctx = CallContext::connection(ConnectionId(1), Origin::Local, CancellationToken::new());
+    let Reply::Value(stat) = env.service.call(stat).await.unwrap() else { panic!("stat answers with a value") };
+    assert_eq!(stat["directory"], false);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_staged_upload_is_named_uniquely_and_a_path_range_needs_no_transfer() {
+    let env = env();
+    let mut published = Vec::new();
+    for _ in 0..2 {
+        let began = call(&env, "transfer/beginWrite", json!({ "name": "dir\\b.txt", "size": 2, "scope": "draft1" })).await.unwrap();
+        assert_eq!(began["uploadId"], began["transferId"]);
+        assert_eq!(began["chunkBytes"], 2 * 1024 * 1024);
+        let id = began["transferId"].as_str().unwrap().to_owned();
+        call(&env, "transfer/writeChunk", json!({ "transferId": id, "offset": 0, "bytesB64": "aGk=" })).await.unwrap();
+        let done = call(&env, "transfer/commit", json!({ "transferId": id })).await.unwrap();
+        assert_eq!(std::fs::read(done["absolutePath"].as_str().unwrap()).unwrap(), b"hi");
+        published.push(done["name"].as_str().unwrap().to_owned());
+    }
+    assert_eq!(published, ["b.txt", "b (2).txt"]);
+    let bad = call(&env, "transfer/beginWrite", json!({ "name": "x", "size": 2, "scope": "../up" })).await;
+    assert!(matches!(bad, Err(CoreError::InvalidParams { .. })));
+
+    let root = env.root.to_string_lossy().into_owned();
+    let range = call(&env, "transfer/readRange", json!({ "root": root, "rel": "a.txt", "offset": 0, "length": 3 })).await.unwrap();
+    assert_eq!(range["data"], "b25l");
+    assert_eq!(range["offset"], 0);
+    assert!(range["size"].as_u64().unwrap() >= 3 && range["mtimeMs"].is_number());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stat_local_reports_a_failure_per_path() {
+    let env = env();
+    let present = env.root.join("a.txt");
+    let missing = env.root.join("missing.txt");
+    let listed = call(&env, "projectFs/statLocal", json!({ "paths": [present.to_string_lossy(), missing.to_string_lossy()] }))
+        .await
+        .unwrap();
+    assert_eq!(listed[0]["name"], "a.txt");
+    assert!(listed[1]["error"].is_string(), "a path that cannot be read carries its own error: {listed}");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -256,7 +379,7 @@ async fn workspace_text_search_and_replace_round_trip_through_the_service() {
     let found = call(&env, "projectFs/searchText", json!({ "root": root, "options": { "query": "one" } })).await.unwrap();
     assert_eq!(found["matchCount"], 1);
     let replaced =
-        call(&env, "projectFs/replaceText", json!({ "root": root, "options": { "query": "one", "replacement": "1", "matchCase": true } }))
+        call(&env, "projectFs/replaceText", json!({ "root": root, "options": { "query": "one", "matchCase": true }, "replacement": "1" }))
             .await
             .unwrap();
     assert_eq!(replaced["filesChanged"], 1);
@@ -609,9 +732,11 @@ async fn replay(env: &Env, cases: &Value, root: &str, ctx: &str) {
             "copyProjectEntryIn" => ("projectFs/copy", json!({ "root": root, "rel": args[0], "targetDirRel": args[1] })),
             "searchWorkspaceTextIn" => ("projectFs/searchText", json!({ "root": root, "options": args })),
             "replaceWorkspaceTextIn" => {
-                let mut options = args[0].clone();
-                options["replacement"] = args[1].clone();
-                ("projectFs/replaceText", json!({ "root": root, "options": options }))
+                let mut params = json!({ "root": root, "options": args[0], "replacement": args[1] });
+                if let Some(paths) = args.get(2).filter(|p| !p.is_null()) {
+                    params["relPaths"] = paths.clone();
+                }
+                ("projectFs/replaceText", params)
             }
             other => panic!("{ctx}: unmapped recorded op {other}"),
         };
@@ -841,7 +966,7 @@ async fn lsp_feed_carries_node_keyed_sections_with_a_snapshot_for_late_subscribe
     let attached = subscribe(&sub.feed, SubscriptionId::from("s1"), sub.window, None, &conn).unwrap();
     conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
     // The mock process manager starts no real server: opening a TypeScript file publishes statuses.
-    call(&env, "lsp/document", json!({ "root": root, "document": { "kind": "open", "languageId": "typescript", "relPath": "a.ts", "content": "x", "version": 1 } })).await.unwrap();
+    call(&env, "lsp/document", json!({ "projectPath": root, "root": root, "document": { "kind": "open", "languageId": "typescript", "relPath": "a.ts", "content": "x", "version": 1 } })).await.unwrap();
     let raw = conn.drain_text_until(|texts| texts.iter().any(|f| f.contains("lsp/status/updated"))).await;
     let frames: Vec<Value> = raw.iter().filter_map(|f| serde_json::from_str(f.split_once(':')?.1).ok()).collect();
     assert!(!raw.is_empty(), "no frames at all");
@@ -869,12 +994,12 @@ async fn recorded_lsp_registry_and_unsupported_answers_replay() {
     let fixture = corpus("lsp");
     let find = |op: &str| fixture["entries"].as_array().unwrap().iter().find(|e| e["op"] == op).unwrap().clone();
     let root = env.root.to_string_lossy().into_owned();
-    let doc = call(&env, "lsp/document", json!({ "root": root, "document": { "kind": "open", "languageId": "plaintext", "relPath": "a.xyz", "content": "x", "version": 1 } })).await.unwrap();
+    let doc = call(&env, "lsp/document", json!({ "projectPath": root, "root": root, "document": { "kind": "open", "languageId": "plaintext", "relPath": "a.xyz", "content": "x", "version": 1 } })).await.unwrap();
     assert_eq!(doc, find("lspDocument")["result"]);
     let request = call(
         &env,
         "lsp/request",
-        json!({ "root": root, "request": { "relPath": "a.xyz", "languageId": "plaintext", "method": "textDocument/hover", "params": { "position": { "line": 0, "character": 0 } } } }),
+        json!({ "projectPath": root, "root": root, "request": { "relPath": "a.xyz", "languageId": "plaintext", "method": "textDocument/hover", "params": { "position": { "line": 0, "character": 0 } } } }),
     )
     .await
     .unwrap();

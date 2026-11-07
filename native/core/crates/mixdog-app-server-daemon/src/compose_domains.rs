@@ -164,6 +164,8 @@ pub struct DomainSeams {
     pub local_target: Arc<dyn Dialer>,
     /// Routes a click on a desktop toast: WP-NOTIFY-ROOMS (`notify`).
     pub notification_clicks: Arc<dyn NotificationClicks>,
+    /// Publishes the host's browser surface requests as `ui/openRequested` (`host/browser/surface`).
+    pub browser_surfaces: Arc<dyn mixdog_core_domains::domains::host::BrowserSurfaces>,
     /// Drops the prompt-rules and context-status caches and publishes the profile change: WP-SESSION.
     pub instructions_changed: Arc<dyn InstructionsChanged>,
     /// The one OS proxy decision of the process: WP-AI-SVC.
@@ -339,6 +341,9 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
         &inputs.tokens,
     );
     let workflow_config_concrete = workflow_config.clone();
+    // `presets`, `webSearch` and `workflows`: the pushed form of `listPresets`, `getWebSearchRoute` and `listWorkflows`.
+    mixdog_core_config::workflow::sections::spawn_sections(workflow_config.clone(), state.publisher.clone(), inputs.cancel.clone())
+        .map_err(|error| ComposeDomainsError::Watch(mixdog_core_config::config::ConfigError::Io(std::io::Error::other(error.to_string()))))?;
     let workflow: Arc<dyn DomainService> = workflow_config.clone();
     services.push(workflow.clone());
     services.push(Arc::new(BrowserService::new(inputs.host.clone())));

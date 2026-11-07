@@ -966,6 +966,10 @@ async fn a_started_thread_adopts_its_route_before_its_tools_and_seats_it_once_cr
             lock(&self.0).push(json!(["adopt", thread, draft]));
             Ok(json!({ "provider": "custom-harness", "model": "harness-model", "preset": { "name": "Lead" } }).as_object().cloned().expect("route"))
         }
+        async fn adopt_control(&self, thread: &ThreadId) -> Result<serde_json::Map<String, Value>, String> {
+            lock(&self.0).push(json!(["adoptControl", thread]));
+            Ok(serde_json::Map::new())
+        }
         async fn seat(&self, thread: &ThreadId) -> Result<(), String> {
             lock(&self.0).push(json!(["seat", thread]));
             Ok(())
@@ -1016,6 +1020,9 @@ async fn a_start_whose_route_is_refused_creates_no_thread() {
         async fn adopt(&self, _: &ThreadId, _: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
             Err("No model selected. Choose a model with /model first.".to_owned())
         }
+        async fn adopt_control(&self, _: &ThreadId) -> Result<serde_json::Map<String, Value>, String> {
+            panic!("a task start never adopts the control route")
+        }
         async fn seat(&self, _: &ThreadId) -> Result<(), String> {
             panic!("a refused route is never seated")
         }
@@ -1041,6 +1048,180 @@ async fn a_start_whose_route_is_refused_creates_no_thread() {
     assert!(directory.loaded_ids().is_empty());
 }
 
+/// The desktop's control session is created before any model is chosen (Node's `ensureControlSession`; a turn is what
+/// needs one): a `kind: "control"` start takes its route as it is, while a task start on the same route is refused.
+#[tokio::test(start_paused = true)]
+async fn a_control_start_needs_no_model_where_a_task_start_does() {
+    use mixdog_store::schema::record::Header;
+    type Steps = Arc<Mutex<Vec<Value>>>;
+    struct Modelless(Steps);
+    #[async_trait::async_trait]
+    impl super::NewThreadRoute for Modelless {
+        async fn adopt(&self, _: &ThreadId, _: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
+            Err("No provider models available. Open /providers to sign in, then /model to choose a model.".to_owned())
+        }
+        async fn adopt_control(&self, thread: &ThreadId) -> Result<serde_json::Map<String, Value>, String> {
+            lock(&self.0).push(json!(["adoptControl", thread]));
+            Ok(serde_json::Map::new())
+        }
+        async fn seat(&self, thread: &ThreadId) -> Result<(), String> {
+            lock(&self.0).push(json!(["seat", thread]));
+            Ok(())
+        }
+    }
+    struct Tools(Steps);
+    #[async_trait::async_trait]
+    impl super::NewThreadTools for Tools {
+        async fn seed(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+            lock(&self.0).push(json!(["seed", thread]));
+            Ok(header.clone())
+        }
+    }
+    let rig = Rig::new();
+    let steps: Steps = Arc::default();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_route = Arc::new(Modelless(steps.clone()));
+    deps.new_tools = Arc::new(Tools(steps.clone()));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let refused = directory.request(request("thread/start", json!({ "opId": "op-task", "kind": "task" }), "op-task")).await.err().expect("a task needs a model");
+    assert!(format!("{refused:?}").contains("No provider models available"), "{refused:?}");
+    assert!(lock(&steps).is_empty());
+    let reply = directory.request(request("thread/start", json!({ "opId": "op-control", "kind": "control" }), "op-control")).await.expect("a control start needs no model");
+    let Reply::Subscribe(started) = reply else { panic!("thread/start subscribes") };
+    let control = ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id"));
+    assert_eq!(*lock(&steps), [json!(["adoptControl", control]), json!(["seed", control]), json!(["seat", control])]);
+}
+
+/// A thread whose tools were seeded and that is then not created is abandoned exactly once, whichever
+/// way `thread/start` ends: a failed `create`, a refused seed, a request cancelled mid-seed. A
+/// thread that is created is not abandoned (what the seed opened for it lives until it closes).
+#[tokio::test(start_paused = true)]
+async fn a_seeded_thread_that_is_not_created_is_abandoned_once() {
+    use mixdog_store::schema::record::Header;
+    enum Mode {
+        Seed,
+        Refuse,
+        Hang(Arc<tokio::sync::Notify>),
+    }
+    struct Tools {
+        mode: Mutex<Mode>,
+        seeded: Mutex<Vec<ThreadId>>,
+        abandoned: Mutex<Vec<ThreadId>>,
+    }
+    #[async_trait::async_trait]
+    impl super::NewThreadTools for Tools {
+        async fn seed(&self, thread: &ThreadId, header: &Header) -> Result<Header, String> {
+            lock(&self.seeded).push(thread.clone());
+            let entered = match &*lock(&self.mode) {
+                Mode::Seed => None,
+                Mode::Refuse => return Err("refused".to_owned()),
+                Mode::Hang(entered) => Some(entered.clone()),
+            };
+            if let Some(entered) = entered {
+                entered.notify_one();
+                std::future::pending::<()>().await;
+            }
+            Ok(header.clone())
+        }
+        fn abandon(&self, thread: &ThreadId) {
+            lock(&self.abandoned).push(thread.clone());
+        }
+    }
+    let rig = Rig::new();
+    let tools = Arc::new(Tools { mode: Mutex::new(Mode::Seed), seeded: Mutex::default(), abandoned: Mutex::default() });
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_tools = tools.clone();
+    let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
+    let start = |op: &'static str| {
+        let directory = directory.clone();
+        async move { directory.request(request("thread/start", json!({ "opId": op, "kind": "task" }), op)).await }
+    };
+    let abandoned_as_seeded = |count: usize| {
+        let (seeded, abandoned) = (lock(&tools.seeded).clone(), lock(&tools.abandoned).clone());
+        assert_eq!(abandoned.len(), count, "{abandoned:?}");
+        assert_eq!(abandoned, seeded[..count], "each abandoned thread is the one that was seeded");
+    };
+
+    // `create` fails (the first commit of the new log is rolled back).
+    rig.store.fail_next.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(start("op-create").await.is_err());
+    abandoned_as_seeded(1);
+    // The seed itself is refused.
+    *lock(&tools.mode) = Mode::Refuse;
+    assert!(start("op-refused").await.is_err());
+    abandoned_as_seeded(2);
+    // The request is cancelled while the seed runs.
+    let entered = Arc::new(tokio::sync::Notify::new());
+    *lock(&tools.mode) = Mode::Hang(entered.clone());
+    let task = tokio::spawn(start("op-cancelled"));
+    entered.notified().await;
+    task.abort();
+    assert!(task.await.is_err(), "the request was cancelled");
+    abandoned_as_seeded(3);
+    // A thread that is created is not abandoned.
+    *lock(&tools.mode) = Mode::Seed;
+    assert!(start("op-created").await.is_ok());
+    assert_eq!(lock(&tools.seeded).len(), 4);
+    abandoned_as_seeded(3);
+    assert_eq!(directory.loaded_ids().len(), 1);
+}
+
+/// A request cancelled after the thread is published and before its first record is acknowledged
+/// (`create`'s wait on the actor) does not release the scope of the thread that then gets created:
+/// the actor owns the seed from the publication. When that first record fails instead, the actor
+/// abandons it, whoever is still waiting.
+#[tokio::test(start_paused = true)]
+async fn a_start_cancelled_after_the_thread_is_published_leaves_its_scope_to_the_actor() {
+    use mixdog_store::schema::record::Header;
+    struct Tools(Mutex<Vec<ThreadId>>);
+    #[async_trait::async_trait]
+    impl super::NewThreadTools for Tools {
+        async fn seed(&self, _: &ThreadId, header: &Header) -> Result<Header, String> {
+            Ok(header.clone())
+        }
+        fn abandon(&self, thread: &ThreadId) {
+            lock(&self.0).push(thread.clone());
+        }
+    }
+    let rig = Rig::new();
+    let tools = Arc::new(Tools(Mutex::default()));
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_tools = tools.clone();
+    let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
+    let cancelled_in_the_window = |op: &'static str| {
+        let (arrived, go) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
+        *lock(&rig.store.create_gate) = Some((arrived.clone(), go.1));
+        let directory = directory.clone();
+        let task = tokio::spawn(async move { directory.request(request("thread/start", json!({ "opId": op, "kind": "task" }), op)).await });
+        async move {
+            // The actor is published and its `session` record is at the store, unacknowledged.
+            arrived.notified().await;
+            task.abort();
+            assert!(task.await.is_err(), "the request was cancelled");
+            go.0
+        }
+    };
+
+    let release = cancelled_in_the_window("op-window").await;
+    assert!(lock(&tools.0).is_empty(), "the cancelled caller released nothing");
+    let id = directory.loaded_ids().pop().expect("the published thread");
+    release.send(()).expect("lane waits");
+    eventually(|| (rig.store.records(&id).len() == 1).then_some(())).await;
+    let handle = directory.handle(&id).expect("loaded");
+    handle
+        .request(CoreRequest { method: Method("thread/header/patch"), params: json!({ "threadId": id, "set": {}, "unset": [] }), op: None, ctx: CallContext::internal("test") })
+        .await
+        .expect("the created thread answers");
+    assert!(lock(&tools.0).is_empty(), "a thread that was created keeps its scope");
+
+    rig.store.fail_next.store(true, std::sync::atomic::Ordering::SeqCst);
+    let release = cancelled_in_the_window("op-failed").await;
+    let failed = directory.loaded_ids().into_iter().find(|loaded| *loaded != id).expect("the second published thread");
+    release.send(()).expect("lane waits");
+    let abandoned = eventually(|| Some(lock(&tools.0).clone()).filter(|abandoned| !abandoned.is_empty())).await;
+    assert_eq!(abandoned, [failed], "the actor abandons the seed of a thread whose first record failed");
+}
+
 /// A `thread/start` with no `session` options is a `full` Lead denied the goal tools, as
 /// Node's `sessionOptions` makes it.
 #[tokio::test(start_paused = true)]
@@ -1053,6 +1234,138 @@ async fn a_thread_started_without_options_still_denies_the_goal_tools() {
     let header = directory.handle(&id).expect("loaded").cell.header.load_full();
     assert_eq!(header["toolSpec"], "full");
     assert_eq!(header["disallowedTools"], json!(["get_goal", "create_goal", "set_goal_tasks", "update_goal"]));
+}
+
+/// `kind: task` with no project begins in the task workspace the core resolves (Node: `cwd: await taskWorkspace()` for a
+/// task session and for the control session); a project path is kept, and a project start names no task folder.
+#[tokio::test(start_paused = true)]
+async fn a_task_thread_begins_in_the_task_workspace() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(Arc::new(rig.deps_parts(rig.store.clone())));
+    let cwd_of = |reply: Reply| {
+        let Reply::Subscribe(started) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id"));
+        directory.handle(&id).expect("loaded").cell.header.load_full().get("cwd").cloned()
+    };
+    let task = directory.request(request("thread/start", json!({ "opId": "op-task", "kind": "task" }), "op-task")).await.expect("thread/start");
+    assert_eq!(cwd_of(task), Some(json!("/tasks")));
+    let kept = directory
+        .request(request("thread/start", json!({ "opId": "op-kept", "kind": "task", "projectPath": "/repo" }), "op-kept"))
+        .await
+        .expect("thread/start");
+    assert_eq!(cwd_of(kept), Some(json!("/repo")));
+    let project = directory.request(request("thread/start", json!({ "opId": "op-proj", "kind": "project" }), "op-proj")).await.expect("thread/start");
+    assert_eq!(cwd_of(project), None);
+}
+
+/// A new task or project thread carries Node's `desktopSession` classification in its header (the host's
+/// `resolveSessionWorkspace`); the control session (no draft, no project) carries none (`desktopSession: null`).
+#[tokio::test(start_paused = true)]
+async fn a_started_thread_is_classified_as_the_desktop_host_classifies_a_session() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(Arc::new(rig.deps_parts(rig.store.clone())));
+    let header_of = |reply: Reply| {
+        let Reply::Subscribe(started) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id"));
+        directory.handle(&id).expect("loaded").cell.header.load_full()
+    };
+    let start = |op: &'static str, params: Value| {
+        let directory = &directory;
+        async move { directory.request(request("thread/start", params, op)).await.expect("thread/start") }
+    };
+    let task = header_of(start("op-task", json!({ "opId": "op-task", "kind": "task", "draft": {} })).await);
+    assert_eq!(task["desktopSession"], json!({ "classification": "task", "projectPath": null }));
+    assert_eq!(task["cwd"], "/tasks");
+    let drafted = header_of(start("op-draft", json!({ "opId": "op-draft", "kind": "task", "draft": { "projectPath": "/repo" } })).await);
+    assert_eq!(drafted["desktopSession"], json!({ "classification": "project", "projectPath": "/repo" }));
+    assert_eq!(drafted["cwd"], "/repo");
+    let project = header_of(start("op-proj", json!({ "opId": "op-proj", "kind": "project", "projectPath": "/repo" })).await);
+    assert_eq!(project["desktopSession"], json!({ "classification": "project", "projectPath": "/repo" }));
+    let blank = header_of(start("op-blank", json!({ "opId": "op-blank", "kind": "task", "draft": { "projectPath": "  " } })).await);
+    assert_eq!(blank["desktopSession"], json!({ "classification": "task", "projectPath": null }));
+    // The control session is its own kind (`ensureControlSession`): the task workspace and no classification, whatever else the
+    // request names.
+    let control = header_of(start("op-control", json!({ "opId": "op-control", "kind": "control" })).await);
+    assert!(control.get("desktopSession").is_none());
+    assert_eq!(control["cwd"], "/tasks");
+    let named = header_of(start("op-named", json!({ "opId": "op-named", "kind": "control", "draft": { "projectPath": "/repo" } })).await);
+    assert!(named.get("desktopSession").is_none());
+    assert_eq!(named["cwd"], "/tasks");
+    // A task start with no draft and no project is not the control session by inference: it takes no classification either (a
+    // client without a host, as Node's TUI), but it is not marked.
+    let bare = header_of(start("op-bare-task", json!({ "opId": "op-bare-task", "kind": "task" })).await);
+    assert!(bare.get("desktopSession").is_none());
+}
+
+/// The draft's worktree is entered after the thread exists and before the first prompt, through the workspace seam, with the
+/// worktree choice and the start's input; a draft without one, and a control start, enter nothing (`createNewTask`).
+#[tokio::test(start_paused = true)]
+async fn a_drafts_worktree_is_entered_once_the_thread_exists() {
+    let rig = Rig::new();
+    let place = Arc::new(super::testing::RecordingPlace::default());
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_place = place.clone();
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let draft = json!({ "projectPath": "/repo", "worktree": { "branch": "feat", "create": true } });
+    let reply = directory.request(request("thread/start", json!({ "opId": "op-wt", "kind": "task", "draft": draft }), "op-wt")).await.expect("thread/start");
+    let Reply::Subscribe(started) = reply else { panic!("thread/start subscribes") };
+    let id = started.result["thread"]["id"].as_str().expect("thread id").to_owned();
+    let header = directory.handle(&ThreadId::from(id.as_str())).expect("loaded").cell.header.load_full();
+    // The project stays the project; the workspace service moves the folder.
+    assert_eq!(header["desktopSession"], json!({ "classification": "project", "projectPath": "/repo" }));
+    assert_eq!(*lock(&place.entered), vec![(id, json!({ "branch": "feat", "create": true }), None)]);
+    directory.request(request("thread/start", json!({ "opId": "op-plain", "kind": "task", "draft": { "projectPath": "/repo" } }), "op-plain")).await.expect("thread/start");
+    directory.request(request("thread/start", json!({ "opId": "op-ctl", "kind": "control", "draft": { "worktree": { "fromDefault": true } } }), "op-ctl")).await.expect("thread/start");
+    assert_eq!(lock(&place.entered).len(), 1);
+}
+
+/// A fork the desktop makes is placed as `inheritSession` places its heir (`resolveSessionWorkspace(sessionProjectPath(source))`):
+/// in the source's Project, or in the task workspace, with a fresh classification and no worktree record; a source of another
+/// client keeps its header, and an inherit into an existing thread keeps that thread's place.
+#[tokio::test(start_paused = true)]
+async fn a_fork_is_placed_where_the_desktop_places_an_heir() {
+    use mixdog_store::schema::record::Header;
+    let rig = Rig::new();
+    let place = Arc::new(super::testing::RecordingPlace { projects: vec!["/repo".to_owned()], ..Default::default() });
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_place = place;
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let source = |cwd: &str, desktop: Value| {
+        let mut header = Header::new();
+        header.insert("createdAt".into(), json!(1));
+        header.insert("updatedAt".into(), json!(1));
+        header.insert("cwd".into(), json!(cwd));
+        if !desktop.is_null() {
+            header.insert("desktopSession".into(), desktop);
+            header.insert("workspace".into(), json!({ "worktreeId": "w1", "cwd": cwd, "projectPath": "/repo" }));
+        }
+        header
+    };
+    let fork = |id: &'static str, header: Header, extra: Value| {
+        let directory = &directory;
+        async move {
+            let thread = ThreadId::from(id.to_owned());
+            directory.create_with_id(thread.clone(), header, json!({})).await.expect("source");
+            let mut params = json!({ "threadId": id, "opId": format!("op-{id}") });
+            params.as_object_mut().expect("object").extend(extra.as_object().expect("object").clone());
+            let reply = directory.handle(&thread).expect("loaded").request(request("thread/fork", params, &format!("op-{id}"))).await.expect("thread/fork");
+            let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
+            let heir = ThreadId::from(value["thread"]["id"].as_str().expect("heir id"));
+            directory.handle(&heir).expect("loaded").cell.header.load_full()
+        }
+    };
+    let in_worktree = fork("src_wt", source("/repo/.wt/feat", json!({ "classification": "project", "projectPath": "/repo" })), json!({})).await;
+    assert_eq!(in_worktree["cwd"], "/repo");
+    assert_eq!(in_worktree["desktopSession"], json!({ "classification": "project", "projectPath": "/repo" }));
+    assert!(in_worktree.get("workspace").is_none());
+    let in_tasks = fork("src_task", source("/tasks", json!({ "classification": "task", "projectPath": null })), json!({})).await;
+    assert_eq!(in_tasks["cwd"], "/tasks");
+    assert_eq!(in_tasks["desktopSession"], json!({ "classification": "task", "projectPath": null }));
+    let foreign = fork("src_tui", source("/elsewhere", Value::Null), json!({})).await;
+    assert_eq!(foreign["cwd"], "/elsewhere");
+    assert!(foreign.get("desktopSession").is_none());
+    let into = fork("src_into", source("/repo/.wt/feat", json!({ "classification": "project", "projectPath": "/repo" })), json!({ "intoThreadId": "heir_existing" })).await;
+    assert_eq!(into["cwd"], "/repo/.wt/feat");
 }
 
 /// `notification-bus.test.mjs` "a queued completion wakes its owner session" and
@@ -1335,6 +1648,8 @@ async fn a_delete_closes_the_running_turn_and_purges_in_nodes_order() {
     expected.extend([format!("thread/deleted:{s}"), format!("forgetSessionSearch:{s}"), format!("releaseDeletedWorktree:{s}")]);
     eventually_on(&[&handle.cell.stepped, &rig.deletes.1], || (lock(&rig.deletes.0).len() == expected.len()).then_some(())).await;
     assert_eq!(*lock(&rig.deletes.0), expected);
+    // The deleted session's MCP scope is released with its close (the servers it connected close).
+    assert_eq!(*lock(&rig.deletes.2), [s.to_owned()]);
 
     // Deleted already, or not a session id: nothing is deleted, nothing runs.
     let other = start_thread(&directory).await;
@@ -1374,9 +1689,11 @@ async fn a_delete_whose_mark_fails_logs_no_close() {
     assert!(matches!(reply, Reply::Value(Value::Bool(false))), "{reply:?}");
     let closes = |rig: &Rig| lock(&rig.deletes.0).iter().filter(|step| step.starts_with("sessionClosed:")).count();
     assert_eq!(closes(&rig), 0, "an unacknowledged mark is not a close");
+    assert!(lock(&rig.deletes.2).is_empty(), "nor does it release the session's MCP scope");
     let reply = delete(&other, "op-ok").await;
     assert!(matches!(reply, Reply::Value(Value::Bool(true))), "{reply:?}");
     assert_eq!(closes(&rig), 1);
+    assert_eq!(*lock(&rig.deletes.2), [other.id.as_str().to_owned()]);
 }
 
 /// A deleted base keeps its files while a fork reads them: the fork still opens with the
@@ -1472,7 +1789,8 @@ async fn an_idle_delete_refuses_as_node_does_and_deletes_an_idle_archived_sessio
     turn(&handle, "work", "op-1").await;
     assert_eq!(ask(json!({})).await, refused("busy"));
     release.notify_one();
-    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    // Not settled yet, the turn still holds what Node's ask lock is held for (`busy`).
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.turn_held.load(std::sync::atomic::Ordering::SeqCst)).then_some(())).await;
     // The turn moved `lastUsedAt` past what the caller saw.
     let used = tokio::time::timeout(std::time::Duration::from_secs(10), async {
         loop {
@@ -1487,7 +1805,7 @@ async fn an_idle_delete_refuses_as_node_does_and_deletes_an_idle_archived_sessio
     .expect("the completed turn stamps lastUsedAt");
     assert_eq!(ask(json!({ "lastUsedAt": used - 1.0 })).await, refused("changed"));
     assert!(lock(&rig.deletes.0).is_empty(), "a refusal deletes nothing");
-    assert_eq!(ask(json!({ "lastUsedAt": used })).await, json!({ "deleted": true }));
+    assert_eq!(ask(json!({ "lastUsedAt": used })).await, super::delete_idle_tests::recorded("deleted")["reply"]);
     let s = id.as_str();
     let worktree = format!("releaseDeletedWorktree:{s}");
     eventually_on(&[&handle.cell.stepped, &rig.deletes.1], || lock(&rig.deletes.0).contains(&worktree).then_some(())).await;
@@ -1632,6 +1950,45 @@ async fn an_item_cursor_into_rewound_or_cleared_history_is_invalidated() {
     handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-4" }), "op-4")).await.expect("clear");
     eventually_on(&[&handle.cell.stepped], || rows(&handle).is_empty().then_some(())).await;
     assert!(matches!(list(&shown[0]).await, Err(CoreError::CursorInvalidated { .. })));
+}
+
+/// `thread/clear` with `rebuildPrompt` (Node's `clear({ rebuildPrompt })`): the emptied thread's surface is composed again and the
+/// answer says whether that applied; without it nothing is rebuilt; a running turn refuses it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn clear_with_rebuild_prompt_reseeds_the_emptied_thread_and_answers_whether_it_applied() {
+    struct Reseeds(Arc<Mutex<Vec<ThreadId>>>, bool);
+    #[async_trait::async_trait]
+    impl super::EmptyToolSurface for Reseeds {
+        async fn refresh_empty(&self, thread: &ThreadId) -> Result<bool, String> {
+            self.0.lock().expect("calls").push(thread.clone());
+            Ok(self.1)
+        }
+    }
+    for applied in [true, false] {
+        let data = tempfile::tempdir().expect("data dir");
+        let store = real_store(data.path()).await;
+        let rig = Rig::new();
+        rig.set_script(echo());
+        let calls: Arc<Mutex<Vec<ThreadId>>> = Arc::default();
+        let mut deps = rig.deps_parts(store);
+        deps.empty_surface = Arc::new(Reseeds(calls.clone(), applied));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let handle = start_thread(&directory).await;
+        turn(&handle, "one", "op-1").await;
+        eventually_on(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+        let Reply::Value(plain) = handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-2" }), "op-2")).await.expect("clear") else { panic!("a value") };
+        assert_eq!(plain, json!({}), "without rebuildPrompt the answer is the clear's own");
+        assert!(calls.lock().expect("calls").is_empty(), "nothing is rebuilt without it");
+        let Reply::Value(rebuilt) = handle
+            .request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-3", "rebuildPrompt": true }), "op-3"))
+            .await
+            .expect("clear")
+        else {
+            panic!("a value")
+        };
+        assert_eq!(rebuilt, json!({ "promptRebuilt": applied }));
+        assert_eq!(*calls.lock().expect("calls"), [handle.id.clone()]);
+    }
 }
 
 /// The run publishes its progress into the session cell; the registry's `runtime_stage` and the
@@ -2559,11 +2916,11 @@ async fn the_real_store_reopens_a_thread_and_appends_after_it() {
         ))
         .await
         .expect("name/set");
-    // The index answers the metadata with the raw title, without loading anything.
+    // The index answers the metadata with the stored (normalized) title, without loading anything.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     let meta = loop {
         let meta = first.session_meta(&id).await.expect("meta");
-        if meta.as_ref().is_some_and(|m| m.title.as_deref() == Some("  Haiku  ")) {
+        if meta.as_ref().is_some_and(|m| m.title.as_deref() == Some("Haiku")) {
             break meta.expect("listed");
         }
         assert!(tokio::time::Instant::now() < deadline, "meta not indexed: {meta:?}");
@@ -3373,4 +3730,62 @@ async fn a_cancel_whose_store_write_fails_still_disarms_the_pending_resume() {
     }
     assert_eq!(outcome, Ok(FireOutcome::Stale), "the cancelled resume does not fire");
     assert!(!rows(&handle).iter().any(|(role, text)| *role == "assistant" && text.starts_with("re: ")), "and the failed turn was not replayed");
+}
+
+/// A user's rename as Node's runtime answers it (`record-session-rename.mjs` → `session-rename-twin.json`,
+/// `updateSessionManualTitle`): every case's outcome and the title keys left on the session are Node's, and a refusal is the
+/// text the desktop host shows for it (`Session is not available.`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rename_is_refused_and_leaves_the_session_as_nodes_runtime_does() {
+    let twin: Value = serde_json::from_str(include_str!("../../../../fixtures/desktop/settings/session-rename-twin.json")).unwrap();
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let kept = |header: &serde_json::Map<String, Value>| {
+        json!({
+            "title": header.get("title").cloned().unwrap_or(Value::Null),
+            "titleLocked": header.get("titleLocked").cloned().unwrap_or(Value::Null),
+            "titleSource": header.get("titleSource").cloned().unwrap_or(Value::Null),
+            "stamped": header.get("titleUpdatedAt").is_some_and(|stamp| stamp.as_i64().is_some_and(|stamp| stamp > 0)),
+        })
+    };
+    let mut refused = 0;
+    for (index, case) in twin["cases"].as_array().unwrap().iter().enumerate() {
+        let label = format!("case {index} {} {:?}", case["state"], case["title"]);
+        let handle = start_thread(&directory).await;
+        let patch = json!({ "threadId": handle.id, "set": case["initial"], "unset": [] });
+        handle
+            .request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") })
+            .await
+            .expect("plant");
+        let before = handle.live_header().header();
+        let op = format!("op-rename-{index}");
+        let answer = handle.request(request("thread/name/set", json!({ "threadId": handle.id, "opId": op, "title": case["title"] }), &op)).await;
+        let after = handle.live_header().header();
+        // The IPC and remote edge of Node (`sessionDisplayName`) is the core's now: a title it refuses never reaches the host's
+        // or the runtime's rule, and the twin's `runtime`/`desktop` answers for it (recorded without that edge) do not apply.
+        let title = case["title"].as_str().unwrap();
+        let shown = title.trim();
+        if shown.is_empty() || shown.encode_utf16().count() > 1_024 || shown.chars().any(|c| c <= '\u{1f}' || c == '\u{7f}') {
+            refused += 1;
+            let Err(CoreError::DomainError { message: Some(message), code: None, .. }) = &answer else { panic!("{label}: got {answer:?}") };
+            assert_eq!(&**message, "title is invalid.", "{label}");
+            assert_eq!(after, before, "{label}: a refused rename writes nothing");
+            continue;
+        }
+        let node = &case["runtime"];
+        match (answer, node["returned"].as_bool().unwrap()) {
+            (Ok(_), true) => {
+                let want = &node["kept"];
+                let got = kept(&after);
+                assert_eq!((&got["title"], &got["titleLocked"], &got["titleSource"], &got["stamped"]), (&want["title"], &want["titleLocked"], &want["titleSource"], &want["stamped"]), "{label}");
+            }
+            (Err(CoreError::DomainError { message: Some(message), code: None, .. }), false) => {
+                refused += 1;
+                assert_eq!(&*message, "Session is not available.", "{label}");
+                assert_eq!(after, before, "{label}: a refused rename writes nothing");
+            }
+            (answer, returned) => panic!("{label}: got {answer:?}, Node returned {returned}"),
+        }
+    }
+    assert!(refused > 15, "the twin refuses {refused} renames");
 }

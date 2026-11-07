@@ -1,0 +1,816 @@
+{
+  "domain": "boot-recovery",
+  "recorder": "benchmarks/rust-core/recorders/record-boot-recovery.mjs",
+  "clock": 2200000000000,
+  "cases": [
+    {
+      "name": "session-client",
+      "note": "a session client registers: the lane recovers the active Goal only, then starts the quota clock",
+      "files": {
+        "sess_boot_active": {
+          "version": 1,
+          "goal": {
+            "id": "goal-active-sess_boot_active",
+            "sessionId": "sess_boot_active",
+            "objective": "Keep active Goal",
+            "title": "active Goal",
+            "status": "active",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": 2199999995000,
+            "completedAt": null,
+            "archivedAt": null
+          }
+        },
+        "sess_boot_paused": {
+          "version": 1,
+          "goal": {
+            "id": "goal-paused-sess_boot_paused",
+            "sessionId": "sess_boot_paused",
+            "objective": "Keep paused Goal",
+            "title": "paused Goal",
+            "status": "paused",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": null,
+            "completedAt": null,
+            "archivedAt": null
+          }
+        },
+        "sess_boot_expired": {
+          "version": 1,
+          "goal": {
+            "id": "goal-complete-sess_boot_expired",
+            "sessionId": "sess_boot_expired",
+            "objective": "Keep complete Goal",
+            "title": "complete Goal",
+            "status": "complete",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": null,
+            "completedAt": 2199913600000,
+            "archivedAt": null
+          }
+        }
+      },
+      "inject": {},
+      "triggers": [
+        {
+          "registered": "session"
+        }
+      ],
+      "queuedAfterEach": [
+        1
+      ],
+      "events": [
+        "keychain",
+        "recover",
+        "materialize sess_boot_active",
+        "quota-start"
+      ],
+      "logs": [
+        "active Goal recovery found=1 resumed=1 skipped=0 failed=0"
+      ],
+      "goalsLeft": [
+        "sess_boot_active.json",
+        "sess_boot_paused.json"
+      ],
+      "status": {
+        "keychain": "started",
+        "background": "started"
+      }
+    },
+    {
+      "name": "desktop-registration-only",
+      "note": "a desktop registers: nothing recovers until it is ready",
+      "files": {
+        "sess_boot_active": {
+          "version": 1,
+          "goal": {
+            "id": "goal-active-sess_boot_active",
+            "sessionId": "sess_boot_active",
+            "objective": "Keep active Goal",
+            "title": "active Goal",
+            "status": "active",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": 2199999995000,
+            "completedAt": null,
+            "archivedAt": null
+          }
+        },
+        "sess_boot_paused": {
+          "version": 1,
+          "goal": {
+            "id": "goal-paused-sess_boot_paused",
+            "sessionId": "sess_boot_paused",
+            "objective": "Keep paused Goal",
+            "title": "paused Goal",
+            "status": "paused",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": null,
+            "completedAt": null,
+            "archivedAt": null
+          }
+        },
+        "sess_boot_expired": {
+          "version": 1,
+          "goal": {
+            "id": "goal-complete-sess_boot_expired",
+            "sessionId": "sess_boot_expired",
+            "objective": "Keep complete Goal",
+            "title": "complete Goal",
+            "status": "complete",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": null,
+            "completedAt": 2199913600000,
+            "archivedAt": null
+          }
+        }
+      },
+      "inject": {},
+      "triggers": [
+        {
+          "registered": "desktop"
+        }
+      ],
+      "queuedAfterEach": [
+        1
+      ],
+      "events": [
+        "keychain"
+      ],
+      "logs": [],
+      "goalsLeft": [
+        "sess_boot_active.json",
+        "sess_boot_expired.json",
+        "sess_boot_paused.json"
+      ],
+      "status": {
+        "keychain": "started",
+        "background": "idle"
+      }
+    },
+    {
+      "name": "desktop-ready",
+      "note": "a desktop registers and is ready: the lane runs after the keychain",
+      "files": {
+        "sess_boot_active": {
+          "version": 1,
+          "goal": {
+            "id": "goal-active-sess_boot_active",
+            "sessionId": "sess_boot_active",
+            "objective": "Keep active Goal",
+            "title": "active Goal",
+            "status": "active",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": 2199999995000,
+            "completedAt": null,
+            "archivedAt": null
+          }
+        },
+        "sess_boot_paused": {
+          "version": 1,
+          "goal": {
+            "id": "goal-paused-sess_boot_paused",
+            "sessionId": "sess_boot_paused",
+            "objective": "Keep paused Goal",
+            "title": "paused Goal",
+            "status": "paused",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": null,
+            "completedAt": null,
+            "archivedAt": null
+          }
+        },
+        "sess_boot_expired": {
+          "version": 1,
+          "goal": {
+            "id": "goal-complete-sess_boot_expired",
+            "sessionId": "sess_boot_expired",
+            "objective": "Keep complete Goal",
+            "title": "complete Goal",
+            "status": "complete",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": null,
+            "completedAt": 2199913600000,
+            "archivedAt": null
+          }
+        }
+      },
+      "inject": {},
+      "triggers": [
+        {
+          "registered": "desktop"
+        },
+        {
+          "ready": true
+        }
+      ],
+      "queuedAfterEach": [
+        1,
+        1
+      ],
+      "events": [
+        "keychain",
+        "recover",
+        "materialize sess_boot_active",
+        "quota-start"
+      ],
+      "logs": [
+        "active Goal recovery found=1 resumed=1 skipped=0 failed=0"
+      ],
+      "goalsLeft": [
+        "sess_boot_active.json",
+        "sess_boot_paused.json"
+      ],
+      "status": {
+        "keychain": "started",
+        "background": "started"
+      }
+    },
+    {
+      "name": "once",
+      "note": "every later client and ready signal joins the lane that began",
+      "files": {
+        "sess_boot_active": {
+          "version": 1,
+          "goal": {
+            "id": "goal-active-sess_boot_active",
+            "sessionId": "sess_boot_active",
+            "objective": "Keep active Goal",
+            "title": "active Goal",
+            "status": "active",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": 2199999995000,
+            "completedAt": null,
+            "archivedAt": null
+          }
+        },
+        "sess_boot_paused": {
+          "version": 1,
+          "goal": {
+            "id": "goal-paused-sess_boot_paused",
+            "sessionId": "sess_boot_paused",
+            "objective": "Keep paused Goal",
+            "title": "paused Goal",
+            "status": "paused",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": null,
+            "completedAt": null,
+            "archivedAt": null
+          }
+        },
+        "sess_boot_expired": {
+          "version": 1,
+          "goal": {
+            "id": "goal-complete-sess_boot_expired",
+            "sessionId": "sess_boot_expired",
+            "objective": "Keep complete Goal",
+            "title": "complete Goal",
+            "status": "complete",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": null,
+            "completedAt": 2199913600000,
+            "archivedAt": null
+          }
+        }
+      },
+      "inject": {},
+      "triggers": [
+        {
+          "registered": "session"
+        },
+        {
+          "registered": "session"
+        },
+        {
+          "ready": true
+        },
+        {
+          "registered": "desktop"
+        }
+      ],
+      "queuedAfterEach": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "events": [
+        "keychain",
+        "recover",
+        "materialize sess_boot_active",
+        "quota-start"
+      ],
+      "logs": [
+        "active Goal recovery found=1 resumed=1 skipped=0 failed=0"
+      ],
+      "goalsLeft": [
+        "sess_boot_active.json",
+        "sess_boot_paused.json"
+      ],
+      "status": {
+        "keychain": "started",
+        "background": "started"
+      }
+    },
+    {
+      "name": "nothing-stored",
+      "note": "no Goal is stored",
+      "files": {},
+      "inject": {},
+      "triggers": [
+        {
+          "registered": "session"
+        }
+      ],
+      "queuedAfterEach": [
+        1
+      ],
+      "events": [
+        "keychain",
+        "recover",
+        "quota-start"
+      ],
+      "logs": [
+        "active Goal recovery found=0 resumed=0 skipped=0 failed=0"
+      ],
+      "goalsLeft": [],
+      "status": {
+        "keychain": "started",
+        "background": "started"
+      }
+    },
+    {
+      "name": "materialize-fails",
+      "note": "one active Goal cannot be materialized: the others still are",
+      "files": {
+        "sess_boot_active": {
+          "version": 1,
+          "goal": {
+            "id": "goal-active-sess_boot_active",
+            "sessionId": "sess_boot_active",
+            "objective": "Keep active Goal",
+            "title": "active Goal",
+            "status": "active",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": 2199999995000,
+            "completedAt": null,
+            "archivedAt": null
+          }
+        },
+        "sess_boot_paused": {
+          "version": 1,
+          "goal": {
+            "id": "goal-paused-sess_boot_paused",
+            "sessionId": "sess_boot_paused",
+            "objective": "Keep paused Goal",
+            "title": "paused Goal",
+            "status": "paused",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": null,
+            "completedAt": null,
+            "archivedAt": null
+          }
+        },
+        "sess_boot_expired": {
+          "version": 1,
+          "goal": {
+            "id": "goal-complete-sess_boot_expired",
+            "sessionId": "sess_boot_expired",
+            "objective": "Keep complete Goal",
+            "title": "complete Goal",
+            "status": "complete",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": null,
+            "completedAt": 2199913600000,
+            "archivedAt": null
+          }
+        },
+        "sess_boot_broken": {
+          "version": 1,
+          "goal": {
+            "id": "goal-active-sess_boot_broken",
+            "sessionId": "sess_boot_broken",
+            "objective": "Keep active Goal",
+            "title": "active Goal",
+            "status": "active",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": 2199999995000,
+            "completedAt": null,
+            "archivedAt": null
+          }
+        }
+      },
+      "inject": {
+        "materializeFails": [
+          "sess_boot_broken"
+        ]
+      },
+      "triggers": [
+        {
+          "registered": "session"
+        }
+      ],
+      "queuedAfterEach": [
+        1
+      ],
+      "events": [
+        "keychain",
+        "recover",
+        "materialize sess_boot_active",
+        "materialize sess_boot_broken",
+        "quota-start"
+      ],
+      "logs": [
+        "active Goal recovery failed session=sess_boot_broken: cannot materialize",
+        "active Goal recovery found=2 resumed=1 skipped=0 failed=1"
+      ],
+      "goalsLeft": [
+        "sess_boot_active.json",
+        "sess_boot_broken.json",
+        "sess_boot_paused.json"
+      ],
+      "status": {
+        "keychain": "started",
+        "background": "started"
+      }
+    },
+    {
+      "name": "discovery-fails",
+      "note": "the stored Goals cannot be listed",
+      "files": {
+        "sess_boot_active": {
+          "version": 1,
+          "goal": {
+            "id": "goal-active-sess_boot_active",
+            "sessionId": "sess_boot_active",
+            "objective": "Keep active Goal",
+            "title": "active Goal",
+            "status": "active",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": 2199999995000,
+            "completedAt": null,
+            "archivedAt": null
+          }
+        },
+        "sess_boot_paused": {
+          "version": 1,
+          "goal": {
+            "id": "goal-paused-sess_boot_paused",
+            "sessionId": "sess_boot_paused",
+            "objective": "Keep paused Goal",
+            "title": "paused Goal",
+            "status": "paused",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": null,
+            "completedAt": null,
+            "archivedAt": null
+          }
+        },
+        "sess_boot_expired": {
+          "version": 1,
+          "goal": {
+            "id": "goal-complete-sess_boot_expired",
+            "sessionId": "sess_boot_expired",
+            "objective": "Keep complete Goal",
+            "title": "complete Goal",
+            "status": "complete",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": null,
+            "completedAt": 2199913600000,
+            "archivedAt": null
+          }
+        }
+      },
+      "inject": {
+        "list": "boom"
+      },
+      "triggers": [
+        {
+          "registered": "session"
+        }
+      ],
+      "queuedAfterEach": [
+        1
+      ],
+      "events": [
+        "keychain",
+        "recover",
+        "quota-start"
+      ],
+      "logs": [
+        "active Goal discovery failed: boom",
+        "active Goal recovery found=0 resumed=0 skipped=0 failed=1"
+      ],
+      "goalsLeft": [
+        "sess_boot_active.json",
+        "sess_boot_expired.json",
+        "sess_boot_paused.json"
+      ],
+      "status": {
+        "keychain": "started",
+        "background": "started"
+      }
+    },
+    {
+      "name": "recovery-rejects",
+      "note": "recovery itself rejects: the lane ends and the quota clock is not started",
+      "files": {
+        "sess_boot_active": {
+          "version": 1,
+          "goal": {
+            "id": "goal-active-sess_boot_active",
+            "sessionId": "sess_boot_active",
+            "objective": "Keep active Goal",
+            "title": "active Goal",
+            "status": "active",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": 2199999995000,
+            "completedAt": null,
+            "archivedAt": null
+          }
+        },
+        "sess_boot_paused": {
+          "version": 1,
+          "goal": {
+            "id": "goal-paused-sess_boot_paused",
+            "sessionId": "sess_boot_paused",
+            "objective": "Keep paused Goal",
+            "title": "paused Goal",
+            "status": "paused",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": null,
+            "completedAt": null,
+            "archivedAt": null
+          }
+        },
+        "sess_boot_expired": {
+          "version": 1,
+          "goal": {
+            "id": "goal-complete-sess_boot_expired",
+            "sessionId": "sess_boot_expired",
+            "objective": "Keep complete Goal",
+            "title": "complete Goal",
+            "status": "complete",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": null,
+            "completedAt": 2199913600000,
+            "archivedAt": null
+          }
+        }
+      },
+      "inject": {
+        "recover": "boom"
+      },
+      "triggers": [
+        {
+          "registered": "session"
+        }
+      ],
+      "queuedAfterEach": [
+        1
+      ],
+      "events": [
+        "keychain",
+        "recover"
+      ],
+      "logs": [
+        "active Goal recovery failed: boom"
+      ],
+      "goalsLeft": [
+        "sess_boot_active.json",
+        "sess_boot_expired.json",
+        "sess_boot_paused.json"
+      ],
+      "status": {
+        "keychain": "started",
+        "background": "started"
+      }
+    },
+    {
+      "name": "quota-start-fails",
+      "note": "the quota clock fails to start: logged, never fatal",
+      "files": {
+        "sess_boot_active": {
+          "version": 1,
+          "goal": {
+            "id": "goal-active-sess_boot_active",
+            "sessionId": "sess_boot_active",
+            "objective": "Keep active Goal",
+            "title": "active Goal",
+            "status": "active",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": 2199999995000,
+            "completedAt": null,
+            "archivedAt": null
+          }
+        },
+        "sess_boot_paused": {
+          "version": 1,
+          "goal": {
+            "id": "goal-paused-sess_boot_paused",
+            "sessionId": "sess_boot_paused",
+            "objective": "Keep paused Goal",
+            "title": "paused Goal",
+            "status": "paused",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": null,
+            "completedAt": null,
+            "archivedAt": null
+          }
+        },
+        "sess_boot_expired": {
+          "version": 1,
+          "goal": {
+            "id": "goal-complete-sess_boot_expired",
+            "sessionId": "sess_boot_expired",
+            "objective": "Keep complete Goal",
+            "title": "complete Goal",
+            "status": "complete",
+            "blocker": "",
+            "failureReason": "",
+            "failureCount": 0,
+            "timeLimitMs": 0,
+            "timeUsedMs": 5000,
+            "createdAt": 2199999990000,
+            "updatedAt": 2199999995000,
+            "lastStartedAt": null,
+            "completedAt": 2199913600000,
+            "archivedAt": null
+          }
+        }
+      },
+      "inject": {
+        "quota": "boom"
+      },
+      "triggers": [
+        {
+          "registered": "session"
+        }
+      ],
+      "queuedAfterEach": [
+        1
+      ],
+      "events": [
+        "keychain",
+        "recover",
+        "materialize sess_boot_active",
+        "quota-start"
+      ],
+      "logs": [
+        "active Goal recovery found=1 resumed=1 skipped=0 failed=0",
+        "quota resume start failed (non-fatal): boom"
+      ],
+      "goalsLeft": [
+        "sess_boot_active.json",
+        "sess_boot_paused.json"
+      ],
+      "status": {
+        "keychain": "started",
+        "background": "started"
+      }
+    }
+  ]
+}

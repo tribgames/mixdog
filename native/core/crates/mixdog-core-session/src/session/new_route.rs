@@ -104,6 +104,11 @@ impl NewThreadRoute for RouteService {
         Ok(self.writer.route(thread))
     }
 
+    async fn adopt_control(&self, thread: &ThreadId) -> Result<Map<String, Value>, String> {
+        self.ready_control(thread).await?;
+        Ok(self.writer.route(thread))
+    }
+
     async fn seat(&self, thread: &ThreadId) -> Result<(), String> {
         self.seat_route(thread).await
     }

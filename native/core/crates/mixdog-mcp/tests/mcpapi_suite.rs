@@ -138,6 +138,10 @@ impl ExtensionHost for Host {
         Ok(self.cwd.clone())
     }
 
+    async fn plugin_mcp_summary(&self, _: Option<&str>) -> Result<Value, String> {
+        Ok(Value::Object(Map::new()))
+    }
+
     async fn skills_status(&self) -> Value {
         Value::Null
     }
@@ -165,6 +169,10 @@ struct Runtime(Arc<World>);
 
 #[async_trait]
 impl McpRuntime for Runtime {
+    async fn scope_of_request(&self, _: Option<&str>) -> Result<Option<String>, String> {
+        Ok(None)
+    }
+
     async fn catalog(&self) -> Catalog {
         self.0.catalog()
     }

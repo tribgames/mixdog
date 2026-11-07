@@ -55,7 +55,7 @@ fn clean(value: Option<&Value>) -> String {
 }
 
 /// `inheritableMessages`: system blocks belong to the session that built them.
-fn inheritable(messages: Vec<Value>) -> Vec<Value> {
+pub(super) fn inheritable(messages: Vec<Value>) -> Vec<Value> {
     messages.into_iter().filter(|message| message.get("role").and_then(Value::as_str) != Some("system")).collect()
 }
 

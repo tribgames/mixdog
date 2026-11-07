@@ -1,0 +1,95 @@
+{
+  "node": "v22.20.0",
+  "cases": [
+    {
+      "label": "first chunk",
+      "ok": {
+        "received": 2
+      }
+    },
+    {
+      "label": "retry of the last chunk",
+      "ok": {
+        "received": 2
+      }
+    },
+    {
+      "label": "chunk ahead of the received bytes",
+      "error": {
+        "name": "Error",
+        "message": "The upload chunk is out of order."
+      }
+    },
+    {
+      "label": "data that is not canonical base64",
+      "error": {
+        "name": "TypeError",
+        "message": "chunk data is invalid."
+      }
+    },
+    {
+      "label": "empty data",
+      "error": {
+        "name": "TypeError",
+        "message": "chunk data is invalid."
+      }
+    },
+    {
+      "label": "offset past the declared size",
+      "error": {
+        "name": "TypeError",
+        "message": "offset is invalid."
+      }
+    },
+    {
+      "label": "offset that is not an integer",
+      "error": {
+        "name": "TypeError",
+        "message": "offset is invalid."
+      }
+    },
+    {
+      "label": "unknown upload",
+      "error": {
+        "name": "Error",
+        "message": "The upload is gone: it was cancelled or sat idle too long."
+      }
+    },
+    {
+      "label": "two chunks at the same offset at once",
+      "results": [
+        {
+          "ok": {
+            "received": 4
+          }
+        },
+        {
+          "error": {
+            "name": "Error",
+            "message": "The upload is already writing a chunk."
+          }
+        }
+      ]
+    },
+    {
+      "label": "retry after the upload completed",
+      "ok": {
+        "received": 4
+      }
+    },
+    {
+      "label": "chunk larger than declared",
+      "error": {
+        "name": "Error",
+        "message": "The upload is larger than it declared."
+      }
+    },
+    {
+      "label": "the upload is gone after that",
+      "error": {
+        "name": "Error",
+        "message": "The upload is gone: it was cancelled or sat idle too long."
+      }
+    }
+  ]
+}

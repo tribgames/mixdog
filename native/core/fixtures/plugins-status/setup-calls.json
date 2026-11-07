@@ -1,0 +1,102 @@
+{
+ "cases": [
+  {
+   "args": {
+    "action": "add_plugin",
+    "source": " ./p "
+   },
+   "calls": [
+    {
+     "method": "plugins/addPlugin",
+     "thread": true,
+     "params": {
+      "source": "./p"
+     }
+    }
+   ]
+  },
+  {
+   "args": {
+    "action": "set_plugin_enabled",
+    "name": "alpha",
+    "enabled": false
+   },
+   "calls": [
+    {
+     "method": "plugins/setPluginEnabled",
+     "thread": true,
+     "params": {
+      "plugin": "alpha",
+      "enabled": false
+     }
+    }
+   ]
+  },
+  {
+   "args": {
+    "action": "update_plugin",
+    "name": "alpha"
+   },
+   "calls": [
+    {
+     "method": "plugins/updatePlugin",
+     "thread": true,
+     "params": {
+      "plugin": "alpha"
+     }
+    }
+   ]
+  },
+  {
+   "args": {
+    "action": "remove_plugin",
+    "name": "alpha"
+   },
+   "calls": [
+    {
+     "method": "plugins/removePlugin",
+     "thread": true,
+     "params": {
+      "plugin": "alpha"
+     }
+    }
+   ]
+  },
+  {
+   "args": {
+    "action": "set_extension_scope",
+    "kind": "plugins",
+    "name": "alpha",
+    "projects": [
+     " /a "
+    ]
+   },
+   "calls": [
+    {
+     "method": "config/setExtensionScope",
+     "thread": true,
+     "params": {
+      "kind": "plugins",
+      "name": "alpha",
+      "projects": [
+       "/a"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "args": {
+    "action": "status",
+    "domain": "plugins"
+   },
+   "calls": [
+    {
+     "method": "plugins/pluginsStatus",
+     "thread": true,
+     "params": {}
+    }
+   ]
+  }
+ ]
+}

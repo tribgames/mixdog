@@ -1,0 +1,233 @@
+{
+ "node": "v22.20.0",
+ "platform": "win32",
+ "base": "D:\\work\\outside",
+ "steps": [
+  {
+   "label": "mint a.txt for no conversation",
+   "ok": {
+    "token": "T:a"
+   }
+  },
+  {
+   "label": "mint a.txt again: the same token",
+   "ok": {
+    "same": true
+   }
+  },
+  {
+   "label": "mint a.txt for a conversation: another token",
+   "ok": {
+    "same": false
+   }
+  },
+  {
+   "label": "mint a.txt for that conversation again: its token",
+   "ok": {
+    "same": true
+   }
+  },
+  {
+   "label": "redeem with the folder and name",
+   "ok": {
+    "root": "D:\\work\\outside",
+    "rel": "a.txt",
+    "absolute": "D:\\work\\outside\\a.txt"
+   }
+  },
+  {
+   "label": "redeem with the folder and the name in another case",
+   "ok": {
+    "root": "D:\\work\\outside",
+    "rel": "a.txt",
+    "absolute": "D:\\work\\outside\\a.txt"
+   }
+  },
+  {
+   "label": "redeem with a relative path inside the folder",
+   "ok": {
+    "root": "D:\\work\\outside",
+    "rel": "a.txt",
+    "absolute": "D:\\work\\outside\\a.txt"
+   }
+  },
+  {
+   "label": "redeem for another file",
+   "error": {
+    "name": "Error",
+    "message": "The selected-file permission does not match this path.",
+    "code": null
+   }
+  },
+  {
+   "label": "redeem for the parent folder",
+   "ok": {
+    "root": "D:\\work\\outside",
+    "rel": "a.txt",
+    "absolute": "D:\\work\\outside\\a.txt"
+   }
+  },
+  {
+   "label": "redeem an unknown token",
+   "error": {
+    "name": "Error",
+    "message": "The selected-file permission is unavailable.",
+    "code": "SELECTED_FILE_GRANT_UNAVAILABLE"
+   }
+  },
+  {
+   "label": "redeem an empty token",
+   "error": {
+    "name": "TypeError",
+    "message": "file access token is invalid.",
+    "code": null
+   }
+  },
+  {
+   "label": "redeem a token longer than 128",
+   "error": {
+    "name": "TypeError",
+    "message": "file access token is invalid.",
+    "code": null
+   }
+  },
+  {
+   "label": "redeem a token that is not a string",
+   "error": {
+    "name": "TypeError",
+    "message": "file access token must be a string.",
+    "code": null
+   }
+  },
+  {
+   "label": "redeem with an empty project path",
+   "error": {
+    "name": "TypeError",
+    "message": "projectPath is invalid.",
+    "code": null
+   }
+  },
+  {
+   "label": "redeem with an empty rel path",
+   "error": {
+    "name": "TypeError",
+    "message": "relPath is invalid.",
+    "code": null
+   }
+  },
+  {
+   "label": "redeem after 59 minutes",
+   "ok": {
+    "root": "D:\\work\\outside",
+    "rel": "a.txt",
+    "absolute": "D:\\work\\outside\\a.txt"
+   }
+  },
+  {
+   "label": "mint a.txt again at 59 minutes: the same token, one more hour",
+   "ok": {
+    "same": true
+   }
+  },
+  {
+   "label": "redeem 118 minutes in: alive through the renewal",
+   "ok": {
+    "root": "D:\\work\\outside",
+    "rel": "a.txt",
+    "absolute": "D:\\work\\outside\\a.txt"
+   }
+  },
+  {
+   "label": "redeem past the hour after the renewal",
+   "error": {
+    "name": "Error",
+    "message": "The selected-file permission is unavailable.",
+    "code": "SELECTED_FILE_GRANT_UNAVAILABLE"
+   }
+  },
+  {
+   "label": "redeem it again: the grant was deleted",
+   "error": {
+    "name": "Error",
+    "message": "The selected-file permission is unavailable.",
+    "code": "SELECTED_FILE_GRANT_UNAVAILABLE"
+   }
+  },
+  {
+   "label": "mint a.txt after it expired: a new token",
+   "ok": {
+    "same": false
+   }
+  },
+  {
+   "label": "redeem the conversation token while its conversation lives",
+   "ok": {
+    "root": "D:\\work\\outside",
+    "rel": "a.txt",
+    "absolute": "D:\\work\\outside\\a.txt"
+   }
+  },
+  {
+   "label": "redeem the conversation token once the conversation is gone",
+   "error": {
+    "name": "Error",
+    "message": "The selected-file permission is unavailable.",
+    "code": "SELECTED_FILE_GRANT_UNAVAILABLE"
+   }
+  },
+  {
+   "label": "mint for the gone conversation: a new token",
+   "ok": {
+    "same": false
+   }
+  },
+  {
+   "label": "the newest hundred are held: the first of them",
+   "ok": {
+    "root": "D:\\work\\outside",
+    "rel": "f0.txt",
+    "absolute": "D:\\work\\outside\\f0.txt"
+   }
+  },
+  {
+   "label": "the newest hundred are held: the last of them",
+   "ok": {
+    "root": "D:\\work\\outside",
+    "rel": "f99.txt",
+    "absolute": "D:\\work\\outside\\f99.txt"
+   }
+  },
+  {
+   "label": "a grant older than those hundred is gone",
+   "error": {
+    "name": "Error",
+    "message": "The selected-file permission is unavailable.",
+    "code": "SELECTED_FILE_GRANT_UNAVAILABLE"
+   }
+  },
+  {
+   "label": "one more evicts the oldest remaining (f0)",
+   "error": {
+    "name": "Error",
+    "message": "The selected-file permission is unavailable.",
+    "code": "SELECTED_FILE_GRANT_UNAVAILABLE"
+   }
+  },
+  {
+   "label": "and the next oldest is held",
+   "ok": {
+    "root": "D:\\work\\outside",
+    "rel": "f1.txt",
+    "absolute": "D:\\work\\outside\\f1.txt"
+   }
+  },
+  {
+   "label": "and the one just minted is held",
+   "ok": {
+    "root": "D:\\work\\outside",
+    "rel": "f100.txt",
+    "absolute": "D:\\work\\outside\\f100.txt"
+   }
+  }
+ ]
+}

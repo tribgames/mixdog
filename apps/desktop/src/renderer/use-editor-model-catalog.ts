@@ -12,6 +12,7 @@ import { customProviderDisplayNames, filterConfiguredModels } from './model-cata
 import { fetchProviderModels, partialModelCatalogExpiry } from './model-catalog-cache';
 import { normalizeModelOptions } from './provider-display';
 import { record } from './record-utils';
+import { invokeOrHeld } from './section-capabilities';
 
 type EditorCatalogApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'listProviderModels'>>;
 
@@ -41,7 +42,7 @@ export function useEditorModelCatalog(
         const [models, setup] = await Promise.all([
           fetchProviderModels(api, { quick: false }),
           // A failed setup read keeps the cached setup's connected-provider filter.
-          Promise.resolve(api.invokeCapability?.<unknown>({ capability: 'getProviderSetup', args: [] }))
+          Promise.resolve(invokeOrHeld(api, { capability: 'getProviderSetup', args: [] }))
             .then((result) => requireDesktopProviders(result?.value))
             .catch(() => undefined),
         ]);

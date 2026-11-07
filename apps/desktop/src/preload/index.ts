@@ -717,6 +717,7 @@ const api: DesktopApi = {
   // Pushed sections of this window's core (desktop-services.md §2): the renderer mirrors them and asks for
   // detail through a closed list of methods; it never opens a socket.
   sections: {
+    core: () => invokeIpc(SECTIONS_IPC.core),
     snapshot: () => invokeIpc(SECTIONS_IPC.snapshot),
     subscribe: (listener) => subscribeIpc(SECTIONS_IPC.push, listener),
     call: (method, params) => invokeIpc(SECTIONS_IPC.call, method, params),

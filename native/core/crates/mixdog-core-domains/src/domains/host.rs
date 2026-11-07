@@ -13,7 +13,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_app_protocol::v2::host::HostBrowserSurfaceParams;
 use mixdog_app_protocol::v2::host::HostNotificationClickedParams;
+use mixdog_app_protocol::v2::host::UiOpenBrowser;
 use mixdog_app_protocol::v2::host::HostPowerParams;
 use mixdog_app_protocol::v2::host::HostRemoteTargetSetParams;
 use mixdog_app_protocol::v2::host::HostStateSetParams;
@@ -29,6 +31,7 @@ use mixdog_core_api::service::Admit;
 use mixdog_core_api::service::DomainService;
 use mixdog_core_api::state::StatePublisher;
 use mixdog_protocol::SectionName;
+use mixdog_remote::registry::DeviceRegistry;
 use serde_json::Value;
 use serde_json::json;
 use url::Host;
@@ -38,6 +41,34 @@ use mixdog_core_base::support::decode;
 use mixdog_core_base::support::invalid;
 use mixdog_core_base::support::wrong_method;
 use mixdog_core_base::state::change_of;
+
+/// `hostState` key `remoteViewing`: the sessions a paired device shows, which Node answered per
+/// call as `visualizeRemoteViewing` (`viewsSessionLane`). The core owns the fact, so it publishes
+/// it and the desktop reads membership instead of asking.
+pub fn remote_viewing_value(registry: &DeviceRegistry) -> Value {
+    json!({ "sessionIds": registry.shown_sessions() })
+}
+
+/// Publishes [`remote_viewing_value`] now and after each change of who is attached or what is
+/// shown; ends when the registry is dropped.
+pub async fn publish_remote_viewing(registry: std::sync::Weak<DeviceRegistry>, publisher: Arc<dyn StatePublisher>) {
+    let Some(first) = registry.upgrade() else { return };
+    let mut changes = first.watch();
+    drop(first);
+    let mut last: Option<Value> = None;
+    loop {
+        let Some(live) = registry.upgrade() else { return };
+        let value = remote_viewing_value(&live);
+        drop(live);
+        if last.as_ref() != Some(&value) {
+            publisher.publish(SectionName::HostState, Some("remoteViewing".to_owned()), change_of(&value));
+            last = Some(value);
+        }
+        if changes.changed().await.is_err() {
+            return;
+        }
+    }
+}
 
 /// The SSH server core phone connections are bridged to.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,11 +96,18 @@ pub trait NotificationClicks: Send + Sync {
     fn clicked(&self, thread: &ThreadId);
 }
 
+/// Where a browser surface request of the host goes: `ui/openRequested { kind: "browser" }` on the
+/// app feed, to every attached client (DS §12.3, replacing `browserRemoteOpen`).
+pub trait BrowserSurfaces: Send + Sync {
+    fn requested(&self, request: UiOpenBrowser);
+}
+
 pub struct HostService {
     publisher: Arc<dyn StatePublisher>,
     bridge: Arc<dyn RemoteBridge>,
     power: Arc<dyn PowerSink>,
     clicks: Arc<dyn NotificationClicks>,
+    surfaces: Arc<dyn BrowserSurfaces>,
 }
 
 impl HostService {
@@ -78,12 +116,14 @@ impl HostService {
         bridge: Arc<dyn RemoteBridge>,
         power: Arc<dyn PowerSink>,
         clicks: Arc<dyn NotificationClicks>,
+        surfaces: Arc<dyn BrowserSurfaces>,
     ) -> Arc<Self> {
         Arc::new(Self {
             publisher,
             bridge,
             power,
             clicks,
+            surfaces,
         })
     }
 
@@ -145,6 +185,7 @@ impl DomainService for HostService {
             "host/power",
             "host/update/report",
             "host/notification/clicked",
+            "host/browser/surface",
         ]
     }
 
@@ -160,6 +201,11 @@ impl DomainService for HostService {
                 if let Ok(HostUpdateReportParams { state }) = serde_json::from_value(params) {
                     self.publisher
                         .publish(SectionName::Update, None, change_of(&state));
+                }
+            }
+            "host/browser/surface" => {
+                if let Ok(request) = serde_json::from_value::<HostBrowserSurfaceParams>(params) {
+                    self.surfaces.requested(request.into());
                 }
             }
             "host/notification/clicked" => {

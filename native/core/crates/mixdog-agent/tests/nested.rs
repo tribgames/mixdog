@@ -148,7 +148,7 @@ impl Tool for Runs {
 struct Registry(Vec<Arc<Runs>>);
 
 impl ToolResolver for Registry {
-    fn resolve(&self, name: &str) -> Option<Arc<dyn Tool>> {
+    fn resolve(&self, _scope: Option<&str>, name: &str) -> Option<Arc<dyn Tool>> {
         self.0.iter().find(|tool| tool.spec().name == name).map(|tool| tool.clone() as Arc<dyn Tool>)
     }
 }
@@ -263,7 +263,7 @@ async fn an_ask_is_answered_with_the_words_of_the_node_loop() {
             decided(answer["approved"].as_bool().expect("approved"), answer["reason"].as_str())
         };
         rig.approvals.script.lock().expect("script").push_back(resolution);
-        let got = run_nested(&rig.pipeline, &rig.tools, &ctx(rig.approvals.clone()), ASKED, json!({ "to": "x" })).await;
+        let got = run_nested(&rig.pipeline, &rig.tools, None, &ctx(rig.approvals.clone()), ASKED, json!({ "to": "x" })).await;
         match case["denial"].as_str() {
             Some(denial) => {
                 assert_eq!(text(&got), denial, "{}", case["name"]);
@@ -284,7 +284,7 @@ async fn the_session_surface_refuses_the_target() {
     let tool = Runs::new("read", false);
     let surface = SessionSurface { disallowed: vec!["read".into()], ..SessionSurface::default() };
     let rig = rig(surface, None, vec![tool.clone()]);
-    let got = run_nested(&rig.pipeline, &rig.tools, &ctx(rig.approvals.clone()), "read", json!({})).await;
+    let got = run_nested(&rig.pipeline, &rig.tools, None, &ctx(rig.approvals.clone()), "read", json!({})).await;
     assert_eq!(text(&got), "Error: tool \"read\" is not available in this session.");
     assert!(tool.seen.lock().expect("seen").is_empty());
 }
@@ -294,7 +294,7 @@ async fn arguments_are_coerced_to_the_schema_and_post_tool_use_rewrites_the_text
     let tool = Runs::new("read", false);
     let hooks = Arc::new(Hooks { text: Some("hooked".into()), ..Hooks::default() });
     let rig = rig(SessionSurface::default(), Some(hooks), vec![tool.clone()]);
-    let got = run_nested(&rig.pipeline, &rig.tools, &ctx(rig.approvals.clone()), "read", json!({ "count": "3" })).await;
+    let got = run_nested(&rig.pipeline, &rig.tools, None, &ctx(rig.approvals.clone()), "read", json!({ "count": "3" })).await;
     assert_eq!(text(&got), "hooked");
     assert_eq!(*tool.seen.lock().expect("seen"), [json!({ "count": 3 })]);
 }
@@ -304,7 +304,7 @@ async fn a_failing_target_fires_post_tool_use_failure_and_keeps_its_error() {
     let tool = Runs::new("read", true);
     let hooks = Arc::new(Hooks::default());
     let rig = rig(SessionSurface::default(), Some(hooks.clone()), vec![tool]);
-    let got = run_nested(&rig.pipeline, &rig.tools, &ctx(rig.approvals.clone()), "read", json!({})).await;
+    let got = run_nested(&rig.pipeline, &rig.tools, None, &ctx(rig.approvals.clone()), "read", json!({})).await;
     assert_eq!(text(&got), "boom");
     assert_eq!(*hooks.failures.lock().expect("failures"), [("read".to_owned(), "boom".to_owned())]);
 }
@@ -312,6 +312,6 @@ async fn a_failing_target_fires_post_tool_use_failure_and_keeps_its_error() {
 #[tokio::test]
 async fn a_target_the_registry_does_not_know_is_refused_in_the_loops_words() {
     let rig = rig(SessionSurface::default(), None, vec![Runs::new("read", false)]);
-    let got = run_nested(&rig.pipeline, &rig.tools, &ctx(rig.approvals.clone()), "nope", json!({})).await;
+    let got = run_nested(&rig.pipeline, &rig.tools, None, &ctx(rig.approvals.clone()), "nope", json!({})).await;
     assert_eq!(text(&got), mixdog_agent::text::unknown_tool_message("nope", &[]));
 }

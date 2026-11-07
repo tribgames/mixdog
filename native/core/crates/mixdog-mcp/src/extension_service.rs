@@ -32,6 +32,7 @@ use crate::plugin_admin::PluginAdmin;
 use crate::plugin_admin::clean;
 use crate::plugin_admin::truthy;
 use crate::plugin_servers::Catalog;
+use crate::plugin_status::plugins_status;
 use crate::plugin_servers::declarations_of;
 use crate::plugin_servers::resolve_mcp_server_catalog;
 use crate::plugin_servers::with_adopted_copies;
@@ -103,6 +104,10 @@ pub trait ExtensionHost: Send + Sync {
     async fn current_cwd(&self, thread_id: Option<&str>) -> Result<PathBuf, String>;
     /// The skills status (`skillsStatus()`), undecorated.
     async fn skills_status(&self) -> Value;
+    /// `pluginMcpSummary()`: per plugin id `{ format, errors, servers }`, the servers as the MCP status
+    /// rows list them, read in the MCP scope the caller's session addresses (its runtime's
+    /// `getMcpScopeId()`; no thread is the runtime's own scope). An error when that scope cannot be read.
+    async fn plugin_mcp_summary(&self, thread_id: Option<&str>) -> Result<Value, String>;
 }
 
 pub struct PluginsService {
@@ -117,40 +122,8 @@ fn domain_error(domain: &str, message: String) -> CoreError {
     CoreError::DomainError { domain: domain.into(), code: None, message: Some(message.into()), detail: None }
 }
 
-fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
+pub(crate) fn field<'a>(value: &'a Value, key: &str) -> &'a Value {
     value.get(key).unwrap_or(&Value::Null)
-}
-
-/// The envelope of `pluginsStatus()` (`cwd-plugins/plugin-status.mjs`) over the registry status: the
-/// entries whose root exists are `plugins` and counted, those whose root is gone are `missing`, and the
-/// registry and install paths are `roots`. The rows stay the registry's enriched entries.
-fn plugins_status(admin: &Value) -> Value {
-    let first = |candidates: &[&str]| candidates.iter().find(|s| !s.is_empty()).copied().unwrap_or_default().to_owned();
-    let mut plugins = Vec::new();
-    let mut missing = Vec::new();
-    for entry in admin.get("plugins").and_then(Value::as_array).into_iter().flatten() {
-        let root = clean(field(entry, "root"));
-        if root.is_empty() {
-            continue;
-        }
-        if field(entry, "exists") == &Value::Bool(true) {
-            plugins.push(entry.clone());
-            continue;
-        }
-        let (id, name) = (clean(field(entry, "id")), clean(field(entry, "name")));
-        let tail = root.rsplit(['/', '\\']).next().unwrap_or_default();
-        missing.push(json!({
-            "id": first(&[id.as_str(), name.as_str(), root.as_str()]),
-            "name": first(&[name.as_str(), id.as_str(), tail, root.as_str()]),
-            "enabled": field(entry, "enabled") != &Value::Bool(false),
-        }));
-    }
-    json!({
-        "count": plugins.len(),
-        "plugins": plugins,
-        "missing": missing,
-        "roots": { "registry": field(admin, "registryPath"), "installed": field(admin, "installRoot") },
-    })
 }
 
 /// `clean(plugin.id || plugin.name || plugin)`; reading a property of null throws in Node.
@@ -240,10 +213,20 @@ impl PluginsService {
         job.await.map_err(|_| CoreError::Cancelled { by: "maintenance lane".into() })
     }
 
-    async fn status(&self) -> Result<Value, CoreError> {
-        let admin = Arc::clone(&self.admin);
-        let status = self.on_lane(move |lane| admin.status(lane)).await?.map_err(|e| domain_error("plugins", e.0))?;
-        Ok(plugins_status(&status))
+    /// `pluginsStatus()` of the runtime serving `thread`. A runtime that cannot read its MCP summary still
+    /// lists its plugins, without their MCP rows (Node's try/catch around `pluginMcpSummary()`).
+    async fn status(&self, thread: Option<&str>) -> Result<Value, CoreError> {
+        let summary = match self.host.plugin_mcp_summary(thread).await {
+            Ok(summary) => summary,
+            Err(error) => {
+                tracing::warn!(%error, "the plugin MCP summary could not be read");
+                json!({})
+            }
+        };
+        let (admin, declarations) = (Arc::clone(&self.admin), Arc::clone(&self.declarations));
+        self.on_lane(move |lane| admin.status(lane).map(|status| plugins_status(lane, &declarations, &status, &summary)))
+            .await?
+            .map_err(|e| domain_error("plugins", e.0))
     }
 
     fn scopes(&self) -> ExtensionScopes {
@@ -290,7 +273,7 @@ impl PluginsService {
         let plugin = self.on_lane(move |lane| admin.add_plugin(lane, &source, None)).await?.map_err(|e| domain_error("plugins", e.0))?;
         self.adopt_plugin_server_copies(thread, |config| config).await?;
         self.host.reconcile_plugins_and_announce().await;
-        Ok(json!({"plugin": plugin, "status": self.status().await?}))
+        Ok(json!({"plugin": plugin, "status": self.status(thread).await?}))
     }
 
     async fn update_plugin(&self, params: &Value, thread: Option<&str>) -> Result<Value, CoreError> {
@@ -302,7 +285,7 @@ impl PluginsService {
         let updated = self.on_lane(move |lane| admin.update_plugin(lane, &json!(key))).await?.map_err(|e| domain_error("plugins", e.0))?;
         self.adopt_plugin_server_copies(thread, |config| config).await?;
         self.host.reconcile_plugins_and_announce().await;
-        Ok(json!({"plugin": updated, "status": self.status().await?}))
+        Ok(json!({"plugin": updated, "status": self.status(thread).await?}))
     }
 
     async fn set_plugin_enabled(&self, params: &Value, thread: Option<&str>) -> Result<Value, CoreError> {
@@ -312,12 +295,12 @@ impl PluginsService {
         let admin = Arc::clone(&self.admin);
         let updated = self.on_lane(move |lane| admin.set_plugin_enabled(lane, &json!(key), &enabled)).await?.map_err(|e| domain_error("plugins", e.0))?;
         self.host.reconcile_plugins_and_announce().await;
-        Ok(json!({"plugin": updated, "status": self.status().await?}))
+        Ok(json!({"plugin": updated, "status": self.status(thread).await?}))
     }
 
     async fn remove_plugin(&self, params: &Value, thread: Option<&str>) -> Result<Value, CoreError> {
         let plugin = field(params, "plugin");
-        let status = self.status().await?;
+        let status = self.status(thread).await?;
         let owner = find_registered_plugin(&status, plugin).map_err(|m| domain_error("plugins", m))?;
         let owner_id = owner.map(|row| clean(field(row, "id"))).unwrap_or_default();
         // Adopt first (the registry still knows the plugin), then drop the plugin's per-server
@@ -327,14 +310,14 @@ impl PluginsService {
         let admin = Arc::clone(&self.admin);
         let removed = self.on_lane(move |lane| admin.remove_plugin(lane, &json!(key))).await?.map_err(|e| domain_error("plugins", e.0))?;
         self.host.reconcile_plugins_and_announce().await;
-        Ok(json!({"plugin": removed, "status": self.status().await?}))
+        Ok(json!({"plugin": removed, "status": self.status(thread).await?}))
     }
 
     async fn set_extension_scope(&self, params: &Value, thread: Option<&str>) -> Result<Value, CoreError> {
         let before = self.config.agent();
         let kind = field(params, "kind");
         let rows = if clean(kind) == "plugins" {
-            self.status().await?.get("plugins").and_then(Value::as_array).cloned().unwrap_or_default()
+            self.status(thread).await?.get("plugins").and_then(Value::as_array).cloned().unwrap_or_default()
         } else {
             Vec::new()
         };
@@ -348,7 +331,7 @@ impl PluginsService {
         let scopes = self.scopes();
         Ok(match change.kind {
             ScopeKind::Skills => decorate_skills(&self.host.skills_status().await, &scopes, &cwd),
-            _ => decorate_plugins(&self.status().await?, &scopes, &cwd),
+            _ => decorate_plugins(&self.status(thread).await?, &scopes, &cwd),
         })
     }
 }
@@ -364,13 +347,13 @@ impl DomainService for PluginsService {
         let thread = params.get("threadId").and_then(Value::as_str);
         let value = match req.method.as_str() {
             "plugins/pluginsStatus" => {
-                let status = self.status().await?;
+                let status = self.status(thread).await?;
                 let cwd = self.host.current_cwd(thread).await.map_err(|e| domain_error("config", e))?;
                 decorate_plugins(&status, &self.scopes(), &cwd)
             }
             "plugins/reloadPlugins" => {
                 self.host.reconcile_plugins_and_announce().await;
-                self.status().await?
+                self.status(thread).await?
             }
             "plugins/addPlugin" => self.add_plugin(params, thread).await?,
             "plugins/updatePlugin" => self.update_plugin(params, thread).await?,

@@ -37,6 +37,13 @@ pub enum TransferSource {
     Export {
         input: JsonValue,
     },
+    /// A one-file grant minted for this paired device (`transfer/grant/mint`), redeemed with the path Node's file calls name (`projectPath` + `relPath`).
+    #[serde(rename_all = "camelCase")]
+    Granted {
+        access_token: String,
+        project_path: String,
+        rel_path: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
@@ -103,6 +110,9 @@ pub struct ReviewDiffGetParams {
     pub known: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
+    /// Leave the patch text out of a turn review (today's `getTurnReviewDiff {summary: true}`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<bool>,
 }
 
 /// Channel-bridge tool call (today's channel `POST /call`).

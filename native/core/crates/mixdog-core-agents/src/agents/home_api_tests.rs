@@ -15,6 +15,7 @@ use mixdog_core_api::DomainService;
 use mixdog_core_api::Reply;
 use mixdog_core_api::call::CallContext;
 use mixdog_core_api::ids::Method;
+use mixdog_core_rooms::rooms::home::Presence;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -189,6 +190,31 @@ impl HomeDeps for Home {
         let mut world = self.world.lock().unwrap();
         world.archive_count += 1;
         format!("sess_archive_{}", world.archive_count)
+    }
+
+    // The open and reset twin never retires: these are the lifecycle's (`lifecycle_twin_tests`).
+    async fn is_retired(&self, session_id: &str) -> Result<bool, DepError> {
+        Ok(self.world.lock().unwrap().retired.iter().any(|id| id == session_id))
+    }
+
+    async fn name_retired(&self, _: &str, _: &str) -> Result<(), DepError> {
+        Ok(())
+    }
+
+    async fn archived_agent_name(&self, _: &str) -> Result<String, DepError> {
+        Ok(String::new())
+    }
+
+    async fn known_session_ids(&self) -> Result<Vec<String>, DepError> {
+        Ok(Vec::new())
+    }
+
+    async fn agent_presence(&self, _: &[String]) -> Result<HashMap<String, Presence>, DepError> {
+        Ok(HashMap::new())
+    }
+
+    async fn forget_room_member(&self, _: &str) -> Result<(), DepError> {
+        Ok(())
     }
 }
 

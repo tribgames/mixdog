@@ -1,5 +1,5 @@
 {
- "base": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.6c1e22ea4ceede1e\\mixdog-pluginsapi-golden",
+ "base": "D:\\mixdog-build\\tmp\\plugins-status\\rec-base-api",
  "fixtures": {
   "alpha": {
    ".claude-plugin/plugin.json": "{\"name\":\"alpha-plugin\",\"title\":\"Alpha\"}",
@@ -43,9 +43,13 @@
    "method": "plugins/pluginsStatus",
    "params": {},
    "result": {
-    "registryPath": "<BASE>\\data\\plugins\\registry.json",
-    "installRoot": "<BASE>\\data\\plugins\\installed",
-    "plugins": []
+    "count": 0,
+    "plugins": [],
+    "missing": [],
+    "roots": {
+     "registry": "<BASE>\\data\\plugins\\registry.json",
+     "installed": "<BASE>\\data\\plugins\\installed"
+    }
    },
    "error": null,
    "saves": [],
@@ -82,11 +86,11 @@
    "name": "add alpha adopts its earlier copy",
    "method": "plugins/addPlugin",
    "params": {
-    "source": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.6c1e22ea4ceede1e\\mixdog-pluginsapi-golden\\src\\alpha"
+    "source": "D:\\mixdog-build\\tmp\\plugins-status\\rec-base-api\\src\\alpha"
    },
    "result": {
     "plugin": {
-     "id": "alpha-b867ce0a",
+     "id": "alpha-536a8a2d",
      "source": "<BASE>\\src\\alpha",
      "url": null,
      "sourceType": "local",
@@ -107,31 +111,44 @@
      "exists": true
     },
     "status": {
-     "registryPath": "<BASE>\\data\\plugins\\registry.json",
-     "installRoot": "<BASE>\\data\\plugins\\installed",
+     "count": 1,
      "plugins": [
       {
-       "id": "alpha-b867ce0a",
-       "source": "<BASE>\\src\\alpha",
-       "url": null,
-       "sourceType": "local",
-       "root": "<BASE>\\src\\alpha",
-       "managed": false,
+       "id": "alpha-536a8a2d",
        "name": "alpha-plugin",
        "title": "Alpha",
        "version": null,
        "description": "",
-       "enabled": true,
-       "installedAt": "<TS>",
-       "updatedAt": "<TS>",
        "author": "",
        "homepage": "",
        "repository": "",
        "license": "",
        "keywords": [],
-       "exists": true
+       "marketplace": null,
+       "source": "local",
+       "sourceUrl": "<BASE>\\src\\alpha",
+       "sourceType": "local",
+       "managed": false,
+       "enabled": true,
+       "root": "<BASE>\\src\\alpha",
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "skillCount": 0,
+       "hooks": false,
+       "mcpScript": ".mcp.json",
+       "mcpInline": false,
+       "mcpFormat": "none",
+       "mcpErrors": [],
+       "mcpServers": [],
+       "mcpServerName": "",
+       "mcpEnabled": false
       }
-     ]
+     ],
+     "missing": [],
+     "roots": {
+      "registry": "<BASE>\\data\\plugins\\registry.json",
+      "installed": "<BASE>\\data\\plugins\\installed"
+     }
     }
    },
    "error": null,
@@ -154,7 +171,7 @@
       }
      },
      "pluginMcp": {
-      "alpha-b867ce0a": {
+      "alpha-536a8a2d": {
        "search": {
         "alias": "plugin-alpha-plugin",
         "args": [
@@ -190,7 +207,7 @@
      }
     },
     "pluginMcp": {
-     "alpha-b867ce0a": {
+     "alpha-536a8a2d": {
       "search": {
        "alias": "plugin-alpha-plugin",
        "args": [
@@ -205,11 +222,11 @@
    "name": "add beta adopts its disabled copy",
    "method": "plugins/addPlugin",
    "params": {
-    "source": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.6c1e22ea4ceede1e\\mixdog-pluginsapi-golden\\src\\beta"
+    "source": "D:\\mixdog-build\\tmp\\plugins-status\\rec-base-api\\src\\beta"
    },
    "result": {
     "plugin": {
-     "id": "beta-c9d2878b",
+     "id": "beta-c5ba0051",
      "source": "<BASE>\\src\\beta",
      "url": null,
      "sourceType": "local",
@@ -230,52 +247,74 @@
      "exists": true
     },
     "status": {
-     "registryPath": "<BASE>\\data\\plugins\\registry.json",
-     "installRoot": "<BASE>\\data\\plugins\\installed",
+     "count": 2,
      "plugins": [
       {
-       "id": "alpha-b867ce0a",
-       "source": "<BASE>\\src\\alpha",
-       "url": null,
-       "sourceType": "local",
-       "root": "<BASE>\\src\\alpha",
-       "managed": false,
+       "id": "alpha-536a8a2d",
        "name": "alpha-plugin",
        "title": "Alpha",
        "version": null,
        "description": "",
-       "enabled": true,
-       "installedAt": "<TS>",
-       "updatedAt": "<TS>",
        "author": "",
        "homepage": "",
        "repository": "",
        "license": "",
        "keywords": [],
-       "exists": true
+       "marketplace": null,
+       "source": "local",
+       "sourceUrl": "<BASE>\\src\\alpha",
+       "sourceType": "local",
+       "managed": false,
+       "enabled": true,
+       "root": "<BASE>\\src\\alpha",
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "skillCount": 0,
+       "hooks": false,
+       "mcpScript": ".mcp.json",
+       "mcpInline": false,
+       "mcpFormat": "none",
+       "mcpErrors": [],
+       "mcpServers": [],
+       "mcpServerName": "",
+       "mcpEnabled": false
       },
       {
-       "id": "beta-c9d2878b",
-       "source": "<BASE>\\src\\beta",
-       "url": null,
-       "sourceType": "local",
-       "root": "<BASE>\\src\\beta",
-       "managed": false,
+       "id": "beta-c5ba0051",
        "name": "beta",
        "title": "beta",
        "version": null,
        "description": "",
-       "enabled": true,
-       "installedAt": "<TS>",
-       "updatedAt": "<TS>",
        "author": "",
        "homepage": "",
        "repository": "",
        "license": "",
        "keywords": [],
-       "exists": true
+       "marketplace": null,
+       "source": "local",
+       "sourceUrl": "<BASE>\\src\\beta",
+       "sourceType": "local",
+       "managed": false,
+       "enabled": true,
+       "root": "<BASE>\\src\\beta",
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "skillCount": 0,
+       "hooks": false,
+       "mcpScript": ".mcp.json",
+       "mcpInline": false,
+       "mcpFormat": "none",
+       "mcpErrors": [],
+       "mcpServers": [],
+       "mcpServerName": "",
+       "mcpEnabled": false
       }
-     ]
+     ],
+     "missing": [],
+     "roots": {
+      "registry": "<BASE>\\data\\plugins\\registry.json",
+      "installed": "<BASE>\\data\\plugins\\installed"
+     }
     }
    },
    "error": null,
@@ -288,7 +327,7 @@
       }
      },
      "pluginMcp": {
-      "alpha-b867ce0a": {
+      "alpha-536a8a2d": {
        "search": {
         "alias": "plugin-alpha-plugin",
         "args": [
@@ -296,7 +335,7 @@
         ]
        }
       },
-      "beta-c9d2878b": {
+      "beta-c5ba0051": {
        "b": {
         "alias": "plugin-beta--b",
         "enabled": false,
@@ -323,7 +362,7 @@
      }
     },
     "pluginMcp": {
-     "alpha-b867ce0a": {
+     "alpha-536a8a2d": {
       "search": {
        "alias": "plugin-alpha-plugin",
        "args": [
@@ -331,7 +370,7 @@
        ]
       }
      },
-     "beta-c9d2878b": {
+     "beta-c5ba0051": {
       "b": {
        "alias": "plugin-beta--b",
        "enabled": false,
@@ -348,58 +387,80 @@
    "method": "plugins/pluginsStatus",
    "params": {},
    "result": {
-    "registryPath": "<BASE>\\data\\plugins\\registry.json",
-    "installRoot": "<BASE>\\data\\plugins\\installed",
+    "count": 2,
     "plugins": [
      {
-      "id": "alpha-b867ce0a",
-      "source": "<BASE>\\src\\alpha",
-      "url": null,
-      "sourceType": "local",
-      "root": "<BASE>\\src\\alpha",
-      "managed": false,
+      "id": "alpha-536a8a2d",
       "name": "alpha-plugin",
       "title": "Alpha",
       "version": null,
       "description": "",
-      "enabled": true,
-      "installedAt": "<TS>",
-      "updatedAt": "<TS>",
       "author": "",
       "homepage": "",
       "repository": "",
       "license": "",
       "keywords": [],
-      "exists": true,
+      "marketplace": null,
+      "source": "local",
+      "sourceUrl": "<BASE>\\src\\alpha",
+      "sourceType": "local",
+      "managed": false,
+      "enabled": true,
+      "root": "<BASE>\\src\\alpha",
+      "installedAt": "<TS>",
+      "updatedAt": "<TS>",
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": ".mcp.json",
+      "mcpInline": false,
+      "mcpFormat": "none",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false,
       "scope": null,
       "inheritedScope": null,
       "activeHere": true
      },
      {
-      "id": "beta-c9d2878b",
-      "source": "<BASE>\\src\\beta",
-      "url": null,
-      "sourceType": "local",
-      "root": "<BASE>\\src\\beta",
-      "managed": false,
+      "id": "beta-c5ba0051",
       "name": "beta",
       "title": "beta",
       "version": null,
       "description": "",
-      "enabled": true,
-      "installedAt": "<TS>",
-      "updatedAt": "<TS>",
       "author": "",
       "homepage": "",
       "repository": "",
       "license": "",
       "keywords": [],
-      "exists": true,
+      "marketplace": null,
+      "source": "local",
+      "sourceUrl": "<BASE>\\src\\beta",
+      "sourceType": "local",
+      "managed": false,
+      "enabled": true,
+      "root": "<BASE>\\src\\beta",
+      "installedAt": "<TS>",
+      "updatedAt": "<TS>",
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": ".mcp.json",
+      "mcpInline": false,
+      "mcpFormat": "none",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false,
       "scope": null,
       "inheritedScope": null,
       "activeHere": true
      }
-    ]
+    ],
+    "missing": [],
+    "roots": {
+     "registry": "<BASE>\\data\\plugins\\registry.json",
+     "installed": "<BASE>\\data\\plugins\\installed"
+    }
    },
    "error": null,
    "saves": [],
@@ -412,7 +473,7 @@
      }
     },
     "pluginMcp": {
-     "alpha-b867ce0a": {
+     "alpha-536a8a2d": {
       "search": {
        "alias": "plugin-alpha-plugin",
        "args": [
@@ -420,7 +481,7 @@
        ]
       }
      },
-     "beta-c9d2878b": {
+     "beta-c5ba0051": {
       "b": {
        "alias": "plugin-beta--b",
        "enabled": false,
@@ -439,33 +500,41 @@
     "kind": "plugins",
     "name": "alpha-plugin",
     "projects": [
-     "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.6c1e22ea4ceede1e\\mixdog-pluginsapi-golden\\proj1"
+     "D:\\mixdog-build\\tmp\\plugins-status\\rec-base-api\\proj1"
     ]
    },
    "result": {
-    "registryPath": "<BASE>\\data\\plugins\\registry.json",
-    "installRoot": "<BASE>\\data\\plugins\\installed",
+    "count": 2,
     "plugins": [
      {
-      "id": "alpha-b867ce0a",
-      "source": "<BASE>\\src\\alpha",
-      "url": null,
-      "sourceType": "local",
-      "root": "<BASE>\\src\\alpha",
-      "managed": false,
+      "id": "alpha-536a8a2d",
       "name": "alpha-plugin",
       "title": "Alpha",
       "version": null,
       "description": "",
-      "enabled": true,
-      "installedAt": "<TS>",
-      "updatedAt": "<TS>",
       "author": "",
       "homepage": "",
       "repository": "",
       "license": "",
       "keywords": [],
-      "exists": true,
+      "marketplace": null,
+      "source": "local",
+      "sourceUrl": "<BASE>\\src\\alpha",
+      "sourceType": "local",
+      "managed": false,
+      "enabled": true,
+      "root": "<BASE>\\src\\alpha",
+      "installedAt": "<TS>",
+      "updatedAt": "<TS>",
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": ".mcp.json",
+      "mcpInline": false,
+      "mcpFormat": "none",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false,
       "scope": [
        "<BASE>\\proj1"
       ],
@@ -473,30 +542,44 @@
       "activeHere": true
      },
      {
-      "id": "beta-c9d2878b",
-      "source": "<BASE>\\src\\beta",
-      "url": null,
-      "sourceType": "local",
-      "root": "<BASE>\\src\\beta",
-      "managed": false,
+      "id": "beta-c5ba0051",
       "name": "beta",
       "title": "beta",
       "version": null,
       "description": "",
-      "enabled": true,
-      "installedAt": "<TS>",
-      "updatedAt": "<TS>",
       "author": "",
       "homepage": "",
       "repository": "",
       "license": "",
       "keywords": [],
-      "exists": true,
+      "marketplace": null,
+      "source": "local",
+      "sourceUrl": "<BASE>\\src\\beta",
+      "sourceType": "local",
+      "managed": false,
+      "enabled": true,
+      "root": "<BASE>\\src\\beta",
+      "installedAt": "<TS>",
+      "updatedAt": "<TS>",
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": ".mcp.json",
+      "mcpInline": false,
+      "mcpFormat": "none",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false,
       "scope": null,
       "inheritedScope": null,
       "activeHere": true
      }
-    ]
+    ],
+    "missing": [],
+    "roots": {
+     "registry": "<BASE>\\data\\plugins\\registry.json",
+     "installed": "<BASE>\\data\\plugins\\installed"
+    }
    },
    "error": null,
    "saves": [
@@ -508,7 +591,7 @@
       }
      },
      "pluginMcp": {
-      "alpha-b867ce0a": {
+      "alpha-536a8a2d": {
        "search": {
         "alias": "plugin-alpha-plugin",
         "args": [
@@ -516,7 +599,7 @@
         ]
        }
       },
-      "beta-c9d2878b": {
+      "beta-c5ba0051": {
        "b": {
         "alias": "plugin-beta--b",
         "enabled": false,
@@ -530,7 +613,7 @@
       "skills": {},
       "mcp": {},
       "plugins": {
-       "alpha-b867ce0a": [
+       "alpha-536a8a2d": [
         "<BASE>\\proj1"
        ]
       }
@@ -550,7 +633,7 @@
      }
     },
     "pluginMcp": {
-     "alpha-b867ce0a": {
+     "alpha-536a8a2d": {
       "search": {
        "alias": "plugin-alpha-plugin",
        "args": [
@@ -558,7 +641,7 @@
        ]
       }
      },
-     "beta-c9d2878b": {
+     "beta-c5ba0051": {
       "b": {
        "alias": "plugin-beta--b",
        "enabled": false,
@@ -572,7 +655,7 @@
      "skills": {},
      "mcp": {},
      "plugins": {
-      "alpha-b867ce0a": [
+      "alpha-536a8a2d": [
        "<BASE>\\proj1"
       ]
      }
@@ -584,29 +667,37 @@
    "method": "plugins/pluginsStatus",
    "params": {},
    "result": {
-    "registryPath": "<BASE>\\data\\plugins\\registry.json",
-    "installRoot": "<BASE>\\data\\plugins\\installed",
+    "count": 2,
     "plugins": [
      {
-      "id": "alpha-b867ce0a",
-      "source": "<BASE>\\src\\alpha",
-      "url": null,
-      "sourceType": "local",
-      "root": "<BASE>\\src\\alpha",
-      "managed": false,
+      "id": "alpha-536a8a2d",
       "name": "alpha-plugin",
       "title": "Alpha",
       "version": null,
       "description": "",
-      "enabled": true,
-      "installedAt": "<TS>",
-      "updatedAt": "<TS>",
       "author": "",
       "homepage": "",
       "repository": "",
       "license": "",
       "keywords": [],
-      "exists": true,
+      "marketplace": null,
+      "source": "local",
+      "sourceUrl": "<BASE>\\src\\alpha",
+      "sourceType": "local",
+      "managed": false,
+      "enabled": true,
+      "root": "<BASE>\\src\\alpha",
+      "installedAt": "<TS>",
+      "updatedAt": "<TS>",
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": ".mcp.json",
+      "mcpInline": false,
+      "mcpFormat": "none",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false,
       "scope": [
        "<BASE>\\proj1"
       ],
@@ -614,30 +705,44 @@
       "activeHere": true
      },
      {
-      "id": "beta-c9d2878b",
-      "source": "<BASE>\\src\\beta",
-      "url": null,
-      "sourceType": "local",
-      "root": "<BASE>\\src\\beta",
-      "managed": false,
+      "id": "beta-c5ba0051",
       "name": "beta",
       "title": "beta",
       "version": null,
       "description": "",
-      "enabled": true,
-      "installedAt": "<TS>",
-      "updatedAt": "<TS>",
       "author": "",
       "homepage": "",
       "repository": "",
       "license": "",
       "keywords": [],
-      "exists": true,
+      "marketplace": null,
+      "source": "local",
+      "sourceUrl": "<BASE>\\src\\beta",
+      "sourceType": "local",
+      "managed": false,
+      "enabled": true,
+      "root": "<BASE>\\src\\beta",
+      "installedAt": "<TS>",
+      "updatedAt": "<TS>",
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": ".mcp.json",
+      "mcpInline": false,
+      "mcpFormat": "none",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false,
       "scope": null,
       "inheritedScope": null,
       "activeHere": true
      }
-    ]
+    ],
+    "missing": [],
+    "roots": {
+     "registry": "<BASE>\\data\\plugins\\registry.json",
+     "installed": "<BASE>\\data\\plugins\\installed"
+    }
    },
    "error": null,
    "saves": [],
@@ -650,7 +755,7 @@
      }
     },
     "pluginMcp": {
-     "alpha-b867ce0a": {
+     "alpha-536a8a2d": {
       "search": {
        "alias": "plugin-alpha-plugin",
        "args": [
@@ -658,7 +763,7 @@
        ]
       }
      },
-     "beta-c9d2878b": {
+     "beta-c5ba0051": {
       "b": {
        "alias": "plugin-beta--b",
        "enabled": false,
@@ -672,7 +777,7 @@
      "skills": {},
      "mcp": {},
      "plugins": {
-      "alpha-b867ce0a": [
+      "alpha-536a8a2d": [
        "<BASE>\\proj1"
       ]
      }
@@ -686,8 +791,8 @@
     "kind": "skills",
     "name": "deploy",
     "projects": [
-     "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.6c1e22ea4ceede1e\\mixdog-pluginsapi-golden\\proj2",
-     "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.6c1e22ea4ceede1e\\mixdog-pluginsapi-golden\\proj1"
+     "D:\\mixdog-build\\tmp\\plugins-status\\rec-base-api\\proj2",
+     "D:\\mixdog-build\\tmp\\plugins-status\\rec-base-api\\proj1"
     ]
    },
    "result": {
@@ -723,7 +828,7 @@
       }
      },
      "pluginMcp": {
-      "alpha-b867ce0a": {
+      "alpha-536a8a2d": {
        "search": {
         "alias": "plugin-alpha-plugin",
         "args": [
@@ -731,7 +836,7 @@
         ]
        }
       },
-      "beta-c9d2878b": {
+      "beta-c5ba0051": {
        "b": {
         "alias": "plugin-beta--b",
         "enabled": false,
@@ -750,7 +855,7 @@
       },
       "mcp": {},
       "plugins": {
-       "alpha-b867ce0a": [
+       "alpha-536a8a2d": [
         "<BASE>\\proj1"
        ]
       }
@@ -770,7 +875,7 @@
      }
     },
     "pluginMcp": {
-     "alpha-b867ce0a": {
+     "alpha-536a8a2d": {
       "search": {
        "alias": "plugin-alpha-plugin",
        "args": [
@@ -778,7 +883,7 @@
        ]
       }
      },
-     "beta-c9d2878b": {
+     "beta-c5ba0051": {
       "b": {
        "alias": "plugin-beta--b",
        "enabled": false,
@@ -797,7 +902,7 @@
      },
      "mcp": {},
      "plugins": {
-      "alpha-b867ce0a": [
+      "alpha-536a8a2d": [
        "<BASE>\\proj1"
       ]
      }
@@ -842,7 +947,7 @@
       }
      },
      "pluginMcp": {
-      "alpha-b867ce0a": {
+      "alpha-536a8a2d": {
        "search": {
         "alias": "plugin-alpha-plugin",
         "args": [
@@ -850,7 +955,7 @@
         ]
        }
       },
-      "beta-c9d2878b": {
+      "beta-c5ba0051": {
        "b": {
         "alias": "plugin-beta--b",
         "enabled": false,
@@ -864,7 +969,7 @@
       "skills": {},
       "mcp": {},
       "plugins": {
-       "alpha-b867ce0a": [
+       "alpha-536a8a2d": [
         "<BASE>\\proj1"
        ]
       }
@@ -884,7 +989,7 @@
      }
     },
     "pluginMcp": {
-     "alpha-b867ce0a": {
+     "alpha-536a8a2d": {
       "search": {
        "alias": "plugin-alpha-plugin",
        "args": [
@@ -892,7 +997,7 @@
        ]
       }
      },
-     "beta-c9d2878b": {
+     "beta-c5ba0051": {
       "b": {
        "alias": "plugin-beta--b",
        "enabled": false,
@@ -906,7 +1011,7 @@
      "skills": {},
      "mcp": {},
      "plugins": {
-      "alpha-b867ce0a": [
+      "alpha-536a8a2d": [
        "<BASE>\\proj1"
       ]
      }
@@ -933,7 +1038,7 @@
      }
     },
     "pluginMcp": {
-     "alpha-b867ce0a": {
+     "alpha-536a8a2d": {
       "search": {
        "alias": "plugin-alpha-plugin",
        "args": [
@@ -941,7 +1046,7 @@
        ]
       }
      },
-     "beta-c9d2878b": {
+     "beta-c5ba0051": {
       "b": {
        "alias": "plugin-beta--b",
        "enabled": false,
@@ -955,7 +1060,7 @@
      "skills": {},
      "mcp": {},
      "plugins": {
-      "alpha-b867ce0a": [
+      "alpha-536a8a2d": [
        "<BASE>\\proj1"
       ]
      }
@@ -982,7 +1087,7 @@
      }
     },
     "pluginMcp": {
-     "alpha-b867ce0a": {
+     "alpha-536a8a2d": {
       "search": {
        "alias": "plugin-alpha-plugin",
        "args": [
@@ -990,7 +1095,7 @@
        ]
       }
      },
-     "beta-c9d2878b": {
+     "beta-c5ba0051": {
       "b": {
        "alias": "plugin-beta--b",
        "enabled": false,
@@ -1004,7 +1109,7 @@
      "skills": {},
      "mcp": {},
      "plugins": {
-      "alpha-b867ce0a": [
+      "alpha-536a8a2d": [
        "<BASE>\\proj1"
       ]
      }
@@ -1031,7 +1136,7 @@
      }
     },
     "pluginMcp": {
-     "alpha-b867ce0a": {
+     "alpha-536a8a2d": {
       "search": {
        "alias": "plugin-alpha-plugin",
        "args": [
@@ -1039,7 +1144,7 @@
        ]
       }
      },
-     "beta-c9d2878b": {
+     "beta-c5ba0051": {
       "b": {
        "alias": "plugin-beta--b",
        "enabled": false,
@@ -1053,7 +1158,7 @@
      "skills": {},
      "mcp": {},
      "plugins": {
-      "alpha-b867ce0a": [
+      "alpha-536a8a2d": [
        "<BASE>\\proj1"
       ]
      }
@@ -1080,7 +1185,7 @@
      }
     },
     "pluginMcp": {
-     "alpha-b867ce0a": {
+     "alpha-536a8a2d": {
       "search": {
        "alias": "plugin-alpha-plugin",
        "args": [
@@ -1088,7 +1193,7 @@
        ]
       }
      },
-     "beta-c9d2878b": {
+     "beta-c5ba0051": {
       "b": {
        "alias": "plugin-beta--b",
        "enabled": false,
@@ -1102,7 +1207,7 @@
      "skills": {},
      "mcp": {},
      "plugins": {
-      "alpha-b867ce0a": [
+      "alpha-536a8a2d": [
        "<BASE>\\proj1"
       ]
      }
@@ -1120,7 +1225,7 @@
    },
    "result": {
     "plugin": {
-     "id": "alpha-b867ce0a",
+     "id": "alpha-536a8a2d",
      "source": "<BASE>\\src\\alpha",
      "url": null,
      "sourceType": "local",
@@ -1141,52 +1246,74 @@
      "exists": true
     },
     "status": {
-     "registryPath": "<BASE>\\data\\plugins\\registry.json",
-     "installRoot": "<BASE>\\data\\plugins\\installed",
+     "count": 2,
      "plugins": [
       {
-       "id": "alpha-b867ce0a",
-       "source": "<BASE>\\src\\alpha",
-       "url": null,
-       "sourceType": "local",
-       "root": "<BASE>\\src\\alpha",
-       "managed": false,
+       "id": "alpha-536a8a2d",
        "name": "alpha-plugin",
        "title": "Alpha",
        "version": null,
        "description": "",
-       "enabled": false,
-       "installedAt": "<TS>",
-       "updatedAt": "<TS>",
        "author": "",
        "homepage": "",
        "repository": "",
        "license": "",
        "keywords": [],
-       "exists": true
+       "marketplace": null,
+       "source": "local",
+       "sourceUrl": "<BASE>\\src\\alpha",
+       "sourceType": "local",
+       "managed": false,
+       "enabled": false,
+       "root": "<BASE>\\src\\alpha",
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "skillCount": 0,
+       "hooks": false,
+       "mcpScript": ".mcp.json",
+       "mcpInline": false,
+       "mcpFormat": "none",
+       "mcpErrors": [],
+       "mcpServers": [],
+       "mcpServerName": "",
+       "mcpEnabled": false
       },
       {
-       "id": "beta-c9d2878b",
-       "source": "<BASE>\\src\\beta",
-       "url": null,
-       "sourceType": "local",
-       "root": "<BASE>\\src\\beta",
-       "managed": false,
+       "id": "beta-c5ba0051",
        "name": "beta",
        "title": "beta",
        "version": null,
        "description": "",
-       "enabled": true,
-       "installedAt": "<TS>",
-       "updatedAt": "<TS>",
        "author": "",
        "homepage": "",
        "repository": "",
        "license": "",
        "keywords": [],
-       "exists": true
+       "marketplace": null,
+       "source": "local",
+       "sourceUrl": "<BASE>\\src\\beta",
+       "sourceType": "local",
+       "managed": false,
+       "enabled": true,
+       "root": "<BASE>\\src\\beta",
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "skillCount": 0,
+       "hooks": false,
+       "mcpScript": ".mcp.json",
+       "mcpInline": false,
+       "mcpFormat": "none",
+       "mcpErrors": [],
+       "mcpServers": [],
+       "mcpServerName": "",
+       "mcpEnabled": false
       }
-     ]
+     ],
+     "missing": [],
+     "roots": {
+      "registry": "<BASE>\\data\\plugins\\registry.json",
+      "installed": "<BASE>\\data\\plugins\\installed"
+     }
     }
    },
    "error": null,
@@ -1204,7 +1331,7 @@
      }
     },
     "pluginMcp": {
-     "alpha-b867ce0a": {
+     "alpha-536a8a2d": {
       "search": {
        "alias": "plugin-alpha-plugin",
        "args": [
@@ -1212,7 +1339,7 @@
        ]
       }
      },
-     "beta-c9d2878b": {
+     "beta-c5ba0051": {
       "b": {
        "alias": "plugin-beta--b",
        "enabled": false,
@@ -1226,7 +1353,7 @@
      "skills": {},
      "mcp": {},
      "plugins": {
-      "alpha-b867ce0a": [
+      "alpha-536a8a2d": [
        "<BASE>\\proj1"
       ]
      }
@@ -1242,7 +1369,7 @@
    },
    "result": {
     "plugin": {
-     "id": "alpha-b867ce0a",
+     "id": "alpha-536a8a2d",
      "source": "<BASE>\\src\\alpha",
      "url": null,
      "sourceType": "local",
@@ -1263,52 +1390,74 @@
      "exists": true
     },
     "status": {
-     "registryPath": "<BASE>\\data\\plugins\\registry.json",
-     "installRoot": "<BASE>\\data\\plugins\\installed",
+     "count": 2,
      "plugins": [
       {
-       "id": "alpha-b867ce0a",
-       "source": "<BASE>\\src\\alpha",
-       "url": null,
-       "sourceType": "local",
-       "root": "<BASE>\\src\\alpha",
-       "managed": false,
+       "id": "alpha-536a8a2d",
        "name": "alpha-plugin",
        "title": "Alpha",
        "version": null,
        "description": "",
-       "enabled": true,
-       "installedAt": "<TS>",
-       "updatedAt": "<TS>",
        "author": "",
        "homepage": "",
        "repository": "",
        "license": "",
        "keywords": [],
-       "exists": true
+       "marketplace": null,
+       "source": "local",
+       "sourceUrl": "<BASE>\\src\\alpha",
+       "sourceType": "local",
+       "managed": false,
+       "enabled": true,
+       "root": "<BASE>\\src\\alpha",
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "skillCount": 0,
+       "hooks": false,
+       "mcpScript": ".mcp.json",
+       "mcpInline": false,
+       "mcpFormat": "none",
+       "mcpErrors": [],
+       "mcpServers": [],
+       "mcpServerName": "",
+       "mcpEnabled": false
       },
       {
-       "id": "beta-c9d2878b",
-       "source": "<BASE>\\src\\beta",
-       "url": null,
-       "sourceType": "local",
-       "root": "<BASE>\\src\\beta",
-       "managed": false,
+       "id": "beta-c5ba0051",
        "name": "beta",
        "title": "beta",
        "version": null,
        "description": "",
-       "enabled": true,
-       "installedAt": "<TS>",
-       "updatedAt": "<TS>",
        "author": "",
        "homepage": "",
        "repository": "",
        "license": "",
        "keywords": [],
-       "exists": true
+       "marketplace": null,
+       "source": "local",
+       "sourceUrl": "<BASE>\\src\\beta",
+       "sourceType": "local",
+       "managed": false,
+       "enabled": true,
+       "root": "<BASE>\\src\\beta",
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "skillCount": 0,
+       "hooks": false,
+       "mcpScript": ".mcp.json",
+       "mcpInline": false,
+       "mcpFormat": "none",
+       "mcpErrors": [],
+       "mcpServers": [],
+       "mcpServerName": "",
+       "mcpEnabled": false
       }
-     ]
+     ],
+     "missing": [],
+     "roots": {
+      "registry": "<BASE>\\data\\plugins\\registry.json",
+      "installed": "<BASE>\\data\\plugins\\installed"
+     }
     }
    },
    "error": null,
@@ -1326,7 +1475,7 @@
      }
     },
     "pluginMcp": {
-     "alpha-b867ce0a": {
+     "alpha-536a8a2d": {
       "search": {
        "alias": "plugin-alpha-plugin",
        "args": [
@@ -1334,7 +1483,7 @@
        ]
       }
      },
-     "beta-c9d2878b": {
+     "beta-c5ba0051": {
       "b": {
        "alias": "plugin-beta--b",
        "enabled": false,
@@ -1348,7 +1497,7 @@
      "skills": {},
      "mcp": {},
      "plugins": {
-      "alpha-b867ce0a": [
+      "alpha-536a8a2d": [
        "<BASE>\\proj1"
       ]
      }
@@ -1365,7 +1514,7 @@
    },
    "result": {
     "plugin": {
-     "id": "alpha-b867ce0a",
+     "id": "alpha-536a8a2d",
      "source": "<BASE>\\src\\alpha",
      "url": null,
      "sourceType": "local",
@@ -1386,52 +1535,74 @@
      "exists": true
     },
     "status": {
-     "registryPath": "<BASE>\\data\\plugins\\registry.json",
-     "installRoot": "<BASE>\\data\\plugins\\installed",
+     "count": 2,
      "plugins": [
       {
-       "id": "alpha-b867ce0a",
-       "source": "<BASE>\\src\\alpha",
-       "url": null,
-       "sourceType": "local",
-       "root": "<BASE>\\src\\alpha",
-       "managed": false,
+       "id": "alpha-536a8a2d",
        "name": "alpha-plugin",
        "title": "Alpha",
        "version": null,
        "description": "",
-       "enabled": true,
-       "installedAt": "<TS>",
-       "updatedAt": "<TS>",
        "author": "",
        "homepage": "",
        "repository": "",
        "license": "",
        "keywords": [],
-       "exists": true
+       "marketplace": null,
+       "source": "local",
+       "sourceUrl": "<BASE>\\src\\alpha",
+       "sourceType": "local",
+       "managed": false,
+       "enabled": true,
+       "root": "<BASE>\\src\\alpha",
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "skillCount": 0,
+       "hooks": false,
+       "mcpScript": ".mcp.json",
+       "mcpInline": false,
+       "mcpFormat": "none",
+       "mcpErrors": [],
+       "mcpServers": [],
+       "mcpServerName": "",
+       "mcpEnabled": false
       },
       {
-       "id": "beta-c9d2878b",
-       "source": "<BASE>\\src\\beta",
-       "url": null,
-       "sourceType": "local",
-       "root": "<BASE>\\src\\beta",
-       "managed": false,
+       "id": "beta-c5ba0051",
        "name": "beta",
        "title": "beta",
        "version": null,
        "description": "",
-       "enabled": true,
-       "installedAt": "<TS>",
-       "updatedAt": "<TS>",
        "author": "",
        "homepage": "",
        "repository": "",
        "license": "",
        "keywords": [],
-       "exists": true
+       "marketplace": null,
+       "source": "local",
+       "sourceUrl": "<BASE>\\src\\beta",
+       "sourceType": "local",
+       "managed": false,
+       "enabled": true,
+       "root": "<BASE>\\src\\beta",
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "skillCount": 0,
+       "hooks": false,
+       "mcpScript": ".mcp.json",
+       "mcpInline": false,
+       "mcpFormat": "none",
+       "mcpErrors": [],
+       "mcpServers": [],
+       "mcpServerName": "",
+       "mcpEnabled": false
       }
-     ]
+     ],
+     "missing": [],
+     "roots": {
+      "registry": "<BASE>\\data\\plugins\\registry.json",
+      "installed": "<BASE>\\data\\plugins\\installed"
+     }
     }
    },
    "error": null,
@@ -1450,7 +1621,7 @@
      }
     },
     "pluginMcp": {
-     "alpha-b867ce0a": {
+     "alpha-536a8a2d": {
       "search": {
        "alias": "plugin-alpha-plugin",
        "args": [
@@ -1458,7 +1629,7 @@
        ]
       }
      },
-     "beta-c9d2878b": {
+     "beta-c5ba0051": {
       "b": {
        "alias": "plugin-beta--b",
        "enabled": false,
@@ -1472,7 +1643,7 @@
      "skills": {},
      "mcp": {},
      "plugins": {
-      "alpha-b867ce0a": [
+      "alpha-536a8a2d": [
        "<BASE>\\proj1"
       ]
      }
@@ -1499,7 +1670,7 @@
      }
     },
     "pluginMcp": {
-     "alpha-b867ce0a": {
+     "alpha-536a8a2d": {
       "search": {
        "alias": "plugin-alpha-plugin",
        "args": [
@@ -1507,7 +1678,7 @@
        ]
       }
      },
-     "beta-c9d2878b": {
+     "beta-c5ba0051": {
       "b": {
        "alias": "plugin-beta--b",
        "enabled": false,
@@ -1521,7 +1692,7 @@
      "skills": {},
      "mcp": {},
      "plugins": {
-      "alpha-b867ce0a": [
+      "alpha-536a8a2d": [
        "<BASE>\\proj1"
       ]
      }
@@ -1548,7 +1719,7 @@
      }
     },
     "pluginMcp": {
-     "alpha-b867ce0a": {
+     "alpha-536a8a2d": {
       "search": {
        "alias": "plugin-alpha-plugin",
        "args": [
@@ -1556,7 +1727,7 @@
        ]
       }
      },
-     "beta-c9d2878b": {
+     "beta-c5ba0051": {
       "b": {
        "alias": "plugin-beta--b",
        "enabled": false,
@@ -1570,7 +1741,7 @@
      "skills": {},
      "mcp": {},
      "plugins": {
-      "alpha-b867ce0a": [
+      "alpha-536a8a2d": [
        "<BASE>\\proj1"
       ]
      }
@@ -1595,7 +1766,7 @@
      }
     },
     "pluginMcp": {
-     "alpha-b867ce0a": {
+     "alpha-536a8a2d": {
       "search": {
        "alias": "plugin-alpha-plugin",
        "args": [
@@ -1603,7 +1774,7 @@
        ]
       }
      },
-     "beta-c9d2878b": {
+     "beta-c5ba0051": {
       "b": {
        "alias": "plugin-beta--b",
        "enabled": false,
@@ -1617,7 +1788,7 @@
      "skills": {},
      "mcp": {},
      "plugins": {
-      "alpha-b867ce0a": [
+      "alpha-536a8a2d": [
        "<BASE>\\proj1"
       ]
      }
@@ -1629,52 +1800,74 @@
    "method": "plugins/reloadPlugins",
    "params": {},
    "result": {
-    "registryPath": "<BASE>\\data\\plugins\\registry.json",
-    "installRoot": "<BASE>\\data\\plugins\\installed",
+    "count": 2,
     "plugins": [
      {
-      "id": "alpha-b867ce0a",
-      "source": "<BASE>\\src\\alpha",
-      "url": null,
-      "sourceType": "local",
-      "root": "<BASE>\\src\\alpha",
-      "managed": false,
+      "id": "alpha-536a8a2d",
       "name": "alpha-plugin",
       "title": "Alpha",
       "version": null,
       "description": "",
-      "enabled": true,
-      "installedAt": "<TS>",
-      "updatedAt": "<TS>",
       "author": "",
       "homepage": "",
       "repository": "",
       "license": "",
       "keywords": [],
-      "exists": true
+      "marketplace": null,
+      "source": "local",
+      "sourceUrl": "<BASE>\\src\\alpha",
+      "sourceType": "local",
+      "managed": false,
+      "enabled": true,
+      "root": "<BASE>\\src\\alpha",
+      "installedAt": "<TS>",
+      "updatedAt": "<TS>",
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": ".mcp.json",
+      "mcpInline": false,
+      "mcpFormat": "none",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
      },
      {
-      "id": "beta-c9d2878b",
-      "source": "<BASE>\\src\\beta",
-      "url": null,
-      "sourceType": "local",
-      "root": "<BASE>\\src\\beta",
-      "managed": false,
+      "id": "beta-c5ba0051",
       "name": "beta",
       "title": "beta",
       "version": null,
       "description": "",
-      "enabled": true,
-      "installedAt": "<TS>",
-      "updatedAt": "<TS>",
       "author": "",
       "homepage": "",
       "repository": "",
       "license": "",
       "keywords": [],
-      "exists": true
+      "marketplace": null,
+      "source": "local",
+      "sourceUrl": "<BASE>\\src\\beta",
+      "sourceType": "local",
+      "managed": false,
+      "enabled": true,
+      "root": "<BASE>\\src\\beta",
+      "installedAt": "<TS>",
+      "updatedAt": "<TS>",
+      "skillCount": 0,
+      "hooks": false,
+      "mcpScript": ".mcp.json",
+      "mcpInline": false,
+      "mcpFormat": "none",
+      "mcpErrors": [],
+      "mcpServers": [],
+      "mcpServerName": "",
+      "mcpEnabled": false
      }
-    ]
+    ],
+    "missing": [],
+    "roots": {
+     "registry": "<BASE>\\data\\plugins\\registry.json",
+     "installed": "<BASE>\\data\\plugins\\installed"
+    }
    },
    "error": null,
    "saves": [],
@@ -1691,7 +1884,7 @@
      }
     },
     "pluginMcp": {
-     "alpha-b867ce0a": {
+     "alpha-536a8a2d": {
       "search": {
        "alias": "plugin-alpha-plugin",
        "args": [
@@ -1699,7 +1892,7 @@
        ]
       }
      },
-     "beta-c9d2878b": {
+     "beta-c5ba0051": {
       "b": {
        "alias": "plugin-beta--b",
        "enabled": false,
@@ -1713,7 +1906,7 @@
      "skills": {},
      "mcp": {},
      "plugins": {
-      "alpha-b867ce0a": [
+      "alpha-536a8a2d": [
        "<BASE>\\proj1"
       ]
      }
@@ -1728,7 +1921,7 @@
    },
    "result": {
     "plugin": {
-     "id": "alpha-b867ce0a",
+     "id": "alpha-536a8a2d",
      "source": "<BASE>\\src\\alpha",
      "url": null,
      "sourceType": "local",
@@ -1750,31 +1943,44 @@
      "removed": true
     },
     "status": {
-     "registryPath": "<BASE>\\data\\plugins\\registry.json",
-     "installRoot": "<BASE>\\data\\plugins\\installed",
+     "count": 1,
      "plugins": [
       {
-       "id": "beta-c9d2878b",
-       "source": "<BASE>\\src\\beta",
-       "url": null,
-       "sourceType": "local",
-       "root": "<BASE>\\src\\beta",
-       "managed": false,
+       "id": "beta-c5ba0051",
        "name": "beta",
        "title": "beta",
        "version": null,
        "description": "",
-       "enabled": true,
-       "installedAt": "<TS>",
-       "updatedAt": "<TS>",
        "author": "",
        "homepage": "",
        "repository": "",
        "license": "",
        "keywords": [],
-       "exists": true
+       "marketplace": null,
+       "source": "local",
+       "sourceUrl": "<BASE>\\src\\beta",
+       "sourceType": "local",
+       "managed": false,
+       "enabled": true,
+       "root": "<BASE>\\src\\beta",
+       "installedAt": "<TS>",
+       "updatedAt": "<TS>",
+       "skillCount": 0,
+       "hooks": false,
+       "mcpScript": ".mcp.json",
+       "mcpInline": false,
+       "mcpFormat": "none",
+       "mcpErrors": [],
+       "mcpServers": [],
+       "mcpServerName": "",
+       "mcpEnabled": false
       }
-     ]
+     ],
+     "missing": [],
+     "roots": {
+      "registry": "<BASE>\\data\\plugins\\registry.json",
+      "installed": "<BASE>\\data\\plugins\\installed"
+     }
     }
    },
    "error": null,
@@ -1787,7 +1993,7 @@
       }
      },
      "pluginMcp": {
-      "beta-c9d2878b": {
+      "beta-c5ba0051": {
        "b": {
         "enabled": false,
         "alias": "plugin-beta--b",
@@ -1801,7 +2007,7 @@
       "skills": {},
       "mcp": {},
       "plugins": {
-       "alpha-b867ce0a": [
+       "alpha-536a8a2d": [
         "<BASE>\\proj1"
        ]
       }
@@ -1823,7 +2029,7 @@
      }
     },
     "pluginMcp": {
-     "beta-c9d2878b": {
+     "beta-c5ba0051": {
       "b": {
        "enabled": false,
        "alias": "plugin-beta--b",
@@ -1837,7 +2043,7 @@
      "skills": {},
      "mcp": {},
      "plugins": {
-      "alpha-b867ce0a": [
+      "alpha-536a8a2d": [
        "<BASE>\\proj1"
       ]
      }
@@ -1862,7 +2068,7 @@
      }
     },
     "pluginMcp": {
-     "beta-c9d2878b": {
+     "beta-c5ba0051": {
       "b": {
        "enabled": false,
        "alias": "plugin-beta--b",
@@ -1876,7 +2082,7 @@
      "skills": {},
      "mcp": {},
      "plugins": {
-      "alpha-b867ce0a": [
+      "alpha-536a8a2d": [
        "<BASE>\\proj1"
       ]
      }
@@ -1893,7 +2099,7 @@
    },
    "result": {
     "plugin": {
-     "id": "beta-c9d2878b",
+     "id": "beta-c5ba0051",
      "source": "<BASE>\\src\\beta",
      "url": null,
      "sourceType": "local",
@@ -1909,9 +2115,13 @@
      "removed": true
     },
     "status": {
-     "registryPath": "<BASE>\\data\\plugins\\registry.json",
-     "installRoot": "<BASE>\\data\\plugins\\installed",
-     "plugins": []
+     "count": 0,
+     "plugins": [],
+     "missing": [],
+     "roots": {
+      "registry": "<BASE>\\data\\plugins\\registry.json",
+      "installed": "<BASE>\\data\\plugins\\installed"
+     }
     }
    },
    "error": null,
@@ -1928,7 +2138,7 @@
       "skills": {},
       "mcp": {},
       "plugins": {
-       "alpha-b867ce0a": [
+       "alpha-536a8a2d": [
         "<BASE>\\proj1"
        ]
       }
@@ -1954,7 +2164,7 @@
      "skills": {},
      "mcp": {},
      "plugins": {
-      "alpha-b867ce0a": [
+      "alpha-536a8a2d": [
        "<BASE>\\proj1"
       ]
      }
@@ -1966,9 +2176,13 @@
    "method": "plugins/pluginsStatus",
    "params": {},
    "result": {
-    "registryPath": "<BASE>\\data\\plugins\\registry.json",
-    "installRoot": "<BASE>\\data\\plugins\\installed",
-    "plugins": []
+    "count": 0,
+    "plugins": [],
+    "missing": [],
+    "roots": {
+     "registry": "<BASE>\\data\\plugins\\registry.json",
+     "installed": "<BASE>\\data\\plugins\\installed"
+    }
    },
    "error": null,
    "saves": [],
@@ -1985,7 +2199,7 @@
      "skills": {},
      "mcp": {},
      "plugins": {
-      "alpha-b867ce0a": [
+      "alpha-536a8a2d": [
        "<BASE>\\proj1"
       ]
      }

@@ -247,7 +247,10 @@ fn edit_of(params: &Value) -> Result<ConfigEdit, CoreError> {
     let mode = match params.get("mode").and_then(Value::as_str) {
         None | Some("replace") => ConfigWriteMode::Replace,
         Some("initializeIfMissing") => ConfigWriteMode::InitializeIfMissing,
-        Some(_) => return Err(invalid("params.mode", "replace | initializeIfMissing")),
+        Some("mergePatch") => ConfigWriteMode::MergePatch,
+        Some("mergePatchBots") => ConfigWriteMode::MergePatchBots,
+        Some("setConversation") => ConfigWriteMode::SetConversation,
+        Some(_) => return Err(invalid("params.mode", "replace | initializeIfMissing | mergePatch | mergePatchBots | setConversation")),
     };
     Ok(ConfigEdit { path, value, mode })
 }

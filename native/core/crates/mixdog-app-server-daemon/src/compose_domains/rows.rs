@@ -82,7 +82,7 @@ pub(super) async fn build(
     services.push(ClientService::new(Arc::new(ActivityInput::new(seams.user_activity.clone())), Arc::new(perf)));
 
     let power = Arc::new(RemotePower::new(seams.remote.clone(), seams.local_target.clone()));
-    services.push(HostService::new(publisher, power.clone(), power, seams.notification_clicks.clone()));
+    services.push(HostService::new(publisher, power.clone(), power, seams.notification_clicks.clone(), seams.browser_surfaces.clone()));
 
     services.push(InstructionsService::new(
         InstructionPaths {

@@ -78,8 +78,19 @@ pub struct Outgoing {
     next_claim: AtomicU64,
     /// What a recorded claim attaches to the process (see [`ClaimHook`]); set once at start.
     claim_hook: OnceLock<Arc<dyn ClaimHook>>,
+    /// Who is told of the clients that register and of the desktop becoming ready (see [`ClientHook`]); set once at start.
+    client_hook: OnceLock<Arc<dyn ClientHook>>,
     /// Changes whenever the set of model-proxy claimants does ([mixdog_core_api::ClientEpoch]).
     epoch: tokio::sync::watch::Sender<u64>,
+}
+
+/// What the composition root runs when clients arrive: the daemon's boot coordinator
+/// (`daemon-boot-coordinator.mjs`). Both calls return at once; the work they start runs on its own task.
+pub trait ClientHook: Send + Sync {
+    /// A client of `kind` completed its `initialize` handshake.
+    fn registered(&self, kind: mixdog_protocol::ConnectionKind);
+    /// A desktop's app feed went live: the desktop is ready for background work.
+    fn desktop_ready(&self);
 }
 
 /// Attaches process state to a host claim for as long as the claim lasts. The composition root
@@ -148,8 +159,28 @@ impl Outgoing {
             next_host_request: AtomicU64::new(1),
             next_claim: AtomicU64::new(1),
             claim_hook: OnceLock::new(),
+            client_hook: OnceLock::new(),
             epoch: tokio::sync::watch::channel(0).0,
         })
+    }
+
+    /// Sets the client hook; a second set is refused.
+    pub fn set_client_hook(&self, hook: Arc<dyn ClientHook>) -> Result<(), Arc<dyn ClientHook>> {
+        self.client_hook.set(hook)
+    }
+
+    /// A client finished its handshake (Node's transport `onClientRegistered`).
+    pub(crate) fn client_registered(&self, kind: mixdog_protocol::ConnectionKind) {
+        if let Some(hook) = self.client_hook.get() {
+            hook.registered(kind);
+        }
+    }
+
+    /// A desktop's `app/subscribe` was answered and its app feed is live (Node's `desktop.ready`; spec-v2 `protocol.md` §12.2).
+    pub(crate) fn desktop_ready(&self) {
+        if let Some(hook) = self.client_hook.get() {
+            hook.desktop_ready();
+        }
     }
 
     /// Sets the claim hook; a second set is refused.

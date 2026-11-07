@@ -126,7 +126,9 @@ impl OutboundCard {
 /// message id stands for) adds it to the card. Never changes what is approved.
 #[async_trait]
 pub trait CardEnricher: Send + Sync {
-    async fn enrich(&self, tool: &str, args: &Value, card: &mut OutboundCard);
+    /// `scope` is the calling session's MCP scope (`ctx.mcpScopeId`, `human-gate/gate.mjs:214`): the
+    /// connector is asked in that session's own servers, never another's.
+    async fn enrich(&self, scope: Option<&str>, tool: &str, args: &Value, card: &mut OutboundCard);
 }
 
 /// `args` with the card's edited fields in place of the model's; only the

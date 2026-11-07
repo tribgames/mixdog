@@ -42,6 +42,7 @@ import { loadStudioViewModule } from './studio-loader';
 import { asRecord, navigationKey } from './text-format';
 import type { useAppShellPanels } from './use-app-shell-panels';
 import { loadSidebarUsageModule } from './use-usage-rail-pin';
+import { invokeOrHeld } from './section-capabilities';
 
 import type { DesktopSessionSummary } from '../shared/contract';
 
@@ -358,9 +359,9 @@ export function useAppOnboarding(setSettingsOpen: Dispatch<SetStateAction<boolea
         live = false;
       };
     }
-    void invoke<RecordValue>({ capability: 'getOnboardingStatus' })
+    void invokeOrHeld<RecordValue>(window.mixdogDesktop, { capability: 'getOnboardingStatus' })
       .then(async (result) => {
-        if (asRecord(result.value)?.completed !== false) return;
+        if (asRecord(result?.value)?.completed !== false) return;
         // Load both chunks before mounting the wizard to retain the current frame.
         await Promise.all([loadSettingsViewModule(), loadOnboardingWizardModule()]).catch(() => undefined);
         if (live) setOnboardingOpen(true);

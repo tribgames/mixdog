@@ -489,6 +489,43 @@ pub struct HostBrowserViewFramesParams {
     pub request: JsonValue,
 }
 
+/// `host/browser/surface` (host → core notification): the window process's browser host asked its
+/// window to reveal or hide a session's browser surface (`browserRemoteOpen`). The core publishes
+/// it as `ui/openRequested { kind: "browser" }` so every attached client, paired phones included,
+/// opens the same surface. Fields are `UiOpenBrowser`'s.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
+pub struct HostBrowserSurfaceParams {
+    pub session_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reveal: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hide: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handoff: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+impl From<HostBrowserSurfaceParams> for UiOpenBrowser {
+    fn from(value: HostBrowserSurfaceParams) -> Self {
+        Self {
+            session_id: value.session_id,
+            reveal: value.reveal,
+            hide: value.hide,
+            handoff: value.handoff,
+            tab_id: value.tab_id,
+            title: value.title,
+            error: value.error,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 pub enum PowerEvent {

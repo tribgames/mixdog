@@ -200,7 +200,7 @@ fn fixture(root: &Path) -> MigrationRoots {
     write(
         &data,
         "mixdog-config.json",
-        br#"{"agent":{"compaction":{"enabled":false,"semanticModel":"m"},"other":1,"mcpServers":{"notion":{"url":"https://mcp.notion.com/mcp","connector":"notion"},"notion-2":{"url":"https://mcp.notion.com/mcp","oauthKey":"2","connector":"notion"}}}}"#,
+        br#"{"agent":{"compaction":{"enabled":false,"semanticModel":"m"},"other":1,"mcpServers":{"notion":{"url":"https://mcp.notion.com/mcp","connector":"notion"},"notion-2":{"url":"https://mcp.notion.com/mcp","oauthKey":"2","connector":"notion"}}},"quotaResume":{"autoResume":false,"other":2}}"#,
     );
     write(&data, "agents/a/agent.json", br#"{"connectors":{"off":["notion-2"]}}"#);
     write(&data, "bots/b/agent.json", br#"{"connectors":{"off":["linear-2"]}}"#);
@@ -285,8 +285,9 @@ fn fixture_migrates_every_kind() {
         .data
         .join("quarantine/carried_set_aside/retain%2Fdata%2Fsessions%2Fsess_c.json.corrupt-123/sess_c.json.corrupt-123")
         .exists());
-    // Both late config rewrites land: the compaction keys fold and the connector merges, its
-    // accounts with their ids, which the agents and the accounts in use then name.
+    // The three late config rewrites land: the compaction keys fold, the connector merges (its accounts with their ids, which
+    // the agents and the accounts in use then name), and the 1.4.5 quota switch, off, moves to `quotaAutoResume`
+    // (its section keeps the other key).
     let config: Value = serde_json::from_slice(&std::fs::read(roots.data.join("mixdog-config.json")).unwrap()).unwrap();
     let accounts = config["agent"]["mcpServers"]["notion"]["accounts"].as_array().unwrap().clone();
     let id = |n: usize| accounts[n]["id"].as_str().unwrap().to_owned();
@@ -295,7 +296,12 @@ fn fixture_migrates_every_kind() {
         json!({"agent":{"compaction":{"auto":false,"summaryModel":"m"},"other":1,"mcpServers":{"notion":{
             "type":"http","url":"https://connectors.mixdog.invalid/notion/mcp","connector":"notion","accounts":[
                 {"name":"notion","url":"https://mcp.notion.com/mcp","id":id(0)},
-                {"name":"notion-2","url":"https://mcp.notion.com/mcp","oauthKey":"2","id":id(1)}]}}}})
+                {"name":"notion-2","url":"https://mcp.notion.com/mcp","oauthKey":"2","id":id(1)}]}}},
+            "quotaResume":{"other":2},"quotaAutoResume":false})
+    );
+    assert!(
+        records.iter().any(|r| matches!(r, JournalRecord::Verified(v) if v.key.as_str() == "config/quotaResume.autoResume")),
+        "the quota item is verified"
     );
     let read = |rel: &str| serde_json::from_slice::<Value>(&std::fs::read(roots.data.join(rel)).unwrap()).unwrap();
     assert_eq!(read("agents/a/agent.json"), json!({"connectors":{"off":["notion"]}}));

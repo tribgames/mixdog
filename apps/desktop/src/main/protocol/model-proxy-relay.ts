@@ -29,6 +29,16 @@ export const MODEL_PROXY_HEARTBEAT_MS = 5_000;
 
 type RequestId = string | number;
 
+/** What the connection that owns the relay watches (Node's `ModelProxyHostOptions.serving` / `onCallSettled`). */
+export interface ModelProxyRelayHooks {
+  /** False while the server runs models with its own logins: its requests are not taken up (not even claimed). */
+  serving?: () => boolean;
+  /** A call took up / ended; `answered` and `failed` (the error reached the server) or `abandoned` (the server link
+   *  went, or the relay was given up, before it ended). `error` is the failure record of a failed call. */
+  onCallStarted?: () => void;
+  onCallSettled?: (event: { provider: string; outcome: 'answered' | 'failed' | 'abandoned'; error?: unknown }) => void;
+}
+
 type ExecuteParams = ModelProxyExecuteParams;
 type RunResult = ModelProxyResult;
 
@@ -45,7 +55,8 @@ export function relayModelProxy(
    *  (`isProviderAllowed`, desktop-connection.ts:376 over `allowedProvidersForHost`, ssh-host-store.ts:145): the host's
    *  saved list, `null` for every provider enabled here (a local core's own connection), `[]` for a server that is not
    *  saved. Required, so a relay cannot be started without deciding it. */
-  allowedProviders: () => string[] | null
+  allowedProviders: () => string[] | null,
+  hooks: ModelProxyRelayHooks = {}
 ): () => void {
   // The run each server request started, and the request each run belongs to.
   const runs = new Map<string, string>();
@@ -66,12 +77,21 @@ export function relayModelProxy(
     beat = undefined;
   };
 
+  const providers = new Map<string, string>();
+  const settle = (runId: string, outcome: 'answered' | 'failed' | 'abandoned', error?: unknown): void => {
+    const provider = providers.get(runId) ?? '';
+    providers.delete(runId);
+    hooks.onCallSettled?.({ provider, outcome, ...(error === undefined ? {} : { error }) });
+  };
   const abandonAll = (): void => {
     const abandoned = [...runs.values()];
     runs.clear();
     requests.clear();
     stopBeating();
-    for (const runId of abandoned) local.notify(RUN_CANCEL, { runId } satisfies ModelProxyRunCancelParams);
+    for (const runId of abandoned) {
+      local.notify(RUN_CANCEL, { runId } satisfies ModelProxyRunCancelParams);
+      settle(runId, 'abandoned');
+    }
   };
 
   const stopServer = server.onEvent((event: ConnectionClientEvent) => {
@@ -100,8 +120,12 @@ export function relayModelProxy(
   });
 
   function execute(id: RequestId, params: ExecuteParams): void {
+    // A server on its own logins takes nothing of this PC's: left unclaimed, the server gives the request up.
+    if (hooks.serving && !hooks.serving()) return;
     const key = JSON.stringify(id);
     const runId = `proxy${runCount++}`;
+    providers.set(runId, 'provider' in params.call ? params.call.provider : '');
+    hooks.onCallStarted?.();
     runs.set(key, runId);
     requests.set(runId, id);
     // The claim: the server gives a request nobody claimed up after 10 s.
@@ -122,12 +146,15 @@ export function relayModelProxy(
           if (result.result === 'failed') {
             const { failure } = result;
             server.respond(id, { error: { code: -32000, message: failure.message, data: failure } });
+            settle(runId, 'failed', failure);
           } else {
             server.respond(id, { result: answer });
+            settle(runId, 'answered');
           }
         },
         (error: unknown) => {
           if (!live()) return;
+          settle(runId, 'failed', error);
           server.respond(id, { error: { code: -32000, message: error instanceof Error ? error.message : String(error) } });
         }
       )
@@ -143,5 +170,42 @@ export function relayModelProxy(
     stopServer();
     abandonAll();
     stopLocal();
+  };
+}
+
+/** The connection's model proxy on a core connection: the relay, as the `ModelProxyHost` the connection keeps.
+ *  `revoke` gives up the calls in flight and takes up new ones again (Node's `revoke`: the abandoned calls read and
+ *  send nothing; `serving` decides what is taken up after). */
+export function createCoreModelProxy(
+  server: Pick<ProtocolConnection, 'onEvent' | 'respond' | 'notify'>,
+  local: Pick<ProtocolConnection, 'call' | 'notify' | 'onEvent'>,
+  allowedProviders: () => string[] | null,
+  hooks: ModelProxyRelayHooks = {}
+): { readonly running: number; revoke(): void; dispose(): void } {
+  let running = 0;
+  const start = (): (() => void) =>
+    relayModelProxy(server, local, allowedProviders, {
+      ...hooks,
+      onCallStarted: () => {
+        running += 1;
+        hooks.onCallStarted?.();
+      },
+      onCallSettled: (event) => {
+        running -= 1;
+        hooks.onCallSettled?.(event);
+      },
+    });
+  let stop = start();
+  return {
+    get running() {
+      return running;
+    },
+    revoke() {
+      stop();
+      stop = start();
+    },
+    dispose() {
+      stop();
+    },
   };
 }

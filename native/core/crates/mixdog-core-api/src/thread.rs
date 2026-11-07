@@ -67,6 +67,10 @@ pub trait RunControl: Send + Sync {
     /// boundary after the entry is durable. Errors: `turnNotActive`, `queueFull`.
     fn steer(&self, expected_turn: &TurnId, input: Value, op: OpId) -> Result<Value, CoreError>;
 
+    /// The turn the thread's run is in, `None` between runs: what a `turn/steer` that names no
+    /// turn steers.
+    fn active_turn(&self) -> Option<TurnId>;
+
     /// A client's response to a server request owned by this thread (P §8.4 step 1). Routed to
     /// the actor's control lane; the actor validates it, and the first valid decision wins.
     /// A decision that fails validation is answered through

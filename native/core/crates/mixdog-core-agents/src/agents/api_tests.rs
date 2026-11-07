@@ -196,7 +196,7 @@ async fn the_agent_methods_answer_what_the_recorded_node_handlers_answered() {
     // The recorder froze Node's `Date.now()` at `now`; the same instant is this store's clock.
     let now = twin["now"].as_i64().unwrap();
     let grants = FileGrantStore::with_clock(data.join("human-gate"), tokens.interactive_io, tokens.durability_io, Arc::new(move || now));
-    let service = AgentService::new(agents, connectors, AgentPermissions::new(grants));
+    let service = AgentService::new(agents, connectors, AgentPermissions::new(grants), super::lifecycle_twin_tests::quiet_lifecycle());
     let data_text = data.to_string_lossy().into_owned();
     for (index, step) in twin["steps"].as_array().unwrap().iter().enumerate() {
         let name = step["method"].as_str().unwrap();

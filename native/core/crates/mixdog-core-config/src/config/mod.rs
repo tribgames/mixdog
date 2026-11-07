@@ -106,6 +106,8 @@ pub const PUBLISHED_SUBTREES: &[&str] = &[
     // Notification preferences: the storage half of `notification-preferences.ts`, which this
     // store absorbs (DS §3).
     "notifications",
+    // The quota auto-resume switch (`getQuotaAutoResume`; written with `config/value/write`, `desktop-services.md` A2/D1).
+    "quotaAutoResume",
 ];
 
 #[derive(Debug)]
@@ -406,6 +408,20 @@ impl Config {
         desktop::activity_rail_pins(self.shared.doc.load().get("desktop")?.get("activityRailPins"))
     }
 
+    /// Boot: Node's notification store, on its first load with no document, writes one stamped `migratedAt: now`
+    /// (`notification-preferences.ts:228`). Without it nothing reads the stamp as anything but 0, and every
+    /// paired phone app would start from bot chats only. Run once after `open`, like `separate_defaults`: the
+    /// golden-tested `open` itself writes nothing. An existing subtree is left as it is.
+    pub async fn stamp_notifications(&self, now_ms: i64) -> Result<Applied, ConfigError> {
+        self.update(move |doc| {
+            if get_in(doc, &["notifications"]).is_none() {
+                set_in(doc, &["notifications", "migratedAt"], Value::from(now_ms));
+            }
+            Ok(())
+        })
+        .await
+    }
+
     /// `config/value/write`.
     pub async fn write(
         &self,
@@ -539,11 +555,44 @@ impl Shared {
         };
         let key = schema::lookup(&self.keys, path)
             .ok_or_else(|| invalid("a known config key".into()))?;
+        // Node's store, on its first load with no file, writes the document with `migratedAt: now`
+        // (`notification-preferences.ts:228`): devices paired before it keep the plain default, later ones
+        // start from bot chats. The first write into an unwritten subtree is that load.
+        if parts_of(path).first() == Some(&"notifications")
+            && path != "notifications"
+            && path != "notifications.migratedAt"
+            && get_in(doc, &["notifications"]).is_none()
+        {
+            set_in(doc, &["notifications", "migratedAt"], Value::from(epoch_ms()));
+        }
+        let wants = |kind: schema::Kind| std::mem::discriminant(&kind) == std::mem::discriminant(&key.kind);
+        let parts: Vec<&str> = path.split('.').collect();
+        if matches!(edit.mode, ConfigWriteMode::MergePatch | ConfigWriteMode::MergePatchBots) {
+            if !wants(schema::Kind::NotificationDevice) {
+                return Err(invalid("a notifications.devices.<id> path".into()));
+            }
+            let merged = notifications::merge_device(
+                get_in(doc, &parts),
+                &edit.value,
+                edit.mode == ConfigWriteMode::MergePatchBots,
+            )
+            .map_err(invalid)?;
+            set_in(doc, &parts, merged);
+            return Ok(());
+        }
+        if edit.mode == ConfigWriteMode::SetConversation {
+            if !wants(schema::Kind::NotificationOverrides) {
+                return Err(invalid("the notifications.overrides path".into()));
+            }
+            let now = epoch_ms();
+            let next = notifications::set_conversation(get_in(doc, &parts), &edit.value, now).map_err(invalid)?;
+            set_in(doc, &parts, next);
+            return Ok(());
+        }
         let remove = edit.value.is_null() && matches!(key.kind, schema::Kind::Any);
         if !remove && !schema::accepts(key.kind, &edit.value) {
             return Err(invalid(schema::expected(key.kind)));
         }
-        let parts: Vec<&str> = path.split('.').collect();
         if matches!(key.kind, schema::Kind::Pins) {
             return write_pins(doc, &edit.value, edit.mode, path);
         }
@@ -578,6 +627,9 @@ impl Shared {
                 set_in(doc, &["desktop", &marker], Value::Bool(true));
             }
         }
+        if path == "agent.compaction.auto" {
+            retire_legacy_compaction(doc);
+        }
         if remove || key.default.as_ref() == Some(&edit.value) {
             remove_in(doc, &parts);
         } else {
@@ -587,8 +639,69 @@ impl Shared {
     }
 }
 
-/// `desktop.activityRailPins`: the revision is assigned inside the write transaction; the
-/// default list is never stored, the revision alone keeps ordering.
+/// `Date.now()`: milliseconds from the epoch, negative for a clock set before it.
+fn epoch_ms() -> i64 {
+    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        Ok(since) => since.as_millis() as i64,
+        Err(before) => -(before.duration().as_millis() as i64),
+    }
+}
+
+fn parts_of(path: &str) -> Vec<&str> {
+    path.split('.').collect()
+}
+
+/// `DesktopSettingsStore.update('autoCompact')`: before `auto` is stored, the retired compaction
+/// keys go and their canonical successors take their values (`summaryModel` from `semanticModel`,
+/// `memoryTimeoutMs` from `recallMemoryTimeoutMs`), so a legacy value cannot override `auto`.
+fn retire_legacy_compaction(doc: &mut Doc) {
+    const RETIRED: [&str; 17] = [
+        "enabled",
+        "type",
+        "compactType",
+        "compact_type",
+        "semantic",
+        "semanticModel",
+        "prune",
+        "tailTurns",
+        "recallMemoryTimeoutMs",
+        "recallIngestLimit",
+        "recallChunkLimit",
+        "recallLimit",
+        "recallCycle1BatchSize",
+        "recallRowsPerSession",
+        "recallWindowSize",
+        "recallConcurrency",
+        "recallCycle1DeadlineMs",
+    ];
+    // JavaScript truthiness of a stored value.
+    let set = |value: Option<&Value>| match value {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(flag)) => *flag,
+        Some(Value::String(text)) => !text.is_empty(),
+        Some(Value::Number(number)) => number.as_f64().is_some_and(|n| n != 0.0),
+        Some(_) => true,
+    };
+    let Some(compaction) = doc
+        .get_mut("agent")
+        .and_then(Value::as_object_mut)
+        .and_then(|agent| agent.get_mut("compaction"))
+        .and_then(Value::as_object_mut)
+    else {
+        return;
+    };
+    for (canonical, retired) in [("summaryModel", "semanticModel"), ("memoryTimeoutMs", "recallMemoryTimeoutMs")] {
+        if !set(compaction.get(canonical)) && set(compaction.get(retired)) {
+            let carried = compaction[retired].clone();
+            compaction.insert(canonical.to_owned(), carried);
+        }
+    }
+    for key in RETIRED {
+        compaction.shift_remove(key);
+    }
+}
+
+/// `desktop.activityRailPins`: the revision is assigned inside the write transaction; the/// default list is never stored, the revision alone keeps ordering.
 fn write_pins(
     doc: &mut Doc,
     value: &Value,

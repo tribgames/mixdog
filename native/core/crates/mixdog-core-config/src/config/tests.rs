@@ -131,6 +131,85 @@ fn desktop_settings_follow_the_node_rules() {
 }
 
 #[test]
+fn turning_auto_compact_off_retires_the_legacy_compaction_keys() {
+    let dir = tempfile::tempdir().unwrap();
+    let legacy = json!({ "agent": { "compaction": { "enabled": false, "semanticModel": "m1", "recallMemoryTimeoutMs": 900, "tailTurns": 3 } } });
+    let (config, _) = open(&dir, Some(legacy));
+    config.write("agent.compaction.auto", json!(false), replace()).unwrap();
+    assert_eq!(on_disk(&dir)["agent"]["compaction"], json!({ "auto": false, "summaryModel": "m1", "memoryTimeoutMs": 900 }));
+    // On is the default: nothing but the carried successors stays.
+    config.write("agent.compaction.auto", json!(true), replace()).unwrap();
+    assert_eq!(on_disk(&dir)["agent"]["compaction"], json!({ "summaryModel": "m1", "memoryTimeoutMs": 900 }));
+}
+#[test]
+fn a_device_patch_merges_onto_its_stored_or_default_record() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, None);
+    let mode = |mode| config.write("notifications.devices.cred1", json!({ "events": { "error": false } }), mode);
+    // A phone app with nothing stored starts from bot chats only, the patch changes just its events.
+    mode(ConfigWriteMode::MergePatchBots).unwrap();
+    let stored = on_disk(&dir)["notifications"]["devices"]["cred1"].clone();
+    assert_eq!(stored["scope"], "bots");
+    assert_eq!(stored["events"]["error"], false);
+    // A stored record keeps what it has: a second patch touches only its own keys.
+    config.write("notifications.devices.cred1", json!({ "quietHours": { "enabled": true } }), ConfigWriteMode::MergePatch).unwrap();
+    let merged = on_disk(&dir)["notifications"]["devices"]["cred1"].clone();
+    assert_eq!((merged["scope"].clone(), merged["events"]["error"].clone(), merged["quietHours"]["enabled"].clone()), (json!("bots"), json!(false), json!(true)));
+    // An invalid patch is refused and nothing changes.
+    assert!(config.write("notifications.devices.cred1", json!({ "scope": "nobody" }), ConfigWriteMode::MergePatch).is_err());
+    assert_eq!(on_disk(&dir)["notifications"]["devices"]["cred1"], merged);
+    assert!(config.write("desktop.keepAwake", json!({}), ConfigWriteMode::MergePatch).is_err());
+}
+
+/// The boot stamp (`notification-preferences.ts:228`): written once into an unwritten subtree, left alone in a written one.
+#[test]
+fn boot_stamps_migrated_at_into_an_unwritten_notification_subtree_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, None);
+    assert!(on_disk(&dir).get("notifications").is_none(), "open writes nothing");
+    block_on(config.stamp_notifications(4_242)).unwrap();
+    assert_eq!(on_disk(&dir)["notifications"], json!({ "migratedAt": 4_242 }));
+    block_on(config.stamp_notifications(9_999)).unwrap();
+    assert_eq!(on_disk(&dir)["notifications"]["migratedAt"], 4_242, "once");
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, Some(json!({ "notifications": { "devices": {} } })));
+    block_on(config.stamp_notifications(4_242)).unwrap();
+    assert!(on_disk(&dir)["notifications"].get("migratedAt").is_none(), "a written subtree keeps reading 0");
+}
+
+/// Node's store stamps `migratedAt: now` when it first loads with no document (`notification-preferences.ts:228`); an
+/// existing document keeps the stamp it has (`:120` reads a missing or invalid one as 0).
+#[test]
+fn the_first_notification_write_stamps_migrated_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, None);
+    assert!(on_disk(&dir).get("notifications").is_none());
+    config.write("notifications.devices.cred1", json!({ "scope": "off" }), ConfigWriteMode::MergePatch).unwrap();
+    let stamped = on_disk(&dir)["notifications"]["migratedAt"].as_i64().unwrap();
+    assert!(stamped > 0);
+    config.write("notifications.devices.cred2", json!({ "scope": "off" }), ConfigWriteMode::MergePatch).unwrap();
+    assert_eq!(on_disk(&dir)["notifications"]["migratedAt"].as_i64(), Some(stamped), "the stamp is written once");
+    // A document that already exists, with no stamp, is left as it is: that reads as 0.
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, Some(json!({ "notifications": { "devices": {} } })));
+    config.write("notifications.devices.cred1", json!({ "scope": "off" }), ConfigWriteMode::MergePatch).unwrap();
+    assert!(on_disk(&dir)["notifications"].get("migratedAt").is_none());
+}
+
+#[test]
+fn a_conversation_setting_replaces_the_targets_entry_and_inherit_removes_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, None);
+    let set = |setting: Value| {
+        config.write("notifications.overrides", json!({ "target": { "kind": "session", "id": "s1" }, "setting": setting }), ConfigWriteMode::SetConversation)
+    };
+    set(json!({ "mode": "muted", "until": null })).unwrap();
+    set(json!({ "mode": "always" })).unwrap();
+    assert_eq!(on_disk(&dir)["notifications"]["overrides"], json!([{ "target": { "kind": "session", "id": "s1" }, "setting": { "mode": "always" } }]));
+    set(json!({ "mode": "inherit" })).unwrap();
+    assert_eq!(on_disk(&dir)["notifications"]["overrides"], json!([]));
+}
+#[test]
 fn computer_control_off_keeps_the_install_marker() {
     let dir = tempfile::tempdir().unwrap();
     let (config, _) = open(&dir, Some(json!({ "desktop": { "computerControl": true } })));

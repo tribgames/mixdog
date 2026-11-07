@@ -107,6 +107,11 @@ const STORED_READS: [&str; 6] = [
     "thread/finalAnswer/read",
 ];
 
+/// Thread methods the directory serves whether or not the thread opens: `thread/delete` answers
+/// for a session that is not there as Node does (`deleted: false` / `not-archived`), not
+/// `threadNotFound`.
+const DIRECTORY_SERVED: [&str; 1] = ["thread/delete"];
+
 /// What a transport does after handing a message over.
 pub enum Inbound {
     Continue,
@@ -526,6 +531,9 @@ impl Shared {
         // Eligibility starts only now, behind the response; what was published meanwhile is
         // delivered here, and an approvals-inbox connection gets every pending request.
         conn.finish_handshake();
+        if let Some(kind) = conn.session().map(|session| session.client.kind) {
+            self.outgoing.client_registered(kind);
+        }
         if conn.session().is_some_and(|session| session.model_proxy) {
             self.outgoing.serve_model_proxy(conn);
         }
@@ -675,7 +683,7 @@ impl Shared {
                 class,
                 Box::pin(async move {
                     match thread {
-                        Some(id) if !STORED_READS.contains(&request.method.0) => {
+                        Some(id) if !STORED_READS.contains(&request.method.0) && !DIRECTORY_SERVED.contains(&request.method.0) => {
                             let handle = core.threads().open(&id, &request.ctx).await?;
                             handle.request(request).await
                         }
@@ -724,12 +732,21 @@ impl Shared {
         id: &RequestId,
         params: TurnSteerParams,
     ) -> Result<Reply, CoreError> {
-        let thread = self.loaded_thread(&params.thread_id, &params.expected_turn_id)?;
+        // A request that names no turn steers the thread's active one, resolved here.
+        let (thread, turn) = match params.expected_turn_id {
+            Some(turn) => (self.loaded_thread(&params.thread_id, &turn)?, turn),
+            None => {
+                let not_active = || CoreError::TurnNotActive { thread_id: params.thread_id.clone(), turn_id: None };
+                let thread = self.core.threads().get(&params.thread_id).ok_or_else(not_active)?;
+                let turn = thread.active_turn().ok_or_else(not_active)?;
+                (thread, turn)
+            }
+        };
         // `RunControl::steer` still takes an input and an op id; the wire carries neither
         // (contract change request), so the entry is named and the call keyed by this request.
         let op = OpId::from(format!("steer:{from}:{id}"));
         thread.steer(
-            &params.expected_turn_id,
+            &turn,
             json!({ "queuedId": params.queued_id }),
             op,
         )?;
@@ -819,6 +836,9 @@ impl Shared {
             return;
         }
         conn.mark_live(&feed_id, &sub_id);
+        if feed_id == FeedId::from(mixdog_app_protocol::v2::feed::APP_FEED_ID) && conn.is_desktop_on(&feed_id) {
+            self.outgoing.desktop_ready();
+        }
         self.outgoing.redeliver(conn);
     }
 

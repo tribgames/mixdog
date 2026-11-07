@@ -34,6 +34,7 @@ use tokio::sync::watch;
 
 use crate::run_host::hooks::PostToolDispatch;
 use crate::run_host::hooks::SessionToolHooks;
+use crate::run_host::session_tools::header_scope;
 use crate::run_host::turn_settings::SettingsMcp;
 use crate::run_host::turn_settings::TurnSettings;
 
@@ -101,6 +102,8 @@ impl ToolDispatcher for PipelineDispatcher {
         };
         let observer = Arc::new(NullObserver);
         let guards = Arc::new(NoGuards);
+        // The calling session's MCP scope: a nested MCP call resolves against its own servers.
+        let scope = header_scope(&live.header.header()).map(str::to_owned);
         let session = Arc::new(SessionGate::new(ctx.thread_id.clone(), live.header, live.surface, self.gate_env.clone()));
         let gate = PolicyGate::new(PolicyGateParts {
             policy: self.policy.clone(),
@@ -119,6 +122,6 @@ impl ToolDispatcher for PipelineDispatcher {
         let hooks: Arc<dyn ToolHooks> = Arc::new(hooks);
         let mcp = self.mcp.clone().map(|settings| Arc::new(SettingsMcp { settings, thread: ctx.thread_id.clone() }) as Arc<dyn McpCatalog>);
         let pipeline = Pipeline { gate: Arc::new(gate), hooks: Some(hooks), observer, guards, mcp };
-        run_nested(&pipeline, self.tools.as_ref(), ctx, name, arguments).await
+        run_nested(&pipeline, self.tools.as_ref(), scope.as_deref(), ctx, name, arguments).await
     }
 }

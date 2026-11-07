@@ -126,7 +126,13 @@ pub struct HookBus {
     cache: Mutex<Option<Arc<HookConfig>>>,
     /// Bound once by the session service, which owns the transcript (built after the bus).
     transcripts: std::sync::OnceLock<Arc<dyn TranscriptExport>>,
+    /// Bound once by the session service: the MCP scope of the session a hook fires for.
+    scopes: std::sync::OnceLock<ScopeOf>,
 }
+
+/// The MCP scope a session holds (its header's `mcpScopeId`), by session id; `None` for an id the
+/// session service does not hold.
+pub type ScopeOf = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 fn base_payload(event: &str, session_id: &str, cwd: &Path, common: &HookCommon) -> Map<String, Value> {
     let mut payload = Map::new();
@@ -189,12 +195,19 @@ impl HookBus {
             observer,
             cache: Mutex::new(None),
             transcripts: std::sync::OnceLock::new(),
+            scopes: std::sync::OnceLock::new(),
         })
     }
 
     /// Makes every payload carry the transcript path `export` gives. Err: already bound.
     pub fn bind_transcripts(&self, export: Arc<dyn TranscriptExport>) -> Result<(), Arc<dyn TranscriptExport>> {
         self.transcripts.set(export)
+    }
+
+    /// Makes an `mcp_tool` handler find its tool among the servers of the scope the hook's session
+    /// holds (`scopeId: rt.mcpScopeId`, `boot/infrastructure.mjs:97`). Err: already bound.
+    pub fn bind_scopes(&self, scope_of: ScopeOf) -> Result<(), ScopeOf> {
+        self.scopes.set(scope_of)
     }
 
     fn emit(&self, event: &str, payload: Value) {
@@ -284,7 +297,16 @@ impl HookBus {
                 Some(runners::run_http(handler, payload, event).await)
             }
             "mcp_tool" => match &self.hub {
-                Some(hub) => Some(run_mcp_tool_handler(hub, handler, payload.clone(), event, &cancel).await),
+                Some(hub) => {
+                    // The hook runs in its session's runtime (`scopeId: rt.mcpScopeId`, `boot/infrastructure.mjs:98`);
+                    // one that names no session runs in the daemon's own runtime, whose scope is the hub's.
+                    let session = payload.get("session_id").and_then(Value::as_str).filter(|id| !id.is_empty());
+                    let scope = match session {
+                        Some(id) => self.scopes.get().and_then(|scope_of| scope_of(id)),
+                        None => Some(hub.runtime_scope().to_owned()),
+                    };
+                    Some(run_mcp_tool_handler(hub, scope.as_deref(), handler, payload.clone(), event, &cancel).await)
+                }
                 None => {
                     self.emit("hook:error", json!({"name": error_name, "error": "handler type mcp_tool not configured"}));
                     None
