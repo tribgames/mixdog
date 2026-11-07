@@ -227,6 +227,43 @@ async fn a_dirty_repository_review_matches_the_row_by_row_recording_of_node() {
     }
 }
 
+/// Node's `gitReview` over more untracked files than `REVIEW_UNTRACKED_LIMIT` (`fixtures/desktop/git/review-cap.json`, recorder
+/// `record-review-cap.mjs`): 295 untracked files and one modified. Node listed the first 256 of git's status order (bytes of the path:
+/// `a.b`, `a/b`, `sub.txt`, `sub/..`, `u000.txt`..`u221.txt`, with `Z-upper.txt` first of all) as rows, left out `u222.txt`..`u259.txt` and
+/// `\u{e9}.txt` (the non-ASCII name sorts last), and said so in `untrackedOmitted` (39); the modified row is not capped. The rows then
+/// follow `localeCompare`.
+#[tokio::test]
+async fn untracked_rows_past_the_limit_are_counted_like_node() {
+    use crate::golden_tests::git;
+    let recording: Value = serde_json::from_str(include_str!("../../../fixtures/desktop/git/review-cap.json")).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let repo = std::fs::canonicalize(dir.path()).unwrap().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "core.autocrlf", "false"]);
+    std::fs::write(repo.join("mod.txt"), "one\ntwo\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "base"]);
+    std::fs::write(repo.join("mod.txt"), "one\nTWO\nthree\n").unwrap();
+    for name in recording["created"].as_array().unwrap() {
+        let name = name.as_str().unwrap();
+        let path = repo.join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, format!("{name}\n")).unwrap();
+    }
+
+    let handle = service(Log::default());
+    let reply = get(&handle, json!({ "scope": "repo", "cwd": repo.to_string_lossy() })).await.unwrap();
+    assert_eq!(reply["untrackedOmitted"], recording["untrackedOmitted"]);
+    let (got, want) = (reply["files"].as_array().unwrap(), recording["files"].as_array().unwrap());
+    assert_eq!((got.len(), want.len()), (257, 257));
+    for (row, recorded) in got.iter().zip(want) {
+        for field in ["path", "status", "additions", "deletions", "untracked"] {
+            assert_eq!(row[field], recorded[field], "{} {field}", recorded["path"]);
+        }
+    }
+}
+
 #[tokio::test]
 async fn a_review_failure_keeps_the_message_node_threw() {
     let handle = service(Log::default());
