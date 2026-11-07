@@ -202,6 +202,23 @@ impl Lifecycle {
         self.apply(|m| m.stop(mode, reason, confirm_token))
     }
 
+    /// A `Quit` request over the control listener to stop the core ([`Machine::defers_stop`]): put off while a client is attached, as
+    /// Node's `/shutdown` is (`daemon.mjs:508-529`); the core then stops when the last client leaves. Everything else is [`Lifecycle::stop`].
+    pub fn request_stop(
+        self: &Arc<Self>,
+        mode: StopMode,
+        reason: StopReason,
+        confirm_token: Option<&str>,
+    ) -> Result<(), CommandError> {
+        self.apply(|m| {
+            if m.defers_stop(mode, reason) {
+                tracing::info!(?reason, "stop deferred: clients are still attached");
+                return Ok(());
+            }
+            m.stop(mode, reason, confirm_token)
+        })
+    }
+
     /// [`Lifecycle::stop`] with Node's text of this request (`daemon.mjs:272` `shutdown(reason)`), noted before the machine decides so a
     /// release that starts inside the call already has it; a refused stop takes it back.
     pub fn stop_noting(

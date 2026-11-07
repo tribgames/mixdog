@@ -1,0 +1,22 @@
+{
+  "cases": [
+    {
+      "name": "a session client is attached",
+      "clients": 1,
+      "request": "POST /shutdown",
+      "aliveAfter": true,
+      "log": [
+        "shutdown deferred (no live session clients): channels=0 sessionClients=1 remote=0"
+      ]
+    },
+    {
+      "name": "no client is attached",
+      "clients": 0,
+      "request": "POST /shutdown",
+      "aliveAfter": false,
+      "log": [
+        "shutting down (no live session clients)"
+      ]
+    }
+  ]
+}

@@ -231,7 +231,7 @@ impl Shared {
             }
             Ok(body) => self.command(out, |lifecycle| match &body.replacement {
                 Some(build) => lifecycle.stop_noting(body.mode, body.reason, body.confirm_token.as_deref(), &build.node_text()),
-                None => lifecycle.stop(body.mode, body.reason, body.confirm_token.as_deref()),
+                None => lifecycle.request_stop(body.mode, body.reason, body.confirm_token.as_deref()),
             }),
             Err(error) => bad_request(&error.to_string(), out),
         }

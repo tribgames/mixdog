@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-self-shutdown-deferral.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 482,
+      "path": "twin.json",
+      "sha256": "802d081f22973234d187260be25586247f9dac82a61c72e93236237a6e61e440"
+    }
+  ],
+  "product": {
+    "appsSha256": "2dea8886caea4e0def6de519f32fcc39d356f794cf2d9ff0a6fa141616f98a18",
+    "commit": "dc8b036486699d1327c25225786c73f6ea7066ad",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9254,
+    "refComparison": {
+      "closestCommit": "dc8b036486699d1327c25225786c73f6ea7066ad",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "a564cd0581259ad5c044880f92ca06b967cf4963c683aa568055c6db05bed2bc",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-self-shutdown-deferral.mjs",
+  "set": "self-shutdown-deferral",
+  "totalBytes": 482
+}

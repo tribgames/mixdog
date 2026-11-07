@@ -267,6 +267,19 @@ impl Machine {
         }
     }
 
+    /// Whether a client's request to stop the core is put off while clients are attached. Node's `POST /shutdown` calls
+    /// `maybeSelfShutdown('no live session clients')` (`routes.mjs:189-196`, `daemon.mjs:1245`), which returns after logging
+    /// `shutdown deferred (..)` while any registry holds a client (`daemon.mjs:508-529`) and leaves the stop to the last client
+    /// leaving. That is the `Quit` idle stop only (what `shutdownDaemon` and the headless CLI send): a replacement is not deferred
+    /// (`!replacing`, `:512`), nor is a signal, which does not come through here, nor a `UserStop`, which Node has no request for and
+    /// which the user's own stop command waits on.
+    pub fn defers_stop(&self, mode: StopMode, reason: StopReason) -> bool {
+        matches!(self.phase, Phase::Serving)
+            && matches!(mode, StopMode::WhenIdle)
+            && matches!(reason, StopReason::Quit)
+            && self.clients > 0
+    }
+
     pub fn cancel_drain(&mut self, drain_id: &str) -> Result<(), CommandError> {
         let Phase::Draining(drain) = &self.phase else {
             return Err(CommandError::NotDraining);
