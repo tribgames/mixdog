@@ -2091,12 +2091,6 @@ impl SessionActor {
     }
 
     fn run_ended(&mut self, turn: TurnId, outcome: RunOutcome) {
-        // The control lane is read before the producer lane, so the end can overtake output the run
-        // already sent (a delta has no ack): Node's callbacks run in order, so what the run said
-        // before it ended is applied first.
-        while let Ok(msg) = self.ch.prod_rx.try_recv() {
-            self.on_producer(msg);
-        }
         let Some(mut slot) = self.run.take_if(|run| run.turn == turn) else {
             return;
         };
