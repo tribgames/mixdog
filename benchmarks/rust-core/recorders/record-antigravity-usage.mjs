@@ -8,6 +8,8 @@
 //
 // Every user directory is a temp dir before any Mixdog module loads.
 //   node benchmarks/rust-core/recorders/record-antigravity-usage.mjs --tree <dir with node_modules> [--out <dir>]
+// A reset time without a zone (`resetTime: 12345`) is read as local time: the zone is part of the recording.
+process.env.TZ = 'UTC';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

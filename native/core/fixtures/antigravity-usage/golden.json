@@ -951,7 +951,7 @@
           {
             "label": "7D",
             "usedPct": 50,
-            "resetAt": 327403350000000,
+            "resetAt": 327403382400000,
             "source": "antigravity-quota-summary",
             "except": [
               "claude",

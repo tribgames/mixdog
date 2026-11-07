@@ -86,6 +86,8 @@ impl Environment for Env {
 
 #[tokio::test]
 async fn the_quota_read_is_nodes_get_usage_snapshot() {
+    // A reset time that names no zone is local time (`Date.parse`); the recorder pins `TZ=UTC`.
+    let _ = mixdog_js::time::set_process_zone(mixdog_js::time::Tz::UTC);
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();
     let now = golden["now"].as_u64().unwrap();
     let flows = golden["flows"].as_array().unwrap();
