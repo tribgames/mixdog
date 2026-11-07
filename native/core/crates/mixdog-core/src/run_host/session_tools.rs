@@ -98,11 +98,54 @@ fn all_builtin(pool: &[Arc<dyn Tool>]) -> Tools {
     ordered(dedup(named(pool, &BUILTIN).into_iter().chain(named(pool, &[PATCH])).chain(named(pool, &[CODE_GRAPH]))))
 }
 
-/// The internal tools of the pool (`standaloneTools`): every registered tool that is neither a
-/// built-in nor the step list or the bridge's `call_tool`, which the resolved set adds itself.
-/// A `public:false` tool never enters any model-visible schema, so it is left out here.
+/// `standaloneTools` of `collectStandaloneToolDefs` (`runtime-core/tool-defs.mjs`), group by group:
+/// the tool-search tool, `Skill`, `session`, the web tools (`WEB_SEARCH_RUNTIME_TOOLS`), the memory
+/// tools (the runtime's definition order), `code_graph`, the desktop bridges, `explore`, `setup`, the
+/// ask/handoff/react tools, `goal` and `agent`. Node registers them in this order whatever order the
+/// pool was built in; the deferred catalog lists a tie of equally ranked tools by it.
+const STANDALONE_ORDER: &[&str] = &[
+    "load_tool",
+    "Skill",
+    "session",
+    "web_search",
+    "web_fetch",
+    "local_fetch",
+    "image_fetch",
+    "memory",
+    "recall",
+    "code_graph",
+    "browser",
+    "browser_devtools",
+    "computer",
+    "terminal",
+    "office",
+    "media",
+    "tidy",
+    "visualize",
+    "explore",
+    "setup",
+    "ask_user",
+    "handoff_user",
+    "react",
+    "goal",
+    "agent",
+];
+
+/// `standaloneTools` of the pool, in Node's registration order: every registered tool that is not a
+/// built-in (but `code_graph`, which Node registers in both lists) nor the step list or the bridge's
+/// `call_tool`, which the resolved set adds itself. A tool `STANDALONE_ORDER` does not name follows the
+/// named ones in pool order. A `public:false` tool never enters any model-visible schema, so it is left out.
+pub fn standalone_tools(pool: &[Arc<dyn Tool>]) -> Tools {
+    let mut tools: Tools =
+        pool.iter().filter(|t| t.spec().public && (!is_builtin(name(t)) || name(t) == CODE_GRAPH) && ![TODO, "call_tool"].contains(&name(t))).cloned().collect();
+    tools.sort_by_key(|t| STANDALONE_ORDER.iter().position(|n| *n == name(t)).unwrap_or(STANDALONE_ORDER.len()));
+    tools
+}
+
+/// The internal tools of the pool: the standalone tools less `code_graph`, which the built-ins own
+/// (their whole definition, not the projection an internal tool gets).
 pub fn internal_tools(pool: &[Arc<dyn Tool>]) -> Tools {
-    pool.iter().filter(|t| t.spec().public && !is_builtin(name(t)) && ![TODO, "call_tool"].contains(&name(t))).cloned().collect()
+    standalone_tools(pool).into_iter().filter(|t| name(t) != CODE_GRAPH).collect()
 }
 
 /// A resolved tool as the session holds it. An internal tool went through `_getMcpTools`' projection to
@@ -294,7 +337,11 @@ impl SessionToolBuilder {
                 model,
                 skills_listed,
                 agent_owned: surface.agent_owned,
-                schema_allowed: surface.schema_allowed.as_deref(),
+                // The allowlist narrows the schema when the surface is created (`resolveSessionToolSurface`) and gates a call
+                // (`SessionSurface::refusal`), but the provider is sent the session's tools as they stand: the standalone
+                // tools `applyDeferredToolSurface` adds (`modelStandaloneTools()`, `session-runtime/tool-surface.mjs`) are
+                // not narrowed by it (the `lead, caller allowlist` recording).
+                schema_allowed: None,
                 disallowed: &surface.disallowed,
             },
         );
@@ -493,8 +540,15 @@ mod tests {
         };
         let header = header(json!({"cwd": "/work", "model": "gpt-5", "toolSpec": "full"}));
         assert_eq!(names(&builder().tools(&header, &surface).await.unwrap().tools), ["read", "load_tool", "call_tool"]);
-        let native = SessionSurface { bridge: false, ..surface };
-        assert_eq!(names(&builder().tools(&header, &native).await.unwrap().tools), ["read"]);
+    }
+
+    /// The allowlist gates a call, not the schema the session already holds: a Lead created with one keeps the
+    /// standalone tools the deferred surface added (recorded as `lead, caller allowlist`).
+    #[tokio::test]
+    async fn an_allowlist_does_not_narrow_the_tools_the_session_holds() {
+        let surface = SessionSurface { active_tools: ["read", "grep"].map(String::from).to_vec(), schema_allowed: Some(vec!["read".into()]), ..SessionSurface::default() };
+        let header = header(json!({"cwd": "/work", "model": "gpt-5", "toolSpec": "full"}));
+        assert_eq!(names(&builder().tools(&header, &surface).await.unwrap().tools), ["read", "grep"]);
     }
 
     #[tokio::test]

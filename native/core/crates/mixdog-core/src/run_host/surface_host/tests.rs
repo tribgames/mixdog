@@ -18,6 +18,7 @@ use mixdog_core_session::session::thread_switches::SurfaceFailure;
 use mixdog_core_session::session::thread_switches::WorkflowTarget;
 
 use crate::run_host::prompt_session::SessionPrompt;
+use crate::run_host::session_tools::internal_tools;
 
 use super::*;
 
@@ -40,9 +41,9 @@ fn flag(doc: &Value, key: &str) -> Option<bool> {
     doc.pointer(&format!("/annotations/{key}")).and_then(Value::as_bool)
 }
 
-/// A pool tool carrying the definition Node published.
-fn stub(doc: &Value) -> Arc<dyn Tool> {
-    let spec = ToolSpec {
+/// The tool spec of a definition Node published.
+fn spec_of_doc(doc: &Value) -> ToolSpec {
+    ToolSpec {
         name: doc["name"].as_str().expect("name").into(),
         title: doc.get("title").and_then(Value::as_str).map(str::to_owned),
         trigger: doc.get("trigger").and_then(Value::as_str).map(str::to_owned),
@@ -63,7 +64,12 @@ fn stub(doc: &Value) -> Arc<dyn Tool> {
         },
         parallel_safe: true,
         exclusive_with: Vec::new(),
-    };
+    }
+}
+
+/// A pool tool carrying the definition Node published.
+fn stub(doc: &Value) -> Arc<dyn Tool> {
+    let spec = spec_of_doc(doc);
     // `git` and `task` have the definition delegated agents are sent, as the real ones do.
     let agent = matches!(spec.name.as_str(), "git" | "task").then(|| spec.clone());
     Arc::new(Stub(spec, agent))
@@ -73,20 +79,11 @@ fn golden() -> Value {
     serde_json::from_str(include_str!("../../../../../fixtures/surface-host/golden.json")).expect("golden")
 }
 
-/// The golden's pool, its model-visible internal tools in the order Node registers them
-/// (`modelStandaloneTools()`, the golden's `standalone`): that order is the tail of a surface whose
-/// own list does not hold them.
+/// The golden's pool in the order the golden lists it (Node's session preview, not its registration
+/// order). The internal tools' order in a surface is `internal_tools`' to give (`STANDALONE_ORDER`),
+/// whatever order the pool was registered in.
 fn pool_of(g: &Value) -> Vec<Arc<dyn Tool>> {
-    let mut pool: Vec<Arc<dyn Tool>> = g["pool"].as_array().expect("pool").iter().map(stub).collect();
-    let registered: Vec<&str> = g["standalone"].as_array().expect("standalone").iter().map(|name| name.as_str().expect("name")).collect();
-    let rank = |tool: &Arc<dyn Tool>| registered.iter().position(|name| *name == tool.spec().name);
-    let slots: Vec<usize> = (0..pool.len()).filter(|at| rank(&pool[*at]).is_some()).collect();
-    let mut in_order: Vec<Arc<dyn Tool>> = slots.iter().map(|at| pool[*at].clone()).collect();
-    in_order.sort_by_key(|tool| rank(tool));
-    for (at, tool) in slots.into_iter().zip(in_order) {
-        pool[at] = tool;
-    }
-    pool
+    g["pool"].as_array().expect("pool").iter().map(stub).collect()
 }
 
 fn names(value: &Value) -> Vec<String> {
@@ -105,10 +102,11 @@ impl LiveRoute for Routes {
     fn adopt_held(&self, _: &ThreadId, _: &Route) {}
 }
 
-struct NoMcp;
-impl SessionMcp for NoMcp {
+/// The connected servers' tools, whatever the folder.
+struct Mcp(Vec<Arc<dyn Tool>>);
+impl SessionMcp for Mcp {
     fn tools(&self, _: &Path) -> Vec<Arc<dyn Tool>> {
-        Vec::new()
+        self.0.clone()
     }
 }
 
@@ -310,6 +308,10 @@ struct Setup {
     live: Option<Arc<dyn FeatureDenied>>,
     /// Takes the agent definition away from this pool tool.
     without_agent_spec: Option<&'static str>,
+    /// The registered pool, in registration order; the golden's when None.
+    pool: Option<Vec<Arc<dyn Tool>>>,
+    /// The connected servers' tools.
+    mcp: Vec<Arc<dyn Tool>>,
 }
 
 fn setup(mode: &str) -> Setup {
@@ -326,6 +328,8 @@ fn setup(mode: &str) -> Setup {
         orchestration: "balanced".into(),
         live: None,
         without_agent_spec: None,
+        pool: None,
+        mcp: Vec::new(),
     }
 }
 
@@ -334,8 +338,8 @@ fn rig(g: &Value, setup: Setup) -> Rig {
 }
 
 fn try_rig(g: &Value, setup: Setup) -> Result<Rig, VariantError> {
-    let Setup { mode, route, feature_denied, header, messages, running, denied, standalone, summary, orchestration, live, without_agent_spec } = setup;
-    let mut pool = pool_of(g);
+    let Setup { mode, route, feature_denied, header, messages, running, denied, standalone, summary, orchestration, live, without_agent_spec, pool, mcp } = setup;
+    let mut pool = pool.unwrap_or_else(|| pool_of(g));
     if let Some(name) = without_agent_spec {
         let at = pool.iter().position(|tool| tool.spec().name == name).expect("the tool");
         pool[at] = Arc::new(Stub(pool[at].spec().clone(), None));
@@ -344,13 +348,13 @@ fn try_rig(g: &Value, setup: Setup) -> Result<Rig, VariantError> {
     let prompts = Arc::new(FakePrompt(Mutex::default()));
     let connectors = Arc::new(Connectors(Mutex::default()));
     let generation = SurfaceGeneration::default();
-    let standalone = standalone.unwrap_or_else(|| internal_tools(&pool).iter().map(tool_doc).collect());
+    let standalone = standalone.unwrap_or_else(|| standalone_tools(&pool).iter().map(tool_doc).collect());
     let host = LeadSurfaceHost::new(SurfaceSources {
         mode,
         tool_host: Arc::new(Bridge(bridge_docs(&pool))),
         pool,
         agent_tools: HashSet::from(["agent"]),
-        mcp: Arc::new(NoMcp),
+        mcp: Arc::new(Mcp(mcp)),
         cwd: "/work".into(),
         routes: Arc::new(Routes(route.as_object().expect("route").clone())),
         feature_denied: live.unwrap_or_else(|| Arc::new(Gates(feature_denied))),
@@ -1043,4 +1047,178 @@ fn reconcile_rig(pool: &Value, g: &Value, case: &Value, header: Header, conversa
         },
     );
     rig
+}
+// ---- the provider tool array, replayed from Node's recording (`fixtures/tool-resolution/golden.json`) ----
+
+use mixdog_agent::tools::ToolSet;
+use mixdog_core_api::domain::provider::ToolDefinition;
+use mixdog_tools::policy::SessionSurface;
+
+use crate::run_host::assemble::SessionTools;
+use crate::run_host::context_world::snapshot_tools;
+use crate::run_host::resume_tools::McpToolNames;
+use crate::run_host::resume_tools::ResumeTools;
+use crate::run_host::route_surface::resumed_surface_change;
+use crate::run_host::rules::RulesPolicy;
+use crate::run_host::session_tools::SessionToolBuilder;
+
+fn recording() -> Value {
+    serde_json::from_str(include_str!("../../../../../fixtures/tool-resolution/golden.json")).expect("tool-resolution golden")
+}
+
+/// The order the daemon builds its pool in (`compose_flip`): `orch::register::tools`, then `code_graph`, the
+/// file, shell and git tools, the web tools and the memory tools. It is an input, not an expectation: Node's own
+/// order for the same tools is `STANDALONE_ORDER`'s to give.
+const DAEMON_ORDER: [&str; 36] = [
+    "load_tool", "call_tool", "Skill", "session", "agent", "explore", "todo", "goal", "ask_user", "handoff_user", "react", "setup", "media", "tidy", "office", "browser",
+    "browser_devtools", "visualize", "terminal", "computer", "code_graph", "read", "edit", "shell", "git", "github", "task", "grep", "glob", "find", "list", "apply_patch",
+    "web_search", "web_fetch", "memory", "recall",
+];
+
+/// The recorded pool in the daemon's registration order, each tool with the definition delegated agents are sent where Node binds one.
+fn recorded_pool(r: &Value) -> Vec<Arc<dyn Tool>> {
+    let entries = r["pool"]["tools"].as_array().expect("pool");
+    assert_eq!(entries.len(), DAEMON_ORDER.len(), "every recorded tool has a place in the daemon's order");
+    DAEMON_ORDER
+        .iter()
+        .map(|name| {
+            let entry = entries.iter().find(|entry| entry["name"] == *name).unwrap_or_else(|| panic!("{name} is in the recording"));
+            Arc::new(Stub(spec_of_doc(&entry["definition"]), entry.get("agent").map(spec_of_doc))) as Arc<dyn Tool>
+        })
+        .collect()
+}
+
+fn recorded_mcp(r: &Value) -> Vec<Arc<dyn Tool>> {
+    r["pool"]["mcpTools"].as_array().expect("mcp tools").iter().map(|doc| Arc::new(Stub(spec_of_doc(doc), None)) as Arc<dyn Tool>).collect()
+}
+
+/// What is compared of a tool on the wire: its name, text, schema and `deferLoading`.
+fn wire(tool: &ToolDefinition) -> Value {
+    json!({ "name": tool.name, "description": tool.description, "inputSchema": tool.input_schema, "deferLoading": tool.defer_loading })
+}
+
+fn node_wire(r: &Value, case: &Value) -> Vec<Value> {
+    case["provider"]
+        .as_array()
+        .expect("provider")
+        .iter()
+        .map(|entry| {
+            let tool = &r["definitions"][entry["definition"].as_str().expect("definition id")];
+            json!({ "name": tool["name"], "description": tool["description"], "inputSchema": tool["inputSchema"], "deferLoading": entry.get("deferLoading") == Some(&Value::Bool(true)) })
+        })
+        .collect()
+}
+
+/// No connected server names its tools differently from the recording.
+struct Unshortened;
+impl McpToolNames for Unshortened {
+    fn names(&self, _: &str) -> Option<(String, String)> {
+        None
+    }
+}
+
+/// `getHiddenAgent(agent)` as the recording took it.
+struct Role(bool);
+impl RulesPolicy for Role {
+    fn hidden_agent(&self, _: Option<&str>) -> bool {
+        self.0
+    }
+    fn delegation_disabled(&self, _: &Value, _: bool) -> bool {
+        false
+    }
+}
+
+/// What a request of `header` carries: the session's tools in the header's order (`SessionToolBuilder`), as the loop's
+/// `ToolSet` lists them to the model, then the request boundary's snapshot (`McpCatalog::snapshot`).
+async fn request_tools(pool: &[Arc<dyn Tool>], mcp: &[Arc<dyn Tool>], header: &Header) -> Vec<ToolDefinition> {
+    let builder = SessionToolBuilder::new(pool.to_vec(), Arc::new(Mcp(mcp.to_vec())), Arc::new(NoSkills)).expect("a pool with the agent definitions");
+    let surface = SessionSurface::from_header(header, Vec::new());
+    let SessionTools { tools, builtins, agent } = builder.tools(header, &surface).await.expect("tools");
+    let provider = header.get("provider").and_then(Value::as_str).unwrap_or_default();
+    snapshot_tools(header, ToolSet::with_builtins(tools, builtins).for_agent(agent).definitions(), Vec::new(), provider)
+}
+
+/// A Lead thread started as `thread/start` writes it: the host seeds its tools and deferred surface.
+async fn lead_request(pool: &[Arc<dyn Tool>], mcp: &[Arc<dyn Tool>], case: &Value) -> Vec<ToolDefinition> {
+    let input = &case["input"];
+    let (provider, model) = (input["provider"].clone(), input["model"].clone());
+    let mode = if input["mode"] == "readonly" { "readonly" } else { "lead" };
+    let rig = rig(
+        &Value::Null,
+        Setup {
+            route: json!({ "provider": provider, "model": model }),
+            feature_denied: names(&input["featureDenied"]),
+            pool: Some(pool.to_vec()),
+            mcp: mcp.to_vec(),
+            ..setup(mode)
+        },
+    );
+    let mut header = Header::new();
+    header.insert("toolSpec".into(), case["toolSpec"].clone());
+    header.insert("disallowedTools".into(), input["callerDisallowed"].clone());
+    if input["schemaAllowedTools"].is_array() {
+        header.insert("schemaAllowedTools".into(), input["schemaAllowedTools"].clone());
+    }
+    header.insert("cwd".into(), json!("/work"));
+    header.insert("provider".into(), provider);
+    header.insert("model".into(), model);
+    let seeded = rig.host.seed(&ThreadId::from(input["sessionId"].as_str().expect("session id")), &header).await.expect(case["name"].as_str().expect("name"));
+    request_tools(pool, mcp, &seeded).await
+}
+
+/// A delegated worker's thread: its tools resolved as a stored session's are (`ResumeTools`), then the
+/// agent exposure of its route (`applyAgentToolExposure`).
+async fn worker_request(pool: &[Arc<dyn Tool>], mcp: &[Arc<dyn Tool>], case: &Value) -> Vec<ToolDefinition> {
+    let input = &case["input"];
+    let hidden = case["hiddenAgent"] == true;
+    let mut header = Header::new();
+    header.insert("id".into(), input["sessionId"].clone());
+    header.insert("owner".into(), json!("agent"));
+    header.insert("agent".into(), input["agent"].clone());
+    header.insert("provider".into(), input["provider"].clone());
+    header.insert("model".into(), input["model"].clone());
+    header.insert("cwd".into(), json!("/work"));
+    header.insert("disallowedTools".into(), case["persisted"]["disallowedTools"].clone());
+    if case["persisted"]["schemaAllowedTools"].is_array() {
+        header.insert("schemaAllowedTools".into(), case["persisted"]["schemaAllowedTools"].clone());
+    }
+    let resume = ResumeTools { pool: pool.to_vec(), mcp: Arc::new(Mcp(mcp.to_vec())), mcp_names: Arc::new(Unshortened), skills: Arc::new(NoSkills), policy: Arc::new(Role(hidden)) };
+    let prepared = resume.prepare_tools(&header).await.expect("prepared");
+    let host = Bridge(bridge_docs(pool));
+    let surface = ToolSurface { host: &host, clock: &Fixed };
+    let change = resumed_surface_change(&surface, &Fixed, &header, prepared, hidden);
+    for key in &change.unset {
+        header.shift_remove(key);
+    }
+    header.extend(change.set);
+    request_tools(pool, mcp, &header).await
+}
+
+/// The tool array each kind of session sends the provider is Node's: which tools, in which order, with which
+/// definitions. Node's resolution drops the hidden tools, sorts the public internal and MCP tools by name, ranks them
+/// by route, appends `todo`, and a bridge surface appends `load_tool` and `call_tool` after (`tool-resolution.mjs`,
+/// `tool-catalog.mjs`); the deferred anchor rides last on an Anthropic route. The pool is registered in the
+/// daemon's order, not Node's.
+#[tokio::test]
+async fn the_provider_tool_array_follows_node_for_every_recorded_session() {
+    let r = recording();
+    let (pool, mcp) = (recorded_pool(&r), recorded_mcp(&r));
+    for case in r["cases"].as_array().expect("cases") {
+        let label = case["name"].as_str().expect("name");
+        let sent = if case["input"]["kind"] == "worker" { worker_request(&pool, &mcp, case).await } else { lead_request(&pool, &mcp, case).await };
+        let sent: Vec<Value> = sent.iter().map(wire).collect();
+        let node = node_wire(&r, case);
+        let names_of = |tools: &[Value]| tools.iter().map(|tool| tool["name"].as_str().unwrap_or_default().to_owned()).collect::<Vec<_>>();
+        assert_eq!(names_of(&sent), names_of(&node), "{label}: tools and their order");
+        assert_eq!(sent, node, "{label}: definitions");
+    }
+}
+
+/// `standalone_tools` lists the pool's standalone tools as `collectStandaloneToolDefs` does, whatever order the pool was registered in.
+#[test]
+fn the_standalone_tools_are_in_nodes_order_whatever_the_pool_order() {
+    let r = recording();
+    let pool = recorded_pool(&r);
+    let ours: Vec<String> = standalone_tools(&pool).iter().map(|tool| tool.spec().name.clone()).collect();
+    assert_eq!(ours, names(&r["pool"]["standalone"]));
 }
