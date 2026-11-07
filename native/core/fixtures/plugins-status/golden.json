@@ -226,6 +226,9 @@
        "error": null,
        "warnings": [],
        "source": "plugin",
+       "oauth": {
+        "signedIn": false
+       },
        "owner": {
         "kind": "plugin",
         "id": "beta-1",
@@ -361,6 +364,9 @@
        "error": null,
        "warnings": [],
        "source": "plugin",
+       "oauth": {
+        "signedIn": false
+       },
        "owner": {
         "kind": "plugin",
         "id": "eta-1",
@@ -896,6 +902,9 @@
        "error": null,
        "warnings": [],
        "source": "plugin",
+       "oauth": {
+        "signedIn": false
+       },
        "owner": {
         "kind": "plugin",
         "id": "beta-1",
@@ -1031,6 +1040,9 @@
        "error": null,
        "warnings": [],
        "source": "plugin",
+       "oauth": {
+        "signedIn": false
+       },
        "owner": {
         "kind": "plugin",
         "id": "eta-1",
@@ -1575,6 +1587,9 @@
        "error": null,
        "warnings": [],
        "source": "plugin",
+       "oauth": {
+        "signedIn": false
+       },
        "owner": {
         "kind": "plugin",
         "id": "beta-1",
@@ -1710,6 +1725,9 @@
        "error": null,
        "warnings": [],
        "source": "plugin",
+       "oauth": {
+        "signedIn": false
+       },
        "owner": {
         "kind": "plugin",
         "id": "eta-1",
@@ -2321,6 +2339,9 @@
        "error": null,
        "warnings": [],
        "source": "plugin",
+       "oauth": {
+        "signedIn": false
+       },
        "owner": {
         "kind": "plugin",
         "id": "eta-1",

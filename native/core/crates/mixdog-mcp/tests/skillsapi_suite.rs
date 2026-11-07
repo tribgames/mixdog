@@ -185,6 +185,14 @@ async fn every_skill_method_answers_and_leaves_what_node_does() {
     let catalog = SkillCatalog::new(data.clone(), tokens.maintenance_io.clone(), Arc::new(move |_| vec![root.clone()]), Arc::clone(&settings), &SkillsWatch::new());
     let projects = Arc::new(Projects { asked: Mutex::default(), folder: Path::new(&base).join("proj2") });
     let service = SkillsService::new(catalog, settings, config.clone(), host, projects.clone(), tokens.maintenance_io, tokens.durability_io, data.clone());
+    // A new-task draft asks by `projectPath` (the desktop's `skillsStatus({ projectPath })`): the status is of the folder
+    // the task would run in, as Node's host forwarded it as `{ cwd }` (the golden's "status for another folder" step).
+    let ask = |options: Value| CoreRequest {
+        method: Method("skills/skillsStatus"),
+        params: json!({"options": options}),
+        op: None,
+        ctx: CallContext::internal("test"),
+    };
     for step in golden["steps"].as_array().unwrap() {
         let name = step["name"].as_str().unwrap();
         log.lock().unwrap().clear();
@@ -215,20 +223,15 @@ async fn every_skill_method_answers_and_leaves_what_node_does() {
         overrides.sort_by(|a, b| a.as_str().cmp(&b.as_str()));
         files.insert("overrides".to_owned(), Value::Array(overrides));
         assert_eq!(Value::Object(files), step["files"], "{name}: files afterwards");
+        // Asked at the step's own point: later steps change the skills the folder's status lists.
+        if name == "status for another folder" {
+            let Reply::Value(drafted) = service.call(ask(json!({"projectPath": "draft"}))).await.unwrap() else { panic!("not a value") };
+            assert_eq!(serde_json::from_str::<Value>(&mask(&base, &drafted.to_string())).unwrap(), step["result"], "draft: status of the resolved folder");
+        }
     }
-    // A new-task draft asks by `projectPath` (the desktop's `skillsStatus({ projectPath })`): the status is of the folder
-    // the task would run in, as Node's host forwarded it as `{ cwd }` (the golden's "status for another folder" step).
-    let ask = |options: Value| CoreRequest {
-        method: Method("skills/skillsStatus"),
-        params: json!({"options": options}),
-        op: None,
-        ctx: CallContext::internal("test"),
-    };
     let another = golden["steps"].as_array().unwrap().iter().find(|step| step["name"] == "status for another folder").unwrap();
-    let Reply::Value(drafted) = service.call(ask(json!({"projectPath": "draft"}))).await.unwrap() else { panic!("not a value") };
-    assert_eq!(serde_json::from_str::<Value>(&mask(&base, &drafted.to_string())).unwrap(), another["result"], "draft: status of the resolved folder");
     let Reply::Value(task) = service.call(ask(json!({"projectPath": ""}))).await.unwrap() else { panic!("not a value") };
-    assert_eq!(task["cwd"], another["result"]["cwd"], "draft without a Project: the resolver answers");
+    assert_eq!(serde_json::from_str::<Value>(&mask(&base, &task["cwd"].to_string())).unwrap(), another["result"]["cwd"], "draft without a Project: the resolver answers");
     match service.call(ask(json!({"projectPath": "unknown"}))).await {
         Err(CoreError::DomainError { message: Some(got), .. }) => assert_eq!(&*got, "Project is not available."),
         other => panic!("an unknown Project: got {other:?}"),
