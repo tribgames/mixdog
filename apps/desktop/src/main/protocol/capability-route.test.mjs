@@ -28,22 +28,14 @@ const clientMethods = json('client_methods.json');
 const paramsSchema = (method) =>
   clientMethods.definitions[clientMethods.methods[method].params.$ref.split('/').pop()];
 
-/** Capabilities with no request op: the spec map points them at a pushed section or deletes them, or the op exists
- *  and the spec gives no params for the call's arguments (review reads, queue edits, setModel), or the target is a
- *  client notification (noteUserInput). They fail before anything is sent. */
+/** Capabilities with no request op (desktop-gaps-1): the spec map points them at a pushed section or deletes them. They
+ *  fail before anything is sent. `noteUserInput` is a notification, sent by the lane and not routed to a request. */
+const NOTIFIED = ['noteUserInput'];
 const NOT_ROUTED = [
-  'prioritizeQueued',
-  'restoreQueued',
-  'noteUserInput',
+  ...NOTIFIED,
   'taskControl',
   'selectTools',
-  'getSessionReviewDiff',
-  'getSessionReviewFilePatch',
-  'getTurnReviewDiff',
-  'getTurnReviewFilePatch',
-  'getTurnChanges',
   'listPresets',
-  'setModel',
   'getWebSearchRoute',
   'listAgents',
   'listWorkflows',
@@ -61,10 +53,11 @@ function recordingLane(answer = async () => ({ ok: true })) {
   const calls = [];
   const all = [];
   const states = new Map();
-  const world = { starts: 0, failStarts: 0, shell: [] };
+  const world = { starts: 0, failStarts: 0, shell: [], inputs: [] };
   const listeners = new Set();
   const protocol = {
     snapshot: () => ({ status: 'ready', entries: world.shell }),
+    noteUserInput: (at) => world.inputs.push(at),
     onEvent: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -338,7 +331,7 @@ test('every routed capability sends the op the spec map names, with params the R
 
 test('a capability with no op fails before anything is sent, and does not fall back', async () => {
   const { all, calls, lane } = recordingLane();
-  for (const capability of NOT_ROUTED) {
+  for (const capability of NOT_ROUTED.filter((name) => !NOTIFIED.includes(name))) {
     await assert.rejects(lane.invoke(capability, [], 'pane-1'), (error) => error.code === 'unknownMethod', capability);
     // Without a session too: no control thread is started for an action that has no op.
     await assert.rejects(lane.invoke(capability, [], undefined), (error) => error.code === 'unknownMethod', capability);
@@ -466,4 +459,42 @@ test("a connection with a core endpoint routes its client's capabilities through
   } finally {
     await connection.dispose();
   }
+});
+
+test('the queue, review and model actions send the exact op and params of desktop-gaps-1', () => {
+  const at = (capability, args, session = 's1') => routeCapability(capability, args, session);
+  assert.deepEqual(at('prioritizeQueued', ['q1']), { method: 'turn/steer', params: { threadId: 's1', queuedId: 'q1' } });
+  assert.deepEqual(at('restoreQueued', ['typed', 'q1']), {
+    method: 'thread/queue/delete',
+    params: { threadId: 's1', queuedId: 'q1', currentText: 'typed', restore: true },
+  });
+  assert.deepEqual(at('getSessionReviewDiff', []), { method: 'review/diff/get', params: { threadId: 's1', scope: 'session' } });
+  assert.deepEqual(at('getSessionReviewFilePatch', ['a.ts', 'b.ts']), {
+    method: 'review/diff/get',
+    params: { threadId: 's1', scope: 'session', path: 'a.ts', oldPath: 'b.ts' },
+  });
+  assert.deepEqual(at('getSessionReviewFilePatch', ['a.ts']).params, { threadId: 's1', scope: 'session', path: 'a.ts' });
+  assert.deepEqual(at('getTurnReviewDiff', [{ summary: true, known: 'k', refresh: true, poll: true }]), {
+    method: 'review/diff/get',
+    params: { threadId: 's1', scope: 'turn', summary: true, known: 'k' },
+  });
+  assert.deepEqual(at('getTurnReviewDiff', [{ summary: false }]).params, { threadId: 's1', scope: 'turn' });
+  assert.deepEqual(at('getTurnReviewDiff', []).params, { threadId: 's1', scope: 'turn' });
+  assert.deepEqual(at('getTurnReviewFilePatch', ['a.ts']), {
+    method: 'review/diff/get',
+    params: { threadId: 's1', scope: 'turn', path: 'a.ts' },
+  });
+  assert.deepEqual(at('getTurnChanges', [{ checkpointId: 'c1', patch: true, file: 'a.ts' }]), {
+    method: 'review/diff/get',
+    params: { threadId: 's1', scope: 'turn', checkpointId: 'c1', patch: true, path: 'a.ts' },
+  });
+  assert.deepEqual(at('setModel', ['gpt']), { method: 'route/set', params: { threadId: 's1', route: { model: 'gpt' } } });
+});
+
+test('noteUserInput is the client/activity notification: it sends no request and has no value', async () => {
+  const { all, lane, world } = recordingLane();
+  const result = await lane.invoke('noteUserInput', [1234], 'pane-1');
+  assert.equal(result.value, undefined);
+  assert.deepEqual(world.inputs, [1234]);
+  assert.deepEqual(all.filter((call) => call.method !== 'thread/read'), []);
 });
