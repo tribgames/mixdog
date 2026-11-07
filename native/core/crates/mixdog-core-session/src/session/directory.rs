@@ -280,7 +280,7 @@ impl SessionDirectory {
             return false;
         };
         if let Some(run) = handle.cell.run.load_full() {
-            let _ = handle.cell.abort(&run.turn, &mixdog_agent::cancel::abort_session_turn_reason(id.as_str(), reason));
+            let _ = handle.cell.abort(&run.turn, &mixdog_agent::cancel::Abort::abort_session_turn(id.as_str(), reason));
         }
         true
     }
@@ -709,7 +709,7 @@ impl DirInner {
     pub(crate) async fn close_for_delete(
         &self,
         id: &ThreadId,
-        reason: &str,
+        abort: &mixdog_agent::cancel::Abort,
         idle: bool,
         mut guard: Option<super::control::DeleteGuard>,
     ) -> Result<Result<DeleteHold, &'static str>, CoreError> {
@@ -726,7 +726,7 @@ impl DirInner {
         let (closed, closed_rx) = oneshot::channel();
         let (mark, mark_rx) = oneshot::channel();
         let (marked_tx, marked) = oneshot::channel();
-        let delete = Ctl::Delete { reason: reason.to_owned(), idle, guard, closed, mark: mark_rx, marked: marked_tx };
+        let delete = Ctl::Delete { abort: abort.clone(), idle, guard, closed, mark: mark_rx, marked: marked_tx };
         let closing = || CoreError::ThreadClosing { thread_id: id.clone() };
         handle.cell.ctl_tx.send(delete).await.map_err(|_| closing())?;
         match closed_rx.await.map_err(|_| closing())? {

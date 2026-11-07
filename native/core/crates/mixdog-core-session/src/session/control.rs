@@ -68,7 +68,7 @@ pub(crate) enum Ctl {
     /// (`changed` refuses): Node hands `treeChanged` to the delete and asks it again inside
     /// the destructive step.
     Delete {
-        reason: String,
+        abort: mixdog_agent::cancel::Abort,
         idle: bool,
         guard: Option<DeleteGuard>,
         closed: tokio::sync::oneshot::Sender<Result<(), &'static str>>,
@@ -291,6 +291,16 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// `isQueuedEntryEditable` (`queue-helpers.mjs`): a prompt the user typed, as opposed to a task notification, a
+/// pending resume, a Goal entry or a meta entry.
+fn is_editable_entry(entry: &Value) -> bool {
+    let mode = entry.get("mode").and_then(Value::as_str).unwrap_or("prompt");
+    mode != super::completions::MODE
+        && mode != "pending-resume"
+        && !super::goal_lane::is_goal_entry(entry)
+        && entry.get("isMeta") != Some(&Value::Bool(true))
+}
+
 impl ControlCell {
     fn not_active(&self, turn: Option<&TurnId>) -> CoreError {
         CoreError::TurnNotActive {
@@ -316,20 +326,28 @@ impl ControlCell {
     pub fn interrupt(&self, turn: &TurnId, restore_prompt: Option<bool>) -> Result<Value, CoreError> {
         // `abort.mjs`: a Stop that hands the prompt back is `user-cancel` (the runtime rewinds a turn that produced
         // nothing); one that does not names `user-cancel-keep-prompt`, so the prompt stays in the stored transcript.
-        let name = if restore_prompt == Some(false) { "user-cancel-keep-prompt" } else { mixdog_agent::cancel::CLI_ABORT };
-        let reason = mixdog_agent::cancel::runtime_abort_reason(self.thread.as_str(), name);
-        self.abort(turn, &reason)
+        // A queued steering prompt means the user already redirected the turn: the stop names `interrupt`
+        // (`abortGoalTurn`: `runtime.abort(hasPendingSteering ? 'interrupt' : reason)`).
+        let steering = self.queue.load().iter().any(|queued| is_editable_entry(&queued.entry));
+        let name = if steering {
+            "interrupt"
+        } else if restore_prompt == Some(false) {
+            "user-cancel-keep-prompt"
+        } else {
+            mixdog_agent::cancel::CLI_ABORT
+        };
+        self.abort(turn, &mixdog_agent::cancel::Abort::runtime_abort(self.thread.as_str(), name))
     }
 
     /// Aborts the running `turn` with `reason`, Node's abort text (`closeSession`,
     /// `abortSessionTurn`, `abortRuntime`).
-    pub fn abort(&self, turn: &TurnId, reason: &str) -> Result<Value, CoreError> {
+    pub fn abort(&self, turn: &TurnId, abort: &mixdog_agent::cancel::Abort) -> Result<Value, CoreError> {
         let run = self.run.load_full();
         let Some(run) = run.filter(|run| &run.turn == turn) else {
             return Err(self.not_active(Some(turn)));
         };
         self.send(Ctl::Abort { turn: turn.clone() })?;
-        run.cancel.abort(reason);
+        run.cancel.abort_with(abort);
         Ok(json!({ "cancelRequested": true, "turnId": turn }))
     }
 
@@ -373,5 +391,20 @@ impl ControlCell {
 
     pub fn publish_run(&self, run: Option<Arc<ActiveRun>>) {
         self.run.store(run);
+    }
+}
+
+#[cfg(test)]
+mod queue_tests {
+    use super::*;
+
+    /// `isQueuedEntryEditable` as Node's helper answered these entries (`fixtures/interrupt/queue-golden.json`,
+    /// `record-queue.mjs`).
+    #[test]
+    fn a_queued_entry_is_steering_as_node_judges_it() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/interrupt/queue-golden.json")).unwrap();
+        for case in golden["cases"].as_array().unwrap() {
+            assert_eq!(is_editable_entry(&case["entry"]), case["editable"] == true, "{}", case["entry"]);
+        }
     }
 }

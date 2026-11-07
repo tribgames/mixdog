@@ -140,7 +140,7 @@ impl DispatchThreads {
                 if let Some(handle) = &handle
                     && let Some(run) = handle.cell.run.load_full()
                 {
-                    let _ = handle.cell.abort(&run.turn, &cancel.reason());
+                    let _ = handle.cell.abort(&run.turn, &mixdog_agent::cancel::Abort::of_signal(&cancel));
                 }
                 Err(closed(if in_call { "aborted during call" } else { "aborted before call" }))
             }

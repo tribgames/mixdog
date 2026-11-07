@@ -583,9 +583,7 @@ impl Run {
                     && was_executed[i]
                     && let Some(id) = result.message.tool_call_id()
                 {
-                    let mut early = AgentMessage::tool_text(id, result.message.text(), ToolKind::Normal);
-                    early.tool_kind = result.failed.then_some(ToolKind::Error);
-                    self.emit(RunEvent::EarlyResult(early));
+                    self.emit(RunEvent::EarlyResult(early_result(id, &result)));
                 }
             }
         }
@@ -688,3 +686,48 @@ impl Run {
             }
         }
     }}
+
+/// `notifyEarlyResult` (`eager-dispatch/entry.mjs`): what a call that settled before the stop tells the host. The
+/// model-visible text; `error` only when the call threw (`isError: !settled.ok`, the executor''s `Err`), with the
+/// thrown message as `Error: <message>`. A tool that returned an error outcome is not a thrown call.
+fn early_result(call_id: &str, result: &Executed) -> AgentMessage {
+    if result.failed {
+        let mut early = AgentMessage::tool_text(call_id, format!("Error: {}", result.message.text()), ToolKind::Error);
+        early.tool_kind = Some(ToolKind::Error);
+        return early;
+    }
+    let mut early = AgentMessage::tool_text(call_id, result.message.text(), ToolKind::Normal);
+    early.tool_kind = None;
+    early
+}
+
+#[cfg(test)]
+mod early_tests {
+    use super::*;
+    use mixdog_core_api::domain::provider::Content;
+
+    /// The host notice Node's eager entry gave four settled calls (`fixtures/interrupt/early-golden.json`,
+    /// `record-early.mjs`): text for a returned value, `Error: <message>` and `isError` only for a thrown call.
+    #[test]
+    fn a_settled_call_is_noticed_as_nodes_eager_entry_notices_it() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/interrupt/early-golden.json")).unwrap();
+        for case in golden["cases"].as_array().unwrap() {
+            let name = &case["name"];
+            let thrown = case["isError"] == true;
+            let text = case["content"].as_str().unwrap();
+            let mut executed = if thrown {
+                Executed::error("c1", text.strip_prefix("Error: ").unwrap().to_owned())
+            } else {
+                Executed::error("c1", String::new())
+            };
+            if !thrown {
+                executed.failed = false;
+                executed.message = AgentMessage::tool_result("c1", Content::Text(text.to_owned()), ToolKind::Normal);
+            }
+            let early = early_result("c1", &executed);
+            assert_eq!(early.text(), text, "{name}");
+            assert_eq!(early.tool_kind == Some(ToolKind::Error), thrown, "{name}");
+            assert_eq!(early.tool_call_id(), Some("c1"), "{name}");
+        }
+    }
+}

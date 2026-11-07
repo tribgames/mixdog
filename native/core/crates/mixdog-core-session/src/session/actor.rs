@@ -782,7 +782,7 @@ impl SessionActor {
     /// `Ctl::Delete`: see its doc.
     fn delete(
         &mut self,
-        reason: &str,
+        abort: &mixdog_agent::cancel::Abort,
         idle: bool,
         guard: Option<super::control::DeleteGuard>,
         closed: oneshot::Sender<Result<(), &'static str>>,
@@ -842,7 +842,7 @@ impl SessionActor {
                 self.resolve(aid, &turn, interrupted);
             }
             if let Some(run) = &self.run {
-                run.cancel.abort(reason);
+                run.cancel.abort_with(abort);
             }
             return;
         }
@@ -1422,8 +1422,7 @@ impl SessionActor {
             Some("pause" | "stop") => {
                 self.cancel_goal_entries(None);
                 if let Some(run) = &self.run {
-                    let reason = mixdog_agent::cancel::abort_session_turn_reason(self.id.as_str(), "user-cancel");
-                    let _ = self.cell.abort(&run.turn, &reason);
+                    let _ = self.cell.abort(&run.turn, &mixdog_agent::cancel::Abort::abort_session_turn(self.id.as_str(), "user-cancel"));
                 }
             }
             _ => {}
@@ -1999,12 +1998,12 @@ impl SessionActor {
                 self.tombstoned = true;
                 self.try_unload();
             }
-            Ctl::Delete { reason, idle, guard, closed, mark, marked } => self.delete(&reason, idle, guard, closed, mark, marked),
+            Ctl::Delete { abort, idle, guard, closed, mark, marked } => self.delete(&abort, idle, guard, closed, mark, marked),
             Ctl::Shutdown(done) => {
                 self.cell.close();
                 if let Some(run) = &self.run {
                     // Teardown's `quiesce('cli-exit')`.
-                    run.cancel.abort(&mixdog_agent::cancel::session_closed(self.id.as_str(), "runtime close (reason=cli-exit)"));
+                    run.cancel.abort_with(&mixdog_agent::cancel::Abort::runtime_close(self.id.as_str(), "cli-exit"));
                 }
                 let _ = done.send(self.close_ingest());
             }
@@ -2827,6 +2826,35 @@ impl SessionActor {
                     ),
                 });
                 self.accept_record(record, Class::Normal, Display::None, Vec::new(), vec![Effect::ItemAck(ack)]);
+            }
+            ProducerMsg::PromptRewound { turn, item, ack } => {
+                if !self.active(&turn) {
+                    let _ = ack.send(Err(RunError::NotApplied));
+                    return;
+                }
+                // The thread's own rewind (`rewind`), at the prompt's row: it, and every row after it, leave.
+                let window = &self.acked.window;
+                let Some(index) = window.iter().position(|row| row.item.id() == &item) else {
+                    let _ = ack.send(Err(RunError::NotApplied));
+                    return;
+                };
+                let Some(ordinal) = window[index].ordinal else {
+                    let _ = ack.send(Err(RunError::NotApplied));
+                    return;
+                };
+                let previous = index.checked_sub(1).map(|i| window[i].item.id().clone());
+                let record = Record::Rewind(RewindRecord { to_ordinal: ordinal, reason: RewindReason::Rewind, op: None });
+                self.transcript_rewritten = true;
+                self.deps.side.forget(&self.id, false);
+                let note = self.history_reset(HistoryResetReason::Rewind, previous);
+                // The provider continuation described the rows that left.
+                match self.provider_state_change(None) {
+                    None => self.accept_record(record, Class::Normal, Display::None, vec![note], vec![Effect::ItemAck(ack)]),
+                    Some(reset) => {
+                        self.accept_record(record, Class::Normal, Display::None, vec![note], Vec::new());
+                        self.accept_record(reset, Class::Normal, Display::None, Vec::new(), vec![Effect::ItemAck(ack)]);
+                    }
+                }
             }
             ProducerMsg::TakeSteers { turn, request, reply } => {
                 self.take_steers(turn, request, reply, std::collections::HashMap::new());

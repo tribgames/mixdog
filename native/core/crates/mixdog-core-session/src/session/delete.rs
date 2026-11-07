@@ -199,8 +199,8 @@ pub(crate) async fn delete_session_if_idle(
         Ok(meta) => meta,
         Err(reason) => return refuse(reason),
     };
-    let reason = mixdog_agent::cancel::close_session_reason(id, AUTO_DELETE_REASON);
-    let hold = match directory.close_for_delete(&thread, &reason, true, None).await? {
+    let abort = mixdog_agent::cancel::Abort::close_session(id, AUTO_DELETE_REASON);
+    let hold = match directory.close_for_delete(&thread, &abort, true, None).await? {
         Ok(hold) => hold,
         Err(refusal) => return refuse(refusal),
     };
@@ -320,8 +320,8 @@ pub(crate) async fn delete_session(
         return Ok(false);
     };
     // `mgr.closeSession(id, reason)`: the running turn stops before anything else goes.
-    let reason = mixdog_agent::cancel::close_session_reason(id, DELETE_REASON);
-    let Ok(hold) = directory.close_for_delete(&thread, &reason, false, guard).await? else {
+    let abort = mixdog_agent::cancel::Abort::close_session(id, DELETE_REASON);
+    let Ok(hold) = directory.close_for_delete(&thread, &abort, false, guard).await? else {
         return Ok(false);
     };
     let closed = Closed { reason: DELETE_REASON, header: hold.header(), at_ms: deps.clock.now_ms() };

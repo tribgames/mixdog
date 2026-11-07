@@ -725,7 +725,7 @@ async fn close_cancelled(
     input_item: &ItemId,
     input_text: &str,
     observed: &Mutex<Observed>,
-    reason: Option<mixdog_agent::interrupt::AbortReason>,
+    reason: mixdog_agent::interrupt::AbortReason,
 ) {
     use mixdog_agent::compact::execution_tail::MessageRows as _;
     use mixdog_agent::interrupt::{finalize_interrupted_turn, Interrupted, Phase};
@@ -745,6 +745,13 @@ async fn close_cancelled(
         phase: if seen.tools { Phase::Tools } else { Phase::Streaming },
         reason,
     });
+    // A user cancel that produced nothing hands the prompt back: the rewind record at its row.
+    if !finalized.user_turn_preserved {
+        if let Err(error) = port.prompt_rewound(input_item.clone()).await {
+            tracing::warn!("[session] rewound prompt save failed: {error:?}");
+        }
+        return;
+    }
     let mut replacement: Vec<(ItemId, Value)> = Vec::new();
     for (index, message) in finalized.transcript.iter().enumerate() {
         let mut body;
@@ -1142,7 +1149,7 @@ async fn drive(
             }
             if matches!(failure.error, AgentError::Aborted) || cancel.is_cancelled() {
                 progress.cancelling();
-                close_cancelled(&end_port, &sink, &rows, &history, &input_item, &input_text, &observed, mixdog_agent::interrupt::AbortReason::from_text(&signal.reason())).await;
+                close_cancelled(&end_port, &sink, &rows, &history, &input_item, &input_text, &observed, signal.close_reason()).await;
                 return RunOutcome::Interrupted;
             }
             progress.error();

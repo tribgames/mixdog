@@ -109,7 +109,7 @@ pub(crate) async fn close_idle(directory: &super::directory::DirInner, id: &str,
     if deps.store.session_meta(&thread).await?.is_none() {
         return Ok(false);
     }
-    let abort = mixdog_agent::cancel::close_session_reason(id, IDLE_SWEEP_REASON);
+    let abort = mixdog_agent::cancel::Abort::close_session(id, IDLE_SWEEP_REASON);
     let Ok(hold) = directory.close_for_delete(&thread, &abort, true, Some(guard)).await? else {
         return Ok(false);
     };
@@ -159,7 +159,7 @@ async fn abort_and_drop(directory: &SessionDirectory, thread: &ThreadId, reason:
         }
     }
     if let Some(run) = handle.cell.run.load_full() {
-        let _ = handle.cell.abort(&run.turn, &mixdog_agent::cancel::close_session_reason(thread.as_str(), reason));
+        let _ = handle.cell.abort(&run.turn, &mixdog_agent::cancel::Abort::close_session(thread.as_str(), reason));
     }
 }
 

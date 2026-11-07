@@ -32,6 +32,8 @@ pub enum AbortReason {
     ProcessCrash,
     /// Engine shutdown, idle sweep, runner crash: not a user cancel.
     Other,
+    /// Node's null `closeReason` (a wrapped abort that names none): the legacy user-cancel treatment.
+    Unnamed,
 }
 
 impl AbortReason {
@@ -52,18 +54,10 @@ impl AbortReason {
         }
     }
 
-    /// The reason named in an abort text built by `cancel::{close_session_reason, abort_session_turn_reason,
-    /// runtime_abort_reason}` (`... (reason=NAME)`); `None` for a text that names none (a bare `abort()`, a
-    /// parent signal's own reason), which Node reads as a null reason and treats as a user cancel.
-    pub fn from_text(text: &str) -> Option<Self> {
-        let rest = &text[text.rfind("(reason=")? + "(reason=".len()..];
-        Some(Self::from_name(rest.strip_suffix(')')?))
-    }
-
     fn user_cancel(self) -> bool {
         matches!(
             self,
-            Self::CliAbort | Self::UserCancel | Self::TurnAbort | Self::UserCancelKeepPrompt
+            Self::CliAbort | Self::UserCancel | Self::TurnAbort | Self::UserCancelKeepPrompt | Self::Unnamed
         )
     }
 }
@@ -85,8 +79,7 @@ pub struct Interrupted {
     pub observed_tool_calls: Vec<ToolCall>,
     pub observed_tool_results: Vec<AgentMessage>,
     pub phase: Phase,
-    /// `None` keeps the user-cancel treatment.
-    pub reason: Option<AbortReason>,
+    pub reason: AbortReason,
 }
 
 #[derive(Debug, PartialEq)]
@@ -118,7 +111,7 @@ pub fn finalize_interrupted_turn(input: Interrupted) -> Finalized {
         reason,
     } = input;
     let mut messages = transcript;
-    let user_cancelled = reason.is_none_or(AbortReason::user_cancel);
+    let user_cancelled = reason.user_cancel();
     let provisional = provisional_user_turn(&messages, &current_user_text);
     // A turn cancelled while the model was only thinking produced no
     // model-visible message. Anything the model said or did keeps the turn.
@@ -128,8 +121,8 @@ pub fn finalize_interrupted_turn(input: Interrupted) -> Finalized {
         || provisional.is_some_and(|index| index + 1 < messages.len());
     let preserve_response = response_started && (produced_output || !user_cancelled);
     if !preserve_response {
-        if !user_cancelled || reason == Some(AbortReason::UserCancelKeepPrompt) {
-            if reason == Some(AbortReason::UserCancelKeepPrompt) && provisional.is_some() {
+        if !user_cancelled || reason == AbortReason::UserCancelKeepPrompt {
+            if reason == AbortReason::UserCancelKeepPrompt && provisional.is_some() {
                 messages.push(AgentMessage::user(SESSION_INTERRUPT_MESSAGE));
             }
             return Finalized {
@@ -168,9 +161,9 @@ pub fn finalize_interrupted_turn(input: Interrupted) -> Finalized {
     // request: that message is the boundary.
     if !matches!(
         reason,
-        Some(AbortReason::Interrupt | AbortReason::ProviderError)
+        AbortReason::Interrupt | AbortReason::ProviderError
     ) {
-        let content = if reason == Some(AbortReason::ProcessCrash) {
+        let content = if reason == AbortReason::ProcessCrash {
             PROCESS_RESTART_INTERRUPT_MESSAGE
         } else if user_cancelled {
             if phase == Phase::Tools {
@@ -262,7 +255,7 @@ mod tests {
             observed_tool_calls: Vec::new(),
             observed_tool_results: Vec::new(),
             phase: Phase::Streaming,
-            reason: Some(AbortReason::UserCancel),
+            reason: AbortReason::UserCancel,
         }
     }
 
@@ -326,7 +319,7 @@ mod tests {
                 observed_tool_calls: pairs("observedToolCalls").iter().map(|entry| call_from(&entry["call"])).collect(),
                 observed_tool_results: pairs("observedToolResults").iter().map(message_from).collect(),
                 phase,
-                reason: Some(AbortReason::from_name(case["reason"].as_str().unwrap())),
+                reason: AbortReason::from_name(case["reason"].as_str().unwrap()),
             });
             let shown: Vec<serde_json::Value> = done
                 .transcript
@@ -355,16 +348,21 @@ mod tests {
     }
 
     #[test]
-    fn an_abort_text_names_its_reason_as_node_builds_it() {
-        use crate::cancel::{close_session_reason, runtime_abort_reason, session_closed, CLI_ABORT};
-        assert_eq!(AbortReason::from_text(&runtime_abort_reason("s", CLI_ABORT)), Some(AbortReason::CliAbort));
-        assert_eq!(AbortReason::from_text(&close_session_reason("s", "cli-agent-close")), Some(AbortReason::Other));
-        assert_eq!(AbortReason::from_text(&runtime_abort_reason("s", "user-cancel-keep-prompt")), Some(AbortReason::UserCancelKeepPrompt));
-        assert_eq!(AbortReason::from_text(&runtime_abort_reason("s", "interrupt")), Some(AbortReason::Interrupt));
-        assert_eq!(AbortReason::from_text(&session_closed("s", "runtime close (reason=cli-exit)")), Some(AbortReason::Other));
-        assert_eq!(AbortReason::from_text("parent aborted"), None);
+    fn an_abort_carries_its_typed_reason_from_the_name_node_gives_it() {
+        use crate::cancel::{Abort, Cancel, CLI_ABORT};
+        assert_eq!(Abort::runtime_abort("s", CLI_ABORT).reason, AbortReason::CliAbort);
+        assert_eq!(Abort::close_session("s", "cli-agent-close").reason, AbortReason::Other);
+        assert_eq!(Abort::runtime_abort("s", "user-cancel-keep-prompt").reason, AbortReason::UserCancelKeepPrompt);
+        assert_eq!(Abort::runtime_abort("s", "interrupt").reason, AbortReason::Interrupt);
+        assert_eq!(Abort::runtime_close("s", "cli-exit").reason, AbortReason::Other);
+        let signal = Cancel::new();
+        signal.abort_with(&Abort::abort_session_turn("s", "user-cancel"));
+        signal.abort_with(&Abort::close_session("s", "cli-agent-close"));
+        assert_eq!((signal.close_reason(), Abort::of_signal(&signal).reason), (AbortReason::UserCancel, AbortReason::UserCancel), "the first abort keeps its reason");
+        let bare = Cancel::new();
+        bare.abort("parent aborted");
+        assert_eq!(bare.close_reason(), AbortReason::Unnamed, "a source with no close reason is Node's null reason");
     }
-
     #[test]
     fn a_stop_in_the_tool_phase_stamps_no_sent_tail() {
         let mut turn = input(vec![AgentMessage::user("go")]);
@@ -396,7 +394,7 @@ mod tests {
     fn a_non_user_stop_keeps_the_prompt() {
         let mut turn = input(vec![AgentMessage::user("go")]);
         turn.response_started = false;
-        turn.reason = Some(AbortReason::Other);
+        turn.reason = AbortReason::Other;
         let done = finalize_interrupted_turn(turn);
         assert_eq!(done.transcript.len(), 1);
         assert!(done.user_turn_preserved);
