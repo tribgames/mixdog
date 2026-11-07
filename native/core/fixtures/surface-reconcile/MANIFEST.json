@@ -3,18 +3,18 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 176310,
+      "bytes": 173410,
       "path": "golden.json",
-      "sha256": "5d8bf963d3046fbe3c2f14db87b4aa4497e9be9d4aa2c42859603a55f21f17e1"
+      "sha256": "134979b7ca0849200cb46182126f1fb01b047d92d970d6e2345853c75e4ec1ab"
     }
   ],
   "product": {
     "appsSha256": "aceede98659c44d00841dcebd6e231994155fbf785a74b44b542e1857c445d21",
-    "commit": "f566c7373f9f23d4924d7f8e648064a817abb1f7",
+    "commit": "d6983371ed0de0369c0433e2079ab6419e963044",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9252,
     "refComparison": {
-      "closestCommit": "f566c7373f9f23d4924d7f8e648064a817abb1f7",
+      "closestCommit": "d6983371ed0de0369c0433e2079ab6419e963044",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-surface-reconcile.mjs",
   "set": "surface-reconcile",
-  "totalBytes": 176310
+  "totalBytes": 173410
 }

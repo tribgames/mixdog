@@ -52,13 +52,11 @@ pub(crate) fn spec_from_def(
 #[cfg(test)]
 mod tests {
     /// Every embedded definition is Node's definition object, key for key
-    /// (`fixtures/tool-defs/definitions.json`, `record-tool-definitions.mjs`): title, trigger,
+    /// (`fixtures/tool-definitions/definitions.json`, `record-tool-definitions.mjs`, through `mixdog_js::fixture_tools`): title, trigger,
     /// description, inputSchema and every hint as the definition states it, `idempotentHint` and an
     /// explicit `agentHidden: false` included (`ask_user` reads read-only but not idempotent).
     #[test]
     fn the_embedded_definitions_are_nodes_definitions() {
-        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../../fixtures/tool-defs/definitions.json")).expect("the golden is JSON");
-        let nodes = golden["definitions"].as_array().expect("definitions");
         let defs: [&'static str; 22] = [
             include_str!("defs/memory.json"), include_str!("defs/recall.json"),
             include_str!("defs/agent.json"), include_str!("defs/call_tool.json"), include_str!("defs/explore.json"),
@@ -71,9 +69,9 @@ mod tests {
         ];
         for def in defs {
             let spec = super::spec_from_def(def, false, &[]);
-            let node = nodes.iter().find(|node| node["name"] == spec.name.as_str()).expect("a Node definition");
+            let node = mixdog_js::fixture_tools::definition(&spec.name).expect("a Node definition");
             let got = spec.definition();
-            assert_eq!(&got, node, "{}", spec.name);
+            assert_eq!(got, node, "{}", spec.name);
             assert_eq!(got["annotations"].to_string(), node["annotations"].to_string(), "{} annotations", spec.name);
         }
         let ask = defs.iter().map(|def| super::spec_from_def(def, false, &[])).find(|spec| spec.name == "ask_user").expect("ask_user");

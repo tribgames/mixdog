@@ -1,30 +1,36 @@
-#!/usr/bin/env node
-// Golden of the product's tool definition objects (`native/core/fixtures/tool-defs/definitions.json`):
-// every definition the runtime holds (built-ins, the standalone tools, `call_tool`, `apply_patch`,
-// `todo`, `goal`) plus the variants a session is sent instead (shell per shell kind, the delegated
-// agent's git and task), whole as Node has them: name, title, trigger, description, inputSchema, annotations
-// (each only where the definition has it). Rust's embedded definitions and the specs built from
-// them are compared with these objects, key for key.
+// The one fixture of the real Node tool definitions. Every definition the runtime holds (built-ins, the standalone
+// tools, `call_tool`, `apply_patch`, `todo`, `goal`, the `public:false` fetch tools), plus the variants a session is
+// sent instead: the delegated agent's `git`/`task` (`name@agent`), the `shell` text per shell kind with and without
+// background tasks (`shell@posix`, `shell@powershell`, `shell@posix-foreground`, `shell@powershell-foreground`), the
+// internal tools as `_getMcpTools` projects them (`name@internal`) and the edit dialects (`shell@claude`, `shell@gpt`).
+// Each entry is the whole definition as Node has it (name, title, trigger, description, inputSchema, annotations, each
+// only where the definition has it) with the content hash of its canonical JSON.
 //
-//   node benchmarks/rust-core/recorders/record-tool-definitions.mjs --tree <tree>
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+// Rust embedded definitions and the specs built from them are compared with these objects, key for key, through
+// `mixdog_js::fixture_tools::definition`; the goldens that carry tool definitions reference them
+// (`lib/tool-definitions.mjs` `compactTools`, loaded by `fixture_tools::parse_golden`). This replaces the former
+// `fixtures/tool-defs/definitions.json` and its recorder.
+////   node benchmarks/rust-core/recorders/record-tool-definitions.mjs --tree <dir with node_modules>
+//
+// Output: native/core/fixtures/tool-definitions/definitions.json (`tree` names the product tree's `src` hash).
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FIXTURES_ROOT, parseArgs, resolveTree, writeJson } from './lib/common.mjs';
-import { nodeToolDefinitions, nodeToolVariants } from './lib/tool-definitions.mjs';
+// Import-time sweeps delete real user data: every user dir is a fresh temp dir first.
+const sandbox = mkdtempSync(join(tmpdir(), 'tool-definitions-'));
+for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) process.env[key] = sandbox;
+process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
+process.env.TZ = 'UTC';
+const { FIXTURES_ROOT, commitStage, parseArgs, productIdentity, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { toolDefinitionsFixture } = await import('./lib/tool-definitions.mjs');
 
 const tree = resolveTree(parseArgs());
-const sandbox = mkdtempSync(join(tmpdir(), 'mixdog-tool-definitions-'));
-for (const [name, dir] of [['HOME', 'home'], ['USERPROFILE', 'home'], ['APPDATA', 'appdata'], ['LOCALAPPDATA', 'localappdata']]) {
-  mkdirSync(join(sandbox, dir), { recursive: true });
-  process.env[name] = join(sandbox, dir);
-}
-process.env.MIXDOG_HOME = join(sandbox, 'mixdog-home');
-process.env.MIXDOG_DATA_DIR = join(sandbox, 'mixdog-home', 'data');
-process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
-
-const { definitions } = await nodeToolDefinitions(tree);
-const variants = await nodeToolVariants(tree);
-rmSync(sandbox, { recursive: true, force: true });
-writeJson(join(FIXTURES_ROOT, 'tool-defs', 'definitions.json'), { definitions, variants });
-console.log(`recorded ${definitions.length} definitions, ${variants.length} variants`);
+const finalDir = join(FIXTURES_ROOT, 'tool-definitions');
+const stage = stageSet(finalDir);
+const recorder = 'benchmarks/rust-core/recorders/record-tool-definitions.mjs';
+const identity = productIdentity(tree);
+const fixture = await toolDefinitionsFixture(tree, { srcSha256: identity.srcSha256 });
+writeJson(join(stage, 'definitions.json'), fixture);
+writeSetManifest(stage, { set: 'tool-definitions', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree });
+commitStage(stage, finalDir);
+console.log(`tool definitions: ${Object.keys(fixture.definitions).length} entries`);
