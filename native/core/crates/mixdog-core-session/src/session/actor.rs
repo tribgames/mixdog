@@ -396,6 +396,8 @@ struct RunSlot {
     route_meta: serde_json::Map<String, Value>,
     /// The pending Goal reminder's revision the turn carries.
     goal_reminder: Option<u64>,
+    /// The prompt-settings notice revision the run carried.
+    notice: super::prompt_notice::CarriedNotice,
     /// The id of the run's input row.
     input_item: mixdog_core_api::ids::ItemId,
     /// An automatic Goal turn (`promptSource === 'goal-continuation'`).
@@ -2144,6 +2146,14 @@ impl SessionActor {
         // `acknowledgePendingGoalReminder`: only an accepted turn clears the marker it carried.
         if let (RunOutcome::Completed(_), Some(revision)) = (&outcome, slot.goal_reminder)
             && let Some(change) = super::goal_reminder::acknowledge(&self.projected.header, revision, self.deps.clock.now_ms())
+        {
+            let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
+            self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
+        }
+        // `acknowledgePendingPromptSettingsNotice` (`ask-turn-settle.mjs:155-156`): only an accepted turn tells the
+        // notice it carried; a failed or interrupted one leaves it pending for the next turn.
+        if let (RunOutcome::Completed(_), Some(revision)) = (&outcome, slot.notice.take())
+            && let Some(change) = mixdog_core_prompt::prompt::notice::acknowledge_change(&self.projected.header, revision)
         {
             let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) });
             self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
@@ -4293,6 +4303,7 @@ impl SessionActor {
             Some(start) => (Some(start.turn.clone()), Some((start.turn.hooks.on_terminal_result.clone(), start.done))),
             None => (None, None),
         };
+        let notice = super::prompt_notice::CarriedNotice::default();
         let mut skill_selection = None;
         let agent = match routine {
             Some(routine) => {
@@ -4314,6 +4325,7 @@ impl SessionActor {
             input: input_tx,
             start_failed: false,
             goal_reminder: goal_reminder.as_ref().map(|reminder| reminder.revision),
+            notice: notice.clone(),
             agent,
             _marks: marks,
             last_model,
@@ -4395,6 +4407,7 @@ impl SessionActor {
             agent_turn,
             skill_selection,
             goal_reminder,
+            notice,
             unattended,
             verb: super::live_end::done_verb(self.turns_closed),
             thread: self.id.clone(),

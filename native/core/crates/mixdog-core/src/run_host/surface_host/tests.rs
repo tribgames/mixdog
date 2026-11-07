@@ -422,6 +422,7 @@ async fn a_new_thread_starts_with_the_tools_node_gives_it() {
         header.insert("disallowedTools".into(), json!(denied));
         header.insert("cwd".into(), json!("/work"));
         let seeded = rig.host.seed(&ThreadId::from("t1"), &header).await.expect("seed");
+        assert_eq!(rig.generation.get(), 1, "a new session moves the surface generation (`new-session-config.mjs:39`)");
         let expect = &case["expect"];
         let label = case["name"].as_str().expect("name");
         assert_eq!(doc_names(seeded.get("tools")), names(&expect["tools"]), "{label}: tools");

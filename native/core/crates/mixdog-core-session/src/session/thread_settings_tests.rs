@@ -209,6 +209,7 @@ struct World {
     effort: Arc<Effort>,
     agent_only: Arc<AgentOnly>,
     app: MockConnection,
+    surface: mixdog_core_base::surface::SurfaceGeneration,
     _ops: tempfile::TempDir,
 }
 
@@ -231,6 +232,7 @@ async fn world() -> World {
     let attached = mixdog_core_api::feed::subscribe(&source, "app".into(), mixdog_core_api::feed::Window::Fixed, None, &app).unwrap();
     mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release).unwrap();
     let ops = tempfile::tempdir().unwrap();
+    let surface = mixdog_core_base::surface::SurfaceGeneration::default();
     let settings = ThreadSettings::new(ThreadSettingsParts {
         directory: directory.clone(),
         workspaces: workspace.ws.clone(),
@@ -241,8 +243,9 @@ async fn world() -> World {
         retention: notes.clone(),
         app: Arc::new(mixdog_core_base::state::SectionFeedState::new(feed)),
         ops: scopes(ops.path(), "thread").await,
+        surface: surface.clone(),
     });
-    World { rig, directory, workspace, settings, projects, notes, effort, agent_only, app, _ops: ops }
+    World { rig, directory, workspace, settings, projects, notes, effort, agent_only, app, surface, _ops: ops }
 }
 
 impl World {
@@ -373,7 +376,9 @@ async fn a_tool_mode_reaches_only_an_empty_idle_session() {
     let answer = world.call(SET_TOOL_MODE, json!({ "threadId": "sess_empty", "mode": " ReadOnly " }), 1).await.unwrap();
     assert_eq!(answer, json!("readonly"));
     assert_eq!(world.header("sess_empty").await["toolSpec"], json!(["tools:readonly"]));
+    assert_eq!(world.surface.get(), 1, "a tool mode change moves the surface generation (`session-ops.mjs:117-120`)");
     assert_eq!(world.call(SET_TOOL_MODE, json!({ "threadId": "sess_empty", "mode": "lead" }), 2).await.unwrap(), json!("lead"));
+    assert_eq!(world.surface.get(), 2);
     assert_eq!(world.header("sess_empty").await["toolSpec"], json!("full"));
 
     world.rig.set_script(Arc::new(|run| {
@@ -409,7 +414,9 @@ async fn a_cwd_switches_the_project_with_its_classification() {
 
     let sub_name = sub.path().file_name().unwrap().to_string_lossy().into_owned();
     let sub_text = sub.path().to_string_lossy().into_owned();
+    let before = world.surface.get();
     let answer = world.call(SET_CWD, json!({ "threadId": "lead", "path": sub_name }), 1).await.unwrap();
+    assert_eq!(world.surface.get(), before + 1, "a workspace switch moves the surface generation (`transition-steps.mjs:229`)");
     assert_eq!(answer, json!(sub_text));
     {
         let state = world.workspace.state.lock().unwrap();

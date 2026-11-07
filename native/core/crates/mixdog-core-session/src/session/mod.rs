@@ -52,6 +52,7 @@ pub mod effort_prewarm;
 mod directory;
 pub mod goal_lane;
 pub mod goal_reminder;
+pub mod prompt_notice;
 pub mod heartbeat_host;
 pub mod thread_settings;
 pub mod thread_switches;

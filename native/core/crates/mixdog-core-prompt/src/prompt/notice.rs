@@ -14,6 +14,7 @@
 use mixdog_js::js_trim;
 use mixdog_js::js_trim_end;
 use mixdog_store::schema::record::Header;
+use mixdog_store::schema::record::HeaderChange;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -758,6 +759,36 @@ pub fn acknowledge_pending(session: &mut Header, revision: i64) -> bool {
     }
     session.shift_remove("promptSettingsNotice");
     true
+}
+
+/// [`acknowledge_pending`] as the header change it makes (`None`: nothing was acknowledged), for a turn's settle that
+/// writes the session through change records.
+pub fn acknowledge_change(header: &Header, revision: i64) -> Option<HeaderChange> {
+    let mut after = header.clone();
+    if !acknowledge_pending(&mut after, revision) {
+        return None;
+    }
+    let set = after.iter().filter(|(key, value)| header.get(*key) != Some(*value)).map(|(key, value)| (key.clone(), value.clone())).collect();
+    let unset = header.keys().filter(|key| !after.contains_key(*key)).cloned().collect();
+    Some(HeaderChange { set, unset })
+}
+
+/// The user message that carries the pending notice (`buildUserTurn`, `ask-turn-prepare.mjs:204-246`):
+/// `withRuntimeUserContext(message, { suffix: suffixUserTurnReminders('', notice) })` over the notice's revision in the
+/// message's meta, so a retry resubmits the message as it is. `None` for content that is neither text nor blocks.
+pub fn carry_notice(message: &Value, revision: i64, notice: &str) -> Option<Value> {
+    let suffix = format!("\n\n{notice}");
+    let mut carried = message.clone();
+    match carried.get_mut("content")? {
+        Value::String(text) => text.push_str(&suffix),
+        Value::Array(parts) => parts.push(json!({ "type": "text", "text": suffix })),
+        _ => return None,
+    }
+    let object = carried.as_object_mut()?;
+    let meta = object.entry("meta").or_insert_with(|| json!({})).as_object_mut()?;
+    meta.insert("promptSettingsNoticeRevision".into(), json!(revision));
+    meta.insert("runtimeUserContext".into(), json!({ "prefix": "", "suffix": suffix }));
+    Some(carried)
 }
 
 /// `notePromptSettingsPresented(session, sections)`: the prompt now presents `sections`; nothing is pending any more.

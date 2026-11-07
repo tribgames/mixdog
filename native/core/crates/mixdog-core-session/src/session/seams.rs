@@ -557,6 +557,9 @@ pub struct RunStart {
     /// deferred tool delta, before the todo start reminder); the actor acknowledges it when the
     /// turn is accepted.
     pub goal_reminder: Option<super::goal_reminder::GoalReminder>,
+    /// Where the run records the prompt-settings notice it carried (`snapshotPendingPromptSettingsNotice`, read after
+    /// the turn's settings were reconciled); the actor acknowledges it when the turn is accepted.
+    pub notice: super::prompt_notice::CarriedNotice,
     /// No person is attached to the turn: a worker's turn, a routine fire (schedule, webhook,
     /// room) or an automatic Goal turn. The progress watchdog stops only such a turn.
     pub unattended: bool,

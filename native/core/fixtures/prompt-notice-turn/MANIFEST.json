@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-prompt-notice-turn.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 26072,
+      "path": "twin.json",
+      "sha256": "0e5551bfc82ddd11e480e0e214d3da8e6b3e654c5773161330590acb65892265"
+    }
+  ],
+  "product": {
+    "appsSha256": "aceede98659c44d00841dcebd6e231994155fbf785a74b44b542e1857c445d21",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9252,
+    "refComparison": {
+      "closestCommit": "52df84f24ec5701a8c3bb62e3cd356a8a116b07f",
+      "commitFilesMissingFromTree": 0,
+      "exact": false,
+      "filesDifferingFromCommit": 5
+    },
+    "srcSha256": "4487be07c8f73b301f4522e8f7d66d9ffcb2f3f1b8f0093f64fb4f4553e06852",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-prompt-notice-turn.mjs",
+  "set": "prompt-notice-turn",
+  "totalBytes": 26072
+}

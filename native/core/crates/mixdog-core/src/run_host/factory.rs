@@ -694,7 +694,7 @@ async fn drive(
     search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
     run: RunStart,
 ) -> RunOutcome {
-    let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, unattended, verb, skill_selection: routine_selection, input: submitted, input_item, .. } = run;
+    let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, unattended, verb, skill_selection: routine_selection, input: submitted, input_item, notice: carried_notice, .. } = run;
     // whileTurnDispatched and the runtime entry (`runtime-state.mjs`): the run is live from here to the end of the drive.
     let _live = super::turn_liveness::TurnLiveness::begin(&liveness, &thread, Value::Object(header.clone()), progress.subscribe(), cancel.clone());
     let (slot, skill_selection, on_tool_result, notify) = match agent_turn {
@@ -771,6 +771,23 @@ async fn drive(
     // The turn's workspace is final: take the baseline in the background; no tool runs before it.
     review.start(&worktree);
 
+    // `snapshotPendingPromptSettingsNotice` (`buildUserTurn`, `ask-turn-prepare.mjs:204`): what the conversation's
+    // settings moved to since its prompt was built rides this turn once, as the user message's reminder suffix. The
+    // message is kept as it was sent (the context the next turns replay, and a retry resubmits), and the actor
+    // acknowledges the revision when the turn is accepted (`ask-turn-settle.mjs:155-156`); a failed turn leaves it pending.
+    let mut input_body = input_body;
+    if let Some((revision, notice)) = mixdog_core_prompt::prompt::notice::snapshot_pending(&header) {
+        let Some(carried) = mixdog_core_prompt::prompt::notice::carry_notice(&input_body, revision, &notice) else {
+            return failed("the turn's input row cannot carry the settings notice".to_owned(), input_body);
+        };
+        let mut sent = stored.clone();
+        sent.push((input_item.clone(), carried.clone()));
+        if port.context_rewound(sent).await.is_err() {
+            return failed("the settings notice could not be saved with the turn's input", Value::Null);
+        }
+        carried_notice.carry(revision);
+        input_body = carried;
+    }
     let input = match message_of(&input_body) {
         Ok(input) => input,
         Err(error) => return failed(format!("the turn's input row is not a model message: {error}"), input_body),
@@ -1368,6 +1385,93 @@ mod tests {
         assert_eq!(transcript_prompts, 2, "the transcript keeps the failed prompt beside the retry's");
     }
 
+    /// A conversation whose settings moved since its prompt: the notice staged on its header reaches the model with the
+    /// next turn that is accepted, once (`ask-turn-prepare.mjs:204`, `ask-turn-settle.mjs:155-156`; the notice, the
+    /// carrying message and the settled header are `fixtures/prompt-notice-turn`, the first case). A turn the provider
+    /// refuses acknowledges nothing, so the notice stays pending and the turn after it carries it; the turn after that
+    /// carries nothing new.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_staged_settings_notice_reaches_the_model_once_and_a_failed_turn_leaves_it_pending() {
+        let twin: Value = serde_json::from_str(include_str!("../../../../fixtures/prompt-notice-turn/twin.json")).unwrap();
+        let case = &twin["cases"][0];
+        let done = |text: &str| vec![StreamEvent::TextDelta(text.into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }];
+        let provider = Arc::new(Scripted {
+            id: ProviderId::from("scripted"),
+            policy: RetryPolicy::codex_default(),
+            keepalive: KeepaliveSchedule::SPEC,
+            codec: MockCodec,
+            script: Mutex::new(VecDeque::from([done("two"), done("three")])),
+            requests: Mutex::new(Vec::new()),
+            fail_first: std::sync::atomic::AtomicBool::new(true),
+        });
+        let workspace = tempfile::tempdir().unwrap();
+        let rig = Rig::new();
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.runs = Arc::new(RunHostFactory::new(mixdog_services::task_reports::runtime_state::RuntimeLiveness::new(), mixdog_tools::web::NativeSearchUsageSinks::new(), Arc::new(Parts { provider: provider.clone(), workspace: workspace.path().to_path_buf(), more: Vec::new(), settle: None })));
+        let directory = SessionDirectory::new(Arc::new(deps));
+        let reply = directory.request(request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": "/ws" }), "op-start")).await.expect("thread/start");
+        let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
+        let handle = directory.handle(&id).expect("loaded");
+        // The settings moved: what `stage_prompt_settings_notice` leaves on the header at a turn start.
+        let threads = mixdog_core_session::session::thread_state::SessionThreads::new(Arc::new(directory));
+        use mixdog_core_ports::ports::threads::ThreadState;
+        let staged: serde_json::Map<String, Value> = [
+            ("promptSettings".to_owned(), case["startRecord"].clone()),
+            ("promptSettingsNotice".to_owned(), case["pending"].clone()),
+            ("promptSettingsNoticeRevision".to_owned(), case["pending"]["revision"].clone()),
+        ]
+        .into_iter()
+        .collect();
+        threads.patch_header(&id, staged, Vec::new()).await.expect("staged");
+
+        let ended = || {
+            rig.store
+                .records(&id)
+                .into_iter()
+                .filter(|(_, record)| matches!(record, Record::Run(run) if matches!(run.phase, mixdog_store::schema::record::RunPhase::Completed | mixdog_store::schema::record::RunPhase::Failed)))
+                .count()
+        };
+        let turn = |prompt: &str, op: &str, want: usize| {
+            let (handle, op, thread, prompt) = (handle.clone(), op.to_owned(), id.clone(), prompt.to_owned());
+            let ended = &ended;
+            async move {
+                handle.request(request("turn/start", json!({ "threadId": thread, "opId": op, "input": { "prompt": prompt } }), &op)).await.expect("turn/start");
+                loop {
+                    let stepped = handle.stepped().notified();
+                    tokio::pin!(stepped);
+                    stepped.as_mut().enable();
+                    if ended() >= want {
+                        break;
+                    }
+                    stepped.await;
+                }
+            }
+        };
+        let header = || async { threads.header(&id).await.expect("header") };
+
+        turn("one", "op-1", 1).await;
+        assert!(lock(&provider.requests).is_empty(), "the first attempt was refused");
+        let after_failure = header().await;
+        assert_eq!(after_failure["promptSettingsNotice"], case["failed"]["notice"], "a failed turn acknowledges nothing");
+
+        turn("two", "op-2", 2).await;
+        let settled = header().await;
+        let after = &case["after"];
+        assert!(settled.get("promptSettingsNotice").is_none(), "the accepted turn acknowledged the notice");
+        assert_eq!(settled["promptSettingsTold"], after["told"]);
+        assert_eq!(settled["promptSettingsNoticeRevision"], after["revision"]);
+
+        turn("three", "op-3", 3).await;
+        let requests = lock(&provider.requests).clone();
+        assert_eq!(requests.len(), 2);
+        // The turn's own message is the last one of its request.
+        let last = |request: &ModelRequest| format!("{:?}", request.messages.last().expect("a message").content);
+        assert!(last(&requests[0]).contains("Core memory was updated"), "the accepted turn's request carries the notice");
+        assert!(last(&requests[0]).contains("two"));
+        assert!(!last(&requests[1]).contains("Core memory was updated"), "the next turn carries nothing new");
+        assert!(header().await.get("promptSettingsNotice").is_none());
+    }
     /// A provider that refuses every attempt with `error`.
     struct Refusing {
         id: ProviderId,
