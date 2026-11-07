@@ -5,6 +5,7 @@
 // the Rust `v2/params.rs` structs and `operations_map.json`, not from this table.
 import { normalizeBrowserPermissionPolicy } from '../../shared/browser-permission-policy';
 import { isSessionRetentionSettingKey } from '../../shared/contract-settings';
+import { desktopSettingsFromConfig, storedPinsState } from '../settings-store';
 import type { ProtocolConnection } from './connection';
 import { coreErrorForWindow } from './core-error';
 
@@ -180,7 +181,15 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
   }),
   termAttach: positional('terminal/attach', ['tabId']),
   termProfiles: positional('terminal/profiles', []),
-  termFocus: positional('terminal/focus', ['tabId', null, null]),
+  // Node: focus(id, focused, client). terminal/focus has no `focused`: a focus is sent, an unfocus has no op.
+  termFocus: ([tabId, focused]) => {
+    if (focused !== true) {
+      throw Object.assign(new Error('desktop operation termFocus is not mapped: terminal/focus cannot unfocus'), {
+        code: 'unmappedOperation',
+      });
+    }
+    return { method: 'terminal/focus', params: { tabId } };
+  },
   termPause: positional('terminal/pause', ['tabId']),
   termResume: positional('terminal/resume', ['tabId']),
   termDispose: positional('terminal/dispose', ['tabId']),
@@ -231,6 +240,129 @@ const NEEDS_RULING: Readonly<Record<string, string>> = {
   listListeningPorts: 'system/ports/subscribe is owned by the viewing window (ProtocolConnection.viewPorts)',
 };
 
+/** Operations whose spec target is a client notification (no reply, no slot): sent with `ProtocolConnection.notify`.
+ *  `result` is what Node's handler returned. */
+const NOTIFICATION_ROUTES: Readonly<Record<string, { route: Mapper; result: null | undefined }>> = {
+  termWrite: {
+    route: (args) => ({
+      method: 'terminal/input',
+      params: { tabId: String(args[0] || ''), data: String(args[1] ?? '') },
+    }),
+    result: null,
+  },
+  // The 4th argument (remote client claiming the size) is the sending connection now (DS 6.2).
+  termResize: {
+    route: (args) => ({
+      method: 'terminal/resize',
+      params: { tabId: String(args[0] || ''), cols: Number(args[1]), rows: Number(args[2]) },
+    }),
+    result: null,
+  },
+  publishUpdaterState: {
+    route: (args) => ({ method: 'host/update/report', params: { state: args[0] } }),
+    result: undefined,
+  },
+  remoteAccessResume: { route: () => ({ method: 'host/power', params: { event: 'resume' } }), result: null },
+  remoteAccessSuspend: { route: () => ({ method: 'host/power', params: { event: 'suspend' } }), result: null },
+};
+
+export const NOTIFICATION_DESKTOP_OPERATIONS: readonly string[] = Object.keys(NOTIFICATION_ROUTES);
+
+/** The client notification for `name(...args)`, or none when `name` is not one of the five. */
+export function routeDesktopNotification(name: string, args: readonly unknown[] = []): OperationRoute | null {
+  return Object.hasOwn(NOTIFICATION_ROUTES, name) ? NOTIFICATION_ROUTES[name].route(args) : null;
+}
+
+export interface ReplyContext {
+  args: readonly unknown[];
+  params: Record<string, unknown>;
+  call(method: string, params: unknown): Promise<unknown>;
+}
+type Reply = (reply: unknown, context: ReplyContext) => unknown;
+
+const record = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+
+/** The value a `config/value/write` stored (`ConfigWriteResponse.values[0]`). */
+function written(reply: unknown): unknown {
+  const values = record(reply).values;
+  if (!Array.isArray(values)) throw new TypeError('The config write did not return the stored value.');
+  return values[0];
+}
+
+/** Node's settings writers answered the whole `DesktopSettings` of the saved config; the write reply carries only the
+ *  stored value, so the saved config is read back (`config/read`, the write is complete when it answers). */
+const savedSettings: Reply = async (_reply, { call }) =>
+  desktopSettingsFromConfig(record(await call('config/read', { keys: ['agent', 'desktop'] })).config);
+
+/** Replies that are Node's return value as the core sends it (the parity contract of DS-SCM-1, DS-WS-1, DS-REM-1:
+ *  the JSON equals what the Node implementation returned). */
+const SAME_REPLY: readonly string[] = [
+  'gitAbortOperation', 'gitAmend', 'gitBranches', 'gitCherryPickCommit', 'gitCommit', 'gitCommitPaths', 'gitContinue',
+  'gitCreateTag', 'gitDeleteBranch', 'gitDeleteTag', 'gitDiff', 'gitFetch', 'gitLog', 'gitPull', 'gitPush',
+  'gitRenameBranch', 'gitResetToCommit', 'gitRevertCommit', 'gitReview', 'gitReviewDiff', 'gitReviewDiffs', 'gitShow',
+  'gitShowDiff', 'gitShowFile', 'gitRequestContext', 'gitStash', 'gitStashApply', 'gitStashDrop', 'gitStashList',
+  'gitStashPop', 'gitStatus', 'gitSync', 'gitUndoLastCommit', 'gitCliStatus', 'gitGlobalConfig', 'installGitCli',
+  'setGitGlobalConfig', 'ghPrCheckout', 'ghPrCreate', 'ghPrDefaultBranch', 'ghPrDiff', 'ghPrList', 'ghPrMerge',
+  'ghPrView', 'githubCliAccount', 'githubCliLoginStatus', 'githubCliLogout', 'githubCliStatus', 'installGithubCli',
+  'githubStarStatus', 'starGithub', 'libreOfficeStatus', 'documentPreviewIn', 'documentPreviewPagesIn',
+  'installLibreOffice', 'readEditorBackup', 'writeEditorBackup', 'readLocalFileAbs', 'readProjectTextFileIn',
+  'readProjectTextFileAuthorized', 'writeProjectTextFileIn', 'writeProjectTextFileAuthorized',
+  'writeProjectTextFilesIn', 'writeProjectTextFilesAuthorized', 'readScopedEditorSettings', 'readWorkspaceFile',
+  'writeWorkspaceFile', 'searchWorkspaceTextIn', 'statProjectFileIn', 'listHostDirectories', 'listServerDirectories',
+  'sendTestNotification', 'termProfiles', 'termAttach', 'remoteAccessSetEnabled', 'remoteAccessSetName',
+  'remoteAccessRotate', 'remoteAccessRevokeClient', 'serverUploadCommit', 'serverTrashInfo',
+];
+/** Node returned nothing. */
+const VOID_REPLY: readonly string[] = [
+  'gitApplyPatch', 'gitIgnore', 'gitRevertFile', 'gitStage', 'gitUnstage', 'cancelGithubCliLogin', 'deleteEditorBackup',
+];
+/** Node returned null. */
+const NULL_REPLY: readonly string[] = [
+  'termFocus', 'termPause', 'termResume', 'termDispose', 'remoteAccessSetClientAlias',
+  'remoteAccessSettleOwedControllerKeys', 'browserRemoteTabs', 'browserRemoteImportProgress', 'visualizeRemotePublish',
+];
+
+const CUSTOM_REPLY: Readonly<Record<string, Reply>> = {
+  // The core stats a list; Node answered the one entry.
+  statLocalEntryAbs: (reply) => {
+    if (!Array.isArray(reply)) throw new TypeError('projectFs/statLocal did not answer a list.');
+    return reply[0];
+  },
+  // Node answered the started flow; the core answers {flowId} and the flow is its status snapshot (DS 5.4).
+  githubCliLoginStart: (reply, { call }) => call('github/login/status', { flowId: record(reply).flowId }),
+  // Node answered the boolean the UI reads as "the browser was opened by gh".
+  githubCliLoginOpenBrowser: (reply) => reply === true,
+  // The tab id is the client's own; Node answered {id, replay, sizeOwner?}.
+  termEnsure: (reply, { params }) => ({ id: params.tabId, ...record(reply) }),
+  // Node answered the bytes received so far: a chunk is acknowledged only when written, at offset + its length.
+  serverUploadChunk: (_reply, { args }) => ({
+    received: Number(args[1]) + Buffer.from(String(args[2]), 'base64').length,
+  }),
+  // Node answered false for an unknown upload; the core's EmptyResult is a success.
+  serverUploadAbort: () => true,
+  updateSetting: savedSettings,
+  updateNotificationVolume: savedSettings,
+  updateBrowserPermissions: savedSettings,
+  updateSessionRetention: savedSettings,
+  updateZoom: (reply) => Number(written(reply)),
+  writeMarkdownDefaultView: (reply) => written(reply),
+  updateActivityRailPins: (reply) => {
+    const state = storedPinsState(written(reply));
+    if (!state) throw new TypeError('The config write did not return valid activity rail pins.');
+    return state;
+  },
+};
+
+const REPLIES: Readonly<Record<string, Reply>> = {
+  ...Object.fromEntries(SAME_REPLY.map((name): [string, Reply] => [name, (reply) => reply])),
+  ...Object.fromEntries(VOID_REPLY.map((name): [string, Reply] => [name, () => undefined])),
+  ...Object.fromEntries(NULL_REPLY.map((name): [string, Reply] => [name, () => null])),
+  ...CUSTOM_REPLY,
+};
+
+export const REPLY_DESKTOP_OPERATIONS: readonly string[] = Object.keys(REPLIES);
+
 export const ROUTED_DESKTOP_OPERATIONS: readonly string[] = Object.keys(OPERATION_ROUTES);
 export const UNROUTED_DESKTOP_OPERATIONS: readonly string[] = Object.keys(NEEDS_RULING);
 
@@ -248,13 +380,24 @@ export interface OperationLane {
   invoke(name: string, args: unknown[] | undefined): Promise<unknown>;
 }
 
-export function createOperationLane({ protocol }: { protocol: Pick<ProtocolConnection, 'call'> }): OperationLane {
+export function createOperationLane({
+  protocol,
+}: {
+  protocol: Pick<ProtocolConnection, 'call' | 'notify'>;
+}): OperationLane {
+  const call = (method: string, params: unknown): Promise<unknown> =>
+    protocol.call(method, params).catch((error: unknown) => {
+      throw coreErrorForWindow(error);
+    });
   return {
     async invoke(name, args = []) {
+      const notification = routeDesktopNotification(name, args);
+      if (notification) {
+        protocol.notify(notification.method, notification.params);
+        return NOTIFICATION_ROUTES[name].result;
+      }
       const { method, params } = routeDesktopOperation(name, args);
-      return protocol.call(method, params).catch((error: unknown) => {
-        throw coreErrorForWindow(error);
-      });
+      return REPLIES[name](await call(method, params), { args, params, call });
     },
   };
 }

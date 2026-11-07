@@ -9,6 +9,8 @@ import { BROWSER_PERMISSION_KINDS } from '../../shared/browser-permission-policy
 
 import {
   ROUTED_DESKTOP_OPERATIONS,
+  NOTIFICATION_DESKTOP_OPERATIONS,
+  REPLY_DESKTOP_OPERATIONS,
   UNROUTED_DESKTOP_OPERATIONS,
   createOperationLane,
   routeDesktopOperation,
@@ -326,6 +328,7 @@ test('the lane sends the routed request through the connection and never falls b
   const calls = [];
   const lane = createOperationLane({
     protocol: {
+      notify: () => {},
       call: async (method, params) => {
         calls.push({ method, params });
         return { ok: true };
@@ -358,4 +361,151 @@ test('a domain error of the core reaches the window as the error Node raised', a
     assert.equal(error.code, 'GIT_NOT_REPO');
     return true;
   });
+});
+
+// ---- replies: what the desktop gets back is what Node returned -------------------------------------------------
+
+/** A lane over a fake core; `answers` maps a method to its reply. */
+function laneWith(answers, notified = []) {
+  const calls = [];
+  const lane = createOperationLane({
+    protocol: {
+      notify: (method, params) => notified.push({ method, params }),
+      call: async (method, params) => {
+        calls.push({ method, params });
+        const answer = answers[method];
+        return typeof answer === 'function' ? answer(params) : answer;
+      },
+    },
+  });
+  return { lane, calls, notified };
+}
+
+test('every routed operation has exactly one reply adapter', () => {
+  assert.deepEqual([...REPLY_DESKTOP_OPERATIONS].sort(), [...ROUTED_DESKTOP_OPERATIONS].sort());
+});
+
+test('operations Node answered with nothing or null answer the same', async () => {
+  const { lane: any } = laneWith({
+    'git/stage': { staged: 1 },
+    'github/login/cancel': {},
+    'projectFs/backup/delete': {},
+    'terminal/pause': {},
+    'host/state/set': {},
+    'remoteAccess/setClientAlias': {},
+  });
+  assert.equal(await any.invoke('gitStage', [R, ['a']]), undefined);
+  assert.equal(await any.invoke('cancelGithubCliLogin', ['f1']), undefined);
+  assert.equal(await any.invoke('deleteEditorBackup', [U, '/p']), undefined);
+  assert.equal(await any.invoke('termPause', ['t1']), null);
+  assert.equal(await any.invoke('browserRemoteTabs', [[]]), null);
+  assert.equal(await any.invoke('remoteAccessSetClientAlias', ['c', 'a']), null);
+});
+
+test('values Node returned pass through as the core sent them', async () => {
+  const status = { files: [{ path: 'a' }], branch: 'main' };
+  const { lane } = laneWith({ 'git/status': status, 'git/commit': 'abc123' });
+  assert.equal(await lane.invoke('gitStatus', [R]), status);
+  assert.equal(await lane.invoke('gitCommit', [R, 'm']), 'abc123');
+});
+
+test('statLocalEntryAbs answers the one entry of the list', async () => {
+  const entry = { absolutePath: '/x/a', name: 'a', dir: false };
+  const { lane } = laneWith({ 'projectFs/statLocal': [entry] });
+  assert.equal(await lane.invoke('statLocalEntryAbs', ['/x/a']), entry);
+  const { lane: bad } = laneWith({ 'projectFs/statLocal': entry });
+  await assert.rejects(bad.invoke('statLocalEntryAbs', ['/x/a']), /did not answer a list/);
+});
+
+test('termEnsure answers with the tab id it sent', async () => {
+  const { lane, calls } = laneWith({ 'terminal/ensure': { replay: 'r' } });
+  const first = await lane.invoke('termEnsure', ['t1', R, null]);
+  assert.deepEqual(first, { id: 't1', replay: 'r' });
+  const fresh = await lane.invoke('termEnsure', [null, R, null]);
+  assert.equal(fresh.id, calls[1].params.tabId);
+});
+
+test('githubCliLoginStart answers the flow, read from the status of the started flow', async () => {
+  const flow = { flowId: 'f9', state: 'waiting', code: 'ABCD-1234' };
+  const { lane, calls } = laneWith({ 'github/login/start': { flowId: 'f9' }, 'github/login/status': flow });
+  assert.equal(await lane.invoke('githubCliLoginStart', []), flow);
+  assert.deepEqual(calls, [
+    { method: 'github/login/start', params: {} },
+    { method: 'github/login/status', params: { flowId: 'f9' } },
+  ]);
+});
+
+test('settings writers answer the saved DesktopSettings, read back after the write', async () => {
+  const config = { desktop: { keepAwake: false, notificationVolume: 40 }, agent: { autoClear: { enabled: false } } };
+  const { lane, calls } = laneWith({
+    'config/value/write': { revision: 3, values: [false] },
+    'config/read': { config },
+  });
+  const settings = await lane.invoke('updateSetting', ['keepAwake', false]);
+  assert.equal(settings.keepAwake, false);
+  assert.equal(settings.autoClear, false);
+  assert.equal(settings.notificationVolume, 40);
+  assert.deepEqual(calls[1], { method: 'config/read', params: { keys: ['agent', 'desktop'] } });
+  assert.equal((await lane.invoke('updateNotificationVolume', [40])).notificationVolume, 40);
+});
+
+test('updateZoom, writeMarkdownDefaultView and updateActivityRailPins answer the stored value', async () => {
+  const { lane } = laneWith({
+    'config/value/write': (params) =>
+      params.path === 'desktop.zoom'
+        ? { revision: 1, values: [1] }
+        : params.path === 'desktop.editor.markdownDefaultView'
+          ? { revision: 2, values: ['preview'] }
+          : { revision: 3, values: [{ revision: 4 }] },
+  });
+  assert.equal(await lane.invoke('updateZoom', [1]), 1);
+  assert.equal(await lane.invoke('writeMarkdownDefaultView', [U, 'preview']), 'preview');
+  const pins = await lane.invoke('updateActivityRailPins', [['sessions'], false]);
+  assert.equal(pins.revision, 4);
+  assert.ok(Array.isArray(pins.pins));
+  const { lane: broken } = laneWith({ 'config/value/write': { revision: 1 } });
+  await assert.rejects(broken.invoke('updateZoom', [1]), /did not return the stored value/);
+});
+
+test('upload chunks answer the bytes received; abort answers true', async () => {
+  const { lane } = laneWith({ 'transfer/writeChunk': {}, 'transfer/abort': {} });
+  assert.deepEqual(await lane.invoke('serverUploadChunk', ['tr1', 8, 'AAAA']), { received: 11 });
+  assert.equal(await lane.invoke('serverUploadAbort', ['tr1']), true);
+});
+
+test('githubCliLoginOpenBrowser answers a boolean', async () => {
+  assert.equal(await laneWith({ 'github/login/openBrowser': true }).lane.invoke('githubCliLoginOpenBrowser', ['f']), true);
+  assert.equal(await laneWith({ 'github/login/openBrowser': {} }).lane.invoke('githubCliLoginOpenBrowser', ['f']), false);
+});
+
+test('termFocus sends a focus and refuses an unfocus, which terminal/focus cannot carry', async () => {
+  assert.deepEqual(routeDesktopOperation('termFocus', ['t1', true, 'desktop']), {
+    method: 'terminal/focus',
+    params: { tabId: 't1' },
+  });
+  assert.throws(() => routeDesktopOperation('termFocus', ['t1', false, 'desktop']), { code: 'unmappedOperation' });
+});
+
+// ---- the five client notifications ------------------------------------------------------------------------------
+
+const NOTIFICATIONS = [
+  ['termWrite', ['t1', 'ls\r'], 'terminal/input', { tabId: 't1', data: 'ls\r' }, null],
+  ['termResize', ['t1', 120, 30, 'phone-1'], 'terminal/resize', { tabId: 't1', cols: 120, rows: 30 }, null],
+  ['publishUpdaterState', [{ status: 'idle' }], 'host/update/report', { state: { status: 'idle' } }, undefined],
+  ['remoteAccessResume', [], 'host/power', { event: 'resume' }, null],
+  ['remoteAccessSuspend', [], 'host/power', { event: 'suspend' }, null],
+];
+
+for (const [name, args, method, params, result] of NOTIFICATIONS) {
+  test(`${name} is the notification ${method}, never a request`, async () => {
+    const { lane, calls, notified } = laneWith({});
+    assert.equal(await lane.invoke(name, args), result);
+    assert.deepEqual(notified, [{ method, params }]);
+    assert.deepEqual(calls, []);
+  });
+}
+
+test('the notification operations are the spec map clientNotification rows', () => {
+  const wanted = operations.filter((row) => row.target.kind === 'clientNotification').map((row) => row.name);
+  assert.deepEqual([...NOTIFICATION_DESKTOP_OPERATIONS].sort(), wanted.sort());
 });
