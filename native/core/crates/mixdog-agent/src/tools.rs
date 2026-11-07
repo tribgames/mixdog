@@ -193,6 +193,8 @@ pub struct ToolEnv {
     /// call carries it in its options, and background work the call leaves running reports its
     /// completion through it before falling back to the owner's default delivery.
     pub notify: Option<ToolNotify>,
+    /// The turn review the edit tools publish their per-call card diff to (`registerEditToolUiDiff`).
+    pub review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReviewApi>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -810,7 +812,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
         files: Arc::clone(&env.tool_env.files),
         processes: Arc::clone(&env.tool_env.processes),
         options: CallOptions { notify: env.tool_env.notify.clone(), ..CallOptions::default() },
-        review: None,
+        review: env.tool_env.review.clone(),
     };
     // Node: arguments are coerced to the declared schema before the tool sees
     // them (a model that hands an object argument as its JSON text).
@@ -1157,6 +1159,7 @@ mod tests {
                 progress: Arc::new(MockProgress::default()),
                 deadline_of: deadline.map(|d| Arc::new(move |_: &ToolSpec| Some(d)) as DeadlineFn),
                 notify: None,
+                review: None,
             },
             cancel: CancellationToken::new(),
         };

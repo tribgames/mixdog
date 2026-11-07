@@ -253,6 +253,8 @@ struct PortSink {
     turn: Mutex<Vec<AgentMessage>>,
     /// The item the shown assistant text belongs to, until its message commits.
     streaming: Arc<Mutex<Option<ItemId>>>,
+    /// `markAssistantMessageCommitted` empties it.
+    observed: Arc<Mutex<Observed>>,
     iids: Mutex<HashMap<String, ItemId>>,
     clock: Arc<dyn Clock>,
     blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>,
@@ -306,6 +308,7 @@ impl PortSink {
         rows: Arc<StoredRows>,
         live: LiveTurnPublisher,
         streaming: Arc<Mutex<Option<ItemId>>>,
+        observed: Arc<Mutex<Observed>>,
         clock: Arc<dyn Clock>,
         blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>,
         on_tool_result: Option<Arc<dyn Fn(&mixdog_agent::agent_tool::flow::seams::ToolResultMessage) + Send + Sync>>,
@@ -334,7 +337,7 @@ impl PortSink {
                 done_tx.send_replace(n);
             }
         }));
-        Arc::new(Self { jobs, done, seq: AtomicU64::new(0), port, rows, live, turn: Mutex::new(Vec::new()), streaming, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result, stamp, terminal: Mutex::new(None) })
+        Arc::new(Self { jobs, done, seq: AtomicU64::new(0), port, rows, live, turn: Mutex::new(Vec::new()), streaming, observed, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result, stamp, terminal: Mutex::new(None) })
     }
 
     /// What Node's loop and turn commit write on an assistant row besides its content: its id, time and
@@ -443,6 +446,16 @@ impl TranscriptSink for PortSink {
             self.live.publish(&turn, &*self.rows);
         }
         let shown = if message.role() == Role::Assistant { lock(&self.streaming).take() } else { None };
+        if message.role() == Role::Assistant {
+            let mut observed = lock(&self.observed);
+            observed.text.clear();
+            observed.reasoning.clear();
+            observed.calls.clear();
+            // The shown item is the message's item: a later rewrite of the context names it by this id.
+            if let (Some(id), Some(iid)) = (&message.message_id, &shown) {
+                lock(&self.iids).insert(id.clone(), iid.clone());
+            }
+        }
         let role = match message.role() {
             Role::System => "system",
             Role::User => "user",
@@ -497,9 +510,22 @@ enum Shown {
     SearchUsage(Value),
 }
 
+/// What the interrupted request had produced that the transcript does not hold yet
+/// (`createTurnInterruptionTracker`): the run's observer fills it, the sink empties it when an assistant message commits.
+#[derive(Default)]
+struct Observed {
+    started: bool,
+    text: String,
+    reasoning: String,
+    /// `markToolPhaseStarted`; a new send (`markProviderSendStarted`) puts it back.
+    tools: bool,
+    calls: Vec<mixdog_core_api::domain::provider::ToolCall>,
+}
+
 /// `RunObserver` over progress and the port: stage and stream marks feed the progress cell, shown
 /// assistant text becomes `item/started` + `item/agentMessage/delta`.
 struct PortObserver {
+    observed: Arc<Mutex<Observed>>,
     progress: Arc<ProgressPublisher>,
     out: mpsc::UnboundedSender<Shown>,
     streaming: Arc<Mutex<Option<ItemId>>>,
@@ -580,7 +606,10 @@ impl PortObserver {
 impl RunObserver for PortObserver {
     fn event(&self, event: RunEvent) {
         match event {
-            RunEvent::Stage(Stage::Connecting) => self.progress.stage("connecting"),
+            RunEvent::Stage(Stage::Connecting) => {
+                lock(&self.observed).tools = false;
+                self.progress.stage("connecting");
+            }
             RunEvent::Stage(Stage::Streaming) => self.progress.stage("streaming"),
             RunEvent::Stage(Stage::WaitingOnProvider) => self.progress.stream_delta(StreamKind::Keepalive),
             RunEvent::Stage(Stage::ApprovalWait { waiting }) => self.progress.approval_wait(waiting),
@@ -589,11 +618,21 @@ impl RunObserver for PortObserver {
                 if !self.chunked.load(std::sync::atomic::Ordering::Relaxed) {
                     self.progress.stream_delta(StreamKind::Text);
                 }
+                if !text.is_empty() {
+                    let mut observed = lock(&self.observed);
+                    observed.started = true;
+                    observed.text.push_str(&text);
+                }
                 self.text(text);
             }
             RunEvent::ReasoningDelta(text) => {
                 if !self.chunked.load(std::sync::atomic::Ordering::Relaxed) {
                     self.progress.stream_delta(StreamKind::Reasoning);
+                }
+                if !text.is_empty() {
+                    let mut observed = lock(&self.observed);
+                    observed.started = true;
+                    observed.reasoning.push_str(&text);
                 }
                 self.reasoning(text);
             }
@@ -639,6 +678,12 @@ impl RunObserver for PortObserver {
                 let _ = self.out.send(Shown::Section(mixdog_core_ports::ports::threads::Section::Route(route)));
             }
             RunEvent::ToolCalls { calls, .. } => {
+                {
+                    let mut observed = lock(&self.observed);
+                    observed.started = true;
+                    observed.tools = true;
+                    observed.calls.extend(calls.iter().cloned());
+                }
                 self.end_reasoning();
                 self.progress.stage("tool_running");
                 for call in &calls {
@@ -659,6 +704,76 @@ impl RunObserver for PortObserver {
 }
 
 // ---- the turn ----------------------------------------------------------------------------------------
+
+/// `finalizeCancelledTurn` (`ask-turn-failure.mjs`): the transcript of a user-cancelled turn that had produced
+/// output keeps it (`finalizeInterruptedTurn`): the partial reply, every unanswered call closed as cancelled, the
+/// "[Request interrupted by user]" line, and `sentRequestTail` on the message the request ended with. The rows are
+/// committed and the model context restarts on the finalized transcript, which also drops the provider's
+/// continuation (`session.providerState = undefined`). A turn that produced nothing keeps its context as it is.
+async fn close_cancelled(
+    port: &RunPort,
+    sink: &PortSink,
+    rows: &StoredRows,
+    history: &[(ItemId, AgentMessage)],
+    input_item: &ItemId,
+    input_text: &str,
+    observed: &Mutex<Observed>,
+) {
+    use mixdog_agent::compact::execution_tail::MessageRows as _;
+    use mixdog_agent::interrupt::{finalize_interrupted_turn, AbortReason, Interrupted, Phase};
+    let seen = std::mem::take(&mut *lock(observed));
+    let mut known: Vec<(ItemId, AgentMessage)> = history.to_vec();
+    for (index, message) in lock(&sink.turn).iter().enumerate() {
+        known.push((if index == 0 { input_item.clone() } else { sink.iid_of(message) }, message.clone()));
+    }
+    let finalized = finalize_interrupted_turn(Interrupted {
+        transcript: known.iter().map(|(_, message)| message.clone()).collect(),
+        current_user_text: input_text.to_owned(),
+        response_started: seen.started,
+        partial_assistant: seen.text,
+        partial_reasoning: seen.reasoning,
+        observed_tool_calls: seen.calls,
+        observed_tool_results: Vec::new(),
+        phase: if seen.tools { Phase::Tools } else { Phase::Streaming },
+        reason: Some(AbortReason::UserCancel),
+    });
+    if !finalized.response_preserved {
+        return;
+    }
+    let mut replacement: Vec<(ItemId, Value)> = Vec::new();
+    for (index, message) in finalized.transcript.iter().enumerate() {
+        let mut body;
+        let iid;
+        if let Some((known_iid, _)) = known.get(index).filter(|(_, was)| was == message) {
+            iid = known_iid.clone();
+            body = rows.row(message);
+        } else {
+            // The shown reply is the item of the partial text it ends as.
+            iid = if message.role() == Role::Assistant { lock(&sink.streaming).take().unwrap_or_else(new_item_id) } else { new_item_id() };
+            body = row_of(message);
+            rows.record(message, body.clone());
+            let role = match message.role() {
+                Role::Assistant => "assistant",
+                Role::Tool => "tool",
+                _ => "user",
+            };
+            let item = ItemCommit { iid: iid.clone(), role: Some(role.to_owned()), model: true, visible: message.role() != Role::User, body: body.clone(), prompt: None };
+            if let Err(error) = port.commit_item(item).await {
+                tracing::warn!("[session] interrupted turn row save failed: {error:?}");
+            }
+        }
+        if finalized.sent_request_tail == Some(index) && let Some(object) = body.as_object_mut() {
+            let meta = object.entry("meta").or_insert_with(|| json!({}));
+            if let Some(meta) = meta.as_object_mut() {
+                meta.insert("sentRequestTail".into(), Value::Bool(true));
+            }
+        }
+        replacement.push((iid, body));
+    }
+    if let Err(error) = port.context_rewound(replacement).await {
+        tracing::warn!("[session] interrupted turn context save failed: {error:?}");
+    }
+}
 
 /// `promptContentText(input.prompt).trim()`: a string, or the text parts joined by a newline.
 fn prompt_text(body: &Value) -> String {
@@ -792,6 +907,9 @@ async fn drive(
     {
         return failed("the session's title could not be saved", Value::Null);
     }
+    // The turn's tools publish each edit's card diff to the same review (`registerEditToolUiDiff`).
+    let mut tool_env = tool_env;
+    tool_env.review = Some(review.api());
     // The turn's workspace is final: take the baseline in the background; no tool runs before it.
     review.start(&worktree);
 
@@ -819,9 +937,12 @@ async fn drive(
     let live = LiveTurnPublisher::new(turn_messages);
     let streaming = Arc::new(Mutex::new(None));
     let stamp = TurnStamp::of(&input_body, verb, clock.now_ms());
-    let sink = PortSink::spawn(port.clone(), rows.clone(), live, streaming.clone(), clock.clone(), blobs, on_tool_result, stamp);
+    let observed = Arc::new(Mutex::new(Observed::default()));
+    let sink = PortSink::spawn(port.clone(), rows.clone(), live, streaming.clone(), observed.clone(), clock.clone(), blobs, on_tool_result, stamp);
     // The system messages are the header's prompt fields, in Node's order and tiers (WP-PROMPT).
     let mut messages = system_messages(&header);
+    // The context before the input row with the item each message is, for the rewrite a cancelled turn ends with.
+    let mut history: Vec<(ItemId, AgentMessage)> = Vec::new();
     for (iid, body) in stored {
         // A stored row the codec cannot read fails the turn: dropping it would change the context.
         let message = match message_of(&body) {
@@ -829,11 +950,13 @@ async fn drive(
             Err(error) => return failed(format!("the model context holds a row this build cannot read: {error}"), body),
         };
         if let Some(id) = &message.message_id {
-            lock(&sink.iids).insert(id.clone(), iid);
+            lock(&sink.iids).insert(id.clone(), iid.clone());
         }
+        history.push((iid, message.clone()));
         rows.record(&message, body);
         messages.push(message);
     }
+    let input_text = input.text();
     rows.record(&input, input_body);
     sink.seed(&input);
     messages.push(input);
@@ -896,7 +1019,7 @@ async fn drive(
     let hears_search = search_usage.register(thread.as_str(), Arc::new(move |delta| {
         let _ = search_tx.send(Shown::SearchUsage(delta));
     }));
-    let observer = Arc::new(PortObserver { progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false) });
+    let observer = Arc::new(PortObserver { observed: observed.clone(), progress: progress.clone(), out: shown_tx, streaming, reasoning: Mutex::new(None), last_send_tools: Mutex::new(Vec::new()), chunked: std::sync::atomic::AtomicBool::new(false) });
     let closing = observer.clone();
 
     config.thread_id = thread.clone();
@@ -942,6 +1065,8 @@ async fn drive(
     // No hint is published once the run's outcome is on its way: the run owns the runtime section.
     hints.finish().await;
     // The guard state that outlives one ask lives on the session record (`session.todoCheck`, `session._repeat*`).
+    // A cancelled run's token has fired, but Node saves after the abort (`finalizeCancelledTurn`).
+    let end_port = if cancel.is_cancelled() { port.closing() } else { port.clone() };
     {
         let carry = match &result {
             Ok(output) => &output.carry,
@@ -951,7 +1076,7 @@ async fn drive(
         if let Some(check) = guard_state.saved() {
             set.insert("todoCheck".into(), check);
         }
-        let _ = port.save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }).await;
+        let _ = end_port.save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }).await;
     }
     match result {
         Ok(output) => {
@@ -1012,6 +1137,7 @@ async fn drive(
             }
             if matches!(failure.error, AgentError::Aborted) || cancel.is_cancelled() {
                 progress.cancelling();
+                close_cancelled(&end_port, &sink, &rows, &history, &input_item, &input_text, &observed).await;
                 return RunOutcome::Interrupted;
             }
             progress.error();
@@ -1185,6 +1311,7 @@ mod tests {
                     progress: input.progress.clone(),
                     deadline_of: None,
                     notify: input.notify.clone(),
+                    review: None,
                 },
                 gate: Box::new(|_| Arc::new(AllowAll)),
                 worktree: self.workspace.to_string_lossy().into_owned(),

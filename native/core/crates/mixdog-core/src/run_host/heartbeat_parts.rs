@@ -181,6 +181,7 @@ impl MaintainerModel for HeartbeatMaintainer {
             progress: deps.progress.clone(),
             deadline_of: None,
             notify: None,
+            review: None,
         };
         let one_shot = OneShot::standalone(
             deps.clock.clone(),

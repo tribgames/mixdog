@@ -2204,6 +2204,13 @@ impl SessionActor {
                 set.insert("turnCoverage".into(), json!(turn.as_str()));
                 let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
                 self.accept_record(meta, Class::Control, Display::None, Vec::new(), Vec::new());
+            } else {
+                // A cancelled or failed turn is finalized too: `session.turnCoverage = turnCheckpointToken`
+                // (`ask-turn-failure.mjs:185`), and nothing else of the settle's stamps.
+                let mut set = serde_json::Map::new();
+                set.insert("turnCoverage".into(), json!(turn.as_str()));
+                let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
+                self.accept_record(meta, Class::Control, Display::None, Vec::new(), Vec::new());
             }
         }
         if self.deleting {

@@ -918,7 +918,9 @@ impl DefaultProviderBuilder {
             engines.push((*wire, engine));
         }
         let listing = handle.ok_or("[custom-provider] the protocol wire is not served")?;
-        if engines.len() == 1 {
+        // `createCustomProvider` registers a wire profile for every OpenAI-compatible protocol, one wire or
+        // several, so such a provider always routes (and pins) its wire; only the anthropic protocol has none.
+        if engines.len() == 1 && protocol == Protocol::Anthropic {
             return Ok(CustomParts { adapter: engines.remove(0).1, listing });
         }
         let adapter = Arc::new(MultiWireAdapter::new(ProviderId::from(name), engines, protocol_wire, model_wires));

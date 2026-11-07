@@ -69,6 +69,9 @@ pub struct Finalized {
     pub transcript: Vec<AgentMessage>,
     pub response_preserved: bool,
     pub user_turn_preserved: bool,
+    /// The message `finalizeInterruptedTurn` stamps `meta.sentRequestTail` on: killed with a request on the
+    /// wire, the provider received the transcript up to it. Its index in `transcript`.
+    pub sent_request_tail: Option<usize>,
 }
 
 fn provisional_user_turn(messages: &[AgentMessage], current_text: &str) -> Option<usize> {
@@ -108,6 +111,7 @@ pub fn finalize_interrupted_turn(input: Interrupted) -> Finalized {
                 transcript: messages,
                 response_preserved: false,
                 user_turn_preserved: true,
+                sent_request_tail: None,
             };
         }
         // The prompt goes back to the input box: remove the provisional user
@@ -120,8 +124,13 @@ pub fn finalize_interrupted_turn(input: Interrupted) -> Finalized {
             transcript: messages,
             response_preserved: false,
             user_turn_preserved: false,
+            sent_request_tail: None,
         };
     }
+    let sent_tail = messages
+        .last()
+        .filter(|last| phase == Phase::Streaming && matches!(last.role(), Role::Tool | Role::User))
+        .cloned();
     append_observed_output(
         &mut messages,
         &partial_assistant,
@@ -149,10 +158,12 @@ pub fn finalize_interrupted_turn(input: Interrupted) -> Finalized {
         };
         paired.push(AgentMessage::user(content));
     }
+    let sent_request_tail = sent_tail.and_then(|tail| paired.iter().rposition(|m| *m == tail));
     Finalized {
         transcript: paired,
         response_preserved: true,
         user_turn_preserved: true,
+        sent_request_tail,
     }
 }
 
@@ -246,6 +257,15 @@ mod tests {
         let done = finalize_interrupted_turn(turn);
         let texts: Vec<String> = done.transcript.iter().map(AgentMessage::text).collect();
         assert_eq!(texts, ["go", "half an ans", INTERRUPT_MESSAGE]);
+        assert_eq!(done.sent_request_tail, Some(0), "killed with the request on the wire: the prompt is the sent tail");
+    }
+
+    #[test]
+    fn a_stop_in_the_tool_phase_stamps_no_sent_tail() {
+        let mut turn = input(vec![AgentMessage::user("go")]);
+        turn.partial_assistant = "x".into();
+        turn.phase = Phase::Tools;
+        assert_eq!(finalize_interrupted_turn(turn).sent_request_tail, None);
     }
 
     #[test]

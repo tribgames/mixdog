@@ -431,6 +431,7 @@ impl RunParts for HostRunParts {
             progress: input.progress.clone(),
             deadline_of: None,
             notify: input.notify.clone(),
+            review: None,
         };
         // `beginTodoTurn(session, { genuine: !turnPromptSource?.source })` over the cycle state the record carries.
         let todo_guards = Arc::new(TodoGuards::new(seams.todo_view(thread, header), hidden).with_saved(header.get("todoCheck")));

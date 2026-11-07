@@ -32,6 +32,11 @@ struct Inner {
 impl TurnSnapshot {
     /// `checkpoint_id` is the turn's first submitted row; a completion wake continues the turn
     /// that launched the worker (`continue_turn`).
+    /// The review the turn's tools record their changes to.
+    pub fn api(&self) -> Arc<dyn TurnReviewApi> {
+        self.review.clone()
+    }
+
     pub fn new(review: Arc<dyn TurnReviewApi>, session: &str, checkpoint_id: &str, continue_turn: bool) -> Self {
         let open = TurnOpen { checkpoint_id: mixdog_js::js_trim(checkpoint_id).to_owned(), continue_turn };
         Self { inner: Arc::new(Inner { review, session: session.to_owned(), open, started: OnceLock::new() }) }
