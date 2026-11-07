@@ -737,7 +737,8 @@ mod tests {
         let rig = crate::session::testing::Rig::new();
         let directory = Arc::new(SessionDirectory::new(rig.deps()));
         let thread = ThreadId::from("sess_held");
-        let header = obj(json!({ "cwd": "/ws", "provider": "other", "model": "other-model", "pendingRoute": golden["held"].clone() }));
+        let mut header = obj(json!({ "cwd": "/ws", "provider": "other", "model": "other-model", "pendingRoute": golden["held"].clone() }));
+        header.extend(crate::session::new_route::create_keys(&obj(golden["route"].clone())).expect("create keys"));
         directory.create_with_id(thread.clone(), header, json!({})).await.expect("create");
         let threads = Arc::new(SessionThreads::new(directory.clone()));
         let adapter = SessionRouteAdapter::new(
