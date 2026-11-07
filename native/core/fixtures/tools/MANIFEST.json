@@ -48,7 +48,7 @@
     "memory/error-bad-op"
   ],
   "extraImpossible": [],
-  "fileCount": 156,
+  "fileCount": 160,
   "files": [
     {
       "bytes": 702,
@@ -531,6 +531,11 @@
       "sha256": "777f08ff118c768fc3e0353cbdbe4195d2ac20929b872264ac60f200ba600614"
     },
     {
+      "bytes": 12195,
+      "path": "memory/cycle-config/golden.json",
+      "sha256": "77d013211a1d867ee05a99801d55e243bf0c00d7c00dff102c185b8274bd7a15"
+    },
+    {
       "bytes": 125958,
       "path": "memory/embeddings/golden.json",
       "sha256": "1fa79da53e8a1aea26e0f53a5414dd29a90fce84b33ba6efdda4150ee480a48d"
@@ -569,6 +574,21 @@
       "bytes": 121232,
       "path": "memory/recall/seed.json",
       "sha256": "e99b16326060376ffc8a5131c32d95e31b61f43c69d5ae68b34e6fd098cb097f"
+    },
+    {
+      "bytes": 22320,
+      "path": "memory/root-embed-text/golden.json",
+      "sha256": "0b0cea72bc93b9cf1990ba4b54f06f168806dd67544472f7eb14d47b3a791edc"
+    },
+    {
+      "bytes": 45450,
+      "path": "memory/runtime-install/golden.json",
+      "sha256": "2b860d4816e9f583f11a74359fe78085eda6fd19f8b7128dbbd2769ee426a6e0"
+    },
+    {
+      "bytes": 302,
+      "path": "memory/runtime-install/runtime.tar.gz",
+      "sha256": "1008bbadbeb58702cef251cadece7a499bbfee0d328753e364c3e474519a655b"
     },
     {
       "bytes": 8505,
@@ -832,22 +852,22 @@
     }
   ],
   "product": {
-    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
-    "commit": null,
+    "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
+    "commit": "c397510597b76f4ee67778650a58a1570d923480",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 43481,
+    "files": 9248,
     "refComparison": {
-      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "commitFilesMissingFromTree": 1,
-      "exact": false,
-      "filesDifferingFromCommit": 34407
+      "closestCommit": "c397510597b76f4ee67778650a58a1570d923480",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
     },
-    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
+    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
     "tree": "product tree loaded by the recorder",
     "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-tools.mjs + record-tools-extra.mjs + record-media-text.mjs",
   "set": "tools",
-  "totalBytes": 841746
+  "totalBytes": 922013
 }
