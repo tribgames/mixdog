@@ -153,6 +153,9 @@ impl SessionOps for Sessions {
     async fn set_retired(&self, _: &str, _: bool) -> Result<(), RoomError> {
         Ok(())
     }
+    async fn set_retired_title(&self, _: &str, _: &str) -> Result<(), RoomError> {
+        Ok(())
+    }
     async fn rename(&self, _: &str, _: &str) -> Result<(), RoomError> {
         Ok(())
     }

@@ -68,14 +68,18 @@ impl AgentLifecycle {
     }
 
     /// A catalog read (`listAgents`) was answered with `agents`: deletions that did not pass through the editor are
-    /// reconciled and an agent a chat's setup tool just created greets the user. Neither holds the reply.
+    /// reconciled and an agent a chat's setup tool just created greets the user. Neither holds the reply, and the two
+    /// start together and run independently, as the two `void` calls of Node's `invokeCapability` do: neither waits for
+    /// the other, and a failure of one does not stop the other.
     pub fn listed(&self, agents: Value) {
         let homes = self.homes.clone();
-        let greetings = self.greetings.clone();
-        drop(mixdog_rt::spawn("agent-list-reconcile", mixdog_rt::TaskClass::Work, async move {
+        drop(mixdog_rt::spawn("agent-home-reconcile", mixdog_rt::TaskClass::Work, async move {
             if let Err(error) = homes.reconcile().await {
                 tracing::warn!("[mixdog-session] Could not archive the threads of removed agents: {error:?}");
             }
+        }));
+        let greetings = self.greetings.clone();
+        drop(mixdog_rt::spawn("agent-greetings-reconcile", mixdog_rt::TaskClass::Work, async move {
             if let Err(error) = greetings.reconcile(&agents).await {
                 tracing::warn!("[mixdog-session] Could not check for new agents: {error:?}");
             }
