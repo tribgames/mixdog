@@ -160,6 +160,12 @@ pub enum ScopeRule {
     Terminal {
         field: &'static str,
     },
+    /// `terminal/ensure`: exclusive per `params[field]` tab when the caller names one; with none
+    /// the core mints a new tab id, there is nothing to order against, and the request runs
+    /// concurrently.
+    TerminalOrNone {
+        field: &'static str,
+    },
     FsWatch {
         field: &'static str,
     },
@@ -472,6 +478,11 @@ macro_rules! __scope_rule {
             field: $crate::__wire_path!($field),
         }
     };
+    (terminal_or_none($field:ident)) => {
+        $crate::common::ScopeRule::TerminalOrNone {
+            field: $crate::__wire_path!($field),
+        }
+    };
     (fs_watch($field:ident)) => {
         $crate::common::ScopeRule::FsWatch {
             field: $crate::__wire_path!($field),
@@ -550,6 +561,13 @@ macro_rules! __scope_expr {
         Some($crate::common::SerializationScope::Terminal {
             tab_id: $p.$field.to_string(),
         })
+    };
+    ($p:ident, terminal_or_none($field:ident)) => {
+        $p.$field
+            .as_ref()
+            .map(|tab_id| $crate::common::SerializationScope::Terminal {
+                tab_id: tab_id.to_string(),
+            })
     };
     ($p:ident, fs_watch($field:ident)) => {
         Some($crate::common::SerializationScope::FsWatch {
