@@ -2473,9 +2473,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         context: Arc::new(mixdog_core_session::session::thread_switches::SessionContextSwitch::new(
             directory.clone(),
             session_close.clone(),
-            registry.clone(),
-            owned_shells.clone(),
-            read_state.clone(),
             Arc::new(mixdog_core_session::session::thread_switches::GaugeTarget(gauge.clone(), surface_generation.clone())),
         )),
         ops: domain_inputs.scopes.scopes("thread").map_err(ComposeError::ComposeDomains)?,

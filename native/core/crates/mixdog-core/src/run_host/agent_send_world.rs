@@ -109,10 +109,13 @@ impl AgentConfig for Config {
     }
 }
 
-/// A session's header write (`saveSessionAsync` of the delegation rebind).
+/// A session's header write (`saveSessionAsync(record, { expectedGeneration: record.generation })` of the
+/// delegation rebind, `delegation.mjs:227`).
 #[async_trait]
 pub trait HeaderWrites: Send + Sync {
-    async fn patch(&self, session: &str, set: Map<String, Value>) -> Result<(), SendWorldError>;
+    /// `expected_generation`: the generation of the record the patch was computed from. A record that has
+    /// moved past it (detached or closed since) refuses the write, which is no error: the save is dropped.
+    async fn patch(&self, session: &str, set: Map<String, Value>, expected_generation: Option<f64>) -> Result<(), SendWorldError>;
 }
 
 /// [`HeaderWrites`] over the thread state port.
@@ -120,8 +123,11 @@ pub struct ThreadHeaders(pub Arc<dyn ThreadState>);
 
 #[async_trait]
 impl HeaderWrites for ThreadHeaders {
-    async fn patch(&self, session: &str, set: Map<String, Value>) -> Result<(), SendWorldError> {
-        self.0.patch_header(&ThreadId::from(session), set, Vec::new()).await.map_err(port_message)
+    async fn patch(&self, session: &str, set: Map<String, Value>, expected_generation: Option<f64>) -> Result<(), SendWorldError> {
+        mixdog_core_session::session::close::patch_header_fenced(&*self.0, &ThreadId::from(session), expected_generation, set, Vec::new())
+            .await
+            .map(|_| ())
+            .map_err(port_message)
     }
 }
 
@@ -396,9 +402,11 @@ impl SendWorld for AgentSendWorld {
         if id.is_empty() || caller.is_empty() || caller == id {
             return Ok(());
         }
+        // `loadRecord(id)`: the record the patch is computed from names the generation the save is issued for.
+        let expected = self.records.record(&id).await.and_then(|record| record.get("generation").and_then(Value::as_f64));
         let run = self.runs.run_of(&caller).await;
         let Some(patch) = rebind_patch(&id, &caller, run, self.live.running(&id), &*self.records).await else { return Ok(()) };
-        self.headers.patch(&id, patch).await.map_err(|e| e.to_string())
+        self.headers.patch(&id, patch, expected).await.map_err(|e| e.to_string())
     }
 }
 
@@ -552,11 +560,11 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct Written(Mutex<Vec<(String, Map<String, Value>)>>);
+    struct Written(Mutex<Vec<(String, Map<String, Value>, Option<f64>)>>);
     #[async_trait]
     impl HeaderWrites for Written {
-        async fn patch(&self, session: &str, set: Map<String, Value>) -> Result<(), SendWorldError> {
-            self.0.lock().unwrap().push((session.to_owned(), set));
+        async fn patch(&self, session: &str, set: Map<String, Value>, expected_generation: Option<f64>) -> Result<(), SendWorldError> {
+            self.0.lock().unwrap().push((session.to_owned(), set, expected_generation));
             Ok(())
         }
     }
@@ -745,7 +753,7 @@ mod tests {
     async fn a_rebind_attends_a_worker_a_chat_hands_work() {
         // The worker was started by a run; its new caller is a coding chat, so it is attended.
         let run = json!({ "kind": "schedule", "agentId": "bot", "name": "" });
-        let worker = row(json!({ "id": "sess_c", "parentSessionId": "sess_chat", "owner": "agent", "agent": "worker", "run": run }));
+        let worker = row(json!({ "id": "sess_c", "parentSessionId": "sess_chat", "owner": "agent", "agent": "worker", "run": run, "generation": 3 }));
         let chat = row(json!({ "id": "sess_chat" }));
         let records = vec![("sess_c".to_owned(), worker), ("sess_chat".to_owned(), chat)];
         let rig = rig(vec![child("sess_c")], Live::default(), true, records);
@@ -754,5 +762,6 @@ mod tests {
         assert_eq!(written.len(), 1);
         assert_eq!(written[0].0, "sess_c");
         assert_eq!(written[0].1.get("run"), Some(&Value::Null));
+        assert_eq!(written[0].2, Some(3.0), "the save is issued for the generation of the record it was computed from (`delegation.mjs:227`)");
     }
 }
