@@ -3694,7 +3694,11 @@ export type ThreadPushNoticeParams = { opId: OpId, threadId?: ThreadId, text: st
 
 export type ThreadQueueChangedParams = { threadId: ThreadId, queued: Array<JsonValue>, };
 
-export type ThreadQueueDeleteParams = { threadId: ThreadId, opId: OpId, queuedId?: QueuedId, 
+export type ThreadQueueDeleteParams = { threadId: ThreadId, opId: OpId, 
+/**
+ * Absent with `restore`: every queued entry is handed back (today's `restoreQueued` with no id).
+ */
+queuedId?: QueuedId, 
 /**
  * Today's `restoreQueued` submission identity.
  */

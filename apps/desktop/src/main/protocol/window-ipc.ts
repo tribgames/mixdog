@@ -20,6 +20,7 @@ export function registerProtocolWindowIpc({ connection, handle, send, removeHand
   // Watch ids are chosen by the caller and unique per connection, not per window: this window's are namespaced.
   const prefix = `w${nextWindowToken++}:`;
 
+  handle(SECTIONS_IPC.core, () => true);
   handle(SECTIONS_IPC.snapshot, () => connection.snapshot());
   handle(SECTIONS_IPC.call, async (_event, method, params) => {
     if (!isRendererProtocolMethod(method)) throw new Error('This core method is not available to the window.');
@@ -61,7 +62,17 @@ export function registerProtocolWindowIpc({ connection, handle, send, removeHand
     disposed = true;
     // Detaching releases this window's watches and port view.
     detach();
+    removeHandler(SECTIONS_IPC.core);
     removeHandler(SECTIONS_IPC.snapshot);
     removeHandler(SECTIONS_IPC.call);
   };
+}
+
+/** A window whose connection has no core endpoint: it answers the per-connection question, `false`, and nothing else. */
+export function registerNoProtocolWindowIpc({
+  handle,
+  removeHandler,
+}: Pick<WindowIpcOptions, 'handle' | 'removeHandler'>): () => void {
+  handle(SECTIONS_IPC.core, () => false);
+  return () => removeHandler(SECTIONS_IPC.core);
 }

@@ -131,6 +131,7 @@ use super::seams::RunOutcome;
 use super::seams::RunStart;
 use super::state::Change;
 use super::state::Display;
+use super::state::Queued;
 use mixdog_core_ports::ports::threads::Section;
 use super::state::SessionState;
 use super::view::SessionView;
@@ -624,51 +625,148 @@ fn prompt_text(input: &TurnInput) -> String {
     }
 }
 
-/// `restoreQueued`'s reply (`take-entries.mjs`): the taken entries' text (`(id, text)`), joined
-/// with the composer's, each part only when it is not blank. Pasted images and texts live in
-/// the entries' attachments, which the prompt text above does not carry.
-fn restored_reply(taken: &[(&str, &str)], current_text: Option<&str>) -> Value {
-    let present = |text: &&str| !mixdog_js::js_trim(text).is_empty();
-    let queued_text = taken.iter().map(|(_, text)| *text).filter(present).collect::<Vec<_>>().join("\n");
-    let combined = [queued_text.as_str(), current_text.unwrap_or("")].into_iter().filter(present).collect::<Vec<_>>().join("\n");
-    json!({
-        "count": taken.len(),
-        "ids": taken.iter().map(|(id, _)| *id).filter(|id| !id.is_empty()).collect::<Vec<_>>(),
-        "text": combined,
-        "pastedImages": [],
-        "pastedTexts": [],
-    })
+/// One queue entry taken back to the composer: what `restoreQueued` reads of it.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Taken {
+    id: String,
+    /// The prompt's text (`entry.text`).
+    text: String,
+    /// `entry.pastedImages` and `entry.pastedTexts` (the options' maps), as queued: references or inline.
+    pasted_images: Option<Value>,
+    pasted_texts: Option<Value>,
+    /// The `file` parts of the prompt (`entry.content`), as queued.
+    files: Vec<Value>,
 }
 
-// The expectations follow `take-entries.mjs` `restoreQueued`: queued text first, each part only
-// when not blank, joined with a newline; a missed entry answers the composer's own text.
+impl Taken {
+    fn of(queued: &Queued) -> Self {
+        let text = serde_json::from_value::<PromptContent>(queued.entry["message"].clone())
+            .map(|prompt| prompt_text(&TurnInput { prompt, options: None }))
+            .unwrap_or_default();
+        let files = queued.entry["message"]
+            .as_array()
+            .map(|parts| parts.iter().filter(|part| part["type"] == "file").cloned().collect())
+            .unwrap_or_default();
+        Self {
+            id: queued.qid.clone(),
+            text,
+            pasted_images: queued.entry.pointer("/options/pastedImages").cloned(),
+            pasted_texts: queued.entry.pointer("/options/pastedTexts").cloned(),
+            files,
+        }
+    }
+}
+
+/// The entries `restoreQueued(_, selectedId)` takes: the one named, or every one without a name.
+fn restore_taken(queue: &[Queued], selected: Option<&str>) -> Vec<Queued> {
+    queue.iter().filter(|queued| selected.is_none_or(|qid| queued.qid == qid)).cloned().collect()
+}
+
+/// JavaScript truthiness of a queued value (`if (buffer)`).
+fn truthy(value: &Value) -> bool {
+    match value {
+        Value::Null | Value::Bool(false) => false,
+        Value::String(text) => !text.is_empty(),
+        Value::Number(number) => number.as_f64().is_some_and(|n| n != 0.0),
+        _ => true,
+    }
+}
+
+/// `mergePastedField`: the entries' maps in one, an entry's falsy value skipped; `null` when empty.
+fn merged_pasted(taken: &[Taken], field: impl Fn(&Taken) -> Option<&Value>) -> Value {
+    let mut out = serde_json::Map::new();
+    for entry in taken {
+        if let Some(Value::Object(map)) = field(entry) {
+            for (key, buffer) in map {
+                if truthy(buffer) {
+                    out.insert(key.clone(), buffer.clone());
+                }
+            }
+        }
+    }
+    if out.is_empty() { Value::Null } else { Value::Object(out) }
+}
+
+/// `restoreQueued`'s reply (`take-entries.mjs`), before the attachments are read: the taken
+/// entries' text joined with the composer's, each part only when it is not blank, the pasted maps
+/// merged as queued, and the `file` parts as `content`. The handle reads the attachment references
+/// into the maps and the parts (`restore_hydrate`), which is where `notice` comes from.
+fn restored_reply(taken: &[Taken], current_text: Option<&str>) -> Value {
+    let present = |text: &&str| !mixdog_js::js_trim(text).is_empty();
+    let queued_text = taken.iter().map(|entry| entry.text.as_str()).filter(present).collect::<Vec<_>>().join("\n");
+    let combined = [queued_text.as_str(), current_text.unwrap_or("")].into_iter().filter(present).collect::<Vec<_>>().join("\n");
+    let mut reply = json!({
+        "count": taken.len(),
+        "ids": taken.iter().map(|entry| entry.id.as_str()).filter(|id| !id.is_empty()).collect::<Vec<_>>(),
+        "text": combined,
+        "pastedImages": merged_pasted(taken, |entry| entry.pasted_images.as_ref()),
+        "pastedTexts": merged_pasted(taken, |entry| entry.pasted_texts.as_ref()),
+    });
+    let files: Vec<Value> = taken.iter().flat_map(|entry| entry.files.iter().cloned()).collect();
+    if !files.is_empty() {
+        reply["content"] = Value::Array(files);
+    }
+    reply
+}
+
+// `fixtures/desktop/queue/restore-queued-twin.json`: Node's `restoreQueued` (`take-entries.mjs`), recorded by
+// `record-restore-queued.mjs` over a queue, the blobs on disk and the composer's text. Each case is the
+// queue as a Node entry; here it is the queue entry the core keeps (`message`, `options.pasted*`).
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 mod restored_reply_tests {
-    use super::restored_reply;
-    use serde_json::json;
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
 
-    #[test]
-    fn the_taken_text_comes_before_the_composers() {
-        assert_eq!(
-            restored_reply(&[("q1", "hello")], Some("draft")),
-            json!({ "count": 1, "ids": ["q1"], "text": "hello\ndraft", "pastedImages": [], "pastedTexts": [] })
-        );
-        assert_eq!(restored_reply(&[("q1", "hello")], None)["text"], json!("hello"));
+    use super::super::restore_hydrate::hydrate;
+    use super::super::user_facts::AttachmentStore;
+    use super::*;
+
+    fn queued(entry: &Value) -> Queued {
+        let message = if entry.get("content").is_some() { entry["content"].clone() } else { entry["text"].clone() };
+        let mut body = json!({ "message": message });
+        let mut options = serde_json::Map::new();
+        for key in ["pastedImages", "pastedTexts"] {
+            if let Some(value) = entry.get(key) {
+                options.insert(key.into(), value.clone());
+            }
+        }
+        if !options.is_empty() {
+            body["options"] = Value::Object(options);
+        }
+        Queued { qid: entry["id"].as_str().unwrap().to_owned(), entry: body, display: Value::Null }
     }
 
-    #[test]
-    fn blank_parts_are_left_out() {
-        assert_eq!(restored_reply(&[("q1", "  ")], Some("draft"))["text"], json!("draft"));
-        assert_eq!(restored_reply(&[("q1", "  ")], Some(" "))["text"], json!(""));
-        assert_eq!(restored_reply(&[("q1", "  ")], Some(" "))["count"], json!(1));
-    }
-
-    #[test]
-    fn nothing_taken_counts_zero() {
-        assert_eq!(
-            restored_reply(&[], Some("draft")),
-            json!({ "count": 0, "ids": [], "text": "draft", "pastedImages": [], "pastedTexts": [] })
-        );
+    #[tokio::test]
+    async fn the_recorded_node_restores_are_reproduced() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/queue/restore-queued-twin.json");
+        let twin: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        for (reference, data) in twin["blobs"].as_object().unwrap() {
+            let folder = dir.path().join("prompt-attachments/sha256").join(&reference[..2]);
+            std::fs::create_dir_all(&folder).unwrap();
+            std::fs::write(folder.join(reference), STANDARD.decode(data.as_str().unwrap()).unwrap()).unwrap();
+        }
+        let store = AttachmentStore(dir.path().to_path_buf());
+        let tokens = mixdog_rt::testing::tokens();
+        let cases = twin["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 13);
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let queue: Vec<Queued> = case["entries"].as_array().unwrap().iter().map(queued).collect();
+            let selected = case["selectedId"].as_str().filter(|id| !id.is_empty());
+            let current = case["currentText"].as_str().filter(|text| !text.is_empty());
+            let taken: Vec<Taken> = restore_taken(&queue, selected).iter().map(Taken::of).collect();
+            let reply = restored_reply(&taken, current);
+            let store = store.clone();
+            let hydrated = mixdog_core_base::support::on_lane(tokens.interactive_io, &CancellationToken::new(), move |lane| hydrate(&store, lane, reply))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(hydrated, case["reply"], "{name}");
+            let left: Vec<&str> = queue.iter().filter(|q| !taken.iter().any(|t| t.id == q.qid)).map(|q| q.qid.as_str()).collect();
+            assert_eq!(json!(left), case["left"], "{name}: what stays queued");
+        }
     }
 }
 
@@ -3595,57 +3693,59 @@ impl SessionActor {
     /// other request (a malformed one fails in [`Self::queue_delete`]).
     fn restore_miss(&self, req: &CoreRequest) -> Option<Value> {
         let params: ThreadQueueDeleteParams = parse(&req.params, "ThreadQueueDeleteParams").ok()?;
-        let qid = params.queued_id?;
-        let queued = self.projected.queue.iter().any(|q| q.qid == qid.as_str());
-        (params.restore && !queued).then(|| restored_reply(&[], params.current_text.as_deref()))
+        let taken = restore_taken(&self.projected.queue, params.queued_id.as_ref().map(QueuedId::as_str));
+        (params.restore && taken.is_empty()).then(|| restored_reply(&[], params.current_text.as_deref()))
     }
 
     fn queue_delete(&mut self, req: &CoreRequest) -> Result<Plan, CoreError> {
         let params: ThreadQueueDeleteParams = parse(&req.params, "ThreadQueueDeleteParams")?;
-        let qid = params
-            .queued_id
-            .clone()
-            .ok_or_else(|| invalid("queuedId", "a queued entry id"))?;
-        let Some(queued) = self.projected.queue.iter().find(|q| q.qid == qid.as_str()).cloned()
-        else {
-            return Err(CoreError::QueuedEntryNotFound {
-                thread_id: self.id.clone(),
-                queued_id: qid,
-            });
+        // A hand-back without an id takes every queued entry back, as `restoreQueued('', '')` does; a delete
+        // names its entry.
+        let wanted = match (&params.queued_id, params.restore) {
+            (Some(qid), _) => Some(qid.as_str()),
+            (None, true) => None,
+            (None, false) => return Err(invalid("queuedId", "a queued entry id")),
         };
-        let text: String = serde_json::from_value::<PromptContent>(queued.entry["message"].clone())
-            .map(|prompt| prompt_text(&TurnInput { prompt, options: None }))
-            .unwrap_or_default();
+        let queued = restore_taken(&self.projected.queue, wanted);
+        if queued.is_empty() {
+            let queued_id = params.queued_id.clone().ok_or_else(|| invalid("queuedId", "a queued entry id"))?;
+            return Err(CoreError::QueuedEntryNotFound { thread_id: self.id.clone(), queued_id });
+        }
+        let taken: Vec<Taken> = queued.iter().map(Taken::of).collect();
         // A hand-back answers Node's `restoreQueued` reply; a plain delete answers `{}`.
-        let value = if params.restore {
-            restored_reply(&[(queued.qid.as_str(), text.as_str())], params.current_text.as_deref())
-        } else {
-            json!({})
-        };
-        let record = Record::Queue(QueueRecord {
-            qid: id(&queued.qid),
-            action: QueueAction::Dequeue,
-            reason: Some(DequeueReason::Cancelled),
-            op: self.op_ref(req, Some(&value))?,
-            entry: None,
-        });
+        let value = if params.restore { restored_reply(&taken, params.current_text.as_deref()) } else { json!({}) };
+        let mut records = Vec::new();
+        for (index, entry) in queued.iter().enumerate() {
+            // The op's result rides the first record only.
+            let op = if index == 0 { self.op_ref(req, Some(&value))? } else { None };
+            let record = Record::Queue(QueueRecord {
+                qid: id(&entry.qid),
+                action: QueueAction::Dequeue,
+                reason: Some(DequeueReason::Cancelled),
+                op,
+                entry: None,
+            });
+            records.push((record, Class::Normal, Display::None, Vec::new()));
+        }
         let mut extra = Vec::new();
         if params.restore {
             let device = match req.ctx.caller {
                 Caller::Connection(connection) => self.deps.devices.describe(connection).device,
                 Caller::Internal(name) => name.to_owned(),
             };
+            let present = |text: &&String| !mixdog_js::js_trim(text).is_empty();
+            let text = taken.iter().map(|entry| &entry.text).filter(present).cloned().collect::<Vec<_>>().join("\n");
             extra.push(Change::Section(Section::PromptRestore(Some(PromptRestore {
-                id: queued.qid.clone(),
-                ids: vec![queued.qid.clone()],
-                text: text.clone(),
+                id: queued[0].qid.clone(),
+                ids: queued.iter().map(|entry| entry.qid.clone()).collect(),
+                text,
                 device,
                 at: self.deps.clock.now_ms(),
             }))));
-            extra.push(Change::PromptWithout(text));
+            extra.extend(taken.into_iter().map(|entry| Change::PromptWithout(entry.text)));
         }
         Ok(Plan {
-            kind: PlanKind::Records(vec![(record, Class::Normal, Display::None, Vec::new())], extra),
+            kind: PlanKind::Records(records, extra),
             value,
             after: None,
             prompt: None,

@@ -33,6 +33,7 @@ import { createReattachReport } from './reattach-report';
 import type { ServerPortForwards } from './server-port-forwards';
 import { createServiceTerminalHost } from './terminal-host';
 import { createCapabilityLane } from '../protocol/capability-route';
+import { withSectionCapabilities } from '../protocol/section-capability-lane';
 import { createOperationLane } from '../protocol/desktop-operation-route';
 import type { ProtocolConnection } from '../protocol/connection';
 import { createCoreModelProxy } from '../protocol/model-proxy-relay';
@@ -313,8 +314,16 @@ function createServiceClient({
 }): DesktopServiceClient {
   const client = new DesktopServiceClient({
     // A connection with a core endpoint sends its session capabilities there (capability-route.ts).
+    // The capabilities the sections replaced are answered from the connection's sections (section-capability-lane.ts).
     ...(protocol
-      ? { capabilityLane: createCapabilityLane({ protocol }), operationLane: createOperationLane({ protocol }) }
+      ? {
+          capabilityLane: withSectionCapabilities({
+            lane: createCapabilityLane({ protocol }),
+            protocol,
+            snapshot: () => client.getSnapshot(),
+          }),
+          operationLane: createOperationLane({ protocol }),
+        }
       : {}),
     connect: () => {
       live.transport = new SessionTransport(

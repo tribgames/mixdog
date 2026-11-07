@@ -14240,6 +14240,7 @@
           "type": "string"
         },
         "queuedId": {
+          "description": "Absent with `restore`: every queued entry is handed back (today's `restoreQueued` with no id).",
           "type": [
             "string",
             "null"

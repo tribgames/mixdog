@@ -31,7 +31,7 @@ import type {
   ProviderModelsChange,
 } from '../shared/contract';
 import { record, rows } from './record-utils';
-import { readHeldCapability } from './section-capabilities';
+import { awaitEntry, readHeldCapability, sectionSourceOf } from './section-capabilities';
 import { sectionStoreFor } from './section-store';
 import type { RecordValue } from './desktop-types';
 
@@ -195,8 +195,8 @@ const SECTION_OF: Partial<Record<SidebarReferenceKey, string>> = {
 
 async function pushed(api: SidebarReferenceApi, section: string): Promise<unknown> {
   const store = sectionStoreFor(api);
-  await store?.ready();
-  return store?.get(section)?.value;
+  // The core publishes every section; one it has not published yet is waited for.
+  return store ? awaitEntry(store, { section, key: null }) : undefined;
 }
 
 const LOADERS: { [K in SidebarReferenceKey]: Loader<K> } = {
@@ -496,13 +496,13 @@ export function invalidateSidebarReferenceForMutation(mutation: string): boolean
 type PresetsResult = Awaited<ReturnType<NonNullable<SidebarReferenceApi['invokeCapability']>>>;
 const presetsRequests = new Map<SidebarReferenceApi, Promise<PresetsResult>>();
 
-/** The presets from the `presets` section when the store holds it, with the shell snapshot the host holds (the Main
+/** The presets from the presets section on a core connection, with the shell snapshot the host holds (the Main
  *  route readers take from the same answer); else the capability. */
 async function readPresets(
   api: SidebarReferenceApi & { getSnapshot?: DesktopApi['getSnapshot'] },
   invoke: NonNullable<SidebarReferenceApi['invokeCapability']>
 ): Promise<PresetsResult> {
-  const held = await readHeldCapability('listPresets', [], sectionStoreFor(api));
+  const held = await readHeldCapability('listPresets', [], sectionSourceOf(api));
   if (!held) return invoke.call(api, { capability: 'listPresets' });
   return { value: held.value, snapshot: await api.getSnapshot?.() } as PresetsResult;
 }

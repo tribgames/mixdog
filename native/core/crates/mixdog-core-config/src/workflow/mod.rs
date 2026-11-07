@@ -130,7 +130,7 @@ pub struct WorkflowConfig {
     durability: DurabilityIo,
     now: Arc<dyn Fn() -> String + Send + Sync>,
     /// Woken after a workflow pack was saved, created or deleted: the `workflows` section follows.
-    pack_changes: tokio::sync::Notify,
+    pack_changes: Arc<tokio::sync::Notify>,
 }
 
 fn utc_now() -> String {
@@ -179,7 +179,7 @@ impl WorkflowConfig {
             interactive: tokens.interactive_io,
             durability: tokens.durability_io,
             now: Arc::new(utc_now),
-            pack_changes: tokio::sync::Notify::new(),
+            pack_changes: Arc::new(tokio::sync::Notify::new()),
         })
     }
 

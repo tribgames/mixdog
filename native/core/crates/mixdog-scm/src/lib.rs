@@ -21,4 +21,6 @@ pub mod worktree;
 #[cfg(test)]
 mod golden_tests;
 #[cfg(test)]
+mod review_dispatch_tests;
+#[cfg(test)]
 mod testing;

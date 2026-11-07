@@ -183,6 +183,66 @@ async fn methods_match_node() {
     }
 }
 
+/// The pushed sections hold what the session actions return (`listPresets`, `getWebSearchRoute`, `listWorkflows`,
+/// `getOnboardingStatus`), and a pass pushes only the one whose value changed.
+#[tokio::test]
+async fn the_sections_push_the_values_of_the_actions_and_only_what_changed() {
+    use mixdog_core_api::state::SectionChange;
+    use mixdog_protocol::SectionName;
+
+    let dir = tempfile::tempdir().unwrap();
+    let (root, data) = (dir.path().join("root"), dir.path().join("data"));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&data).unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+    let config_path = dir.path().join("cfg").join("mixdog-config.json");
+    std::fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+    std::fs::write(&config_path, serde_json::to_vec(&crate::config::agent_routes::stored_file_of(&json!({}))).unwrap()).unwrap();
+    let (config, _) = Config::open(config_path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    let host = Arc::new(Host { main: Mutex::new(json!({})), custom_agents: Vec::new(), capable: false, adopted: Mutex::default() });
+    let service = WorkflowConfig::new(config.clone(), WorkflowPaths { root, data }, host, scopes(dir.path(), "config").await, &tokens);
+    let publisher = MockStatePublisher::default();
+    let mut last = [None, None, None, None];
+
+    super::sections::push_changed(&service, &publisher, &mut last).await;
+    let first = publisher.published();
+    let sections: Vec<(SectionName, Option<String>)> = first.iter().map(|(section, key, _)| (*section, key.clone())).collect();
+    assert_eq!(
+        sections,
+        [
+            (SectionName::Presets, None),
+            (SectionName::WebSearch, None),
+            (SectionName::Workflows, None),
+            (SectionName::Config, Some("onboarding".to_owned())),
+        ]
+    );
+    let pushed = |change: &SectionChange| match change {
+        SectionChange::Set(bytes) => serde_json::from_slice::<Value>(bytes).unwrap(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(pushed(&first[0].2), service.list_presets());
+    assert_eq!(pushed(&first[1].2), service.web_search_route().unwrap());
+    assert_eq!(pushed(&first[2].2), service.list_workflows().await.unwrap());
+    assert_eq!(pushed(&first[3].2), service.onboarding_status().unwrap());
+    assert!(pushed(&first[3].2).get("workflowRoutes").is_some(), "the status carries the route summary");
+
+    super::sections::push_changed(&service, &publisher, &mut last).await;
+    assert_eq!(publisher.published().len(), 4, "nothing changed, nothing is pushed");
+
+    config
+        .update_agent(|doc| {
+            doc.insert("presets".into(), json!([{ "id": "mine", "provider": "openai", "model": "gpt-5" }]));
+            Ok(())
+        })
+        .await
+        .unwrap();
+    super::sections::push_changed(&service, &publisher, &mut last).await;
+    let after = publisher.published();
+    assert!(after.len() > 4 && after[4].0 == SectionName::Presets, "a changed config pushes the presets again");
+    assert!(pushed(&after[4].2).as_array().unwrap().iter().any(|preset| preset["id"] == "mine"));
+}
+
 /// `listWorkflows()` over the worlds of `fixtures/desktop/settings/workflow-list-twin.json`: the
 /// real Node `listWorkflowPacks` and its mapping, on temp shipped and user folders.
 #[tokio::test]
