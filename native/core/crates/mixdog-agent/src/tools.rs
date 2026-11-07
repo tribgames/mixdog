@@ -354,9 +354,43 @@ pub struct RepeatGuards {
     last: Option<(String, u32)>,
     history: Vec<String>,
     shape: Option<(String, u32)>,
+    /// A tool batch has recorded an outcome (or the session record carried the keys): Node's
+    /// `session._repeat*` fields exist from then on.
+    kept: bool,
 }
 
 impl RepeatGuards {
+    /// The guards a session record carries (`_repeatFailGuard`, `_repeatFailHistory`, `_repeatArgShapeFailGuard`).
+    pub fn from_saved(saved: &serde_json::Map<String, serde_json::Value>) -> Self {
+        let guard = |key: &str| {
+            let value = saved.get(key)?;
+            Some((value.get("sig")?.as_str()?.to_owned(), u32::try_from(value.get("count")?.as_u64()?).ok()?))
+        };
+        let history = saved
+            .get("_repeatFailHistory")
+            .and_then(serde_json::Value::as_array)
+            .map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect())
+            .unwrap_or_default();
+        let kept = ["_repeatFailGuard", "_repeatFailHistory", "_repeatArgShapeFailGuard"].iter().any(|key| saved.contains_key(*key));
+        Self { last: guard("_repeatFailGuard"), history, shape: guard("_repeatArgShapeFailGuard"), kept }
+    }
+
+    /// The session record's `_repeat*` fields; empty until a tool batch recorded an outcome.
+    pub fn to_saved(&self) -> serde_json::Map<String, serde_json::Value> {
+        let mut saved = serde_json::Map::new();
+        if !self.kept {
+            return saved;
+        }
+        let guard = |slot: &Option<(String, u32)>| match slot {
+            Some((sig, count)) => serde_json::json!({ "sig": sig, "count": count }),
+            None => serde_json::Value::Null,
+        };
+        saved.insert("_repeatFailGuard".into(), guard(&self.last));
+        saved.insert("_repeatFailHistory".into(), serde_json::json!(self.history));
+        saved.insert("_repeatArgShapeFailGuard".into(), guard(&self.shape));
+        saved
+    }
+
     /// Whether a guard could fire once `pending_earlier` calls before this one
     /// finish: a guard needs [`REPEAT_FAIL_LIMIT`] recorded failures.
     pub(crate) fn could_fire(&self, pending_earlier: usize) -> bool {
@@ -404,6 +438,7 @@ impl RepeatGuards {
                 _ => (sig.to_owned(), 1),
             }
         }
+        self.kept = true;
         if failed {
             self.last = Some(bump(&self.last, &sig));
             self.history.push(sig);

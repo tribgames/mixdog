@@ -377,6 +377,22 @@ impl RunParts for HostRunParts {
             .await?;
         let agent = header.get("agent").and_then(Value::as_str).filter(|a| !a.is_empty());
         let hidden = seams.hidden_agent(agent) || settings.hidden_agent;
+        // `pinSessionWireRoute` (`ask-turn-execute.mjs`): the session's wire is pinned before its first request;
+        // a session that predates the table (`wireRoute` absent) and already answered keeps the wire it started on.
+        {
+            let model = text(header, "model");
+            let current = header.get("wireRoute");
+            let answered = input.prior.iter().any(|row| row.get("role").and_then(Value::as_str) == Some("assistant"));
+            if let Some(pin) = mixdog_core_run::run_host::hop_host::resolve_pin(&*provider, current, provider_id, model, current.is_none() && answered).await {
+                // The route moved while resolving: the newer route pins on its own turn.
+                let live = directory.live_header(thread).header();
+                if text(&live, "provider") == provider_id && text(&live, "model") == model {
+                    let mut set = serde_json::Map::new();
+                    set.insert("wireRoute".into(), pin);
+                    input.port.save_header(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() }).await.map_err(|_| refuse("the pinned wire route could not be saved"))?;
+                }
+            }
+        }
         let tool_env = ToolEnv {
             thread_id: thread.clone(),
             turn_id: input.turn.clone(),
@@ -390,7 +406,10 @@ impl RunParts for HostRunParts {
             deadline_of: None,
             notify: input.notify.clone(),
         };
-        let guards: Arc<dyn TurnGuards> = Arc::new(TodoGuards::new(seams.todo_view(thread, header), hidden));
+        // `beginTodoTurn(session, { genuine: !turnPromptSource?.source })` over the cycle state the record carries.
+        let todo_guards = Arc::new(TodoGuards::new(seams.todo_view(thread, header), hidden).with_saved(header.get("todoCheck")));
+        todo_guards.start_turn(!input.injected).await;
+        let guards: Arc<dyn TurnGuards> = todo_guards;
         let observer: super::tool_exclusions::ObserverSlot = Arc::default();
 
         let mut config = RunConfig::new(thread.clone(), input.turn.clone(), text(header, "model"));
@@ -502,7 +521,7 @@ impl RunParts for HostRunParts {
             artifacts: Some(artifacts),
             images: seams.image_compactor(),
             blobs: s.blobs.clone(),
-            carry: RunCarry::default(),
+            carry: RunCarry::from_saved(header),
         })
     }
 }

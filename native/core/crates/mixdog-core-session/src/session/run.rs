@@ -216,6 +216,13 @@ pub(crate) enum ProducerMsg {
         state: Option<ProviderState>,
         ack: oneshot::Sender<Result<(), RunError>>,
     },
+    /// Header keys the run's session state is saved under (`todoCheck`, the `_repeat*` guards, the pinned
+    /// `wireRoute`, the re-rooted prompt): the keys that differ are written in one `meta` record.
+    Header {
+        turn: TurnId,
+        change: mixdog_store::schema::record::HeaderChange,
+        ack: oneshot::Sender<Result<(), RunError>>,
+    },
     Compacted {
         turn: TurnId,
         compaction: Compaction,
@@ -333,6 +340,13 @@ impl RunPort {
     pub async fn save_provider_state(&self, state: Option<ProviderState>) -> Result<(), RunError> {
         let (ack, rx) = oneshot::channel();
         self.call(ProducerMsg::ProviderState { turn: self.turn.clone(), state, ack }, rx).await?
+    }
+
+    /// Sets header keys of the session record the run holds state under; resolves once durable, and
+    /// writes nothing for keys that already agree.
+    pub async fn save_header(&self, change: mixdog_store::schema::record::HeaderChange) -> Result<(), RunError> {
+        let (ack, rx) = oneshot::channel();
+        self.call(ProducerMsg::Header { turn: self.turn.clone(), change, ack }, rx).await?
     }
 
     pub fn thread(&self) -> &ThreadId {

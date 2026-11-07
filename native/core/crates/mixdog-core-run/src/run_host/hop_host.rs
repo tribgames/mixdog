@@ -137,27 +137,35 @@ impl RegistryHopHost {
         if provider.is_empty() || model.is_empty() {
             return None;
         }
-        if let Some(current) = updated.get("wireRoute").filter(|c| c.is_object())
-            && text(current.get("provider")) == provider
-            && text(current.get("model")) == model
-        {
-            return None;
-        }
-        let routing = adapter.wire_routing()?;
-        let context = WireRouteContext { agent: true, legacy: false, ..WireRouteContext::default() };
-        let route = routing.resolve_wire_route(&model, &context).await.ok()??;
-        if route.source == "unknown" {
-            return None;
-        }
+        let pin = resolve_pin(adapter, updated.get("wireRoute"), &provider, &model, false).await?;
         let live = self.session.header()?;
         if text(live.get("provider")) != provider || text(live.get("model")) != model {
             return None;
         }
-        Some(json!({
-            "provider": provider, "model": model,
-            "wire": route.wire, "source": route.source, "profileId": route.profile_id,
-        }))
+        Some(pin)
     }
+}
+
+/// The part of `pinSessionWireRoute` before its last check: `None` when `current` already pins this route, the
+/// provider has a single wire, resolving failed, or the model has no known wire. `legacy` is a session that
+/// predates the wire table and already talked to its model.
+pub async fn resolve_pin(adapter: &dyn ProviderAdapter, current: Option<&Value>, provider: &str, model: &str, legacy: bool) -> Option<Value> {
+    if let Some(current) = current.filter(|c| c.is_object())
+        && text(current.get("provider")) == provider
+        && text(current.get("model")) == model
+    {
+        return None;
+    }
+    let routing = adapter.wire_routing()?;
+    let context = WireRouteContext { agent: true, legacy, ..WireRouteContext::default() };
+    let route = routing.resolve_wire_route(model, &context).await.ok()??;
+    if route.source == "unknown" {
+        return None;
+    }
+    Some(json!({
+        "provider": provider, "model": model,
+        "wire": route.wire, "source": route.source, "profileId": route.profile_id,
+    }))
 }
 
 #[async_trait]

@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use async_trait::async_trait;
 use mixdog_agent::env::Clock;
@@ -206,9 +207,15 @@ pub struct LeadSurfaceHost {
     sources: SurfaceSources,
     /// The agent definition of the pool's `git` and `task` (`Tool::agent_spec`), for agent-owned threads.
     agent_defs: HashMap<String, Value>,
+<<<<<<< ours
     /// Thread id to the key its surface was last brought to. In this process only, as Node's is: a thread
     /// first seen here (resumed) is checked once.
     applied: std::sync::Mutex<HashMap<String, Applied>>,
+=======
+    /// `appliedKeys` of `tool-policy-refresh.mjs`: the gate key each thread's settings-gated tools were last
+    /// brought to, in memory (a thread first seen here is staged once).
+    applied: Mutex<HashMap<String, String>>,
+>>>>>>> theirs
 }
 
 /// `deferredSurfaceModeForLead`.
@@ -266,6 +273,7 @@ impl LeadSurfaceHost {
     pub fn new(sources: SurfaceSources) -> Result<Self, VariantError> {
         check_pool(&sources.pool)?;
         let agent_defs = agent_definitions(&sources.pool);
+<<<<<<< ours
         Ok(Self { mode: normalize_tool_mode(&sources.mode), sources, agent_defs, applied: std::sync::Mutex::default() })
     }
 
@@ -289,6 +297,29 @@ impl LeadSurfaceHost {
         if let Some(key) = key {
             self.note_applied(thread, key);
         }
+=======
+        Ok(Self { mode: normalize_tool_mode(&sources.mode), sources, agent_defs, applied: Mutex::default() })
+    }
+
+    /// `availabilityKey()`: the live gate list. Node's key also carries the config object's generation and the
+    /// surface generation; neither exists here, and a gate that moves with them moves this list.
+    fn gate_key(feature_denied: &[String]) -> String {
+        feature_denied.join(",")
+    }
+
+    fn applied_lock(&self) -> std::sync::MutexGuard<'_, HashMap<String, String>> {
+        self.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Whether `thread` was last brought to `key` (`applied?.gates === gates`).
+    fn applied_is(&self, thread: &ThreadId, key: &str) -> bool {
+        self.applied_lock().get(thread.as_str()).is_some_and(|applied| applied == key)
+    }
+
+    /// `appliedKeys.set(session, ..)`.
+    fn note_applied(&self, thread: &ThreadId, key: String) {
+        self.applied_lock().insert(thread.as_str().to_owned(), key);
+>>>>>>> theirs
     }
 
     /// `buildPreSessionSurface()`: the surface a Lead with no session would start with.
@@ -332,10 +363,15 @@ impl LeadSurfaceHost {
     /// its tool surface under the gates as they stand (`applyToolDenials`) and, when it has a
     /// prompt identity, its prompt composed again (`stagePolicy`). A delegated worker takes the
     /// same path with its owner's finalization: the Lead-only control tools leave its list,
+<<<<<<< ours
     /// which is put in route order, and only a hidden agent honors a schema allowlist. A surface already
     /// brought to the gates and the prompt settings as they stand is left as it is, but for the connectors
     /// (`appliedKeys`); the key a rebuilt surface is brought to comes back with its change.
     async fn empty_surface_change(&self, thread: &ThreadId, header: &Header) -> Result<(HeaderChange, Option<Applied>), String> {
+=======
+    /// which is put in route order, and only a hidden agent honors a schema allowlist.
+    async fn empty_surface_change(&self, thread: &ThreadId, header: &Header, stage_tools: bool) -> Result<HeaderChange, String> {
+>>>>>>> theirs
         let s = &self.sources;
         let mut session = Value::Object(header.clone());
         // `stageConnectorAvailability` first, on the session as it was (Node's order in `reconcileSession`).
@@ -408,10 +444,20 @@ impl LeadSurfaceHost {
         let map = session.as_object_mut().expect("session object");
         map.shift_remove("messages");
         // `stageToolAvailability` last, on the session as rebuilt: a gate that moved meanwhile.
+<<<<<<< ours
         let feature_denied = s.feature_denied.denied().await?;
         let candidates = if missing_definitions(map, &feature_denied).is_empty() { Vec::new() } else { self.definition_candidates(thread, header).await? };
         stage_tool_availability(map, &feature_denied, &candidates, s.clock.now_ms());
         Ok((header_diff(header, map), Some(key)))
+=======
+        // A gate list the thread was already brought to is not staged again, so `featureDeniedTools` is not rewritten.
+        if stage_tools {
+            let feature_denied = s.feature_denied.denied().await?;
+            let candidates = if missing_definitions(map, &feature_denied).is_empty() { Vec::new() } else { self.definition_candidates(thread, header).await? };
+            stage_tool_availability(map, &feature_denied, &candidates, s.clock.now_ms());
+        }
+        Ok(header_diff(header, map))
+>>>>>>> theirs
     }
 
     /// `toolDefinitionsFor(names)`: the definitions the thread's kind may hold, built-ins included,
@@ -446,11 +492,15 @@ impl LeadSurfaceHost {
     /// ``reconcileSession`` over an empty thread: its settings, tool surface and prompt rebuilt from the
     /// settings as they stand and written back (retried when the header moved meanwhile). The caller
     /// has decided the thread is empty and idle.
-    async fn settle_empty(&self, thread: &ThreadId) -> Result<(), CoreError> {
+    async fn settle_empty(&self, thread: &ThreadId, stage_tools: bool) -> Result<(), CoreError> {
         let s = &self.sources;
         loop {
             let header = s.threads.header(thread).await.map_err(|error| port(thread, error))?;
+<<<<<<< ours
             let (change, applied) = self.empty_surface_change(thread, &header).await.map_err(|message| failed("tools", message))?;
+=======
+            let change = self.empty_surface_change(thread, &header, stage_tools).await.map_err(|message| failed("tools", message))?;
+>>>>>>> theirs
             if change.set.is_empty() && change.unset.is_empty() {
                 self.note_applied_key(thread, applied);
                 return Ok(());
@@ -469,14 +519,22 @@ impl LeadSurfaceHost {
     /// tools follow the live gates (`stageToolAvailability`) without touching its prefix. What moved,
     /// if anything; the header is written only when it changed.
     pub async fn stage_gates(&self, thread: &ThreadId) -> Result<Staged, CoreError> {
+        self.stage(thread, true).await
+    }
+
+    /// [`Self::stage_gates`], or with `tools` false only the connector switches, which Node reads every turn.
+    async fn stage(&self, thread: &ThreadId, tools: bool) -> Result<Staged, CoreError> {
         let s = &self.sources;
         loop {
             let header = s.threads.header(thread).await.map_err(|error| port(thread, error))?;
             let mut next = header.clone();
             let connectors = stage_connector_availability(&mut next, thread, s.connectors.as_ref(), s.clock.now_ms());
-            let feature_denied = s.feature_denied.denied().await.map_err(|message| failed("tools", message))?;
-            let candidates = if missing_definitions(&next, &feature_denied).is_empty() { Vec::new() } else { self.definition_candidates(thread, &header).await.map_err(|message| failed("tools", message))? };
-            let moved = stage_tool_availability(&mut next, &feature_denied, &candidates, s.clock.now_ms());
+            let mut moved = None;
+            if tools {
+                let feature_denied = s.feature_denied.denied().await.map_err(|message| failed("tools", message))?;
+                let candidates = if missing_definitions(&next, &feature_denied).is_empty() { Vec::new() } else { self.definition_candidates(thread, &header).await.map_err(|message| failed("tools", message))? };
+                moved = stage_tool_availability(&mut next, &feature_denied, &candidates, s.clock.now_ms());
+            }
             let change = header_diff(&header, &next);
             if change.set.is_empty() && change.unset.is_empty() {
                 return Ok(Staged { moved, connectors, header });
@@ -509,7 +567,11 @@ impl SurfaceHost for LeadSurfaceHost {
         if has_conversation_messages(&messages) {
             return Ok(());
         }
-        self.settle_empty(thread).await
+        let key = Self::gate_key(&s.feature_denied.denied().await.map_err(|message| failed("tools", message))?);
+        let unchanged = self.applied_is(thread, &key);
+        self.settle_empty(thread, !unchanged).await?;
+        self.note_applied(thread, key);
+        Ok(())
     }
 }
 
@@ -534,14 +596,20 @@ impl TurnSettings for LeadSurfaceHost {
     async fn reconcile(&self, thread: &ThreadId, conversation: bool) -> Result<Header, String> {
         let described = |error: CoreError| format!("{error:?}");
         let s = &self.sources;
+        // `applied?.gates === gates`: a thread already brought to the live gate list is not staged again.
+        let key = Self::gate_key(&s.feature_denied.denied().await?);
+        let unchanged = self.applied_is(thread, &key);
         if !conversation {
             let header = s.threads.header(thread).await.map_err(|error| port(thread, error)).map_err(described)?;
             if header.get("promptIdentity").is_some_and(Value::is_object) {
-                self.settle_empty(thread).await.map_err(described)?;
+                self.settle_empty(thread, !unchanged).await.map_err(described)?;
+                self.note_applied(thread, key);
                 return s.threads.header(thread).await.map_err(|error| port(thread, error)).map_err(described);
             }
         }
-        self.stage_gates(thread).await.map(|staged| staged.header).map_err(described)
+        let staged = self.stage(thread, !unchanged).await.map_err(described)?;
+        self.note_applied(thread, key);
+        Ok(staged.header)
     }
 }
 
@@ -591,6 +659,8 @@ impl NewThreadTools for LeadSurfaceHost {
         session["orchestrationMode"] = json!(target.orchestration_mode);
         session["sessionMode"] = json!(session_mode_of(header));
         let feature_denied = s.feature_denied.denied().await?;
+        // `noteToolAvailability`: built from the settings as they stand, so its first turn need not stage them.
+        self.note_applied(thread, Self::gate_key(&feature_denied));
         let standalone = internal_tools(&s.pool);
         let mut extra: Vec<Value> = {
             let inputs = SurfaceInputs {
