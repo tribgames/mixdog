@@ -14,6 +14,7 @@ import { record } from '../record-utils';
 import { invalidateSidebarReferenceForMutation } from '../sidebar-reference-cache';
 import { FOCUSABLE_SELECTOR, openModal, portaledMenuOpen, trapTab } from './dialog-modality';
 import { friendlyCapabilityError } from './remote-capability-guard';
+import { invokeOrHeld, readOrHeld } from '../section-capabilities';
 
 type RecordValue = Record<string, unknown>;
 
@@ -21,12 +22,12 @@ async function readCapabilityBatch(
   api: DesktopApi,
   requests: DesktopCapabilityReadRequest[]
 ): Promise<DesktopCapabilityReadResult[]> {
-  if (typeof api.readCapabilities === 'function') return api.readCapabilities(requests);
+  if (typeof api.readCapabilities === 'function') return readOrHeld(api, requests);
   return Promise.all(
     requests.map(async (request) => {
       try {
-        const result = await api.invokeCapability({ capability: request.capability, args: request.args });
-        return { ok: true as const, value: result.value };
+        const result = await invokeOrHeld(api, { capability: request.capability, args: request.args });
+        return { ok: true as const, value: result?.value };
       } catch (reason) {
         return { ok: false as const, error: errorMessage(reason) };
       }
@@ -59,7 +60,7 @@ export function useOnboardingRun(api: DesktopApi) {
       }
       const execute = async (): Promise<T | undefined> => {
         try {
-          const result = (await api.invokeCapability<T>({ capability, args })).value;
+          const result = (await invokeOrHeld<T>(api, { capability, args }))!.value;
           // Invalidate only after the authoritative mutation has resolved.
           invalidateSidebarReferenceForMutation(capability);
           return result;

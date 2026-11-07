@@ -13,6 +13,7 @@ import {
 import type { PendingPromptItem } from './conversation-prompt-items';
 import type { RecordValue } from './desktop-types';
 import { t } from './i18n';
+import { wasPrioritized } from './prioritized-answer';
 import { queuedPlainAnswer, steerQueuedAsAnswer } from './question-card-logic';
 import { useComposerCapability } from './use-composer-capability';
 
@@ -223,7 +224,7 @@ export function useSteerActions({
         return;
       }
       const value = await invoke<RecordValue>('prioritizeQueued', [id]);
-      if (!value || Number(value.count) < 1) {
+      if (!wasPrioritized(value)) {
         markId(setSending, id, false);
         return;
       }

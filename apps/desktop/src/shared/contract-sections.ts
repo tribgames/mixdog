@@ -47,6 +47,8 @@ export type DesktopSectionsPush =
 /** The only core methods a renderer may call. Each is a detail read the pushed state does not carry (stubs, history). */
 export const RENDERER_PROTOCOL_METHODS = [
   'review/diff/get',
+  // Recomputes the `providerSetup` section (the `force`/`refresh`/keychain options of `getProviderSetup`).
+  'account/refreshProviderSetup',
   'usage/getUsageDashboard',
   'usage/getUsageStats',
   'usage/getUsageRequests',

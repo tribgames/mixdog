@@ -1,4 +1,5 @@
 import type { DesktopApi, DesktopCapabilityReadRequest } from '../shared/contract';
+import { invokeOrHeld, readOrHeld } from './section-capabilities';
 
 type ReadApi = Partial<Pick<DesktopApi, 'invokeCapability' | 'readCapabilities'>>;
 type GlobalReadRequest = Omit<DesktopCapabilityReadRequest, 'sessionId'> & { sessionId?: never };
@@ -10,7 +11,7 @@ export async function readGlobalCapabilities(
   requests: readonly GlobalReadRequest[]
 ): Promise<unknown[]> {
   if (!api?.readCapabilities) {
-    return Promise.all(requests.map(async (request) => (await api?.invokeCapability?.(request))?.value));
+    return Promise.all(requests.map(async (request) => (await invokeOrHeld(api, request))?.value));
   }
   // requiredDesktopCapabilityReadRequests accepts at most 32 requests.
   const chunks: GlobalReadRequest[][] = [];
@@ -19,7 +20,7 @@ export async function readGlobalCapabilities(
   }
   const values = await Promise.all(
     chunks.map(async (chunk) => {
-      const results = await api.readCapabilities!(chunk);
+      const results = await readOrHeld(api, chunk);
       return chunk.map((_, index) => {
         const result = results[index];
         if (!result) throw new Error('Capability read did not return a result.');

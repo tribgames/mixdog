@@ -2,7 +2,10 @@
 //! the quota history.
 
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::PoisonError;
 
 use async_trait::async_trait;
 use mixdog_ai::accounts::ACCOUNT_PROVIDERS;
@@ -15,7 +18,10 @@ use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::service::Admit;
+use mixdog_core_api::state::StatePublisher;
+use mixdog_core_base::state::change_of;
 use mixdog_ledger::quota::QuotaHistoryOptions;
+use mixdog_protocol::SectionName;
 use serde_json::Value;
 use serde_json::json;
 
@@ -46,6 +52,26 @@ pub struct AccountService {
     dashboards: Arc<Dashboards>,
     sources: Arc<dyn UsageSources>,
     ops: OpScopes,
+    publisher: Arc<dyn StatePublisher>,
+    /// What each pushed section holds, so a section is published only when its value changed.
+    pushed: Mutex<HashMap<(SectionName, Option<String>), Value>>,
+}
+
+/// The methods that read or probe only; every other `account/` method may change credentials,
+/// the account pools or the provider list, and so the `providerSetup` and `providerAccounts`
+/// sections.
+fn leaves_sections(method: &str) -> bool {
+    matches!(
+        method,
+        "account/getOAuthProviderLoginStatus"
+            | "account/listWebSearchModels"
+            | "account/getQuotaHistory"
+            | "account/beginOAuthProviderLogin"
+            | "account/cancelOAuthProviderLogin"
+            | "account/testCustomProvider"
+            | "account/checkCustomProviderKeyEnv"
+            | "account/discoverCustomProviderModels"
+    )
 }
 
 fn str_param<'a>(params: &'a Value, key: &str) -> &'a str {
@@ -71,8 +97,35 @@ impl AccountService {
         dashboards: Arc<Dashboards>,
         sources: Arc<dyn UsageSources>,
         ops: OpScopes,
+        publisher: Arc<dyn StatePublisher>,
     ) -> Arc<Self> {
-        Arc::new(Self { admin, flows, ledger, custom, web_search, setup, dashboards, sources, ops })
+        let service = Arc::new(Self { admin, flows, ledger, custom, web_search, setup, dashboards, sources, ops, publisher, pushed: Mutex::new(HashMap::new()) });
+        // The sections hold a value from the start; a change pushes the next one.
+        let first = service.clone();
+        mixdog_rt::spawn("account-sections", mixdog_rt::TaskClass::Work, async move { first.publish_sections().await });
+        service
+    }
+
+    fn push(&self, section: SectionName, key: Option<String>, value: Value) {
+        let mut pushed = self.pushed.lock().unwrap_or_else(PoisonError::into_inner);
+        if pushed.get(&(section, key.clone())) != Some(&value) {
+            self.publisher.publish(section, key.clone(), change_of(&value));
+            pushed.insert((section, key), value);
+        }
+    }
+
+    /// The `providerSetup` section (`getProviderSetup()`) and a `providerAccounts` entry per
+    /// account provider (`getProviderAccounts(provider)`). A value that cannot be read keeps
+    /// the last one pushed.
+    async fn publish_sections(&self) {
+        if let Ok(setup) = self.setup.get(false, false, false, false).await {
+            self.push(SectionName::ProviderSetup, None, setup);
+        }
+        for provider in ACCOUNT_PROVIDERS {
+            if let Ok(accounts) = self.admin.list_provider_accounts(provider).await {
+                self.push(SectionName::ProviderAccounts, Some((*provider).to_owned()), accounts);
+            }
+        }
     }
 
     /// `getQuotaHistory`: the ledger's history, labelled with each account's place in its pool.
@@ -264,14 +317,19 @@ impl DomainService for AccountService {
             }
             m if m.starts_with("account/") => {
                 let external = external_effect(method, &req.params);
-                self.ops
+                let reply = self
+                    .ops
                     .run(
                         &req,
                         external,
                         || async { self.dispatch(method, &req.params).await },
                         || async { Ok(Value::Null) },
                     )
-                    .await
+                    .await?;
+                if !leaves_sections(method) {
+                    self.publish_sections().await;
+                }
+                Ok(reply)
             }
             other => Err(wrong_method(DOMAIN, other)),
         }

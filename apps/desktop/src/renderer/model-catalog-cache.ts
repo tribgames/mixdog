@@ -2,6 +2,7 @@ import type { DesktopApi, DesktopModelOption } from '../shared/contract';
 import { catalogStorageKey, catalogStorageScope } from './catalog-storage-scope';
 import { isSshConnectionWindow } from './desktop-connection';
 import { requireDesktopProviders } from './desktop-provider-retry';
+import { invokeOrHeld } from './section-capabilities';
 
 const MODEL_CATALOG_STORAGE_KEY = 'mixdog.desktop-model-catalog.v2';
 const MODEL_CATALOG_LIMIT = 1_000;
@@ -393,14 +394,14 @@ export function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest 
   const setup = api.invokeCapability
     ? quickSettled
         .then(() =>
-          api.invokeCapability<unknown>({
+          invokeOrHeld(api, {
             capability: 'getProviderSetup',
             args: forceSetup ? [{ force: true }] : [],
           })
         )
         // Settings may render the offline snapshot, but a picker must retry it
         // instead of caching an empty authenticated-provider set for a day.
-        .then((result) => requireDesktopProviders(result.value))
+        .then((result) => requireDesktopProviders(result?.value))
     : Promise.resolve(null);
   const request: SharedModelCatalogRequest = {
     api,

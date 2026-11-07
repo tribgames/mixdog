@@ -624,8 +624,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         ))),
         hidden: mixdog_core_config::config::hidden_agents::hidden_agents(),
     });
-    let agent_effects: Arc<dyn mixdog_core_agents::agents::AgentEffects> =
-        Arc::new(crate::domain_seams::agent_effects::DaemonAgentEffects::new(agent_profile.clone(), agent_channels.clone(), route_setter.clone()));
+    // A saved, archived or restored definition also wakes the `agents` section (the pushed `listAgents`).
+    let agent_list_changed = Arc::new(tokio::sync::Notify::new());
+    let agent_effects: Arc<dyn mixdog_core_agents::agents::AgentEffects> = Arc::new(mixdog_core_agents::agents::section::AnnouncingEffects {
+        inner: Arc::new(crate::domain_seams::agent_effects::DaemonAgentEffects::new(agent_profile.clone(), agent_channels.clone(), route_setter.clone())),
+        changed: agent_list_changed.clone(),
+    });
     // The agent definitions are built once, before `ConfigHosts` and `mcp_services` (both take this `Arc`).
     let agents = build_agents(
         &b.tokens,
@@ -647,6 +651,13 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 Arc::new(move || mixdog_agent::agent_tool::stamp::iso_from_ms(clock.now_ms()))
             },
         },
+    );
+    mixdog_core_agents::agents::section::spawn_agents_section(
+        agents.clone(),
+        config.changes(),
+        agent_list_changed,
+        state.publisher.clone(),
+        b.cancel.clone(),
     );
     let config_hosts = compose_parts::config_hosts(ConfigHostsIn {
         config: config.clone(),
@@ -677,12 +688,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The notify domain (WP-NOTIFY-ROOMS), built right after the remote runtime it reads: the phone audience (`RuntimePresence` over the roster and the
     // UI screen sessions), the engine, and the sink every push goes through. The held-request push and `notify/*` share them (flip-home-2).
     let screen = Arc::new(mixdog_core_domains::notify::screen::ScreenSessions::new(built_remote.registry.clone()));
-    // `hostState` key `remoteViewing`: what paired devices show, for the desktop's `visualizeRemoteViewing`.
-    drop(mixdog_rt::spawn(
-        "remote-viewing",
-        mixdog_rt::TaskClass::Work,
-        mixdog_core_domains::domains::host::publish_remote_viewing(Arc::downgrade(&built_remote.registry), state.publisher.clone()),
-    ));
     let notify_engine = Arc::new(mixdog_core_domains::notify::engine::NotificationEngine::new(
         // flip-rooms-1: the volume is read at toast time (`ToastStyleReader`); `sound` follows it (`none` at 0).
         Arc::new({
@@ -2179,7 +2184,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         b.scoped_feeds.clone(),
         state.publisher.clone(),
         Arc::new(mixdog_core_config::config::seams::ConfigFeatureGate::new(config.clone())),
-        review_bases.clone(), // the one `CapturedBases` the turn review records into
+        turn_review.clone(), // `review/diff/get` of a turn or session: Node's turn-review reads
+        Arc::new(crate::compose_domains::HeaderCwds(late_headers.clone())),
     ))))?;
     builder.register(Arc::new(mixdog_core_domains::domains::remote_access::RemoteAccessService::new(
         built_remote.runtime.clone(),
@@ -2586,6 +2592,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         dashboards.clone(),
         usage_sources.clone(),
         domain_inputs.scopes.scopes("account").map_err(ComposeError::ComposeDomains)?,
+        state.publisher.clone(), // `providerSetup` and `providerAccounts`
     ))?;
     builder.register(mixdog_core_domains::domains::ai_account::usage::UsageService::new(ledger_source.clone(), directory.clone(), usage_sources.clone(), account_store.clone(), dashboards.clone()))?;
     // modelProxy/run, modelProxy/cancel (and the `modelProxy/run/event` notifications): the PC end of the model proxy (model-proxy-1). They are in the method and notification tables at 51e73b496, so the

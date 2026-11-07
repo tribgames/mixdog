@@ -606,6 +606,10 @@ pub struct ThreadQueueDeleteParams {
     pub submission_id: Option<String>,
     /// Hand the entry back to the composer.
     pub restore: bool,
+    /// The composer's text when the entry is handed back (today's `restoreQueued` first
+    /// argument): the reply's `text` ends with it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_text: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
@@ -681,9 +685,12 @@ pub struct TurnInterruptResponse {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct TurnSteerParams {
     pub thread_id: ThreadId,
-    pub expected_turn_id: TurnId,
+    /// Absent: the core steers the thread's active turn (today's `prioritizeQueued` names none).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_turn_id: Option<TurnId>,
     pub queued_id: QueuedId,
 }
 

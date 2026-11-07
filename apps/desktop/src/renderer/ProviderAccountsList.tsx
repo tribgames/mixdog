@@ -30,6 +30,7 @@ import {
 import { ProviderIcon } from './provider-display';
 import { PROVIDER_ACCOUNTS_CHANGED, readAll as readAllUsageAccountPools } from './usage-account-pools';
 import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';
+import { invokeOrHeld } from './section-capabilities';
 import './provider-accounts.css';
 
 export { PROVIDER_ACCOUNTS_CHANGED };
@@ -363,9 +364,9 @@ export function preloadProviderAccounts(api: UsageApi | undefined, providers: st
       const running = poolPreloads.get(provider);
       if (running) return running;
       const generation = bumpPoolGeneration(provider);
-      const read = invokeCapability({ capability: 'getProviderAccounts', args: [provider] })
+      const read = invokeOrHeld(api, { capability: 'getProviderAccounts', args: [provider] })
         .then((response) => {
-          const result = record(response.value);
+          const result = record(response?.value);
           if (!Array.isArray(result.accounts)) return;
           // A roster adopted since this read began is newer; with none cached
           // yet, this read is still the best there is.
@@ -583,8 +584,8 @@ export function ProviderAccountsList({
   const invoke = useCallback(
     async (capability: DesktopCapability, args: unknown[]) => {
       if (!api?.invokeCapability) throw new Error(t('Account controls are unavailable.'));
-      const response = await api.invokeCapability({ capability, args });
-      const result = record(response.value);
+      const response = await invokeOrHeld(api, { capability, args });
+      const result = record(response?.value);
       if (!Array.isArray(result.accounts)) throw new Error(t('Account list could not be loaded.'));
       return result as unknown as Pool;
     },
