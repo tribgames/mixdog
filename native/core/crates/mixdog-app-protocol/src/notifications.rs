@@ -12,10 +12,8 @@ use mixdog_protocol::SectionUpdate;
 use mixdog_protocol::TerminalTabId;
 use mixdog_protocol::ThreadId;
 use mixdog_protocol::WatchId;
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
 use crate::rpc::JsonRpcErrorBody;
 use crate::v2::approval::ServerRequestResolvedParams;
@@ -31,9 +29,10 @@ use crate::v2::host::UiOpenRequestedParams;
 use crate::v2::thread::*;
 
 /// `error`: a connection-scoped failure, or a thread error with `willRetry`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ErrorNotificationParams {
     pub error: JsonRpcErrorBody,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -44,9 +43,10 @@ pub struct ErrorNotificationParams {
     pub provider_error: Option<ProviderErrorDetail>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct WarningParams {
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -58,7 +58,8 @@ pub struct WarningParams {
     pub detail: Option<JsonValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct FsChangedParams {
     pub watch_id: WatchId,
@@ -67,7 +68,8 @@ pub struct FsChangedParams {
     pub kind: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SearchUpdatedParams {
     pub session_id: SearchSessionId,
@@ -75,23 +77,26 @@ pub struct SearchUpdatedParams {
     pub files: Vec<JsonValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SearchCompletedParams {
     pub session_id: SearchSessionId,
     pub query: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessOutputDeltaParams {
     pub process_handle: ProcessHandle,
     pub bytes_b64: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProcessExitedParams {
     pub process_handle: ProcessHandle,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -100,7 +105,8 @@ pub struct ProcessExitedParams {
     pub signal: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct LoginUpdatedParams {
     pub flow_id: LoginFlowId,
@@ -214,14 +220,16 @@ crate::notification_definitions! {
     SystemPortsUpdated => "system/ports/updated" (SectionUpdate) @scoped(Ports),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalInputParams {
     pub tab_id: TerminalTabId,
     pub data: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalResizeParams {
     pub tab_id: TerminalTabId,
@@ -229,7 +237,8 @@ pub struct TerminalResizeParams {
     pub rows: u16,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessInputParams {
     pub process_handle: ProcessHandle,
@@ -237,66 +246,67 @@ pub struct ProcessInputParams {
 }
 
 /// Client notifications (X11): they take no in-flight slot.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "method", content = "params")]
 pub enum ClientNotification {
     /// No params; changes no state.
     #[serde(rename = "initialized")]
-    #[ts(rename = "initialized")]
+    #[cfg_attr(feature = "codegen", ts(rename = "initialized"))]
     Initialized,
     #[serde(rename = "terminal/input")]
-    #[ts(rename = "terminal/input")]
+    #[cfg_attr(feature = "codegen", ts(rename = "terminal/input"))]
     TerminalInput(TerminalInputParams),
     /// Ignored unless the sender owns the PTY size.
     #[serde(rename = "terminal/resize")]
-    #[ts(rename = "terminal/resize")]
+    #[cfg_attr(feature = "codegen", ts(rename = "terminal/resize"))]
     TerminalResize(TerminalResizeParams),
     #[serde(rename = "process/input")]
-    #[ts(rename = "process/input")]
+    #[cfg_attr(feature = "codegen", ts(rename = "process/input"))]
     ProcessInput(ProcessInputParams),
     #[serde(rename = "client/activity")]
-    #[ts(rename = "client/activity")]
+    #[cfg_attr(feature = "codegen", ts(rename = "client/activity"))]
     ClientActivity(crate::v2::host::ClientActivityParams),
     #[serde(rename = "client/perfLog")]
-    #[ts(rename = "client/perfLog")]
+    #[cfg_attr(feature = "codegen", ts(rename = "client/perfLog"))]
     ClientPerfLog(crate::v2::host::ClientPerfLogParams),
     #[serde(rename = "host/power")]
-    #[ts(rename = "host/power")]
+    #[cfg_attr(feature = "codegen", ts(rename = "host/power"))]
     HostPower(crate::v2::host::HostPowerParams),
     #[serde(rename = "host/update/report")]
-    #[ts(rename = "host/update/report")]
+    #[cfg_attr(feature = "codegen", ts(rename = "host/update/report"))]
     HostUpdateReport(crate::v2::host::HostUpdateReportParams),
     /// The window process's browser host revealed or hid a session's surface (an agent's explicit
     /// `open`/`hide`); the core publishes it as `ui/openRequested { kind: "browser" }`.
     #[serde(rename = "host/browser/surface")]
-    #[ts(rename = "host/browser/surface")]
+    #[cfg_attr(feature = "codegen", ts(rename = "host/browser/surface"))]
     HostBrowserSurface(crate::v2::host::HostBrowserSurfaceParams),
     #[serde(rename = "host/notification/clicked")]
-    #[ts(rename = "host/notification/clicked")]
+    #[cfg_attr(feature = "codegen", ts(rename = "host/notification/clicked"))]
     HostNotificationClicked(crate::v2::host::HostNotificationClickedParams),
     /// One streamed event of a `model/proxy/execute` request.
     #[serde(rename = "model/proxy/event")]
-    #[ts(rename = "model/proxy/event")]
+    #[cfg_attr(feature = "codegen", ts(rename = "model/proxy/event"))]
     ModelProxyEvent(crate::v2::host::ModelProxyEventParams),
     /// The PC still runs these `model/proxy/execute` requests (every 5 s); the first claims a request.
     #[serde(rename = "model/proxy/heartbeat")]
-    #[ts(rename = "model/proxy/heartbeat")]
+    #[cfg_attr(feature = "codegen", ts(rename = "model/proxy/heartbeat"))]
     ModelProxyHeartbeat(crate::v2::host::ModelProxyHeartbeatParams),
     /// Stops the `modelProxy/run` run `runId` of the sender.
     #[serde(rename = "modelProxy/cancel")]
-    #[ts(rename = "modelProxy/cancel")]
+    #[cfg_attr(feature = "codegen", ts(rename = "modelProxy/cancel"))]
     ModelProxyRunCancel(crate::v2::host::ModelProxyRunCancelParams),
     /// The pane created the tab a `ui/openRequested` visualize open asked for.
     #[serde(rename = "ui/newTab/created")]
-    #[ts(rename = "ui/newTab/created")]
+    #[cfg_attr(feature = "codegen", ts(rename = "ui/newTab/created"))]
     UiNewTabCreated(crate::v2::host::UiNewTabCreatedParams),
     /// A pane shows the terminal of a `ui/openRequested` terminal open.
     #[serde(rename = "ui/terminalRun/claimed")]
-    #[ts(rename = "ui/terminalRun/claimed")]
+    #[cfg_attr(feature = "codegen", ts(rename = "ui/terminalRun/claimed"))]
     UiTerminalRunClaimed(crate::v2::host::UiTerminalRunClaimedParams),
     /// The sessions the user is looking at (the desktop notifier's `isSessionOnScreen`).
     #[serde(rename = "ui/screenSessions/changed")]
-    #[ts(rename = "ui/screenSessions/changed")]
+    #[cfg_attr(feature = "codegen", ts(rename = "ui/screenSessions/changed"))]
     UiScreenSessionsChanged(crate::v2::host::UiScreenSessionsChangedParams),
 }
 

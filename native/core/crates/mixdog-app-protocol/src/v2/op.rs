@@ -5,17 +5,17 @@
 use mixdog_protocol::BlobDigest;
 use mixdog_protocol::JsonValue;
 use mixdog_protocol::OpId;
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
 /// `thread:<id>` or a domain name (`config`, `project`, …).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(transparent)]
 pub struct OpScopeName(pub String);
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct OpStatusParams {
     pub scope: OpScopeName,
@@ -24,16 +24,17 @@ pub struct OpStatusParams {
     pub fence: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum OpState {
     #[serde(rename_all = "camelCase")]
     Applied {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, type = "number")]
+        #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
         seq: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         result: Option<JsonValue>,
     },
     /// `error` is the JSON-RPC error body the op answered with.
@@ -52,7 +53,8 @@ pub enum OpState {
     Expired,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct OpStatusEntry {
     pub op_id: OpId,
@@ -60,26 +62,29 @@ pub struct OpStatusEntry {
     pub state: OpState,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct OpStatusResponse {
     pub ops: Vec<OpStatusEntry>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct BlobReadParams {
     pub digest: BlobDigest,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub offset: Option<u64>,
     /// At most `limits.maxBlobPageBytes`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub length: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct BlobReadResponse {
     pub bytes_b64: String,
@@ -87,11 +92,12 @@ pub struct BlobReadResponse {
 
 /// One upload chunk; raw chunk ≤ `limits.maxBlobPutChunkBytes`. The blob is
 /// complete when the bytes received hash to `digest`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct BlobPutParams {
     pub digest: BlobDigest,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub offset: u64,
     pub bytes_b64: String,
 }

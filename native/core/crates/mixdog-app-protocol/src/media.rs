@@ -14,14 +14,13 @@
 //! | 11     | 5    | zero padding                  |
 
 use mixdog_protocol::JsonValue;
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
 pub const MEDIA_HEADER_LEN: usize = 16;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum MediaPurpose {
     /// In-app browser live-view paint frame for `remote::webrtc`.
@@ -43,7 +42,8 @@ impl MediaPurpose {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum MediaFormat {
     /// JPEG, as today's `browserRemoteFrame`.
@@ -76,7 +76,8 @@ impl MediaFlags {
     pub const KNOWN: u8 = Self::FIT_SETTLED | Self::FIT_FAILED;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct MediaFrameHeader {
     pub purpose: MediaPurpose,

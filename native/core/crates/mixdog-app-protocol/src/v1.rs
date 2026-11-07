@@ -1,17 +1,16 @@
 //! `initialize` / `initialized` (P §4.4, X4, X16).
 
 use mixdog_protocol::ConnectionKind;
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
 use crate::common::Origin;
 use crate::limits::Limits;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ClientInfo {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -24,7 +23,8 @@ pub struct ClientInfo {
 }
 
 /// The desktop host role (DS §12.2): what this connection serves for the core.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct HostCapabilities {
     /// In-app browser: `host/browser/command`, `item/browser/requestApproval` presentation.
@@ -52,9 +52,10 @@ pub struct HostCapabilities {
     pub files: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct InitializeCapabilities {
     /// Exact notification methods suppressed for this connection.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -71,25 +72,27 @@ pub struct InitializeCapabilities {
     pub model_proxy: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct InitializeParams {
     pub client_info: ClientInfo,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<InitializeCapabilities>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum CoreState {
     Serving,
     #[serde(rename_all = "camelCase")]
     Migrating {
         kind: String,
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         done: u64,
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         total: u64,
     },
     #[serde(rename_all = "camelCase")]
@@ -98,7 +101,8 @@ pub enum CoreState {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "state", rename_all = "camelCase")]
 pub enum CapabilityState {
     Available,
@@ -106,7 +110,8 @@ pub enum CapabilityState {
 }
 
 /// Core capabilities (D6: office and JS skills are unavailable without Node).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ServerCapabilities {
     pub office: CapabilityState,
@@ -117,7 +122,8 @@ pub struct ServerCapabilities {
 }
 
 /// What the core knows about this connection.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ConnectionInfo {
     pub origin: Origin,
@@ -125,7 +131,8 @@ pub struct ConnectionInfo {
     pub device: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct InitializeResponse {
     pub user_agent: String,
@@ -142,5 +149,6 @@ pub struct InitializeResponse {
 }
 
 /// `initialized` carries no params.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct InitializedParams {}

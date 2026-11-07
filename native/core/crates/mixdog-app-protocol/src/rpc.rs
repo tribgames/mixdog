@@ -5,20 +5,17 @@
 use mixdog_protocol::FeedEpoch;
 use mixdog_protocol::FeedId;
 use mixdog_protocol::JsonValue;
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
 use crate::limits::CloseCode;
 
-#[derive(
-    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema, TS,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(untagged)]
 pub enum RequestId {
     String(String),
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     Integer(i64),
 }
 
@@ -32,9 +29,10 @@ impl std::fmt::Display for RequestId {
 }
 
 /// W3C trace context carried on requests.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct W3cTraceContext {
     pub traceparent: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -42,16 +40,18 @@ pub struct W3cTraceContext {
 }
 
 /// Position of a notification in its feed (P §6.1, X1).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct FeedStamp {
     pub id: FeedId,
     pub epoch: FeedEpoch,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub seq: u64,
 }
 
 /// Any message that can be decoded off the wire or encoded onto it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(untagged)]
 pub enum JsonRpcMessage {
     Request(JsonRpcRequest),
@@ -60,8 +60,9 @@ pub enum JsonRpcMessage {
     Error(JsonRpcError),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
-#[ts(optional_fields)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct JsonRpcRequest {
     pub id: RequestId,
     pub method: String,
@@ -71,16 +72,17 @@ pub struct JsonRpcRequest {
     pub trace: Option<W3cTraceContext>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct JsonRpcNotification {
     pub method: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub params: Option<JsonValue>,
     /// Emission time of a server notification (a flattened field).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub emitted_at_ms: Option<i64>,
     /// Present on every notification that belongs to a feed; absent on
     /// connection-scoped notifications and client notifications.
@@ -88,13 +90,15 @@ pub struct JsonRpcNotification {
     pub feed: Option<FeedStamp>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct JsonRpcResponse {
     pub id: RequestId,
     pub result: JsonValue,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct JsonRpcError {
     pub error: JsonRpcErrorBody,
     pub id: RequestId,
@@ -102,10 +106,11 @@ pub struct JsonRpcError {
 
 /// `data` is always `{"reason": "<camelCase>", …typed fields}` (`ErrorData`);
 /// clients branch on `code` + `data.reason` only and never parse `message`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
-#[ts(optional_fields)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct JsonRpcErrorBody {
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub code: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<JsonValue>,

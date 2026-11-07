@@ -1,14 +1,13 @@
 //! String identifiers. Each is a transparent string on the wire.
 
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
 macro_rules! string_id {
     ($($(#[doc = $doc:literal])* $name:ident;)*) => {$(
         $(#[doc = $doc])*
-        #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema, TS)]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+        #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
         #[serde(transparent)]
         pub struct $name(pub String);
 
@@ -80,7 +79,8 @@ string_id! {
 /// Content digest `sha256:<64 lowercase hex>`.
 // The only ways in are `FromStr`, `TryFrom<String>` and `Deserialize`, all of which
 // check the format, so every value of this type is well formed.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(transparent)]
 pub struct BlobDigest(String);
 

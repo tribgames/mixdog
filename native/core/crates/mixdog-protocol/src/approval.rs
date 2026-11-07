@@ -1,13 +1,12 @@
 //! Approval decisions (P X7) and resolutions (P §8.4).
 
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
 use crate::JsonValue;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum HumanGateResponse {
     Approve,
@@ -18,7 +17,8 @@ pub enum HumanGateResponse {
     Done,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ApprovalRemember {
     Once,
@@ -28,9 +28,10 @@ pub enum ApprovalRemember {
 }
 
 /// One `ask_user` answer, aligned by index with the questions.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct QuestionAnswer {
     pub selected: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -40,9 +41,10 @@ pub struct QuestionAnswer {
 /// Mixdog's `ToolApprovalDecision` without `device`: the core stamps the
 /// device from the answering connection (P §8.1). The result type of every
 /// approval server request.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ToolApprovalDecision {
     pub approved: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -67,14 +69,15 @@ pub struct ToolApprovalDecision {
 }
 
 /// How the last approval of a thread ended (today's `toolApprovalResult`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ToolApprovalResult {
     pub id: String,
     pub approved: bool,
     pub device: String,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expired: Option<bool>,
@@ -84,7 +87,8 @@ pub struct ToolApprovalResult {
     pub interrupted: Option<bool>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ConnectionKind {
     Desktop,
@@ -96,7 +100,8 @@ pub enum ConnectionKind {
 }
 
 /// Durable outcome of a server request (P §8.4).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ApprovalResolution {
     /// First valid decision from any eligible connection.
@@ -105,38 +110,38 @@ pub enum ApprovalResolution {
         decision: ToolApprovalDecision,
         device: String,
         connection_kind: ConnectionKind,
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         at: i64,
     },
     /// The request's own `expiresAt` passed.
     #[serde(rename_all = "camelCase")]
     TimedOut {
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         at: i64,
     },
     /// Own-turn interrupt or session close.
     #[serde(rename_all = "camelCase")]
     Interrupted {
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         at: i64,
     },
     /// The asking run was cancelled from its parent.
     #[serde(rename_all = "camelCase")]
     Cancelled {
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         at: i64,
     },
     /// The copy shown on a surface was taken away unanswered.
     #[serde(rename_all = "camelCase")]
     Withdrawn {
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         at: i64,
     },
     /// The session has no approval surface (`approvalMode: "implicit"`, headless exec): nobody
     /// was asked and nothing was persisted.
     #[serde(rename_all = "camelCase")]
     Unavailable {
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         at: i64,
     },
 }

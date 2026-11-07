@@ -2,10 +2,8 @@
 //! invariants (P §6.5), request-class caps and WebSocket close codes.
 
 use mixdog_protocol::INLINE_MAX;
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
 use crate::common::RequestClass;
 
@@ -27,16 +25,17 @@ fn blob_put_chunk_for(max_inbound_frame_bytes: u64) -> u64 {
     (max_inbound_frame_bytes - BLOB_PUT_ENVELOPE_BYTES) / 4 * 3
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ClassLimits {
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub c0: u32,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub c1: u32,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub c2: u32,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub c3: u32,
 }
 
@@ -51,50 +50,51 @@ impl ClassLimits {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct Limits {
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub max_inbound_frame_bytes: u64,
     /// Host role only (X17): raw BGRA bound of the pinned live-view size.
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub max_media_frame_bytes: u64,
     /// `INLINE_MAX`.
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub max_item_field_bytes: u64,
     /// Outbound non-snapshot frame bound.
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub max_frame_bytes: u64,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub queue_bytes: u64,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub control_reserve_bytes: u64,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub event_budget_bytes: u64,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub max_snapshot_bytes: u64,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub ring_bytes: u64,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub app_ring_bytes: u64,
     /// Terminal feed replay ring, in characters (`REPLAY_BUFFER_LIMIT`).
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub terminal_ring_chars: u64,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub max_blob_page_bytes: u64,
     /// Raw `blob/put` chunk bound, so the frame stays under `maxInboundFrameBytes` after base64.
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub max_blob_put_chunk_bytes: u64,
     /// Per-connection in-flight cap per request class.
     pub inflight: ClassLimits,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub max_connections: u32,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub heartbeat_tick_ms: u64,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub max_processes: u32,
     /// Per-terminal input buffer before socket reads pause (P §7.3).
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub terminal_input_buffer_bytes: u64,
 }
 
@@ -171,9 +171,10 @@ impl Limits {
 }
 
 /// WebSocket close codes (P §4.5, X17).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(into = "u16", try_from = "u16")]
-#[ts(type = "1000 | 1001 | 1003 | 1007 | 1008 | 1009 | 4000 | 4001 | 4002")]
+#[cfg_attr(feature = "codegen", ts(type = "1000 | 1001 | 1003 | 1007 | 1008 | 1009 | 4000 | 4001 | 4002"))]
 pub enum CloseCode {
     Normal,
     /// Core draining or stopping.

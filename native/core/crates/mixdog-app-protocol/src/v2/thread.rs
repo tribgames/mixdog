@@ -16,10 +16,8 @@ use mixdog_protocol::ThreadSummary;
 use mixdog_protocol::ToolApprovalResult;
 use mixdog_protocol::Turn;
 use mixdog_protocol::TurnId;
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
 use super::feed::ResumeWindow;
 use super::feed::Subscription;
@@ -35,14 +33,16 @@ macro_rules! has_op_id {
     )*};
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum SortDirection {
     Asc,
     Desc,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ThreadStartKind {
     /// Today's `startProject`: the project's own chat.
@@ -57,9 +57,10 @@ pub enum ThreadStartKind {
 }
 
 /// Today's `DesktopNewTaskDraft`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct NewTaskDraft {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project_path: Option<String>,
@@ -74,18 +75,20 @@ pub struct NewTaskDraft {
     pub worktree: Option<JsonValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TurnInput {
     pub prompt: PromptContent,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub options: Option<SubmitOptions>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadStartParams {
     pub op_id: OpId,
     pub kind: ThreadStartKind,
@@ -103,9 +106,10 @@ pub struct ThreadStartParams {
 
 /// The session options Node's `createMixdogSessionRuntime` takes (headless exec sets all of
 /// them, `headless-exec.mjs` `createHeadlessSessionRuntime`). Stored in the thread's header.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadSessionOptions {
     /// Node default `interactive`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -132,7 +136,8 @@ pub struct ThreadSessionOptions {
 }
 
 /// `normalizeToolProfile`'s value set.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ToolProfile {
     Interactive,
@@ -141,7 +146,8 @@ pub enum ToolProfile {
 }
 
 /// Node's `TOOL_MODES`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum SessionToolMode {
     Full,
@@ -150,7 +156,8 @@ pub enum SessionToolMode {
 }
 
 /// Node accepts only `implicit`; anything else means none.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ApprovalMode {
     Implicit,
@@ -159,9 +166,10 @@ pub enum ApprovalMode {
 /// `thread/notification`: a runtime notification (a finished background task, a channel
 /// message) as Node's `runtime.onNotification` delivers it. The delivered text also lands as
 /// a `task-notification` user row; this is the live event with its status.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadNotificationParams {
     pub thread_id: ThreadId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -172,7 +180,8 @@ pub struct ThreadNotificationParams {
     pub meta: JsonValue,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ModelRequestPhase {
     Started,
@@ -182,9 +191,10 @@ pub enum ModelRequestPhase {
 
 /// `thread/modelRequest/updated`: one provider request of a turn (Node `model.request.*`).
 /// Request ids are `model_request_<index>`, the index counting from 1.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ModelRequestUpdatedParams {
     pub thread_id: ThreadId,
     pub turn_id: TurnId,
@@ -193,14 +203,15 @@ pub struct ModelRequestUpdatedParams {
     pub phase: ModelRequestPhase,
     /// On `completed` and `failed`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub duration_ms: Option<u64>,
     /// Node's usage delta summary of the request, on `completed`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<JsonValue>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ToolBatchPhase {
     Started,
@@ -209,9 +220,10 @@ pub enum ToolBatchPhase {
 
 /// `thread/toolBatch/updated`: the tool calls of one model response run together (Node
 /// `tool.batch.*`). Batch ids are `tool_batch_<request index>`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ToolBatchUpdatedParams {
     pub thread_id: ThreadId,
     pub turn_id: TurnId,
@@ -225,22 +237,24 @@ pub struct ToolBatchUpdatedParams {
     pub calls: Option<u32>,
     /// On `completed`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub duration_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadStartResponse {
     pub thread: ThreadSummary,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn: Option<TurnStartResponse>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadResumeParams {
     pub thread_id: ThreadId,
     pub window: ResumeWindow,
@@ -248,28 +262,32 @@ pub struct ThreadResumeParams {
     pub resume_from: Option<ThreadResumePosition>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct ThreadResumeResponse {
     pub thread: ThreadSummary,
     pub subscription: Subscription,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadIdParams {
     pub thread_id: ThreadId,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadOpParams {
     pub thread_id: ThreadId,
     pub op_id: OpId,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
@@ -287,9 +305,10 @@ pub struct ThreadListParams {
     pub search_term: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadListResponse {
     pub data: Vec<ThreadSummary>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -298,9 +317,10 @@ pub struct ThreadListResponse {
     pub backwards_cursor: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadReadParams {
     pub thread_id: ThreadId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -311,9 +331,10 @@ pub struct ThreadReadParams {
 
 /// The runtime projection of one thread (today's `DesktopSessionState` fields,
 /// grouped as the thread-feed notifications of P §5.1 carry them).
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -363,7 +384,8 @@ pub struct ThreadState {
 }
 
 /// Value of `thread/promptHistory/updated`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum PromptHistoryChange {
     /// A prompt was submitted: the client drops any held entry with the same
@@ -373,9 +395,10 @@ pub enum PromptHistoryChange {
     Replaced { prompts: Vec<String> },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadReadResponse {
     pub thread: ThreadSummary,
     pub state: ThreadState,
@@ -385,9 +408,10 @@ pub struct ThreadReadResponse {
     pub turns: Option<Vec<Turn>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadTurnsListParams {
     pub thread_id: ThreadId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -400,9 +424,10 @@ pub struct ThreadTurnsListParams {
     pub items_view: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadTurnsListResponse {
     pub data: Vec<Turn>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -410,7 +435,8 @@ pub struct ThreadTurnsListResponse {
 }
 
 /// Opaque cursor, or an item anchor (today's `before`/`after` row reads).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(untagged)]
 pub enum ItemsCursor {
     Opaque(String),
@@ -423,9 +449,10 @@ pub enum ItemsCursor {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadItemsListParams {
     pub thread_id: ThreadId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -437,13 +464,14 @@ pub struct ThreadItemsListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sort_direction: Option<SortDirection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub byte_budget: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadItemsListResponse {
     pub data: Vec<ThreadItem>,
     pub has_older: bool,
@@ -454,9 +482,10 @@ pub struct ThreadItemsListResponse {
     pub backwards_cursor: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadItemsReadParams {
     pub thread_id: ThreadId,
     pub item_ids: Vec<ItemId>,
@@ -464,14 +493,16 @@ pub struct ThreadItemsReadParams {
     pub turn_id: Option<TurnId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct ThreadItemsReadResponse {
     pub items: Vec<ThreadItem>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadPageParams {
     pub thread_id: ThreadId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -480,43 +511,48 @@ pub struct ThreadPageParams {
     pub limit: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadModelMessagesListParams {
     pub thread_id: ThreadId,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub start: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadFinalAnswerReadParams {
     pub thread_id: ThreadId,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub started_at: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadReadStateUpdateParams {
     pub thread_id: ThreadId,
     pub op_id: OpId,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub message_count: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub consumed_unread: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct ThreadSearchParams {
     pub query: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadNameSetParams {
     pub thread_id: ThreadId,
@@ -524,9 +560,10 @@ pub struct ThreadNameSetParams {
     pub title: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadMetadataUpdateParams {
     pub thread_id: ThreadId,
     pub op_id: OpId,
@@ -537,9 +574,10 @@ pub struct ThreadMetadataUpdateParams {
     pub project_path: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadDeleteParams {
     pub thread_id: ThreadId,
     pub op_id: OpId,
@@ -548,9 +586,10 @@ pub struct ThreadDeleteParams {
     pub if_idle: Option<JsonValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadForkParams {
     /// The source thread; it is never changed.
     pub thread_id: ThreadId,
@@ -564,9 +603,10 @@ pub struct ThreadForkParams {
     pub compact: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadClearParams {
     pub thread_id: ThreadId,
     pub op_id: OpId,
@@ -574,7 +614,8 @@ pub struct ThreadClearParams {
     pub rebuild_prompt: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadContinueInModelParams {
     pub thread_id: ThreadId,
@@ -582,9 +623,10 @@ pub struct ThreadContinueInModelParams {
     pub route: ModelSelection,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadRewindParams {
     pub thread_id: ThreadId,
     pub op_id: OpId,
@@ -593,9 +635,10 @@ pub struct ThreadRewindParams {
     pub restore_files: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadCompactStartParams {
     pub thread_id: ThreadId,
     pub op_id: OpId,
@@ -603,9 +646,10 @@ pub struct ThreadCompactStartParams {
     pub options: Option<JsonValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadQueueDeleteParams {
     pub thread_id: ThreadId,
     pub op_id: OpId,
@@ -623,7 +667,8 @@ pub struct ThreadQueueDeleteParams {
     pub current_text: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadGoalSetParams {
     pub thread_id: ThreadId,
@@ -631,9 +676,10 @@ pub struct ThreadGoalSetParams {
     pub goal: JsonValue,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadGoalControlParams {
     pub thread_id: ThreadId,
     pub op_id: OpId,
@@ -643,7 +689,8 @@ pub struct ThreadGoalControlParams {
     pub args: Option<JsonValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadBackgroundTerminalParams {
     pub thread_id: ThreadId,
@@ -651,7 +698,8 @@ pub struct ThreadBackgroundTerminalParams {
     pub task_id: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TurnStartParams {
     pub thread_id: ThreadId,
@@ -660,7 +708,8 @@ pub struct TurnStartParams {
 }
 
 /// `turn/start` answers once the input is a turn or a queued entry (X9).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum TurnStartResponse {
     #[serde(rename_all = "camelCase")]
@@ -669,9 +718,10 @@ pub enum TurnStartResponse {
     Queued { queued_id: QueuedId },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TurnInterruptParams {
     pub thread_id: ThreadId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -684,9 +734,10 @@ pub struct TurnInterruptParams {
 }
 
 /// Fixed C0 reply (R12).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TurnInterruptResponse {
     /// Always `true`.
     pub cancel_requested: bool,
@@ -694,9 +745,10 @@ pub struct TurnInterruptResponse {
     pub turn_id: Option<TurnId>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TurnSteerParams {
     pub thread_id: ThreadId,
     /// Absent: the core steers the thread's active turn (today's `prioritizeQueued` names none).
@@ -706,7 +758,8 @@ pub struct TurnSteerParams {
 }
 
 /// Fixed C0 reply (R12).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TurnSteerResponse {
     /// Always `true`.
@@ -714,7 +767,8 @@ pub struct TurnSteerResponse {
     pub queued_id: QueuedId,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TurnRetryFailedParams {
     pub thread_id: ThreadId,
@@ -744,9 +798,10 @@ has_op_id!(
 
 // ---- thread-feed notification params (P §5.1) ----
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadSnapshotParams {
     pub thread: ThreadSummary,
     pub state: ThreadState,
@@ -754,48 +809,55 @@ pub struct ThreadSnapshotParams {
     pub has_older: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadStartedParams {
     pub thread: ThreadSummary,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadStatusChangedParams {
     pub thread_id: ThreadId,
     pub status: ThreadStatus,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadNameUpdatedParams {
     pub thread_id: ThreadId,
     pub title: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadValueParams {
     pub thread_id: ThreadId,
     pub value: JsonValue,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadQueueChangedParams {
     pub thread_id: ThreadId,
     pub queued: Vec<JsonValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TurnNotificationParams {
     pub thread_id: ThreadId,
     pub turn: Turn,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ItemNotificationParams {
     pub thread_id: ThreadId,
@@ -804,9 +866,10 @@ pub struct ItemNotificationParams {
 }
 
 /// Deltas are hints; `item/completed` is authoritative.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ItemDeltaParams {
     pub thread_id: ThreadId,
     pub turn_id: TurnId,
@@ -817,16 +880,18 @@ pub struct ItemDeltaParams {
     pub index: Option<u32>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum HistoryResetReason {
     Rewind,
     Clear,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadHistoryResetParams {
     pub thread_id: ThreadId,
     pub reason: HistoryResetReason,
@@ -838,7 +903,8 @@ pub struct ThreadHistoryResetParams {
     pub has_older: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum StorageState {
     Ok,
@@ -848,9 +914,10 @@ pub enum StorageState {
     Indeterminate,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadRuntime {
     #[serde(default)]
     pub busy: bool,
@@ -870,7 +937,7 @@ pub struct ThreadRuntime {
     pub storage: Option<StorageState>,
     /// Provider keepalives seen while no content arrives (SPEC §4.9), epoch ms.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub waiting_on_provider_since: Option<i64>,
     // Node's runtime.clientHostPid: the process hosting the session runtime, which owns its shell jobs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -889,9 +956,10 @@ pub struct ThreadRuntime {
     pub setup_changed: Option<JsonValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadRoute {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_provider: Option<String>,
@@ -906,7 +974,7 @@ pub struct ThreadRoute {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_parameters: Option<std::collections::BTreeMap<String, String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub selected_context_window: Option<i64>,
     // Node's runtime.effort (effectiveEffort || effort || preset.effort): null while the route has none.
     #[serde(default)]
@@ -939,47 +1007,49 @@ pub struct ThreadRoute {
     pub auto_clear: Option<JsonValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadContext {
     #[serde(default)]
     pub context_percent: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub context_tokens: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_default_percent: Option<f64>,
     // Node's session.contextWindow: the session's window, null while it states none.
     #[serde(default)]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub context_window: Option<i64>,
     // Node's displayContextWindow (syncContextDisplayFields): the window the status shows, 0 until known.
     #[serde(default)]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub display_context_window: Option<i64>,
     // Node's autoCompactTokenLimit: the compaction trigger, 0 until known.
     #[serde(default)]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub auto_compact_token_limit: Option<i64>,
     // Node's stats: the session's usage totals and context measurement.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stats: Option<JsonValue>,
     // Node's runtime.rawContextWindow: the model's window before the effective-percent cut, null while unknown.
     #[serde(default)]
-    #[ts(type = "number", optional)]
+    #[cfg_attr(feature = "codegen", ts(type = "number", optional))]
     pub raw_context_window: Option<i64>,
     // Node's runtime.effectiveContextWindowPercent: the share of the raw window the session may use, null while unknown.
     #[serde(default)]
-    #[ts(type = "number", optional)]
+    #[cfg_attr(feature = "codegen", ts(type = "number", optional))]
     pub effective_context_window_percent: Option<i64>,
     // Node's compactBoundaryTokens (syncContextDisplayFields): the compaction boundary, 0 until known.
     #[serde(default)]
-    #[ts(type = "number", optional)]
+    #[cfg_attr(feature = "codegen", ts(type = "number", optional))]
     pub compact_boundary_tokens: Option<i64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadAgents {
     #[serde(default)]
@@ -991,9 +1061,10 @@ pub struct ThreadAgents {
     pub agent_scope: Option<JsonValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadWorkflow {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workflow: Option<JsonValue>,
@@ -1005,9 +1076,10 @@ pub struct ThreadWorkflow {
     pub pending_orchestration_mode_switch: Option<bool>,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadApprovals {
     // Node's toolApprovalResult: null while no decision has been shown.
     #[serde(default)]
@@ -1016,33 +1088,36 @@ pub struct ThreadApprovals {
     pub handoff_questions: Option<Vec<JsonValue>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct PromptRestore {
     pub id: String,
     pub ids: Vec<String>,
     pub text: String,
     pub device: String,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub at: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProviderAccountChange {
     pub provider: String,
     pub account_id: String,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub at: i64,
 }
 
 /// The setup tool's desktop request waiting for a window to claim it (Node's session store
 /// `setupUiRequest`): its id, and when the thread took it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SetupUiRequest {
     pub id: String,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub at: i64,
 }
 
@@ -1050,9 +1125,10 @@ pub struct SetupUiRequest {
 /// `decorateRoomSnapshot`, pushed with the room's session state): the client lays it over the
 /// room log thread's own fields. Absent when the room has no exchange state and no handed-off
 /// questions.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadRoomView {
     /// The room has an exchange state: the log reads busy (so the composer offers stop).
     pub busy: bool,
@@ -1069,20 +1145,23 @@ pub struct ThreadRoomView {
 }
 
 /// Params of the `thread/<section>/updated` notifications: one typed section of the projection.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadSectionParams<T> {
     pub thread_id: ThreadId,
     pub value: T,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ThreadSummaryUpdatedParams {
     pub thread: ThreadSummary,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TokenUsageUpdatedParams {
     pub thread_id: ThreadId,

@@ -1,5 +1,6 @@
 //! The client request table (SPEC R19). Row order is the export order.
 
+#[cfg(feature = "codegen")]
 use mixdog_protocol::JsonValue;
 
 use crate::v1;

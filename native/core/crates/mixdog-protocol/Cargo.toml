@@ -7,10 +7,14 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# JSON Schema and TypeScript derives; enabled by `mixdog-app-protocol/codegen` only.
+codegen = ["dep:schemars", "dep:ts-rs"]
+
 [dependencies]
 mixdog-js = { workspace = true }
-schemars = { workspace = true }
+schemars = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-ts-rs = { workspace = true, features = ["serde-json-impl", "no-serde-warnings"] }
+ts-rs = { workspace = true, optional = true, features = ["serde-json-impl", "no-serde-warnings"] }

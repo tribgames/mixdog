@@ -14,12 +14,25 @@ use serde_json::json;
 use ts_rs::TS;
 use ts_rs::TypeVisitor;
 
-use crate::common::MethodTypeVisitor;
-use crate::common::NotificationTypeVisitor;
 use crate::error;
 use crate::inventory::INVENTORY;
 use crate::limits::CloseCode;
 use crate::limits::Limits;
+
+/// Visits the params and result types of every row (schema and TS export).
+pub trait MethodTypeVisitor {
+    fn visit<P, R>(&mut self, method: &'static str)
+    where
+        P: JsonSchema + TS + 'static,
+        R: JsonSchema + TS + 'static;
+}
+
+/// Visits the params type of every notification row.
+pub trait NotificationTypeVisitor {
+    fn visit<P>(&mut self, method: &'static str)
+    where
+        P: JsonSchema + TS + 'static;
+}
 
 /// One generated file: path relative to the crate's `schema/` directory or
 /// `packages/protocol/src/` (see `GeneratedFile::kind`), and its content.
