@@ -20,6 +20,16 @@ pub enum ToolKind {
     Skipped,
 }
 
+/// Node's `toolTiming` (`tool-batch/finalize.mjs`): the marks of one tool call, in wall-clock milliseconds.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct ToolTiming {
+    pub dispatch_started_at: i64,
+    pub execution_started_at: i64,
+    pub execution_completed_at: i64,
+    pub postprocess_started_at: i64,
+    pub result_completed_at: i64,
+}
+
 /// Why a user message is in the transcript. Only [`Source::Steering`] and
 /// [`Source::StreamCutRecovery`] change the wire lowering.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -84,6 +94,8 @@ pub struct AgentMessage {
     pub message_id: Option<String>,
     /// Tool messages only.
     pub tool_kind: Option<ToolKind>,
+    /// Tool messages only: when the call ran (Node `toolTiming`); `None` for a call that did not run.
+    pub tool_timing: Option<ToolTiming>,
     /// Assistant messages only.
     pub stop_reason: Option<StopReason>,
     /// Assistant messages only: reasoning text kept for the transcript view;
@@ -117,6 +129,7 @@ impl AgentMessage {
             submission_ids: Vec::new(),
             message_id: None,
             tool_kind: None,
+            tool_timing: None,
             stop_reason: None,
             reasoning: None,
             turn_reminder: None,

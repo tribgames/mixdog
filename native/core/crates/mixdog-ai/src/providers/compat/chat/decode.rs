@@ -53,7 +53,8 @@ fn is_incomplete_finish(reason: &str) -> bool {
 
 fn stop_reason(reason: &str) -> StopReason {
     match reason {
-        "stop" => StopReason::EndTurn,
+        // Node stores the wire's own `finish_reason` (`stopReason: choice.finish_reason`), so a plain stop stays `stop`.
+        "stop" => StopReason::Other("stop".to_owned()),
         "tool_calls" | "function_call" => StopReason::ToolUse,
         "length" => StopReason::MaxTokens,
         "content_filter" => StopReason::ContentFilter,

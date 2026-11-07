@@ -325,7 +325,7 @@ fn assert_matches_result(name: &str, got: &Outcome, result: &Value, project: Pro
         }
         // Node's `stopReason: null` (the wire named none) is `None`.
         let want = match ok["stopReason"].as_str() {
-            Some("stop") => Some(StopReason::EndTurn),
+            Some("stop") => Some(StopReason::Other("stop".to_owned())),
             Some("tool_calls") => Some(StopReason::ToolUse),
             Some(other) => panic!("{name}: unmapped stop {other}"),
             None => None,

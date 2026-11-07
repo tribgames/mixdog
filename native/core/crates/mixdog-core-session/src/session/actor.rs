@@ -2066,6 +2066,10 @@ impl SessionActor {
             self.accept_record(meta, Class::Normal, Display::None, Vec::new(), Vec::new());
         }
         if !slot.start_failed {
+            let counters = match &outcome {
+                RunOutcome::Completed(result) => Some((result.iterations, result.tool_calls_total)),
+                _ => None,
+            };
             let (phase, detail) = match outcome {
                 RunOutcome::Completed(_) => (RunPhase::Completed, None),
                 RunOutcome::Interrupted => (RunPhase::Interrupted, None),
@@ -2100,6 +2104,14 @@ impl SessionActor {
                 set.insert("lastUsedAt".into(), json!(at));
                 set.insert("closeProvenance".into(), json!(1));
                 set.insert("lastTurnCompletedAt".into(), json!(at));
+                if let Some((iterations, tool_calls)) = counters {
+                    // `session.turnCoverage = turnToken` (`ask-turn-settle.mjs`), the loop's last iteration
+                    // (`persistIterationMetrics`) and the session's tool-call total (`accumulateSessionUsage`).
+                    let total = self.projected.header.get("totalToolCalls").and_then(Value::as_u64).unwrap_or(0);
+                    set.insert("turnCoverage".into(), json!(turn.as_str()));
+                    set.insert("lastIterationIndex".into(), json!(iterations));
+                    set.insert("totalToolCalls".into(), json!(total + tool_calls));
+                }
                 let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
                 self.accept_record(meta, Class::Control, Display::None, Vec::new(), Vec::new());
             }
@@ -3937,6 +3949,29 @@ impl SessionActor {
             && let Some(meta) = body.pointer_mut("/meta/transcript").and_then(Value::as_object_mut)
         {
             meta.insert("checkpointId".into(), Value::String(checkpoint.to_owned()));
+        }
+        // `beginTurn` (`tui/session/turn.mjs`) stamps the turn's start, a fresh attempt id and the session's route
+        // plus its workflow's name (`createTranscriptRouteMetadata`); `persistedUserTranscriptMetadata` keeps them
+        // on the input row, and what the submission already states stays.
+        let route = super::live_end::route_meta(
+            self.acked.header.get("provider").and_then(Value::as_str).unwrap_or_default(),
+            self.acked.header.get("model").and_then(Value::as_str).unwrap_or_default(),
+        );
+        let workflow = self.acked.header.get("workflow");
+        let agent = ["name", "id"]
+            .into_iter()
+            .find_map(|key| workflow.and_then(|w| w.get(key)).and_then(Value::as_str).filter(|name| !name.is_empty()))
+            .map(|name| mixdog_js::js_trim(name).to_owned())
+            .unwrap_or_default();
+        if let Some(meta) = body.pointer_mut("/meta/transcript").and_then(Value::as_object_mut) {
+            meta.entry("at").or_insert_with(|| json!(self.deps.clock.now_ms()));
+            meta.entry("attemptId").or_insert_with(|| json!(new_id()));
+            for (key, value) in route {
+                meta.entry(key).or_insert(value);
+            }
+            if !agent.is_empty() {
+                meta.entry("agent").or_insert_with(|| json!(agent));
+            }
         }
         let review = super::turn_snapshot::TurnSnapshot::new(self.deps.turn_review.clone(), self.id.as_str(), checkpoint, wake);
         // The retried turn's provenance rides its rebuilt row, so a retry of this retry reads it back.

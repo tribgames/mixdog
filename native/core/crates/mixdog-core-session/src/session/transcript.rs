@@ -231,10 +231,9 @@ impl Transcript for RecordTranscript {
             PromptContent::Parts(parts) => Value::Array(parts.iter().map(|part| serde_json::to_value(part).expect("protocol types serialize")).collect()),
         };
         let options = input.options.as_ref();
-        let message_id = options
-            .and_then(|o| o.client_submission_id.clone())
-            .filter(|id| !id.is_empty())
-            .unwrap_or_else(|| format!("msg_{}", uuid::Uuid::new_v4().simple()));
+        // `stableMessageId` (`transcript-metadata.mjs`): every prompt gets its own `msg_` id. The client's
+        // submission id is not one: Node keeps it as the queue entry's id and the turn's `submissionIds`.
+        let message_id = format!("msg_{}", uuid::Uuid::new_v4().simple());
         let mut transcript = json!({ "messageId": message_id });
         if let Some(at) = options.and_then(|o| o.submitted_at) {
             transcript["at"] = json!(at);
