@@ -9,7 +9,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_protocol::ProviderId;
 
 use super::CatalogTraits;
@@ -136,12 +135,6 @@ impl CatalogService {
                 self.publish_listing();
             }
         }
-    }
-
-    /// The listing source of a registered adapter, wired to this service's data directory (the Anthropic
-    /// OAuth route's model cache lives there); `None` for an adapter that lists no models.
-    pub fn model_source(&self, provider: ProviderId, adapter: Arc<dyn ProviderAdapter>) -> Option<ModelSource> {
-        ModelSource::of_adapter(provider, adapter).map(|source| source.with_oauth_cache(self.metadata.oauth_model_cache()))
     }
 
     /// The catalog readers hold.
