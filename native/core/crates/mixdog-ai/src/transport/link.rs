@@ -204,6 +204,9 @@ impl ReqwestLink {
 
     #[allow(clippy::result_large_err, reason = "ProviderError is the contract's error type")]
     async fn builder(&self, request: &WireRequest) -> Result<reqwest::RequestBuilder, ProviderError> {
+        if let Some(refused) = restricted_port(&request.url) {
+            return Err(refused);
+        }
         let method = reqwest::Method::from_bytes(request.method.as_bytes()).map_err(|_| {
             let mut error = ProviderError::new(ErrorKind::Unknown, DeliveryState::NotSent);
             error.message = format!("invalid HTTP method {}", request.method);
@@ -287,6 +290,26 @@ const MAX_REDIRECTS: usize = 20;
 
 fn is_redirect(status: reqwest::StatusCode) -> bool {
     matches!(status.as_u16(), 301 | 302 | 303 | 307 | 308)
+}
+
+/// The ports `fetch` refuses to connect to (the WHATWG "bad ports", as the Node runtime's `fetch` lists them:
+/// `golden/connect_errors.json` `badPorts`, found by asking it for every loopback port).
+const RESTRICTED_PORTS: [u16; 82] = [
+    1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 69, 77, 79, 87, 95, 101, 102, 103, 104, 109, 110,
+    111, 113, 115, 117, 119, 123, 135, 137, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532,
+    540, 548, 554, 556, 563, 587, 601, 636, 989, 990, 993, 995, 1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061,
+    6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080,
+];
+
+/// A request to a port `fetch` refuses fails before any connection, as a plain network error with no errno ("bad
+/// port"): the loop sees an I/O fault, not an unreachable network, so only the provider's own ladder retries it.
+pub(crate) fn restricted_port(url: &str) -> Option<ProviderError> {
+    let port = reqwest::Url::parse(url).ok()?.port()?;
+    RESTRICTED_PORTS.contains(&port).then(|| {
+        let mut error = ProviderError::transport(TransportFault::Io { os_code: None }, DeliveryState::NotSent);
+        error.message = "bad port".to_owned();
+        error
+    })
 }
 
 /// `fetch` rejects a redirect under `redirect: 'error'` as a network error.
@@ -520,6 +543,22 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+
+    /// Every loopback port against the set Node's `fetch` refused when asked for each one (`golden/connect_errors.json`
+    /// `badPorts`); the refusal is an I/O fault with Node's text, never a connect fault.
+    #[test]
+    fn the_ports_fetch_refuses_fail_before_connecting() {
+        let golden: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
+        let recorded: Vec<u16> = golden["badPorts"].as_array().unwrap().iter().map(|p| p.as_u64().unwrap() as u16).collect();
+        let refused: Vec<u16> = (1..=u16::MAX).filter(|port| restricted_port(&format!("http://127.0.0.1:{port}/v1")).is_some()).collect();
+        assert_eq!(refused, recorded);
+        let error = restricted_port("http://127.0.0.1:9/v1").expect("port 9 is refused");
+        assert_eq!(error.transport, Some(TransportFault::Io { os_code: None }));
+        assert_eq!(error.delivery, DeliveryState::NotSent);
+        assert_eq!(error.message, "bad port");
+        assert!(restricted_port("https://example.com/v1").is_none(), "a default port is never restricted");
+    }
 
     /// A body whose peer holds the connection open and says nothing.
     struct Silent;
