@@ -164,15 +164,11 @@ async fn the_switches_match_node() {
 
 // ---- production session state --------------------------------------------------------------------
 
-/// A first run answers and completes; later runs wait to be stopped.
+/// Each thread's first run answers and completes; its later runs wait to be stopped.
 fn answer_then_wait() -> Script {
-    let runs = Arc::new(Mutex::new(0_u32));
+    let answered = Arc::new(Mutex::new(std::collections::HashSet::new()));
     Arc::new(move |run| {
-        let first = {
-            let mut runs = lock(&runs);
-            *runs += 1;
-            *runs == 1
-        };
+        let first = lock(&answered).insert(run.thread.clone());
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
             if !first {

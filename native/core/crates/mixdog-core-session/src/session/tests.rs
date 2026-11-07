@@ -2380,6 +2380,8 @@ async fn a_web_searchs_spend_is_heard_by_the_feed_and_not_by_the_headers_books()
 #[tokio::test(start_paused = true)]
 async fn a_turn_stamps_its_heartbeat_and_prepares_its_meters_and_syncs_the_compaction_when_it_completes() {
     let rig = Rig::new();
+    // The throttle compares with 0 for a header that never beat: a clock inside the first minute stamps nothing.
+    rig.clock.0.store(1_700_000_000_000, std::sync::atomic::Ordering::SeqCst);
     let gate: Arc<tokio::sync::Notify> = Arc::default();
     let release = gate.clone();
     rig.set_script(Arc::new(move |run| {
