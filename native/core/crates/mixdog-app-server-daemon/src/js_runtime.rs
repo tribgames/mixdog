@@ -175,7 +175,7 @@ fn which(name: &str, path: Option<&OsStr>) -> Option<PathBuf> {
 }
 
 /// A test install under `root`: a manifest, an interpreter file and a package root holding the
-/// skill entry, resolved through [`resolve`] as a product install is.
+/// skill entry and `package.json`, resolved through [`resolve`] as a product install is.
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "test setup writes the install on the test thread")]
 pub(crate) fn fixture(root: &Path) -> JsRuntime {
@@ -185,8 +185,30 @@ pub(crate) fn fixture(root: &Path) -> JsRuntime {
     std::fs::create_dir_all(package.join("src")).unwrap();
     std::fs::write(core.join("node"), "").unwrap();
     std::fs::write(package.join(SKILL_ENTRY), "").unwrap();
+    // The tree's own manifest: the composition reads its ersion (package_version).
+    std::fs::write(package.join("package.json"), include_str!("../../../../../package.json")).unwrap();
+    // The shipped files the composition reads from <packageRoot>/src: prompt rules, output styles, agents, defaults and the voice manifest.
+    let shipped = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../src");
+    for dir in ["rules", "output-styles", "agents", "defaults", "runtime/channels/data"] {
+        copy_dir(&shipped.join(dir), &package.join("src").join(dir));
+    }
     std::fs::write(core.join(MANIFEST_FILE), r#"{"program":"./node","packageRoot":"../js"}"#).unwrap();
     resolve(&core.join("mixdogd"), None).unwrap()
+}
+
+#[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "test setup copies the shipped files on the test thread")]
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for entry in std::fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir(&entry.path(), &target);
+        } else {
+            std::fs::copy(entry.path(), &target).unwrap();
+        }
+    }
 }
 
 #[cfg(test)]
