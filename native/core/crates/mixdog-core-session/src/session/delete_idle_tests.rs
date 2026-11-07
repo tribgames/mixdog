@@ -9,6 +9,7 @@ use std::sync::atomic::Ordering::SeqCst;
 
 use mixdog_core_api::CoreError;
 use mixdog_core_api::Reply;
+use mixdog_core_api::RunControl;
 use mixdog_core_api::ThreadDirectory;
 use mixdog_core_api::ThreadHandle;
 use mixdog_core_api::call::CallContext;
