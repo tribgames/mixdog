@@ -157,7 +157,7 @@ async fn reads_that_cannot_run_are_typed_failures() {
 }
 
 #[tokio::test]
-async fn the_standalone_tools_a_session_is_offered_equal_nodes() {
+async fn the_internal_tools_a_session_is_offered_equal_nodes() {
     let golden = golden();
     for case in golden["standalone"].as_array().expect("standalone") {
         let name = case["name"].as_str().expect("name");

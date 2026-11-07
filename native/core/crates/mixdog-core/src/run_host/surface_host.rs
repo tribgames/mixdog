@@ -843,7 +843,8 @@ impl NewThreadTools for LeadSurfaceHost {
             denied.push("agent".to_owned());
         }
         // `reactionDisabled(opts, false)` (`session-tool-surface.mjs:33-36`): a bot's home chat or its room seat keeps `react`.
-        if reaction_disabled(&json!({ "id": thread.as_str() }), false) {
+        let reaction_session: serde_json::Map<String, Value> = [("id".to_owned(), json!(thread.as_str()))].into_iter().collect();
+        if reaction_disabled(&reaction_session, false) {
             denied.push(REACTION_TOOL_NAME.to_owned());
         }
         let routing = resolve(
