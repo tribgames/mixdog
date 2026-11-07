@@ -19,6 +19,7 @@ mod patch_window;
 mod read;
 mod read_batch;
 mod read_legacy;
+mod read_paths;
 pub mod read_state;
 mod search;
 #[cfg(test)]

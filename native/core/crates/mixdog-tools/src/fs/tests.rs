@@ -1047,40 +1047,12 @@ async fn an_image_without_a_resizer_keeps_the_inline_cap_and_a_failed_host_is_an
     assert!(matches!(error.code, ToolErrorCode::Unavailable { .. }), "{error:?}");
 }
 
-/// Cases of `legacy_read_cases.json` this tool does not answer as Node does, each with why. They
-/// are the forms Node serves through readers this port does not have.
-const LEGACY_UNPORTED: &[(&str, &str)] = &[
-    ("coordinate-missing-file", "Node's Windows-path guard (NTFS ADS suffix) judges `nope.txt:5`; the guard is not ported"),
-    ("array-json-string", "the message holds the recording host's absolute path"),
-    ("array-json-one", "the message holds the recording host's absolute path"),
-    ("array-json-object-string", "Node's Windows-path guard (NTFS ADS suffix) judges the JSON text; the guard is not ported"),
-    ("mode-head-glob", "a glance mode over a glob survey"),
-    ("region-and-string", "a batch entry without a path (`(missing-path)` entry)"),
-    ("region-empty-path", "a batch entry without a path (`(missing-path)` entry)"),
-    ("tuple-mixed", "a batch entry without a path (`(missing-path)` entry)"),
-    ("region-mode-head", "a glance mode on a batch entry"),
-    ("region-mode-count", "a glance mode on a batch entry"),
-    ("region-mode-hex", "a glance mode on a batch entry"),
-    ("region-mode-summary", "a glance mode on a batch entry"),
-    ("region-negative-offset", "a glance mode on a batch entry"),
-    ("region-negative-offset-mode", "a glance mode on a batch entry"),
-    ("region-full", "`full` on a batch entry"),
-    ("array-full", "`full` on a batch entry"),
-    ("array-mode-head", "a glance mode on a batch entry"),
-    ("array-mode-tail", "a glance mode on a batch entry"),
-    ("array-mode-count", "a glance mode on a batch entry"),
-    ("array-mode-summary", "a glance mode on a batch entry"),
-    ("array-mode-hex", "a glance mode on a batch entry"),
-    ("array-mode-with-window", "a glance mode on a batch entry"),
-    ("array-mode-missing", "a glance mode on a batch entry"),
-    ("array-mode-repeat", "a glance mode on a batch entry"),
-];
-
 /// Node's `read` for the executor's own `path` spelling (a string, an array, region objects,
-/// compact tuples; `limit:0`, a negative `offset`, `line`/`context`, `mode`/`n`, `full`), replayed
-/// from `legacy_read_cases.json`, which `record_legacy_read.mjs` recorded from Node over the
-/// workspace of `batch_cases.json` (plus `extraFiles`). The guard's own outcomes are checked in
-/// `read_legacy`.
+/// compact tuples; `limit:0`, a negative `offset`, `line`/`context`, `mode`/`n`, `full`) and for
+/// the public form with `null` for what was not sent, replayed from `legacy_read_cases.json`,
+/// which `record_legacy_read.mjs` recorded from Node over the workspace of `batch_cases.json`
+/// (plus `extraFiles`). A `windowsOnly` case is replayed where Node was recorded: Windows. The
+/// guard's own outcomes are checked in `read_legacy`.
 #[tokio::test]
 async fn the_legacy_path_spelling_reads_as_node_reads() {
     let batch: JsonValue = serde_json::from_str(include_str!("golden/batch_cases.json")).unwrap();
@@ -1091,19 +1063,25 @@ async fn the_legacy_path_spelling_reads_as_node_reads() {
     let (root, ctx) = recorded_workspace(&workspace, dir.path(), false).await;
     let cwd = root.as_path().to_string_lossy().replace('\\', "/");
     let tool = ReadTool::new(None, None);
+    // The recorder's spellings of the workspace's own absolute path.
+    let drive = cwd.chars().next().unwrap().to_ascii_lowercase();
+    let tail = cwd.get(2..).unwrap_or_default();
+    let tokens = [("<WSPOSIX>", format!("/{drive}{tail}")), ("<WSCYG>", format!("/cygdrive/{drive}{tail}")), ("<WSMNT>", format!("/mnt/{drive}{tail}"))];
     let cases = doc["cases"].as_array().unwrap();
-    for (name, _) in LEGACY_UNPORTED {
-        assert!(cases.iter().any(|c| c["name"] == *name), "{name} is not a recorded case");
-    }
     let mut failures = Vec::new();
     let mut ran = 0;
     for case in cases {
         let name = case["name"].as_str().unwrap();
-        if LEGACY_UNPORTED.iter().any(|(n, _)| *n == name) {
+        if case["windowsOnly"] == true && !cfg!(windows) {
             continue;
         }
         ran += 1;
-        let got = summary(&tool.call(&ctx, case["input"].clone()).await, &cwd);
+        let mut text = case["input"].to_string();
+        for (token, spelling) in &tokens {
+            text = text.replace(token, &spelling.replace('\\', "\\\\"));
+        }
+        let input: JsonValue = serde_json::from_str(&text).unwrap();
+        let got = summary(&tool.call(&ctx, input).await, &cwd);
         let expected = vec![("text".to_owned(), case["result"]["text"].as_str().unwrap().to_owned())];
         if got != expected {
             failures.push(format!("{name}\n  want {expected:?}\n  got  {got:?}"));

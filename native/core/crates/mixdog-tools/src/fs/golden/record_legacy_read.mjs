@@ -288,23 +288,74 @@ const CASES = {
   'zip-more-windows-than-paths': P(['lines.txt'], { offset: [1, 5, 9], limit: [1] }),
   'zip-fewer-windows': P(['lines.txt', 'a.txt', 'b.txt'], { offset: [1] }),
   'zip-null-entries': P(['lines.txt', 'a.txt'], { offset: [null, 1] }),
-  // Both spellings and the public form next to a legacy key.
+  // A string joining several existing paths is those paths.
+  'joined-two': P('a.txt b.txt'),
+  'joined-comma': P('a.txt,b.txt'),
+  'joined-missing-piece': P('a.txt, nope.txt'),
+  'joined-dot': P('. a.txt'),
+  'joined-over-limit': P(Array.from({ length: 12 }, (_, i) => `many/f${String(i + 1).padStart(2, '0')}.txt`).join(' ')),
+  'joined-public': { file_path: 'a.txt b.txt' },
+  // reject_partial refuses a batch that delivered nothing for an entry.
+  'reject-partial-missing': P(['a.txt', 'nope.txt'], { reject_partial: true }),
+  'reject-partial-delivered': P(['a.txt', 'b.txt'], { reject_partial: true }),
+  'reject-partial-region': P([{ path: 'a.txt' }, { path: 'nope.txt' }], { reject_partial: true }),
+  'reject-partial-public': { file_path: ['a.txt', 'nope.txt'], reject_partial: true },
+  // The public form with null for what was not sent.
+  'public-null-offset': { file_path: 'lines.txt', offset: null, limit: null },
+  'public-null-array': { file_path: ['a.txt', 'b.txt'], offset: null, limit: null },
+  'public-null-path': { file_path: 'a.txt', path: null },
+  'public-missing-similar': { file_path: 'a.md' },
+  // Path strings refused before any stat.
+  'guard-unc': P('\\\\server\\share\\x'),
+  'guard-unc-slash': P('//server/share/x'),
+  'guard-device-namespace': P('\\\\.\\PhysicalDrive0'),
+  'guard-dev-zero': P('/dev/zero'),
+  'guard-reserved-name': P('NUL'),
+  'guard-reserved-name-ext': P('nul.txt'),
+  'guard-trailing-dot': P('a.txt.'),
+  'guard-ads': P('a.txt:stream'),
+  'guard-glance-ads': P('a.txt:stream', { mode: 'head' }),
+  'guard-public-unc': { file_path: '\\\\server\\share\\x' },
+  // Host spellings of an absolute path.
+  'spelling-posix-drive': P('<WSPOSIX>/a.txt'),
+  'spelling-cygdrive': P('<WSCYG>/a.txt'),
+  'spelling-mnt': P('<WSMNT>/a.txt'),
+  // A missing file with a near name.
+  'mode-head-similar': P('a.md', { mode: 'head' }),
+  'mode-summary-similar': P('a.md', { mode: 'summary' }),
+  'string-missing-similar': P('a.md'),
+  // No window over the output cap.
+  'big-unwindowed': P('big8.txt', { mode: 'full' }),
+  'big-unwindowed-full-false': P('big8.txt', { mode: 'full', n: 1 }),
+  'wide-unwindowed': P('wide.txt', { mode: 'full' }),
+  'big16-unwindowed': P('big16.txt', { mode: 'full' }),
+  'big-full': P('big8.txt', { full: true }),
+  'big-batch-unwindowed': P([{ path: 'big8.txt', mode: 'full' }]),
+  // Entries in a batch with a mode, full, or no path.
+  'batch-entry-mode-glob': P(['many/*.txt', 'a.txt'], { mode: 'head', n: 1 }),
+  'batch-entry-full-big': P(['big8.txt', 'a.txt'], { full: true }),
+  'batch-entry-no-path-string': P(['a.txt', { offset: 1 }]),  // Both spellings and the public form next to a legacy key.
   'public-with-legacy-offset-base': { file_path: 'lines.txt', offset: 3, limit: 2 },
   'public-array': { file_path: ['a.txt', 'b.txt'] },
 };
 
+// Host-dependent spellings and guards: replayed only where Node was recorded to behave this way.
+const WINDOWS_ONLY = new Set(['guard-reserved-name', 'guard-trailing-dot', 'guard-ads', 'guard-glance-ads', 'spelling-posix-drive', 'spelling-cygdrive', 'spelling-mnt']);
+const drive = ws[0].toLowerCase();
+const TOKENS = { '<WSPOSIX>': `/`, '<WSCYG>': `/cygdrive/`, '<WSMNT>': `/mnt/` };
+const withTokens = (input) => JSON.parse(Object.entries(TOKENS).reduce((s, [k, v]) => s.split(k).join(JSON.stringify(v).slice(1, -1)), JSON.stringify(input)));
 const recorded = [];
 for (const [name, input] of Object.entries(CASES)) {
-  const probe = structuredClone(input);
+  const probe = withTokens(input);
   const refusal = validateBuiltinArgs('read', probe);
   const guard = refusal
     ? { error: scrub(refusal) }
     : {
-        args: JSON.parse(JSON.stringify(probe)),
+        args: JSON.parse(Object.entries(TOKENS).reduce((s, [k, v]) => s.split(JSON.stringify(v).slice(1, -1)).join(k), JSON.stringify(probe))),
         limitDefaulted: Object.getOwnPropertyDescriptor(probe, '_readLimitDefaulted')?.value === true,
       };
-  const raw = await executeBuiltinTool('read', structuredClone(input), ws, {});
-  recorded.push({ name, input, guard, result: { text: scrub(typeof raw === 'string' ? raw : JSON.stringify(raw)) } });
+  const raw = await executeBuiltinTool('read', withTokens(input), ws, {});
+  recorded.push({ name, input, ...(WINDOWS_ONLY.has(name) ? { windowsOnly: true } : {}), guard, result: { text: scrub(typeof raw === 'string' ? raw : JSON.stringify(raw)) } });
 }
 const out = join(here, 'legacy_read_cases.json');
 writeFileSync(out, `${JSON.stringify({ extraFiles: EXTRA, cases: recorded }, null, 1)}\n`);
