@@ -4,8 +4,8 @@
 // <base>/src/<name> and the data directory at <base>/data, recreated by the Rust replay too;
 // <base> is masked in the output, timestamps become <TS>.
 // Usage: node pluginsapi.mjs <repo-root> <base-dir> <out.json>
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const [root, base, out] = process.argv.slice(2);
@@ -13,6 +13,8 @@ const load = (rel) => import(pathToFileURL(join(root, 'src', rel)).href);
 const { createResourceApi } = await load('session-runtime/resource-api.mjs');
 const admin = await load('session-runtime/services/plugin-admin.mjs');
 const glue = await load('session-runtime/mcp-glue/plugin-servers.mjs');
+const { createPluginStatus } = await load('session-runtime/cwd-plugins/plugin-status.mjs');
+const { countSkillFiles, pluginManifest } = await load('runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs');
 
 const mcp = (servers) => JSON.stringify({ mcpServers: servers });
 const fixtures = {
@@ -67,7 +69,18 @@ const deps = {
     saves.push(structuredClone(next));
     events.push('save');
   },
-  pluginsStatus: () => admin.pluginAdminStatus({ dataDir }),
+  // The real pluginsStatus() rows; no MCP summary (no live connection state is modelled here).
+  pluginsStatus: createPluginStatus({
+    listRegisteredPlugins: admin.listRegisteredPlugins,
+    pluginAdminStatus: admin.pluginAdminStatus,
+    pluginManifest,
+    countSkillFiles,
+    clean: (value) => (typeof value === 'string' ? value.trim() : ''),
+    resolve,
+    statSync,
+    existsSync,
+    cfgMod: { getPluginData: () => dataDir },
+  }).pluginsStatus,
   resolveMcpCatalog: () => glue.resolveMcpServerCatalog({ config, plugins: admin.listRegisteredPlugins({ dataDir }), cwd, dataDir }),
   async flushSkillsSave() {
     events.push('flushSkills');

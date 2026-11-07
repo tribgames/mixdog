@@ -75,7 +75,8 @@ impl StatusReader for ServiceStatus {
                 out.insert("disabled".to_owned(), disabled.get("disabled").filter(|list| !list.is_null()).cloned().unwrap_or_else(|| json!([])));
                 Ok(Value::Object(out))
             }
-            "plugins" => ask(&self.plugins, "plugins/pluginsStatus", json!({})).await,
+            // The rows list the live state of each plugin's MCP servers, read in that runtime's scope.
+            "plugins" => ask(&self.plugins, "plugins/pluginsStatus", json!({"threadId": thread.as_str()})).await,
             "hooks" => Ok(hook_status(&self.hooks.status().await)),
             other => Err(PortError::Failed { capability: "setup".into(), message: format!("setup: unknown status domain \"{other}\"") }),
         }

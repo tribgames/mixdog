@@ -128,6 +128,10 @@ impl ExtensionHost for Host {
         Ok(self.cwd.clone())
     }
 
+    async fn plugin_mcp_summary(&self, _: Option<&str>) -> Result<Value, String> {
+        Ok(Value::Object(Map::new()))
+    }
+
     async fn skills_status(&self) -> Value {
         json!({"skills": [{"name": "deploy", "owner": {"kind": "plugin", "id": "x"}}, {"name": "other"}]})
     }

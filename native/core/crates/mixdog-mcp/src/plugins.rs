@@ -13,6 +13,7 @@ use mixdog_rt::MaintenanceIo;
 use serde_json::Map;
 use serde_json::Value;
 
+use crate::plugin_admin::truthy;
 use crate::plugin_servers::declared_mcp_transport;
 
 /// Manifest files in precedence order.
@@ -75,12 +76,13 @@ fn read_json(path: &Path) -> Result<Value, String> {
     })
 }
 
-/// The first readable manifest with its format; a plugin without one is an empty manifest.
+/// The first manifest that parses to a truthy value (`readJsonSafe`, so a JSON array or string
+/// counts and ends the search) with its format; a plugin without one is an empty manifest.
 #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
 pub fn manifest(_lane: &InLane<MaintenanceIo>, root: &Path) -> (PluginFormat, Value) {
     for file in MANIFEST_FILES {
         if let Ok(value) = read_json(&root.join(file))
-            && value.is_object()
+            && truthy(&value)
         {
             return (format_of(file), value);
         }
@@ -263,7 +265,7 @@ impl Collector {
 /// (a path, an inline object, or a list mixing both). Later sources override earlier ones by
 /// key. Never fails for plugin content; errors carry locations and field names, never values.
 #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
-pub fn load_declarations(lane: &InLane<MaintenanceIo>, root: &Path) -> PluginMcpDeclarations {
+pub fn load_declarations(_lane: &InLane<MaintenanceIo>, root: &Path) -> PluginMcpDeclarations {
     let mut collector = Collector { servers: Vec::new(), errors: Vec::new() };
     let found = MANIFEST_FILES.iter().find(|f| root.join(f).exists()).copied();
     let mcp_json = root.join(".mcp.json");
@@ -279,8 +281,16 @@ pub fn load_declarations(lane: &InLane<MaintenanceIo>, root: &Path) -> PluginMcp
     if let Some(file) = found {
         // Joined by component, as Node joins `rel.split('/')`, so the separators are the host's own.
         let path = file.split('/').fold(root.to_path_buf(), |path, part| path.join(part));
-        let (_, doc) = manifest(lane, root);
-        match doc.get("mcpServers") {
+        // The file found is the one read, whatever the later manifests hold; one that cannot be
+        // read or parsed is reported and declares nothing.
+        let doc = match read_json(&path) {
+            Ok(doc) => doc,
+            Err(message) => {
+                collector.error(&path, None, message);
+                Value::Null
+            }
+        };
+        match doc.as_object().and_then(|object| object.get("mcpServers")) {
             None => {}
             Some(Value::String(_)) => collector.load_declared_path(root, &doc["mcpServers"], &path, "\"mcpServers\": "),
             Some(Value::Array(members)) => {

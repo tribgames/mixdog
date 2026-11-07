@@ -563,11 +563,32 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
     }
 
     async fn status_now(&self) -> Value {
+        self.status_with_catalog().await.1
+    }
+
+    /// `pluginMcpSummary()` (`server-catalog.mjs`): per plugin id the declaration format and errors and
+    /// the status rows of the servers it declares, from the catalog the rows were built over. Read in
+    /// the scope the request addresses, as [`status_now`](Self::status_now) is.
+    async fn plugin_mcp_summary(&self) -> Value {
+        let (catalog, status) = self.status_with_catalog().await;
+        let rows: HashMap<&str, &Value> = status["servers"].as_array().into_iter().flatten().filter_map(|row| Some((row["name"].as_str()?, row))).collect();
+        let plugins = catalog.plugins.iter().map(|(id, plugin)| {
+            let servers: Vec<Value> = plugin["servers"].as_array().into_iter().flatten().map(|name| name.as_str().and_then(|name| rows.get(name)).map_or(Value::Null, |row| (*row).clone())).collect();
+            (id.clone(), json!({"format": plugin["format"], "errors": plugin["errors"], "servers": servers}))
+        });
+        Value::Object(plugins.collect())
+    }
+
+    /// The MCP status with the catalog its rows were built over.
+    async fn status_with_catalog(&self) -> (Catalog, Value) {
         if mcp_disabled() {
-            return json!({
-                "servers": [], "configuredCount": 0, "connectedCount": 0, "failedCount": 0,
-                "googleClient": google_client().is_some(),
-            });
+            return (
+                empty_catalog(),
+                json!({
+                    "servers": [], "configuredCount": 0, "connectedCount": 0, "failedCount": 0,
+                    "googleClient": google_client().is_some(),
+                }),
+            );
         }
         let catalog = self.resolve_configured_catalog().await;
         let (live, failures, _) = self.hub_view(&catalog);
@@ -611,7 +632,7 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
             .collect();
         let pending: HashSet<String> =
             catalog.servers.keys().cloned().chain(live.keys().cloned()).filter(|n| self.logins.is_pending(n)).collect();
-        status_value(&StatusInput {
+        let status = status_value(&StatusInput {
             catalog: &catalog,
             live: &live,
             failures: &failures,
@@ -620,7 +641,8 @@ pub fn skill_roots(admin: Arc<PluginAdmin>, builtin_plugin_root: PathBuf) -> cra
             health: &health,
             in_use: &in_use,
             google_client: google_client().is_some(),
-        })
+        });
+        (catalog, status)
     }
 
     fn account_error(&self, catalog: &Catalog, name: &str) -> String {
@@ -1304,6 +1326,13 @@ impl ExtensionHost for GlueHost {
             Ok(status) => status,
             Err(error) => json!({"skills": [], "error": error}),
         }
+    }
+
+    /// Read in the scope the caller's thread addresses: its header's, while open, else none (a session whose
+    /// scope was released reads nothing live); no thread is the runtime's scope, once it is connected.
+    async fn plugin_mcp_summary(&self, thread_id: Option<&str>) -> Result<Value, String> {
+        let scope = self.glue.scope_of_request(thread_id).await?;
+        Ok(crate::scope_runtime::with_request_scope(scope, self.glue.plugin_mcp_summary()).await)
     }
 }
 
