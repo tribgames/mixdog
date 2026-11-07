@@ -29,6 +29,9 @@ const PORT_SPAN: u16 = 200;
 const START_DEADLINE: Duration = Duration::from_secs(30);
 /// `await delay(250)` of Node's `startAndWaitReady`.
 const READY_POLL: Duration = Duration::from_millis(250);
+
+/// The `-t` of the stop of an abandoned start (`STOP_SECONDS` of the memory stack's own stop).
+const STOP_TIMEOUT_SECONDS: u64 = 15;
 /// `pg_ctl status` (`timeoutMs: 3_000`).
 const STATUS_LIMIT: Duration = Duration::from_secs(3);
 /// `pg_ctl reload` (`timeoutMs: 5_000`).
@@ -310,10 +313,28 @@ impl PgCluster {
             }
             if tokio::time::Instant::now() >= deadline {
                 let log_text = fsio::read_to_string(lane, &log).await.unwrap_or_default();
-                return Err(MemoryError::Runtime(format!("postgres did not become ready on port {port}: {}", log_text.trim())));
+                return Err(Self { runtime, data_dir, port, lane, processes }
+                    .abandon(MemoryError::Runtime(format!("postgres did not become ready on port {port}: {}", log_text.trim())))
+                    .await);
             }
-            tokio::time::sleep(READY_POLL).await;
+            // A stop during startup ends the wait: the daemon is going down, not waiting for a database it will not use.
+            tokio::select! {
+                () = cancel.cancelled() => {
+                    return Err(Self { runtime, data_dir, port, lane, processes }
+                        .abandon(MemoryError::Runtime("the start was cancelled before postgres was ready".to_owned()))
+                        .await);
+                }
+                () = tokio::time::sleep(READY_POLL) => {}
+            }
         }
+    }
+
+    /// A start this process began and gives up on: the postmaster it spawned may still come up, so it is stopped before the error leaves (nothing owns it afterwards).
+    async fn abandon(self, error: MemoryError) -> MemoryError {
+        if let Err(stop) = self.stop(Duration::from_secs(STOP_TIMEOUT_SECONDS)).await {
+            tracing::warn!(error = %stop.message(), "[pg-process] stopping the postmaster of an abandoned start");
+        }
+        error
     }
 
     /// `attachRaceWinner`: probes `pg_ctl status` (3 s), then waits up to 15 s for the winner's

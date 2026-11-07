@@ -86,6 +86,43 @@ fn tombstone(recorded: &Map<String, Value>, reason: &str, now: i64) -> Map<Strin
     fields
 }
 
+/// The reason the idle sweep closes with (`markSessionClosed(id, 'idle-sweep', ..)`,
+/// `sweep-row.mjs:136`).
+pub const IDLE_SWEEP_REASON: &str = "idle-sweep";
+
+/// The idle sweep's close (`closeIdleRecord`, `sweep-row.mjs:134-163`): `markSessionClosed` with
+/// `isSessionLive` and `singleAttempt`, which tombstones the record and lands nothing (`null`)
+/// when a runtime holds the session or a commit of it is still landing. Here the thread's own
+/// admission is the one the retention delete uses (`close_for_delete` with its `guard`): in the
+/// one step that closes the thread it re-asks that nothing is running or queued, that nobody is
+/// or ever was attached, that the activity the pass read has not moved and that the sweep is not
+/// shut down; any refusal is `Ok(false)` and nothing changes. The tombstone is then appended as
+/// the thread's last record (the tombstone the close path writes, [`tombstone`]) and the thread
+/// leaves the directory. `Ok(false)` too for a session the catalog does not list.
+pub(crate) async fn close_idle(directory: &super::directory::DirInner, id: &str, guard: super::control::DeleteGuard) -> Result<bool, mixdog_core_api::CoreError> {
+    let id = mixdog_js::js_trim(id);
+    if !super::delete::is_session_id(id) {
+        return Ok(false);
+    }
+    let thread = ThreadId::from(id);
+    let deps = directory.deps().clone();
+    if deps.store.session_meta(&thread).await?.is_none() {
+        return Ok(false);
+    }
+    let abort = mixdog_agent::cancel::close_session_reason(id, IDLE_SWEEP_REASON);
+    let Ok(hold) = directory.close_for_delete(&thread, &abort, true, Some(guard)).await? else {
+        return Ok(false);
+    };
+    let header = hold.header();
+    let at = deps.clock.now_ms();
+    if !hold.append(directory, tombstone(&header, IDLE_SWEEP_REASON, at)).await {
+        return Ok(false);
+    }
+    // `_logSessionCloseMetric`, once the tombstone is acknowledged.
+    deps.deletion.session_closed(id, IDLE_SWEEP_REASON, &header, at);
+    Ok(true)
+}
+
 /// What a close does to a thread's work: the shells it owns are cancelled
 /// (`cancelOwnedShellProcesses`, before the runtime entry is cleared so a close cannot orphan a
 /// tree; the kills are not awaited), the running turn ends with `closeSession`'s abort text, the

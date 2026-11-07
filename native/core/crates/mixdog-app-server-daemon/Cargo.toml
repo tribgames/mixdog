@@ -33,10 +33,13 @@ mixdog-scm = { workspace = true }
 mixdog-exthost = { workspace = true }
 mixdog-services = { workspace = true }
 mixdog-ai = { workspace = true }
+chrono = { workspace = true, features = ["clock"] }
+chrono-tz = { workspace = true }
 reqwest = { workspace = true }
 tokio-util = { workspace = true }
 bytes = { workspace = true }
 mixdog-mcp = { workspace = true }
+mixdog-migrate = { workspace = true }
 mixdog-secrets = { workspace = true }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
 mixdog-store = { workspace = true }

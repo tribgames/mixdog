@@ -83,11 +83,28 @@ pub struct ModelProxyService {
     notifier: Arc<dyn ConnectionNotifier>,
     /// The runs in flight by asking connection and run id, so modelProxy/cancel can stop one.
     runs: Mutex<HashMap<(ConnectionId, String), CancellationToken>>,
+    /// Woken when a run leaves `runs`: `close` waits on it.
+    settled: tokio::sync::Notify,
 }
 
 impl ModelProxyService {
     pub fn new(runner: Arc<ProxyRunner>, host: Arc<dyn HostChannel>, notifier: Arc<dyn ConnectionNotifier>) -> Self {
-        Self { runner, host, notifier, runs: Mutex::new(HashMap::new()) }
+        Self { runner, host, notifier, runs: Mutex::new(HashMap::new()), settled: tokio::sync::Notify::new() }
+    }
+
+    /// `modelProxyBridge.close` (daemon.mjs:302), the first step of Node's shutdown: every relayed model call is aborted, then this waits for the calls to settle, before
+    /// anything they depend on goes away.
+    pub async fn close(&self) {
+        for token in self.runs.lock().unwrap_or_else(PoisonError::into_inner).values() {
+            token.cancel();
+        }
+        loop {
+            let woken = self.settled.notified();
+            if self.runs.lock().unwrap_or_else(PoisonError::into_inner).is_empty() {
+                return;
+            }
+            woken.await;
+        }
     }
 }
 
@@ -114,6 +131,7 @@ impl DomainService for ModelProxyService {
         let events = RunEvents { notifier: Arc::clone(&self.notifier), to, run_id: run_id.clone() };
         let ran = self.runner.run(call, allowed_providers.as_deref(), &events, &cancel).await;
         self.runs.lock().unwrap_or_else(PoisonError::into_inner).remove(&(to, run_id));
+        self.settled.notify_waiters();
         let result = match ran {
             Ok(answer) => answer,
             Err(failure) => w::ProxyAnswer::Failed { failure },

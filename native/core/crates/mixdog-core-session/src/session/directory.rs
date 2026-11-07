@@ -77,7 +77,7 @@ enum Slot_ {
 /// A thread `thread/delete` closed: it stays in the directory, taking no work, until marked.
 pub(crate) struct DeleteHold {
     handle: Arc<SessionHandle>,
-    mark: oneshot::Sender<()>,
+    mark: oneshot::Sender<serde_json::Map<String, Value>>,
     marked: oneshot::Receiver<Result<(), super::run::RunError>>,
 }
 
@@ -96,7 +96,15 @@ impl DeleteHold {
     /// Appends the delete mark and waits for its ack; the thread then leaves the directory,
     /// and a later open finds it gone. False when the mark was not applied.
     pub(crate) async fn mark(self, directory: &DirInner) -> bool {
-        let _ = self.mark.send(());
+        let mut set = serde_json::Map::new();
+        set.insert(mixdog_store::summary::DELETED.into(), Value::Bool(true));
+        self.append(directory, set).await
+    }
+
+    /// [`mark`](Self::mark) with another header change: an idle close's tombstone. The thread
+    /// leaves the directory the same way (a closed thread unloads).
+    pub(crate) async fn append(self, directory: &DirInner, set: serde_json::Map<String, Value>) -> bool {
+        let _ = self.mark.send(set);
         let applied = matches!(self.marked.await, Ok(Ok(())));
         let id = &self.handle.id;
         let mut shard = lock(directory.shard(id));
@@ -419,6 +427,14 @@ impl SessionDirectory {
         let peers = peers.iter().map(|(peer, at)| (ThreadId::from(peer.as_str()), *at)).collect();
         let guard = super::control::DeleteGuard { activity, cancel: cancel.clone(), peers, opens: 0 };
         super::delete::delete_session(&self.inner, id, Some(guard)).await
+    }
+
+    /// `markSessionClosed(id, 'idle-sweep')` for a session not open in this process: `true` once
+    /// its tombstone landed. Admitted exactly as [`delete_stored`](Self::delete_stored) is (see
+    /// `close::close_idle`); any refusal is `false`.
+    pub async fn close_stored(&self, id: &str, activity: f64, cancel: &CancellationToken) -> Result<bool, CoreError> {
+        let guard = super::control::DeleteGuard { activity, cancel: cancel.clone(), peers: Vec::new(), opens: 0 };
+        super::close::close_idle(&self.inner, id, guard).await
     }
 
     /// The ids of every loaded thread (the threads this process hosts).

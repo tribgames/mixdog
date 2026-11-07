@@ -83,7 +83,7 @@ pub fn hidden_session_header(route: &Value, profile: &Value, now_ms: i64) -> Hea
 /// [`WakeHost`] over the session directory.
 pub struct SessionWakeHost {
     directory: Arc<SessionDirectory>,
-    close: SessionClose,
+    close: Arc<SessionClose>,
     routes: Arc<dyn RouteContext>,
     messages: Arc<AgentHomeDelivery>,
 }
@@ -93,7 +93,7 @@ impl SessionWakeHost {
     /// chats' delivery (`deliverAgentMessage`); `close`: the tombstoning close.
     pub fn new(
         directory: Arc<SessionDirectory>,
-        close: SessionClose,
+        close: Arc<SessionClose>,
         routes: Arc<dyn RouteContext>,
         messages: Arc<AgentHomeDelivery>,
     ) -> Self {

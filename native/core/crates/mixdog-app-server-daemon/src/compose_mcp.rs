@@ -183,6 +183,105 @@ impl ConfigSkillSettings {
     }
 }
 
+/// `DomainSeams.feature_activity` (wp-config-setup-7, `FeatureActivity::active(id)`) for browser, computer and terminal: the
+/// env override, else the bridge fact, exactly the non-`visualize` arm of the skill gate above, over the same `BridgeFeatures`
+/// value (`McpInputs.bridges`), so the two cannot disagree.
+pub struct BridgeActivity {
+    env: EnvReader,
+    bridges: Arc<dyn BridgeFeatures>,
+}
+
+impl BridgeActivity {
+    pub fn new(env: EnvReader, bridges: Arc<dyn BridgeFeatures>) -> Self {
+        Self { env, bridges }
+    }
+}
+
+impl mixdog_core_agents::setup::FeatureActivity for BridgeActivity {
+    fn active(&self, id: &str) -> bool {
+        let env = |name: &str| (self.env)(name);
+        feature_env_override(&env, &format!("MIXDOG_FEATURE_{}", id.to_uppercase())).unwrap_or_else(|| self.bridges.present(id))
+    }
+}
+
+/// `getLocalProviderStatus || localProviderStatus` for the provider setup (wp-ai-svc-23 `LocalStatus`): the local runtime's own status,
+/// `None` when it throws. core-domains cannot import services, so the daemon wraps the one `LocalProvider`.
+pub struct LocalStatusOf(pub Arc<mixdog_services::local_provider::provider::LocalProvider>);
+
+#[async_trait::async_trait]
+impl mixdog_core_domains::domains::ai_account::setup_world::LocalStatus for LocalStatusOf {
+    async fn status(&self) -> Option<serde_json::Value> {
+        self.0.status().await.ok()
+    }
+}
+/// `readProviderAccountPool(provider).selectedId` (`SelectedAccounts`, wp-svc-misc-13): the roster is read on the credential lane
+/// at every ask, so an edit made by anyone shows at once. An unreadable roster has no selection, as Node's empty pool.
+pub struct AccountPoolSelected(pub mixdog_ai::accounts::AccountStore);
+
+#[async_trait::async_trait]
+impl mixdog_services::media::SelectedAccounts for AccountPoolSelected {
+    async fn selected(&self, provider: &str) -> Option<String> {
+        self.0.pool(provider).await.ok()?.selected_id
+    }
+}
+
+/// The agent crate's `Clock` over the session crate's: both are "epoch milliseconds".
+pub struct AgentClock(pub Arc<dyn mixdog_core_session::session::Clock>);
+
+impl mixdog_agent::env::Clock for AgentClock {
+    fn now_ms(&self) -> i64 {
+        self.0.now_ms()
+    }
+}
+
+/// One `ChangeSink` over several watch owners: every batch goes to each, and each keeps only the watch ids it registered.
+pub struct FanOutSink(pub Vec<Arc<dyn mixdog_workspace::watcher::ChangeSink>>);
+
+impl mixdog_workspace::watcher::ChangeSink for FanOutSink {
+    fn changed(&self, watch_id: &str, paths: Vec<String>, kind: mixdog_workspace::watcher::ChangeKind) {
+        for sink in &self.0 {
+            sink.changed(watch_id, paths.clone(), kind);
+        }
+    }
+}
+
+/// The job board's notifier (`JobBoard::new(clock, notifier, on_change)`): a finished job is delivered to the session that started it, i.e. to the
+/// session directory (`impl TaskNotifier for SessionDirectory`), which is built after the board: the board is read by the tool pool the directory is built
+/// from. Reads the same late directory cell the other views read; a job exists only inside a turn, so the directory is bound by then.
+pub struct LateBoardNotifier(pub Arc<mixdog_core::run_host::compose_parts::LateDirectory>);
+
+#[async_trait::async_trait]
+impl mixdog_tools::exec::TaskNotifier for LateBoardNotifier {
+    async fn finished(&self, owner: &mixdog_protocol::ThreadId, surface: &str, task_id: &str, status: &str, notification: String) {
+        if let Some(directory) = self.0.directory() {
+            mixdog_tools::exec::TaskNotifier::finished(&*directory, owner, surface, task_id, status, notification).await;
+        }
+    }
+}
+
+/// The usage queue as a sink for callers that hold one sink for life (`QueuedLedger`): each row asks the source, as `ProcessInputs.ledger` does.
+pub struct SourcedSink(pub Arc<dyn Fn() -> Option<Arc<dyn mixdog_ai::registry::accounting::UsageSink>> + Send + Sync>);
+
+#[async_trait::async_trait]
+impl mixdog_ai::registry::accounting::UsageSink for SourcedSink {
+    async fn record_queued(&self, row: mixdog_ai::registry::accounting::UsageRow) -> Result<(), String> {
+        match (self.0)() {
+            Some(sink) => sink.record_queued(row).await,
+            None => Err("no usage ledger".to_owned()),
+        }
+    }
+}
+
+/// `getQuotaAutoResume()` for the providers status reader (wp-ai-admin-4 `QuotaAutoResumeSetting`): the closure the sessions and the
+/// resume timer read (`quota_lane::auto_resume_enabled` over the config), so the whole core has one switch.
+pub struct QuotaSwitch(pub Arc<dyn Fn() -> bool + Send + Sync>);
+
+impl mixdog_core_domains::domains::ai_admin::provider_status::QuotaAutoResumeSetting for QuotaSwitch {
+    fn enabled(&self) -> bool {
+        (self.0)()
+    }
+}
+
 /// JavaScript truthiness of a value that came through JSON.
 fn truthy(value: &Value) -> bool {
     match value {

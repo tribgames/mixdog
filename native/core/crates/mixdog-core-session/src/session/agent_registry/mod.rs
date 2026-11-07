@@ -21,10 +21,10 @@
 //! files; `refresh_tags_from_sessions` reloads the index.
 
 mod rows;
-mod flow;
+pub mod flow;
 mod lead_row;
-mod sessions;
-mod workers;
+pub mod sessions;
+pub mod workers;
 mod worker_view;
 mod pool_docs;
 mod world_rows;

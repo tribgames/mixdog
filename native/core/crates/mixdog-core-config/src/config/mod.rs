@@ -24,9 +24,9 @@ mod notifications;
 pub mod output_style;
 pub mod hidden_agents;
 mod schema;
-mod seams;
+pub mod seams;
 mod service;
-mod secret_changes;
+pub mod secret_changes;
 mod watch;
 
 pub use secret_changes::AnnouncingStore;

@@ -2355,6 +2355,43 @@ async fn a_retention_delete_is_refused_when_the_session_changed_after_the_check(
     assert!(directory.session_meta(&id).await.expect("meta").is_none(), "deleted");
 }
 
+/// The idle sweep's close (`markSessionClosed(id, 'idle-sweep')`) is admitted as the delete is:
+/// refused when the session moved after the pass read it or the sweep was shut down, otherwise
+/// the record is tombstoned (closed, `closedReason: idle-sweep`) and stays listed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_idle_close_is_guarded_and_leaves_a_tombstone() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let directory = SessionDirectory::new(rig.deps_on(store));
+    let handle = start_thread(&directory).await;
+    let id = handle.id.clone();
+    turn(&handle, "hello", "op-1").await;
+    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    let read = super::sub_agent_retention::activity_at(&directory.stored_header(&id).await.expect("header"));
+    let live = CancellationToken::new();
+    subscribe(&handle);
+    handle.cell.unsubscribed();
+    eventually_on(&[&handle.cell.stepped, directory.left()], || directory.handle(&id).is_none().then_some(())).await;
+    handle.inbox.closed().await;
+
+    assert!(!directory.close_stored(id.as_str(), read - 1.0, &live).await.expect("close"), "moved");
+    let down = CancellationToken::new();
+    down.cancel();
+    assert!(!directory.close_stored(id.as_str(), read, &down).await.expect("close"), "shut down");
+    let open = directory.stored_header(&id).await.expect("header");
+    assert_ne!(open.get("closed"), Some(&serde_json::json!(true)), "refusals change nothing");
+
+    assert!(directory.close_stored(id.as_str(), read, &live).await.expect("close"));
+    let closed = directory.stored_header(&id).await.expect("header");
+    assert_eq!(
+        (closed.get("closed"), closed.get("status"), closed.get("closedReason")),
+        (Some(&serde_json::json!(true)), Some(&serde_json::json!("closed")), Some(&serde_json::json!("idle-sweep")))
+    );
+    assert!(directory.session_meta(&id).await.expect("meta").is_some(), "a tombstone stays listed");
+}
+
 /// `treeChanged` is the whole tree's: a member other than the target that is open (opened after
 /// the pass read the tree) refuses the delete under the target's admission; once it is gone the
 /// delete goes through.

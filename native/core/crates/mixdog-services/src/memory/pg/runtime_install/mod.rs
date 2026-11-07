@@ -26,6 +26,8 @@ use thiserror::Error;
 use tokio_util::sync::CancellationToken;
 
 pub use self::manifest::{Asset, Manifest, Platform, repositories_env, url_candidates};
+/// Where an installed runtime of an asset lives under `<data>/runtime`: a test that brings its own runtime seeds exactly this layout, so `ensure_runtime` finds it cached.
+pub use self::stage::{install_key, ver_dir};
 use crate::memory::ingest::NowMs;
 use crate::model_install::{DownloadError, ProgressSink, Spec, download_once, fsio, sha256_file};
 

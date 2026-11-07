@@ -36,7 +36,7 @@ pub struct Liveness<'a> {
     /// `process.pid`.
     pub own_pid: u64,
     /// `mgr.isSessionTurnInFlight(sessionId)`.
-    pub running: &'a dyn Fn(&str) -> bool,
+    pub running: &'a (dyn Fn(&str) -> bool + Sync),
     pub reap: &'a dyn ReapWindow,
     pub now_ms: i64,
 }

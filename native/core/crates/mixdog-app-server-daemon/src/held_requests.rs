@@ -288,6 +288,15 @@ fn granting(response: HumanGateResponse) -> bool {
     matches!(response, HumanGateResponse::Approve | HumanGateResponse::EditAndApprove)
 }
 
+/// Mixy's heartbeat counts the held requests still waiting as approvals (`pendingHeldRequests`).
+#[async_trait]
+impl mixdog_services::bots::beat::HeldRequests for HeldRequests {
+    async fn pending(&self) -> Result<usize, String> {
+        // The inherent `pending` (the rows) is the one named by the method call.
+        Ok(self.pending().len())
+    }
+}
+
 /// Denies a held request whose asking future was dropped before it was answered.
 struct CancelGuard<'a> {
     held: &'a HeldRequests,
@@ -514,6 +523,21 @@ mod tests {
                 assert!(home.rows.lock().unwrap().is_empty(), "{row}");
             }
         }
+    }
+
+    /// Mixy's heartbeat counts the requests still waiting as approvals (`held.length` of
+    /// `collectHeartbeatFacts`): one while the run waits, none once it is answered.
+    #[tokio::test]
+    async fn the_heartbeat_counts_the_requests_still_waiting() {
+        let (home, held, gate) = setup();
+        let count = || <HeldRequests as mixdog_services::bots::beat::HeldRequests>::pending(&held);
+        assert_eq!(count().await, Ok(0));
+        let waiting = tokio::spawn(async move { gate.request(ask()).await });
+        let row = first_row(&home).await;
+        assert_eq!(count().await, Ok(1));
+        assert!(held.resolve(&row.id, HeldAnswer { approved: true, ..HeldAnswer::default() }).await);
+        waiting.await.unwrap();
+        assert_eq!(count().await, Ok(0));
     }
 
     #[tokio::test]

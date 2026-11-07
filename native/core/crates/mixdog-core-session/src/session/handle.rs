@@ -134,6 +134,16 @@ impl SessionHandle {
         self.deps.user_cwd.last_cwd(key_pid).await
     }
 
+    /// The session's latest acked header, as a snapshot.
+    pub fn header_snapshot(&self) -> Arc<mixdog_store::schema::record::Header> {
+        self.cell.header.load_full()
+    }
+
+    /// The messages of the session's current turn transcript, as a snapshot.
+    pub fn turn_messages_snapshot(&self) -> Arc<Vec<Value>> {
+        self.cell.turn_messages.borrow().clone()
+    }
+
     /// The session's latest acked header (`SessionGate`'s `LiveHeader`).
     pub fn live_header(&self) -> Arc<dyn LiveHeader> {
         self.cell.clone()

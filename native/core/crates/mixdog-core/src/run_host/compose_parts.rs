@@ -120,7 +120,7 @@ impl LateDirectory {
     }
 
     /// The latest acked header of a loaded session.
-    fn live_header(&self, session_id: &str) -> Option<Arc<Header>> {
+    pub fn live_header(&self, session_id: &str) -> Option<Arc<Header>> {
         Some(self.directory()?.handle(&ThreadId::from(session_id))?.live_header().header())
     }
 }

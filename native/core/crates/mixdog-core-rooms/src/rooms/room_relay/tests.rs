@@ -8,7 +8,7 @@ use crate::rooms::config::RoomConfigInput;
 use crate::rooms::records::RoomDoc;
 use mixdog_services::bots::delivery::env::FollowRecord;
 
-struct Mem(Mutex<RoomDoc>);
+pub(crate) struct Mem(Mutex<RoomDoc>);
 
 #[async_trait]
 impl RoomStore for Mem {
@@ -22,7 +22,7 @@ impl RoomStore for Mem {
 }
 
 #[derive(Default)]
-struct Recorded(Mutex<Vec<String>>);
+pub(crate) struct Recorded(Mutex<Vec<String>>);
 
 #[async_trait]
 impl FollowRecord for Recorded {
@@ -32,14 +32,14 @@ impl FollowRecord for Recorded {
     }
 }
 
-async fn relay_over(runner: &Arc<Fake>) -> (MemberRelay<Mem, Fake>, Arc<Recorded>) {
+pub(crate) async fn relay_over(runner: &Arc<Fake>) -> (MemberRelay<Mem, Fake>, Arc<Recorded>) {
     let rooms = Arc::new(Rooms::new(Mem(Default::default())));
     let input = RoomConfigInput { name: "Plan".into(), members: vec!["lead".into(), "bench".into()], ..Default::default() };
     rooms.create(&input, "room01", 1).await.unwrap();
     (MemberRelay::new(rooms, scheduler(runner)), Arc::default())
 }
 
-fn options(id: &str, hop: u32) -> WakeOptions {
+pub(crate) fn options(id: &str, hop: u32) -> WakeOptions {
     WakeOptions { id: id.into(), hop }
 }
 

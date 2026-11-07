@@ -108,7 +108,7 @@ fn server_config(limits: Limits) -> ServerConfig {
     }
 }
 
-fn spawn_drive(server: AppServer, accepted: AcceptedConnection) {
+pub(crate) fn spawn_drive(server: AppServer, accepted: AcceptedConnection) {
     mixdog_rt::spawn("server.connection", TaskClass::Control, drive(server, accepted));
 }
 
@@ -290,11 +290,12 @@ mod tests {
         let core = compose(
             &mixdog_rt::testing::tokens(),
             ComposeConfig {
-                data_dir: dir.to_path_buf(),
+                data_dir: crate::compose_test_support::data_dir().to_path_buf(),
                 user_data_dir: dir.join("userdata"),
                 js_runtime: crate::js_runtime::fixture(dir),
                 ort_library: mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
-                host: outgoing.clone(),
+                outgoing: outgoing.clone(),
+                ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
                 log: crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new()),
                 stop: mixdog_rt::CancellationToken::new(),
             },
@@ -315,7 +316,10 @@ mod tests {
     }
 
     #[tokio::test]
+
+    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
     async fn a_client_initializes_and_starts_a_thread_over_the_pair() {
+        let _one = crate::compose_test_support::exclusive().await;
         let dir = tempfile::tempdir().unwrap();
         let (core, outgoing) = core(dir.path()).await;
         let (connector, shutdown) = serve_in_process(core, outgoing).unwrap();
@@ -434,7 +438,9 @@ mod tests {
     /// The wedged stop step blocks on a future nobody resolves and its budget is zero, so it is over
     /// budget the moment it starts; `run_with` still returns.
     #[tokio::test]
+    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
     async fn a_wedged_stop_step_does_not_hold_the_headless_shutdown() {
+        let _one = crate::compose_test_support::exclusive().await;
         let dir = tempfile::tempdir().unwrap();
         let (core, outgoing) = core(dir.path()).await;
         core.on_stop("wedged", std::future::pending());
@@ -444,7 +450,10 @@ mod tests {
     }
 
     #[tokio::test]
+
+    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
     async fn shutdown_stops_the_core_in_registration_order_and_refuses_new_clients() {
+        let _one = crate::compose_test_support::exclusive().await;
         let dir = tempfile::tempdir().unwrap();
         let (core, outgoing) = core(dir.path()).await;
         let order = Arc::new(Mutex::new(Vec::new()));

@@ -37,11 +37,11 @@ use serde_json::json;
 #[path = "worktree_gate.rs"]
 mod worktree_gate;
 #[path = "worktree_host.rs"]
-mod worktree_host;
+pub mod worktree_host;
 #[path = "worktree_host_impl.rs"]
-mod worktree_host_impl;
+pub mod worktree_host_impl;
 #[path = "worktree_consumers.rs"]
-mod worktree_consumers;
+pub mod worktree_consumers;
 #[path = "worktree_ops.rs"]
 mod worktree_ops;
 #[path = "worktree_state.rs"]
@@ -53,20 +53,20 @@ mod worktree_menu;
 #[path = "worktree_merge.rs"]
 mod worktree_merge;
 #[path = "worktree_service.rs"]
-mod worktree_service;
+pub mod worktree_service;
 #[cfg(test)]
 #[path = "worktree_service_tests.rs"]
 mod worktree_service_tests;
 #[path = "worktree_session.rs"]
 mod worktree_session;
 #[path = "worktree_maintenance.rs"]
-mod worktree_maintenance;
+pub mod worktree_maintenance;
 #[path = "worktree_sessions.rs"]
-mod worktree_sessions;
+pub mod worktree_sessions;
 #[path = "worktree_snapshots.rs"]
 mod worktree_snapshots;
 #[path = "worktree_setup.rs"]
-mod worktree_setup;
+pub mod worktree_setup;
 #[path = "worktree_reroot.rs"]
 mod worktree_reroot;
 #[path = "worktree_setup_note.rs"]
