@@ -14,7 +14,13 @@ use mixdog_tools::orch::util::PortError;
 use serde_json::{Value, json};
 
 use super::chain::RouteFacts;
+use super::model_list::ModelListService;
+use super::model_list_tests::Offline;
 use super::route_service::{FastValue, RouteService, SessionFollow, SetRouteOptions};
+use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelsDevSource};
+use mixdog_ai::oauth::CredentialIo;
+use mixdog_ai::service::admin_models::developer_option_for_provider;
+use mixdog_ai::service::effort_configuration::UnsupportedEfforts;
 use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
 use mixdog_core_ports::ports::route::FollowOptions;
@@ -74,10 +80,6 @@ impl RouteFacts for Facts {
 
     fn ultrafast_capable(&self, provider: &str, _: &Value) -> bool {
         self.case["ultraTable"][provider].as_bool().unwrap_or(false)
-    }
-
-    fn provider_models_listed(&self) -> bool {
-        self.case["listed"] != json!(false)
     }
 }
 
@@ -161,6 +163,16 @@ pub(super) async fn rig(case: &Value) -> (RouteService, Arc<Writer>, Arc<Mutex<L
     let path = dir.path().join("mixdog-config.json");
     std::fs::write(&path, serde_json::to_vec(&json!({ "agent": case["config"] })).unwrap()).unwrap();
     let (config, _) = Config::open(&path, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    // The model list reads the catalog the case recorded (`snapshot`), none when it records none.
+    let snapshot: CatalogSnapshot = if case["snapshot"].is_null() { CatalogSnapshot::default() } else { serde_json::from_value(case["snapshot"].clone()).unwrap() };
+    let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    let catalog = Arc::new(CatalogService::cold_start(snapshot, Vec::new(), ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io)).await);
+    let models = Arc::new(ModelListService {
+        catalog,
+        config: config.clone(),
+        primary_provider: Arc::new(String::new),
+        unsupported: Arc::new(UnsupportedEfforts::default()),
+    });
     if !case["fileOverride"].is_null() {
         std::fs::write(&path, serde_json::to_vec(&json!({ "agent": case["fileOverride"] })).unwrap()).unwrap();
     }
@@ -171,6 +183,7 @@ pub(super) async fn rig(case: &Value) -> (RouteService, Arc<Writer>, Arc<Mutex<L
         facts: Arc::new(Facts { case: case.clone(), log: log.clone() }),
         writer: writer.clone(),
         session: Arc::new(Session { log: log.clone(), case: case.clone(), writer: writer.clone() }),
+        models,
     };
     (service, writer, log, dir)
 }
@@ -188,18 +201,41 @@ fn options(case: &Value) -> SetRouteOptions {
 
 /// A default route with no model is refused before a thread exists, with the text Node's
 /// `resolveMissingRouteModelForFirstTurn` throws (`fixtures/ai-admin/route-model-refusals.json`,
-/// extracted from the Node source); a route with a model is readied, not refused.
+/// extracted from the Node source). Which text follows what Node's `collectProviderModels()`
+/// answered over the recorded catalogs (`fixtures/ai-admin/model-list-service-twin.json`, Node's
+/// real read): no row means "No provider models available", including a catalog whose providers
+/// are all unavailable; any row means "No model selected". A route with a model is readied.
 #[tokio::test]
 async fn a_default_route_with_no_model_is_refused_with_the_texts_node_throws() {
     let thread = ThreadId::from("t");
     let refusals: Value = serde_json::from_str(include_str!("../../../../../fixtures/ai-admin/route-model-refusals.json")).unwrap();
-    for (listed, text) in [(true, "noModelSelected"), (false, "noProviderModels")] {
-        let case = json!({ "config": {}, "live": { "provider": "anthropic-oauth", "model": "" }, "listed": listed });
+    let recorded: Value = serde_json::from_str(include_str!("../../../../../fixtures/ai-admin/model-list-service-twin.json")).unwrap();
+    // Catalogs whose every listed model sits under a Developer-gated provider (recorded with the
+    // option off, so none is available) and catalogs Node answered rows for.
+    let (mut unavailable, mut listed) = (0, 0);
+    for (i, recording) in recorded["cases"].as_array().unwrap().iter().enumerate() {
+        if matches!(recording["read"].as_str(), Some("force" | "warm-quick")) {
+            continue;
+        }
+        let rows = recording["value"].as_array().unwrap().len();
+        let providers_with_models: Vec<&str> =
+            recording["snapshot"]["models"].as_object().unwrap().iter().filter(|(_, models)| !models.as_array().unwrap().is_empty()).map(|(name, _)| name.as_str()).collect();
+        let in_catalog = providers_with_models.len();
+        let case = json!({ "config": recording["config"], "snapshot": recording["snapshot"], "live": { "provider": "anthropic-oauth", "model": "" } });
         let (service, _writer, log, _dir) = rig(&case).await;
         let refused = service.ready_default(&thread).await.expect_err("a model-less route is refused");
-        assert_eq!(refused, refusals[text].as_str().unwrap());
+        let text = if rows == 0 { "noProviderModels" } else { "noModelSelected" };
+        assert_eq!(refused, refusals[text].as_str().unwrap(), "case {i}: {rows} rows, models under {in_catalog} providers");
         assert!(log.lock().unwrap().refreshes.is_empty(), "nothing is readied for it");
+        let gated_only = in_catalog > 0 && recording["config"]["developer"].is_null() && providers_with_models.iter().all(|name| developer_option_for_provider(name).is_some());
+        if rows == 0 && gated_only {
+            unavailable += 1;
+        }
+        if rows > 0 {
+            listed += 1;
+        }
     }
+    assert!(unavailable > 0 && listed > 0, "the recording covers catalog models with no provider available ({unavailable}) and the reverse ({listed})");
     let case = json!({ "config": {}, "live": { "provider": "anthropic-oauth", "model": "claude-x" } });
     let (service, _writer, log, _dir) = rig(&case).await;
     service.ready_default(&thread).await.expect("a route with a model is readied");

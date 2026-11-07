@@ -25,7 +25,7 @@ fn twin() -> Value {
     serde_json::from_str(include_str!("../../../../../fixtures/ai-admin/model-list-service-twin.json")).unwrap()
 }
 
-struct Offline;
+pub(super) struct Offline;
 
 #[async_trait]
 impl HttpSend for Offline {

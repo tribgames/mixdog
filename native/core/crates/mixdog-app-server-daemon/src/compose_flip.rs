@@ -2365,7 +2365,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         usage: usage_sources.clone(),
     });
     let route_follow = Arc::new(mixdog_core_ports::ports::route::SessionRoutes::new(threads.clone(), threads.clone(), late_route_session.clone(), routes.clone()));
-    let route_service = Arc::new(mixdog_core_domains::domains::ai_admin::route_service::RouteService { config: config.clone(), facts: facts.clone(), writer: route_writer, session: route_follow.clone() });
+    let route_service = Arc::new(mixdog_core_domains::domains::ai_admin::route_service::RouteService { config: config.clone(), facts: facts.clone(), writer: route_writer, session: route_follow.clone(), models: model_list.clone() });
     // The route a `thread/start` thread begins on is the route service's; the pick a turn start applies is the follow's (`SessionRoutes::apply_pending`).
     late_new_route.bind(route_service.clone()).map_err(|_| ComposeError::AlreadyBound("new thread route"))?;
     late_pending_route.bind(route_follow).map_err(|_| ComposeError::AlreadyBound("pending route"))?;
