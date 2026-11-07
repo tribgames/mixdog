@@ -855,6 +855,16 @@ impl super::NewThreadRoute for NoRoute {
     }
 }
 
+/// A task workspace that is a fixed path (no folder is made).
+pub struct FixedTaskWorkspace(pub &'static str);
+
+#[async_trait::async_trait]
+impl super::TaskWorkspace for FixedTaskWorkspace {
+    async fn path(&self) -> Result<String, String> {
+        Ok(self.0.to_owned())
+    }
+}
+
 /// The rooms whose members' handed-off questions moved, and the member approvals resolved
 /// (`room:approval`), in order.
 #[derive(Default)]
@@ -1363,6 +1373,7 @@ impl Rig {
             new_tools: Arc::new(KeepHeader),
             surface: mixdog_core_base::surface::SurfaceGeneration::default(),
             new_route: Arc::new(NoRoute),
+            task_workspace: Arc::new(FixedTaskWorkspace("/tasks")),
             resumed_tools: self.resumed.clone(),
             room_members: self.room_members.clone(),
             wakes: self.wakes.clone(),

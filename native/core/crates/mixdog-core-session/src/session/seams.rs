@@ -497,6 +497,23 @@ pub trait NewThreadRoute: Send + Sync + 'static {
     async fn seat(&self, thread: &ThreadId) -> Result<(), String>;
 }
 
+/// The folder task threads run in: Node's `SessionHost.taskWorkspace()` (`session-host.ts`), which creates
+/// `<userData>/workspace/unclassified` when missing and answers it as `realpath` prints it. A `thread/start` of
+/// `kind: task` without a project begins there, as Node's `resolveSessionWorkspace()` and the control session's
+/// `ensureControlSession` (`session-host-transport.ts`) create their sessions with `cwd: await taskWorkspace()`.
+#[async_trait::async_trait]
+pub trait TaskWorkspace: Send + Sync + 'static {
+    async fn path(&self) -> Result<String, String>;
+}
+
+/// The agent definitions already own that folder (`AgentDefinitions::task_workspace`, the port of `taskWorkspace()`).
+#[async_trait::async_trait]
+impl TaskWorkspace for mixdog_core_agents::agents::AgentDefinitions {
+    async fn path(&self) -> Result<String, String> {
+        self.task_workspace().await.map_err(|error| error.to_string())
+    }
+}
+
 /// What a room member's thread tells the room it sits in. Each call carries the room id and comes
 /// after the thread's view carries the change.
 pub trait RoomMemberEvents: Send + Sync + 'static {
