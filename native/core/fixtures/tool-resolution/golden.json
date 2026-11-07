@@ -12346,6 +12346,139 @@
       },
       "annotations": {}
     },
+    "code_graph#2": {
+      "name": "code_graph",
+      "description": "Code structure and relations from the parsed graph, no text matching. symbols → file outline rows `[export ]kind name (Lstart-end) signature`; find_symbol returns declaration/body; references adds usages; callers/callees return locations; dependents/impact → importers and blast radius. Exact identifiers: find_symbol/references/callers/callees; keywords: symbol_search/search; literal text and regex belong to grep. Prefer it over read/grep for declarations and relations. symbols already outlines a file: never pair it with overview for one need.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "overview",
+              "imports",
+              "dependents",
+              "related",
+              "impact",
+              "symbols",
+              "find_symbol",
+              "symbol_search",
+              "search",
+              "references",
+              "callers",
+              "callees"
+            ],
+            "description": "File modes (files[]): overview, imports, dependents, related, impact. symbols with files[] gives the file outline; other modes use symbols[]."
+          },
+          "files": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Paths, project-relative or absolute; required for file modes, symbol queries span all files."
+          },
+          "symbols": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Exact identifiers/keywords; required for symbol modes, optional outline filter. Every symbol searches every file; distinct pairs need separate calls."
+          },
+          "body": {
+            "type": "boolean",
+            "description": "true for implementation, false for locations; find_symbol defaults true, references is opt-in."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500,
+            "description": "Max results; modes may cap lower."
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5,
+            "description": "Overview hierarchy or caller traversal depth; default 1."
+          },
+          "cwd": {
+            "type": "string",
+            "description": "Explicit root outside the project; omit for project root."
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Code Graph",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "compressible": false,
+        "compressibleLossless": true
+      }
+    },
+    "web_fetch#3": {
+      "name": "web_fetch",
+      "description": "Fetch the page or docs body of known URLs; to find pages, use web_search.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "URL, or an array of up to 10; loopback and public URLs in separate calls."
+          },
+          "startIndex": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Character offset."
+          },
+          "maxLength": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Default 20000; 0 unlimited."
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "title": "Mixdog Web Fetch",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "deferLoading": true
+    },
     "mcp__alpha__Beta": {
       "name": "mcp__alpha__Beta",
       "description": "alpha Beta",
@@ -16494,6 +16627,276 @@
         {
           "name": "todo",
           "definition": "todo"
+        }
+      ]
+    },
+    {
+      "name": "lead, spec mcp, MCP tools",
+      "input": {
+        "kind": "lead",
+        "provider": "anthropic",
+        "model": "claude-opus-4-6",
+        "mode": "full",
+        "agent": null,
+        "schemaAllowedTools": null,
+        "callerDisallowed": [],
+        "featureDenied": [],
+        "mcpConnected": true,
+        "sessionId": "sess_recorder"
+      },
+      "hiddenAgent": false,
+      "toolSpec": "mcp",
+      "persisted": {
+        "schemaAllowedTools": null,
+        "disallowedTools": [
+          "react"
+        ]
+      },
+      "exposure": null,
+      "resolved": [
+        "explore",
+        "code_graph",
+        "web_search",
+        "web_fetch",
+        "Skill",
+        "agent",
+        "ask_user",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "goal",
+        "handoff_user",
+        "load_tool",
+        "mcp__alpha__Beta",
+        "mcp__alpha__search_docs",
+        "mcp__alpha__zeta",
+        "mcp__beta__fetch",
+        "mcp__beta__web_search_extra",
+        "media",
+        "memory",
+        "office",
+        "react",
+        "recall",
+        "session",
+        "setup",
+        "terminal",
+        "tidy",
+        "visualize",
+        "todo"
+      ],
+      "finalized": [
+        "explore",
+        "code_graph",
+        "web_search",
+        "web_fetch",
+        "Skill",
+        "agent",
+        "ask_user",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "goal",
+        "handoff_user",
+        "load_tool",
+        "mcp__alpha__Beta",
+        "mcp__alpha__search_docs",
+        "mcp__alpha__zeta",
+        "mcp__beta__fetch",
+        "mcp__beta__web_search_extra",
+        "media",
+        "memory",
+        "office",
+        "recall",
+        "session",
+        "setup",
+        "terminal",
+        "tidy",
+        "visualize",
+        "todo"
+      ],
+      "surface": [
+        "explore",
+        "code_graph",
+        "agent",
+        "web_search",
+        "Skill",
+        "ask_user",
+        "load_tool",
+        "todo"
+      ],
+      "provider": [
+        {
+          "name": "explore",
+          "definition": "explore"
+        },
+        {
+          "name": "code_graph",
+          "definition": "code_graph#2"
+        },
+        {
+          "name": "agent",
+          "definition": "agent"
+        },
+        {
+          "name": "web_search",
+          "definition": "web_search"
+        },
+        {
+          "name": "Skill",
+          "definition": "Skill"
+        },
+        {
+          "name": "ask_user",
+          "definition": "ask_user"
+        },
+        {
+          "name": "load_tool",
+          "definition": "load_tool"
+        },
+        {
+          "name": "todo",
+          "definition": "todo"
+        },
+        {
+          "name": "web_fetch",
+          "definition": "web_fetch#3",
+          "deferLoading": true
+        }
+      ]
+    },
+    {
+      "name": "lead, spec tools:mcp, MCP tools",
+      "input": {
+        "kind": "lead",
+        "provider": "anthropic",
+        "model": "claude-opus-4-6",
+        "mode": "full",
+        "agent": null,
+        "schemaAllowedTools": null,
+        "callerDisallowed": [],
+        "featureDenied": [],
+        "mcpConnected": true,
+        "sessionId": "sess_recorder"
+      },
+      "hiddenAgent": false,
+      "toolSpec": [
+        "tools:mcp"
+      ],
+      "persisted": {
+        "schemaAllowedTools": null,
+        "disallowedTools": [
+          "react"
+        ]
+      },
+      "exposure": null,
+      "resolved": [
+        "explore",
+        "code_graph",
+        "web_search",
+        "web_fetch",
+        "Skill",
+        "agent",
+        "ask_user",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "goal",
+        "handoff_user",
+        "load_tool",
+        "mcp__alpha__Beta",
+        "mcp__alpha__search_docs",
+        "mcp__alpha__zeta",
+        "mcp__beta__fetch",
+        "mcp__beta__web_search_extra",
+        "media",
+        "memory",
+        "office",
+        "react",
+        "recall",
+        "session",
+        "setup",
+        "terminal",
+        "tidy",
+        "visualize",
+        "todo"
+      ],
+      "finalized": [
+        "explore",
+        "code_graph",
+        "web_search",
+        "web_fetch",
+        "Skill",
+        "agent",
+        "ask_user",
+        "browser",
+        "browser_devtools",
+        "computer",
+        "goal",
+        "handoff_user",
+        "load_tool",
+        "mcp__alpha__Beta",
+        "mcp__alpha__search_docs",
+        "mcp__alpha__zeta",
+        "mcp__beta__fetch",
+        "mcp__beta__web_search_extra",
+        "media",
+        "memory",
+        "office",
+        "recall",
+        "session",
+        "setup",
+        "terminal",
+        "tidy",
+        "visualize",
+        "todo"
+      ],
+      "surface": [
+        "explore",
+        "code_graph",
+        "agent",
+        "web_search",
+        "Skill",
+        "ask_user",
+        "load_tool",
+        "todo"
+      ],
+      "provider": [
+        {
+          "name": "explore",
+          "definition": "explore"
+        },
+        {
+          "name": "code_graph",
+          "definition": "code_graph#2"
+        },
+        {
+          "name": "agent",
+          "definition": "agent"
+        },
+        {
+          "name": "web_search",
+          "definition": "web_search"
+        },
+        {
+          "name": "Skill",
+          "definition": "Skill"
+        },
+        {
+          "name": "ask_user",
+          "definition": "ask_user"
+        },
+        {
+          "name": "load_tool",
+          "definition": "load_tool"
+        },
+        {
+          "name": "todo",
+          "definition": "todo"
+        },
+        {
+          "name": "web_fetch",
+          "definition": "web_fetch#3",
+          "deferLoading": true
         }
       ]
     },

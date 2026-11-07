@@ -131,30 +131,26 @@ const STANDALONE_ORDER: &[&str] = &[
     "agent",
 ];
 
-/// `standaloneTools` of the pool, in Node's registration order: every registered tool that is not a
-/// built-in (but `code_graph`, which Node registers in both lists) nor the step list or the bridge's
-/// `call_tool`, which the resolved set adds itself. A tool `STANDALONE_ORDER` does not name follows the
-/// named ones in pool order. A `public:false` tool never enters any model-visible schema, so it is left out.
-pub fn standalone_tools(pool: &[Arc<dyn Tool>]) -> Tools {
+/// `standaloneTools` of the pool, which `internalToolDefs` (and so `_getMcpTools`' merge) holds, in Node's
+/// registration order: every registered tool that is not a built-in (but `code_graph`, which Node registers in
+/// both lists) nor the step list or the bridge's `call_tool`, which the resolved set adds itself. A tool
+/// `STANDALONE_ORDER` does not name follows the named ones in pool order. A `public:false` tool never enters
+/// any model-visible schema, so it is left out.
+pub fn internal_tools(pool: &[Arc<dyn Tool>]) -> Tools {
     let mut tools: Tools =
         pool.iter().filter(|t| t.spec().public && (!is_builtin(name(t)) || name(t) == CODE_GRAPH) && ![TODO, "call_tool"].contains(&name(t))).cloned().collect();
     tools.sort_by_key(|t| STANDALONE_ORDER.iter().position(|n| *n == name(t)).unwrap_or(STANDALONE_ORDER.len()));
     tools
 }
 
-/// The internal tools of the pool: the standalone tools less `code_graph`, which the built-ins own
-/// (their whole definition, not the projection an internal tool gets).
-pub fn internal_tools(pool: &[Arc<dyn Tool>]) -> Tools {
-    standalone_tools(pool).into_iter().filter(|t| name(t) != CODE_GRAPH).collect()
-}
-
 /// A resolved tool as the session holds it. An internal tool went through `_getMcpTools`' projection to
 /// `{ name, description, inputSchema, annotations }`, which carries neither its `title` nor its
 /// `trigger`: the deferred manifest lists its description. The built-ins, the connected servers' tools
-/// and the step list keep their whole definition.
+/// and the step list keep their whole definition, and so does code_graph, which a built-in spec resolves as a built-in (under the
+/// mcp specs Node projects it; the stored definition only differs by 	itle and 	rigger, never on the wire).
 pub fn session_doc(pool: &[Arc<dyn Tool>], tool: &Arc<dyn Tool>) -> Value {
     let doc = tool.spec().definition();
-    if !internal_tools(pool).iter().any(|internal| name(internal) == name(tool)) {
+    if name(tool) == CODE_GRAPH || !internal_tools(pool).iter().any(|internal| name(internal) == name(tool)) {
         return doc;
     }
     let mut projected = Map::new();

@@ -24,15 +24,16 @@ const recorder = 'benchmarks/rust-core/recorders/record-surface-preview.mjs';
 const at = (path) => importFrom(tree, path);
 const { createToolSurface } = await at('src/session-runtime/tool-surface.mjs');
 const { previewSessionTools } = await at('src/runtime/agent/orchestrator/session/manager/tool-resolution.mjs');
-const { collectStandaloneToolDefs, TOOL_BRIDGE_TOOLS, LEAD_DISALLOWED_TOOLS } = await at('src/runtime/agent/orchestrator/runtime-core/tool-defs.mjs');
+const { collectStandaloneToolDefs, TOOL_BRIDGE_TOOLS } = await at('src/runtime/agent/orchestrator/runtime-core/tool-defs.mjs');
 const { setInternalToolsProvider } = await at('src/runtime/agent/orchestrator/internal-tools.mjs');
 const defs = async (path, key = 'TOOL_DEFS') => (await at(path))[key];
-const stub = (name) => ({ name, description: `${name} tool`, inputSchema: { type: 'object', properties: {} }, annotations: { readOnlyHint: name === 'recall' || name === 'web_fetch' } });
+const { GOAL_TOOL_DEFS } = await at('src/runtime/agent/orchestrator/runtime-core/goal-tool-defs.mjs');
+const { AGENT_TOOL } = await at('src/session-runtime/services/agent-tool/tool-def.mjs');
 
 const { standaloneTools, internalToolDefs, agentToolNames } = collectStandaloneToolDefs({
-  webSearchToolDefs: { TOOL_DEFS: ['web_search', 'web_fetch', 'local_fetch', 'image_fetch'].map(stub) },
-  memoryToolDefs: { TOOL_DEFS: ['recall', 'memory'].map(stub) },
-  codeGraphToolDefs: { CODE_GRAPH_TOOL_DEFS: [] },
+  webSearchToolDefs: await at('src/runtime/web-search/tool-defs.mjs'),
+  memoryToolDefs: await at('src/runtime/memory/tool-defs.mjs'),
+  codeGraphToolDefs: await at('src/runtime/agent/orchestrator/tools/code-graph-tool-defs.mjs'),
   browserToolDefs: await defs('src/runtime/browser-bridge/tool-defs.mjs'),
   computerToolDefs: await defs('src/runtime/computer-bridge/tool-defs.mjs'),
   terminalToolDefs: await defs('src/runtime/terminal-bridge/tool-defs.mjs'),
@@ -45,8 +46,8 @@ const { standaloneTools, internalToolDefs, agentToolNames } = collectStandaloneT
   askUserToolDefs: await defs('src/runtime/agent/orchestrator/runtime-core/ask-user-tool-defs.mjs', 'ASK_USER_TOOL_DEFS'),
   handoffUserToolDefs: await defs('src/runtime/agent/orchestrator/runtime-core/ask-user-tool-defs.mjs', 'HANDOFF_USER_TOOL_DEFS'),
   reactionToolDefs: await defs('src/runtime/agent/orchestrator/runtime-core/reaction-tool-defs.mjs', 'REACTION_TOOL_DEFS'),
-  goalTools: LEAD_DISALLOWED_TOOLS.map(stub),
-  agentTools: [stub('agent')],
+  goalTools: GOAL_TOOL_DEFS,
+  agentTools: [AGENT_TOOL],
 });
 // The runtime registers its internal tools with the same provider the session reads them from.
 setInternalToolsProvider({ executor: async () => '', tools: internalToolDefs });

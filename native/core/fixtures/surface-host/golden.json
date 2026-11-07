@@ -894,24 +894,103 @@
     },
     {
       "name": "web_search",
-      "description": "web_search tool",
+      "description": "Search the web for recent, external or unfamiliar facts (names, products, models) before answering from memory.",
       "inputSchema": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "One query, or an array run as a batch."
+          },
+          "site": {
+            "type": "string",
+            "description": "Domain filter."
+          },
+          "maxResults": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "description": "Default 10."
+          },
+          "locale": {
+            "type": "string",
+            "description": "e.g. ko-KR."
+          },
+          "contextSize": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "description": "Default low."
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
       },
       "annotations": {
-        "readOnlyHint": false
+        "title": "Mixdog Web Search",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
       }
     },
     {
       "name": "web_fetch",
-      "description": "web_fetch tool",
+      "description": "Fetch the page or docs body of known URLs; to find pages, use web_search.",
       "inputSchema": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "URL, or an array of up to 10; loopback and public URLs in separate calls."
+          },
+          "startIndex": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Character offset."
+          },
+          "maxLength": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Default 20000; 0 unlimited."
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
       },
       "annotations": {
-        "readOnlyHint": true
+        "title": "Mixdog Web Fetch",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
       }
     },
     {
@@ -941,13 +1020,89 @@
     },
     {
       "name": "agent",
-      "description": "agent tool",
+      "description": "Run scoped agent work as background tasks. spawn/send return task_id immediately. Reuse one tag for one scope for its whole lifetime; give distinct tags only to independent scopes. Never mint a new tag because a session expired or was lost — same-tag spawn respawns it with the full brief. Completion notifications arrive automatically; use status/read only for manual recovery. Close finished agents yourself.",
       "inputSchema": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "spawn",
+              "send",
+              "list",
+              "close",
+              "cancel",
+              "status",
+              "read",
+              "cleanup"
+            ],
+            "description": "Required action. New spawn requires agent and one of prompt/message/file; send requires tag and one of prompt/message/file; read/status/close/cancel require task_id or tag; list/cleanup require no target. list shows active agents and running tasks in full; idle/closed agents and finished tasks are counts plus a short latest tail (list with tag=<text> shows matching ones: case-insensitive substring, at most 25 per section)."
+          },
+          "task_id": {
+            "type": "string",
+            "description": "Task ID returned by spawn/send."
+          },
+          "agent": {
+            "type": "string",
+            "description": "Workflow agent id; same-tag reuse can inherit it."
+          },
+          "tag": {
+            "type": "string",
+            "description": "Stable scope handle; never derive a variant by appending a number or suffix. spawn generates one when omitted."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "Spawn task brief."
+          },
+          "message": {
+            "type": "string",
+            "description": "Send follow-up."
+          },
+          "file": {
+            "type": "string",
+            "description": "Path to task text; used instead of prompt/message."
+          },
+          "cwd": {
+            "type": "string",
+            "description": "Project directory for a new or respawned agent."
+          },
+          "context": {
+            "type": "string",
+            "description": "Extra context for the spawn/send turn."
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8,
+            "description": "spawn/send: files to attach (images, PDF/Office, text): a conversation attachment's file name or [attachment:id], or a path inside your folders. Produced files come back as paths; forward them by path."
+          },
+          "model": {
+            "type": "string",
+            "description": "Spawn only, and only when the user explicitly names a model: runs this one spawn on it instead of the agent's preset route. Id, display name, or words of it; ambiguous or unknown names fail with candidates. The agent still supplies role and permissions."
+          },
+          "provider": {
+            "type": "string",
+            "description": "Narrows model to one provider; requires model."
+          },
+          "effort": {
+            "type": "string",
+            "description": "Reasoning effort for an explicit model."
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "additionalProperties": false
       },
       "annotations": {
-        "readOnlyHint": false
+        "title": "Agent",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true,
+        "agentHidden": false
       }
     },
     {
@@ -2359,25 +2514,50 @@
       "annotations": {}
     },
     {
-      "name": "create_goal",
-      "description": "create_goal tool",
+      "name": "goal",
+      "description": "A durable objective the runtime keeps working on across turns until you complete or block it, with an optional time cap (an upper bound, never a minimum). Create one only for an explicit Goal request or approved multi-turn work (staged refactors, migrations, open-ended objectives); never for single-turn tasks, plans, estimates or unaccepted proposals. One Goal at a time; its steps live in todo, not here. complete only after auditing every user condition against current evidence — never because time is low, the cap was reached or the turn is ending, and never for a smaller objective than the one stated. block only when the same blocking condition has recurred for at least three consecutive Goal turns (first turn and continuations count) and no progress is possible without the user or a change in external state; never because the work is hard, slow, uncertain, unfinished or would benefit from clarification. A resumed Goal counts afresh; once the threshold is met, block rather than report the impasse. Pause, resume, stop and edits are the user’s controls.",
       "inputSchema": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "status",
+              "create",
+              "complete",
+              "block"
+            ],
+            "description": "create starts approved work once any previous Goal has ended."
+          },
+          "objective": {
+            "type": "string",
+            "description": "create: the requested outcome, as the user stated it."
+          },
+          "time_limit_minutes": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 10080,
+            "description": "create: agreed time cap; omit when none was agreed."
+          },
+          "blocker": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "block: the impasse that recurred for three consecutive Goal turns; stops the Goal."
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "additionalProperties": false
       },
       "annotations": {
-        "readOnlyHint": false
-      }
-    },
-    {
-      "name": "get_goal",
-      "description": "get_goal tool",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": false
+        "title": "Goal",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false,
+        "agentHidden": true
       }
     },
     {
@@ -2483,17 +2663,6 @@
       }
     },
     {
-      "name": "image_fetch",
-      "description": "image_fetch tool",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": false
-      }
-    },
-    {
       "name": "load_tool",
       "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
       "inputSchema": {
@@ -2527,17 +2696,6 @@
         "idempotentHint": true,
         "openWorldHint": false,
         "agentHidden": true
-      }
-    },
-    {
-      "name": "local_fetch",
-      "description": "local_fetch tool",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": false
       }
     },
     {
@@ -2630,13 +2788,68 @@
     },
     {
       "name": "memory",
-      "description": "memory tool",
+      "description": "Manage standing user preferences and constraints. Save what the user asks you to remember and report its exact text and scope; an entry you propose yourself, or one whose scope is unclear, waits for the user's approval. Load memory-management for curation policy; stored history uses recall.",
       "inputSchema": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "op": {
+            "type": "string",
+            "enum": [
+              "add",
+              "edit",
+              "delete",
+              "list"
+            ],
+            "description": "Manage user-curated standing memory only. list defaults to active entries; include_inactive:true also shows archived entries. Generated conversation history belongs to recall."
+          },
+          "id": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "edit/delete: per-project memory index from list, paired with project_id and index_revision."
+          },
+          "index_revision": {
+            "type": "string",
+            "description": "Required for edit/delete: exact scope version returned by list. Indices compact after deletion or movement; stale versions are rejected. Read the list again, never guess."
+          },
+          "include_inactive": {
+            "type": "boolean",
+            "description": "list only: default false returns active standing memories. Set true to also inspect archived user-curated records."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "list page size; default 50."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "list continuation offset; default 0."
+          },
+          "summary": {
+            "type": "string",
+            "description": "Durable content; required for add and edit. The internal title is derived from its first 40 characters."
+          },
+          "project_id": {
+            "type": "string",
+            "description": "Pool: omit for the current Project, \"common\" for common memory, or a Project slug; \"*\" is list only."
+          },
+          "agent_id": {
+            "type": "string",
+            "description": "Agent memory instead of project_id: \"self\" is your own pool, read and injected only for you; an unattended run writes only there. The representative agent (lead) may list or delete another agent's by its id."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "op"
+        ]
       },
       "annotations": {
-        "readOnlyHint": false
+        "title": "Memory",
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
       }
     },
     {
@@ -3064,13 +3277,110 @@
     },
     {
       "name": "recall",
-      "description": "recall tool",
+      "description": "Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window; id=exact follow-up.",
       "inputSchema": {
         "type": "object",
-        "properties": {}
+        "properties": {
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 5
+              }
+            ],
+            "description": "Query or independent fan-out array; shared scope/period. Write it in the conversation's language; history is stored in it."
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            ],
+            "description": "Exact #id(s) from recall. Do not invent ids."
+          },
+          "period": {
+            "type": "string",
+            "description": "last (recent sessions; +query topic-filter), Nm/Nh/Nd, today/yesterday/this_week/last_week, all, YYYY-MM-DD, date~date, or HH:MM~HH:MM."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Max entries; default 10, or 5 sessions for period=last."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 500,
+            "description": "Entries to skip; default 0. For period=last paging, use the returned cursor instead."
+          },
+          "cursor": {
+            "type": "string",
+            "description": "Opaque period=last continuation cursor returned by the previous page."
+          },
+          "sort": {
+            "type": "string",
+            "enum": [
+              "importance",
+              "date"
+            ],
+            "description": "importance or date."
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "description": "Category filter, string or array: rule|constraint|decision|fact|goal|preference|task|issue."
+          },
+          "includeArchived": {
+            "type": "boolean",
+            "description": "Include archived entries; default true."
+          },
+          "includeMembers": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include chunk members; default false."
+          },
+          "includeRaw": {
+            "type": "boolean",
+            "default": false,
+            "description": "Include raw/episode rows; default false."
+          },
+          "projectScope": {
+            "type": "string",
+            "description": "Pool: inferred from cwd, common, all, or slug."
+          }
+        },
+        "additionalProperties": false
       },
       "annotations": {
-        "readOnlyHint": true
+        "title": "Recall",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {
@@ -3229,17 +3539,6 @@
         "idempotentHint": false,
         "openWorldHint": false,
         "agentHidden": true
-      }
-    },
-    {
-      "name": "set_goal_tasks",
-      "description": "set_goal_tasks tool",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": false
       }
     },
     {
@@ -4784,17 +5083,6 @@
       "annotations": {}
     },
     {
-      "name": "update_goal",
-      "description": "update_goal tool",
-      "inputSchema": {
-        "type": "object",
-        "properties": {}
-      },
-      "annotations": {
-        "readOnlyHint": false
-      }
-    },
-    {
       "name": "visualize",
       "description": "Show the user a finished deliverable you produced or changed (mockups, docs, decks, sheets, PDFs, images, video, local dev pages) in the desktop side panel beside the chat. A summary, plan or report of your own work is not one either: it stays in the chat. Your own check screenshots are not deliverables: look at them with read; open with verify: true only to run check/inspect/act/capture/export. Panel tabs auto-reload when a file changes, so re-opening after edits is unnecessary. open: input.targets (1-3 file paths, relative to the working directory or absolute anywhere on this machine; 2-3 = side-by-side comparison; or a single http(s) URL alone, never mixed with files or other URLs), optional label, optional version (show that kept version of a file tab read-only; each open/reload that changes the files keeps a version), optional verify (true = you open only to check your own work with check/inspect/act/capture/export: the user is not shown the tab and it closes when the turn ends; leave it off for anything the user should see). close: optional tab (omit = all). annotate: tab + add [{selector,label?}] | remove [selector] | clear; HTML pages only, never edits the file. capture: tab + output (.png path). export: tab + format (png|pdf) + output (project-relative path ending .png/.pdf) + optional version (a kept version of the tab) + optional overwrite (true replaces an existing file, only under design/; otherwise an existing file is refused). Writes a record of the approved page inside the project and returns its project-relative path, size/dimensions and the page problems seen while rendering. A single HTML page (file, or inline html/chart) is rendered whole in a hidden window, so the tab need not be on screen (PDF: HTML pages only; PNG has a pixel cap, over it export pdf or shorten the page); any other tab exports as capture does (the displayed tab, PNG only). Same project containment as capture: links and paths outside the working directory are refused. check: tab; HTML pages only; waits briefly for the page to settle and returns only its runtime problems (uncaught errors, unhandled rejections, CSP violations, console errors/warnings, missing local assets). inspect: tab + optional viewport {width,height} (e.g. 375x812 to look at a mobile layout) + optional selector (scope); HTML pages with scripts/styles only (not static mermaid/svg/markdown). Returns a compact text read-out of the rendered page without a screenshot: viewport, landmarks and headings, interactive elements (role, accessible name, selector, x/y/w/h), and layout findings (horizontal overflow, clipped text, overlapping or tiny tap targets, low text contrast, images without alt, unlabeled inputs). Run it (desktop width and, for responsive designs, a mobile width) and fix the findings before reporting; `check` also says when findings exist. Secret field values are never included. act: tab + steps (1-25, run in order, 15 s in total) + optional pane (1-based, default the first HTML page) + optional output (.png capture of the final state); operates an HTML page (file or inline html/chart) and reads the result. Steps: {do:\"click\",selector} | {do:\"type\",selector,text} (replaces the field value, fires input/change) | {do:\"key\",key,selector?} (a key or chord like \"Enter\", \"Shift+Tab\", \"Control+a\"; to the focused element or the selector) | {do:\"scroll\",selector?,x?,y?} (selector alone = into view, x/y = pixels to scroll it or the page by) | {do:\"wait\",ms} or {do:\"wait\",selector,timeout?} (until it is shown; ms and timeout up to 10000) | {do:\"evaluate\",script} (one JS expression or IIFE run in the page, promises awaited; its JSON result is returned, cut at 4000 characters). Selectors are CSS, e.g. those inspect reports. Input is simulated in the page with synthetic DOM events (no real mouse or keyboard; Enter in a form field submits it), inside the same sandbox and network limits. Stops at the first failing step and says which and why; returns each step's outcome, the evaluate values and the page problems seen. On a tab shown in the panel the user sees it happen; on a verify tab or while your turn holds the panel it runs off screen in a freshly loaded page each call. Any result about a tab ends with a \"Page problems\" section when the page has problems: fix them in the file and re-check before reporting; never report a page with unresolved problems as done. HTML pages run their scripts, but outside network (CDNs, web fonts, APIs, any other http(s)/ws address) is blocked unless the user allows it for the tab, so mockups must be self-contained; a blocked request appears as a \"blocked-network\" page problem on open/check. Direct renderers: instead of targets, open takes input.content {kind: mermaid|svg|chart|html|markdown, source, title?} (max 512 KiB; chart = an ECharts option as JSON) and shows it with no file written. Prefer inline content for diagrams, charts and quick sketches; write a file for real mockups that need iteration, scripts or versioning on disk. mermaid, svg and markdown render as static, sanitized output (no scripts, no network). chart (ECharts option JSON, interactive: tooltips, zoom) and html (scripts run) open as in-memory pages with the same protections as HTML file pages (outside network blocked, page problems captured); html content must be self-contained. Re-open with the same title to add a version. A render error (Mermaid parse error, bad chart JSON) is returned as a page problem: fix the source and open again. Tweaks: an HTML page (file or inline html/chart) can declare adjustable parameters in <script type=\"application/json\" id=\"mx-tweaks\">[{id,label,type:color|range|select|toggle,var:\"--name\" or attr:\"data-name\",min,max,step,unit,options:[{value,label}],default}] (max 16, keep it to a few meaningful ones). The panel shows a Tweaks drawer and applies changes live to the page root (CSS variables / data attributes your CSS and script read); the chosen values come back with their next message under tweaks: to bake into the file. A malformed block is a \"tweaks: <reason>\" page problem. To check a local HTML page, open it here and operate it with act; never serve it yourself to drive it in browser (browser is for web URLs and real browser input). Returns final results in this call.",
       "inputSchema": {
@@ -5181,10 +5469,9 @@
     "session",
     "web_search",
     "web_fetch",
-    "local_fetch",
-    "image_fetch",
-    "recall",
     "memory",
+    "recall",
+    "code_graph",
     "browser",
     "browser_devtools",
     "computer",
@@ -5198,10 +5485,7 @@
     "ask_user",
     "handoff_user",
     "react",
-    "get_goal",
-    "create_goal",
-    "set_goal_tasks",
-    "update_goal",
+    "goal",
     "agent"
   ],
   "agentTools": [
@@ -5299,22 +5583,22 @@
           },
           {
             "name": "agent",
-            "description": "agent tool",
+            "description": "Run scoped agent work as background tasks. spawn/send return task_id immediately. Reuse one tag for one scope for its whole lifetime; give distinct tags only to independent scopes. Never mint a new tag because a session expired or was lost — same-tag spawn respawns it with the full brief. Completion notifications arrive automatically; use status/read only for manual recovery. Close finished agents yourself.",
             "agentHidden": false
           },
           {
             "name": "web_search",
-            "description": "web_search tool",
+            "description": "Search the web for recent, external or unfamiliar facts (names, products, models) before answering from memory.",
             "agentHidden": false
           },
           {
             "name": "web_fetch",
-            "description": "web_fetch tool",
+            "description": "Fetch the page or docs body of known URLs; to find pages, use web_search.",
             "agentHidden": false
           },
           {
             "name": "recall",
-            "description": "recall tool",
+            "description": "Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window; id=exact follow-up.",
             "agentHidden": false
           },
           {
@@ -5343,24 +5627,19 @@
             "agentHidden": false
           },
           {
+            "name": "goal",
+            "description": "A durable objective the runtime keeps working on across turns until you complete or block it, with an optional time cap (an upper bound, never a minimum). Create one only for an explicit Goal request or approved multi-turn work (staged refactors, migrations, open-ended objectives); never for single-turn tasks, plans, estimates or unaccepted proposals. One Goal at a time; its steps live in todo, not here. complete only after auditing every user condition against current evidence — never because time is low, the cap was reached or the turn is ending, and never for a smaller objective than the one stated. block only when the same blocking condition has recurred for at least three consecutive Goal turns (first turn and continuations count) and no progress is possible without the user or a change in external state; never because the work is hard, slow, uncertain, unfinished or would benefit from clarification. A resumed Goal counts afresh; once the threshold is met, block rather than report the impasse. Pause, resume, stop and edits are the user’s controls.",
+            "agentHidden": true
+          },
+          {
             "name": "handoff_user",
             "description": "Input only the user can supply (an unsaved password, card numbers or payment credentials, SMS/authenticator/passkey steps, identity verification, a CAPTCHA or human check you cannot pass) is a handoff here, never a request in plain chat. Never for authorization: with the user's go-ahead in chat, click submit/upgrade/accept/confirm yourself. Try the existing session and saved login first; one card per human-only step, never a takeover then a secret for the same login; after a skip or denial do not raise it again, say in chat what is blocked.",
             "agentHidden": true
           },
           {
-            "name": "image_fetch",
-            "description": "image_fetch tool",
-            "agentHidden": false
-          },
-          {
             "name": "load_tool",
             "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
             "agentHidden": true
-          },
-          {
-            "name": "local_fetch",
-            "description": "local_fetch tool",
-            "agentHidden": false
           },
           {
             "name": "media",
@@ -5369,7 +5648,7 @@
           },
           {
             "name": "memory",
-            "description": "memory tool",
+            "description": "Manage standing user preferences and constraints. Save what the user asks you to remember and report its exact text and scope; an entry you propose yourself, or one whose scope is unclear, waits for the user's approval. Load memory-management for curation policy; stored history uses recall.",
             "agentHidden": false
           },
           {
@@ -5452,9 +5731,8 @@
           "browser",
           "browser_devtools",
           "computer",
+          "goal",
           "handoff_user",
-          "image_fetch",
-          "local_fetch",
           "media",
           "memory",
           "office",
@@ -5561,7 +5839,7 @@
           },
           {
             "name": "agent",
-            "description": "agent tool",
+            "description": "Run scoped agent work as background tasks. spawn/send return task_id immediately. Reuse one tag for one scope for its whole lifetime; give distinct tags only to independent scopes. Never mint a new tag because a session expired or was lost — same-tag spawn respawns it with the full brief. Completion notifications arrive automatically; use status/read only for manual recovery. Close finished agents yourself.",
             "agentHidden": false
           },
           {
@@ -5590,24 +5868,19 @@
             "agentHidden": false
           },
           {
+            "name": "goal",
+            "description": "A durable objective the runtime keeps working on across turns until you complete or block it, with an optional time cap (an upper bound, never a minimum). Create one only for an explicit Goal request or approved multi-turn work (staged refactors, migrations, open-ended objectives); never for single-turn tasks, plans, estimates or unaccepted proposals. One Goal at a time; its steps live in todo, not here. complete only after auditing every user condition against current evidence — never because time is low, the cap was reached or the turn is ending, and never for a smaller objective than the one stated. block only when the same blocking condition has recurred for at least three consecutive Goal turns (first turn and continuations count) and no progress is possible without the user or a change in external state; never because the work is hard, slow, uncertain, unfinished or would benefit from clarification. A resumed Goal counts afresh; once the threshold is met, block rather than report the impasse. Pause, resume, stop and edits are the user’s controls.",
+            "agentHidden": true
+          },
+          {
             "name": "handoff_user",
             "description": "Input only the user can supply (an unsaved password, card numbers or payment credentials, SMS/authenticator/passkey steps, identity verification, a CAPTCHA or human check you cannot pass) is a handoff here, never a request in plain chat. Never for authorization: with the user's go-ahead in chat, click submit/upgrade/accept/confirm yourself. Try the existing session and saved login first; one card per human-only step, never a takeover then a secret for the same login; after a skip or denial do not raise it again, say in chat what is blocked.",
             "agentHidden": true
           },
           {
-            "name": "image_fetch",
-            "description": "image_fetch tool",
-            "agentHidden": false
-          },
-          {
             "name": "load_tool",
             "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
             "agentHidden": true
-          },
-          {
-            "name": "local_fetch",
-            "description": "local_fetch tool",
-            "agentHidden": false
           },
           {
             "name": "media",
@@ -5690,9 +5963,8 @@
           "browser",
           "browser_devtools",
           "computer",
+          "goal",
           "handoff_user",
-          "image_fetch",
-          "local_fetch",
           "media",
           "office",
           "session",
@@ -5781,22 +6053,22 @@
           },
           {
             "name": "agent",
-            "description": "agent tool",
+            "description": "Run scoped agent work as background tasks. spawn/send return task_id immediately. Reuse one tag for one scope for its whole lifetime; give distinct tags only to independent scopes. Never mint a new tag because a session expired or was lost — same-tag spawn respawns it with the full brief. Completion notifications arrive automatically; use status/read only for manual recovery. Close finished agents yourself.",
             "agentHidden": false
           },
           {
             "name": "web_search",
-            "description": "web_search tool",
+            "description": "Search the web for recent, external or unfamiliar facts (names, products, models) before answering from memory.",
             "agentHidden": false
           },
           {
             "name": "web_fetch",
-            "description": "web_fetch tool",
+            "description": "Fetch the page or docs body of known URLs; to find pages, use web_search.",
             "agentHidden": false
           },
           {
             "name": "recall",
-            "description": "recall tool",
+            "description": "Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window; id=exact follow-up.",
             "agentHidden": false
           },
           {
@@ -5825,24 +6097,19 @@
             "agentHidden": false
           },
           {
+            "name": "goal",
+            "description": "A durable objective the runtime keeps working on across turns until you complete or block it, with an optional time cap (an upper bound, never a minimum). Create one only for an explicit Goal request or approved multi-turn work (staged refactors, migrations, open-ended objectives); never for single-turn tasks, plans, estimates or unaccepted proposals. One Goal at a time; its steps live in todo, not here. complete only after auditing every user condition against current evidence — never because time is low, the cap was reached or the turn is ending, and never for a smaller objective than the one stated. block only when the same blocking condition has recurred for at least three consecutive Goal turns (first turn and continuations count) and no progress is possible without the user or a change in external state; never because the work is hard, slow, uncertain, unfinished or would benefit from clarification. A resumed Goal counts afresh; once the threshold is met, block rather than report the impasse. Pause, resume, stop and edits are the user’s controls.",
+            "agentHidden": true
+          },
+          {
             "name": "handoff_user",
             "description": "Input only the user can supply (an unsaved password, card numbers or payment credentials, SMS/authenticator/passkey steps, identity verification, a CAPTCHA or human check you cannot pass) is a handoff here, never a request in plain chat. Never for authorization: with the user's go-ahead in chat, click submit/upgrade/accept/confirm yourself. Try the existing session and saved login first; one card per human-only step, never a takeover then a secret for the same login; after a skip or denial do not raise it again, say in chat what is blocked.",
             "agentHidden": true
           },
           {
-            "name": "image_fetch",
-            "description": "image_fetch tool",
-            "agentHidden": false
-          },
-          {
             "name": "load_tool",
             "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
             "agentHidden": true
-          },
-          {
-            "name": "local_fetch",
-            "description": "local_fetch tool",
-            "agentHidden": false
           },
           {
             "name": "media",
@@ -5851,7 +6118,7 @@
           },
           {
             "name": "memory",
-            "description": "memory tool",
+            "description": "Manage standing user preferences and constraints. Save what the user asks you to remember and report its exact text and scope; an entry you propose yourself, or one whose scope is unclear, waits for the user's approval. Load memory-management for curation policy; stored history uses recall.",
             "agentHidden": false
           },
           {
@@ -5929,9 +6196,8 @@
           "browser",
           "browser_devtools",
           "computer",
+          "goal",
           "handoff_user",
-          "image_fetch",
-          "local_fetch",
           "media",
           "memory",
           "office",
@@ -6035,22 +6301,22 @@
           },
           {
             "name": "agent",
-            "description": "agent tool",
+            "description": "Run scoped agent work as background tasks. spawn/send return task_id immediately. Reuse one tag for one scope for its whole lifetime; give distinct tags only to independent scopes. Never mint a new tag because a session expired or was lost — same-tag spawn respawns it with the full brief. Completion notifications arrive automatically; use status/read only for manual recovery. Close finished agents yourself.",
             "agentHidden": false
           },
           {
             "name": "web_search",
-            "description": "web_search tool",
+            "description": "Search the web for recent, external or unfamiliar facts (names, products, models) before answering from memory.",
             "agentHidden": false
           },
           {
             "name": "web_fetch",
-            "description": "web_fetch tool",
+            "description": "Fetch the page or docs body of known URLs; to find pages, use web_search.",
             "agentHidden": false
           },
           {
             "name": "recall",
-            "description": "recall tool",
+            "description": "Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window; id=exact follow-up.",
             "agentHidden": false
           },
           {
@@ -6079,24 +6345,19 @@
             "agentHidden": false
           },
           {
+            "name": "goal",
+            "description": "A durable objective the runtime keeps working on across turns until you complete or block it, with an optional time cap (an upper bound, never a minimum). Create one only for an explicit Goal request or approved multi-turn work (staged refactors, migrations, open-ended objectives); never for single-turn tasks, plans, estimates or unaccepted proposals. One Goal at a time; its steps live in todo, not here. complete only after auditing every user condition against current evidence — never because time is low, the cap was reached or the turn is ending, and never for a smaller objective than the one stated. block only when the same blocking condition has recurred for at least three consecutive Goal turns (first turn and continuations count) and no progress is possible without the user or a change in external state; never because the work is hard, slow, uncertain, unfinished or would benefit from clarification. A resumed Goal counts afresh; once the threshold is met, block rather than report the impasse. Pause, resume, stop and edits are the user’s controls.",
+            "agentHidden": true
+          },
+          {
             "name": "handoff_user",
             "description": "Input only the user can supply (an unsaved password, card numbers or payment credentials, SMS/authenticator/passkey steps, identity verification, a CAPTCHA or human check you cannot pass) is a handoff here, never a request in plain chat. Never for authorization: with the user's go-ahead in chat, click submit/upgrade/accept/confirm yourself. Try the existing session and saved login first; one card per human-only step, never a takeover then a secret for the same login; after a skip or denial do not raise it again, say in chat what is blocked.",
             "agentHidden": true
           },
           {
-            "name": "image_fetch",
-            "description": "image_fetch tool",
-            "agentHidden": false
-          },
-          {
             "name": "load_tool",
             "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
             "agentHidden": true
-          },
-          {
-            "name": "local_fetch",
-            "description": "local_fetch tool",
-            "agentHidden": false
           },
           {
             "name": "media",
@@ -6105,7 +6366,7 @@
           },
           {
             "name": "memory",
-            "description": "memory tool",
+            "description": "Manage standing user preferences and constraints. Save what the user asks you to remember and report its exact text and scope; an entry you propose yourself, or one whose scope is unclear, waits for the user's approval. Load memory-management for curation policy; stored history uses recall.",
             "agentHidden": false
           },
           {
@@ -6205,9 +6466,8 @@
           "browser",
           "browser_devtools",
           "computer",
+          "goal",
           "handoff_user",
-          "image_fetch",
-          "local_fetch",
           "media",
           "memory",
           "office",
@@ -6277,22 +6537,22 @@
           },
           {
             "name": "agent",
-            "description": "agent tool",
+            "description": "Run scoped agent work as background tasks. spawn/send return task_id immediately. Reuse one tag for one scope for its whole lifetime; give distinct tags only to independent scopes. Never mint a new tag because a session expired or was lost — same-tag spawn respawns it with the full brief. Completion notifications arrive automatically; use status/read only for manual recovery. Close finished agents yourself.",
             "agentHidden": false
           },
           {
             "name": "web_search",
-            "description": "web_search tool",
+            "description": "Search the web for recent, external or unfamiliar facts (names, products, models) before answering from memory.",
             "agentHidden": false
           },
           {
             "name": "web_fetch",
-            "description": "web_fetch tool",
+            "description": "Fetch the page or docs body of known URLs; to find pages, use web_search.",
             "agentHidden": false
           },
           {
             "name": "recall",
-            "description": "recall tool",
+            "description": "Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window; id=exact follow-up.",
             "agentHidden": false
           },
           {
@@ -6316,18 +6576,8 @@
             "agentHidden": true
           },
           {
-            "name": "local_fetch",
-            "description": "local_fetch tool",
-            "agentHidden": false
-          },
-          {
-            "name": "image_fetch",
-            "description": "image_fetch tool",
-            "agentHidden": false
-          },
-          {
             "name": "memory",
-            "description": "memory tool",
+            "description": "Manage standing user preferences and constraints. Save what the user asks you to remember and report its exact text and scope; an entry you propose yourself, or one whose scope is unclear, waits for the user's approval. Load memory-management for curation policy; stored history uses recall.",
             "agentHidden": false
           },
           {
@@ -6384,6 +6634,11 @@
             "name": "handoff_user",
             "description": "Input only the user can supply (an unsaved password, card numbers or payment credentials, SMS/authenticator/passkey steps, identity verification, a CAPTCHA or human check you cannot pass) is a handoff here, never a request in plain chat. Never for authorization: with the user's go-ahead in chat, click submit/upgrade/accept/confirm yourself. Try the existing session and saved login first; one card per human-only step, never a takeover then a secret for the same login; after a skip or denial do not raise it again, say in chat what is blocked.",
             "agentHidden": true
+          },
+          {
+            "name": "goal",
+            "description": "A durable objective the runtime keeps working on across turns until you complete or block it, with an optional time cap (an upper bound, never a minimum). Create one only for an explicit Goal request or approved multi-turn work (staged refactors, migrations, open-ended objectives); never for single-turn tasks, plans, estimates or unaccepted proposals. One Goal at a time; its steps live in todo, not here. complete only after auditing every user condition against current evidence — never because time is low, the cap was reached or the turn is ending, and never for a smaller objective than the one stated. block only when the same blocking condition has recurred for at least three consecutive Goal turns (first turn and continuations count) and no progress is possible without the user or a change in external state; never because the work is hard, slow, uncertain, unfinished or would benefit from clarification. A resumed Goal counts afresh; once the threshold is met, block rather than report the impasse. Pause, resume, stop and edits are the user’s controls.",
+            "agentHidden": true
           }
         ],
         "callable": [
@@ -6414,8 +6669,6 @@
           "recall",
           "todo",
           "session",
-          "local_fetch",
-          "image_fetch",
           "memory",
           "browser",
           "browser_devtools",
@@ -6427,7 +6680,8 @@
           "visualize",
           "setup",
           "ask_user",
-          "handoff_user"
+          "handoff_user",
+          "goal"
         ]
       }
     },
@@ -6496,22 +6750,22 @@
           },
           {
             "name": "agent",
-            "description": "agent tool",
+            "description": "Run scoped agent work as background tasks. spawn/send return task_id immediately. Reuse one tag for one scope for its whole lifetime; give distinct tags only to independent scopes. Never mint a new tag because a session expired or was lost — same-tag spawn respawns it with the full brief. Completion notifications arrive automatically; use status/read only for manual recovery. Close finished agents yourself.",
             "agentHidden": false
           },
           {
             "name": "web_search",
-            "description": "web_search tool",
+            "description": "Search the web for recent, external or unfamiliar facts (names, products, models) before answering from memory.",
             "agentHidden": false
           },
           {
             "name": "web_fetch",
-            "description": "web_fetch tool",
+            "description": "Fetch the page or docs body of known URLs; to find pages, use web_search.",
             "agentHidden": false
           },
           {
             "name": "recall",
-            "description": "recall tool",
+            "description": "Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window; id=exact follow-up.",
             "agentHidden": false
           },
           {
@@ -6535,18 +6789,8 @@
             "agentHidden": true
           },
           {
-            "name": "local_fetch",
-            "description": "local_fetch tool",
-            "agentHidden": false
-          },
-          {
-            "name": "image_fetch",
-            "description": "image_fetch tool",
-            "agentHidden": false
-          },
-          {
             "name": "memory",
-            "description": "memory tool",
+            "description": "Manage standing user preferences and constraints. Save what the user asks you to remember and report its exact text and scope; an entry you propose yourself, or one whose scope is unclear, waits for the user's approval. Load memory-management for curation policy; stored history uses recall.",
             "agentHidden": false
           },
           {
@@ -6572,6 +6816,11 @@
           {
             "name": "handoff_user",
             "description": "Input only the user can supply (an unsaved password, card numbers or payment credentials, SMS/authenticator/passkey steps, identity verification, a CAPTCHA or human check you cannot pass) is a handoff here, never a request in plain chat. Never for authorization: with the user's go-ahead in chat, click submit/upgrade/accept/confirm yourself. Try the existing session and saved login first; one card per human-only step, never a takeover then a secret for the same login; after a skip or denial do not raise it again, say in chat what is blocked.",
+            "agentHidden": true
+          },
+          {
+            "name": "goal",
+            "description": "A durable objective the runtime keeps working on across turns until you complete or block it, with an optional time cap (an upper bound, never a minimum). Create one only for an explicit Goal request or approved multi-turn work (staged refactors, migrations, open-ended objectives); never for single-turn tasks, plans, estimates or unaccepted proposals. One Goal at a time; its steps live in todo, not here. complete only after auditing every user condition against current evidence — never because time is low, the cap was reached or the turn is ending, and never for a smaller objective than the one stated. block only when the same blocking condition has recurred for at least three consecutive Goal turns (first turn and continuations count) and no progress is possible without the user or a change in external state; never because the work is hard, slow, uncertain, unfinished or would benefit from clarification. A resumed Goal counts afresh; once the threshold is met, block rather than report the impasse. Pause, resume, stop and edits are the user’s controls.",
             "agentHidden": true
           }
         ],
@@ -6603,14 +6852,13 @@
           "recall",
           "todo",
           "session",
-          "local_fetch",
-          "image_fetch",
           "memory",
           "tidy",
           "visualize",
           "setup",
           "ask_user",
-          "handoff_user"
+          "handoff_user",
+          "goal"
         ]
       }
     },
@@ -6705,22 +6953,22 @@
           },
           {
             "name": "agent",
-            "description": "agent tool",
+            "description": "Run scoped agent work as background tasks. spawn/send return task_id immediately. Reuse one tag for one scope for its whole lifetime; give distinct tags only to independent scopes. Never mint a new tag because a session expired or was lost — same-tag spawn respawns it with the full brief. Completion notifications arrive automatically; use status/read only for manual recovery. Close finished agents yourself.",
             "agentHidden": false
           },
           {
             "name": "web_search",
-            "description": "web_search tool",
+            "description": "Search the web for recent, external or unfamiliar facts (names, products, models) before answering from memory.",
             "agentHidden": false
           },
           {
             "name": "web_fetch",
-            "description": "web_fetch tool",
+            "description": "Fetch the page or docs body of known URLs; to find pages, use web_search.",
             "agentHidden": false
           },
           {
             "name": "recall",
-            "description": "recall tool",
+            "description": "Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window; id=exact follow-up.",
             "agentHidden": false
           },
           {
@@ -6749,24 +6997,19 @@
             "agentHidden": false
           },
           {
+            "name": "goal",
+            "description": "A durable objective the runtime keeps working on across turns until you complete or block it, with an optional time cap (an upper bound, never a minimum). Create one only for an explicit Goal request or approved multi-turn work (staged refactors, migrations, open-ended objectives); never for single-turn tasks, plans, estimates or unaccepted proposals. One Goal at a time; its steps live in todo, not here. complete only after auditing every user condition against current evidence — never because time is low, the cap was reached or the turn is ending, and never for a smaller objective than the one stated. block only when the same blocking condition has recurred for at least three consecutive Goal turns (first turn and continuations count) and no progress is possible without the user or a change in external state; never because the work is hard, slow, uncertain, unfinished or would benefit from clarification. A resumed Goal counts afresh; once the threshold is met, block rather than report the impasse. Pause, resume, stop and edits are the user’s controls.",
+            "agentHidden": true
+          },
+          {
             "name": "handoff_user",
             "description": "Input only the user can supply (an unsaved password, card numbers or payment credentials, SMS/authenticator/passkey steps, identity verification, a CAPTCHA or human check you cannot pass) is a handoff here, never a request in plain chat. Never for authorization: with the user's go-ahead in chat, click submit/upgrade/accept/confirm yourself. Try the existing session and saved login first; one card per human-only step, never a takeover then a secret for the same login; after a skip or denial do not raise it again, say in chat what is blocked.",
             "agentHidden": true
           },
           {
-            "name": "image_fetch",
-            "description": "image_fetch tool",
-            "agentHidden": false
-          },
-          {
             "name": "load_tool",
             "description": "Load full schemas for missing deferred tool names/aliases; a connector name loads all its tools; batch needed names in one call.",
             "agentHidden": true
-          },
-          {
-            "name": "local_fetch",
-            "description": "local_fetch tool",
-            "agentHidden": false
           },
           {
             "name": "media",
@@ -6775,7 +7018,7 @@
           },
           {
             "name": "memory",
-            "description": "memory tool",
+            "description": "Manage standing user preferences and constraints. Save what the user asks you to remember and report its exact text and scope; an entry you propose yourself, or one whose scope is unclear, waits for the user's approval. Load memory-management for curation policy; stored history uses recall.",
             "agentHidden": false
           },
           {
@@ -6858,9 +7101,8 @@
           "browser",
           "browser_devtools",
           "computer",
+          "goal",
           "handoff_user",
-          "image_fetch",
-          "local_fetch",
           "media",
           "memory",
           "office",
