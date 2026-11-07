@@ -6,10 +6,21 @@ fail-fast = false
 # they run one after the other, so at most eight sync-bound migrations of the pair are in flight.
 [test-groups]
 migration-crash-matrix = { max-threads = 1 }
+pg-cluster = { max-threads = 1 }
 
 [[profile.default.overrides]]
 filter = 'package(mixdog-migrate) & (test(=desktop_profile::tests::the_crash_matrix_ends_in_the_state_of_an_uninterrupted_run) | test(=run::tests::every_crash_point_resumes_to_the_same_tree))'
 test-group = 'migration-crash-matrix'
+
+# Every test of mixdog-services' `memory::tests` (documented there as the end-to-end suite over a
+# temporary Postgres cluster) and of `memory::thread_search::tests` starts its own initdb + postmaster
+# (about 4 s and a dozen processes each, fsync-bound). Started together, the postmasters of a run are
+# still in recovery when the tests connect, and shutdowns of the stack queue behind the same disk;
+# one cluster at a time is the load a single test was verified under. Matching the module paths
+# keeps tests added to those modules in the group.
+[[profile.default.overrides]]
+filter = 'package(mixdog-services) & (test(/^memory::tests::/) | test(/^memory::thread_search::tests::/))'
+test-group = 'pg-cluster'
 
 # The two real-git replays of mixdog-core-session each wait on a chain of about 1,400 git processes
 # (7.8 CPU seconds in 72 s for the project replay), so process creation, not CPU, is what the rest of

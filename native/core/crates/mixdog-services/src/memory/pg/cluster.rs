@@ -15,9 +15,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use mixdog_rt::{DurabilityIo, TaskClass};
-use tokio::net::TcpStream;
+use tokio_postgres::NoTls;
 use tokio_util::sync::CancellationToken;
 
+use super::db;
 use crate::memory::error::{MemoryError, Result};
 use crate::model_install::fsio;
 use crate::tidy::process::{ProcessResult, Processes, RunOptions};
@@ -34,6 +35,8 @@ const STATUS_LIMIT: Duration = Duration::from_secs(3);
 const RELOAD_LIMIT: Duration = Duration::from_secs(5);
 /// How long a start that lost a race waits for the winner's postmaster (`existingWaitMs`).
 const EXISTING_WAIT: Duration = Duration::from_secs(15);
+/// One readiness probe: `healthcheckPg`'s `connectionTimeoutMillis: 2000`.
+const HEALTH_LIMIT: Duration = Duration::from_secs(2);
 
 /// A bundled PostgreSQL runtime directory.
 #[derive(Debug, Clone)]
@@ -148,8 +151,20 @@ async fn read_postmaster_port(lane: DurabilityIo, data_dir: &Path) -> Option<u16
     text.lines().nth(3)?.trim().parse().ok().filter(|port| *port > 0)
 }
 
-async fn accepts_connections(port: u16) -> bool {
-    TcpStream::connect(("127.0.0.1", port)).await.is_ok()
+/// `healthcheckPg`: a session on the port answers `SELECT 1`. A bare TCP connect is not readiness:
+/// a postmaster that is still starting up accepts the socket and then refuses every session with
+/// `FATAL: the database system is starting up` (57P03).
+async fn healthcheck(port: u16) -> bool {
+    let probe = async {
+        let Ok((client, connection)) = db::config(port, "postgres", None).connect(NoTls).await else {
+            return false;
+        };
+        tokio::select! {
+            answered = client.simple_query("SELECT 1") => answered.is_ok(),
+            _ = connection => false,
+        }
+    };
+    tokio::time::timeout(HEALTH_LIMIT, probe).await.unwrap_or(false)
 }
 
 async fn free_port(preferred: u16) -> Result<u16> {
@@ -237,7 +252,7 @@ impl PgCluster {
         let data_dir = data_dir.into();
         fsio::create_dir_all(lane, &data_dir).await?;
         if let Some(port) = read_postmaster_port(lane, &data_dir).await
-            && accepts_connections(port).await {
+            && healthcheck(port).await {
                 return Ok(Self { runtime, data_dir, port, lane, processes });
             }
         if !fsio::exists(lane, &data_dir.join("PG_VERSION")).await? {
@@ -266,7 +281,7 @@ impl PgCluster {
         let deadline = tokio::time::Instant::now() + START_DEADLINE;
         let mut early: Option<MemoryError> = None;
         loop {
-            if accepts_connections(port).await && read_postmaster_port(lane, &data_dir).await == Some(port) {
+            if healthcheck(port).await && read_postmaster_port(lane, &data_dir).await == Some(port) {
                 return Ok(Self { runtime, data_dir, port, lane, processes });
             }
             if started.as_ref().is_some_and(tokio::task::JoinHandle::is_finished)
@@ -311,7 +326,7 @@ impl PgCluster {
         let deadline = tokio::time::Instant::now() + EXISTING_WAIT;
         loop {
             if let Some(port) = read_postmaster_port(lane, data_dir).await
-                && accepts_connections(port).await
+                && healthcheck(port).await
             {
                 tracing::info!(port, "[pg-process] attaching to race winner");
                 return Some(port);
@@ -365,5 +380,45 @@ impl PgCluster {
             Err(_) if read_postmaster_port(self.lane, &self.data_dir).await.is_none() => Ok(()),
             Err(error) => Err(error),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// A postmaster that is starting up: it reads the startup packet and answers it with
+    /// `FATAL: the database system is starting up` (57P03).
+    async fn refuse_startup(mut socket: tokio::net::TcpStream) -> std::io::Result<()> {
+        let len = socket.read_u32().await?;
+        let mut rest = vec![0_u8; usize::try_from(len).unwrap() - 4];
+        socket.read_exact(&mut rest).await?;
+        let mut body = Vec::new();
+        for (code, text) in [(b'S', "FATAL"), (b'V', "FATAL"), (b'C', "57P03"), (b'M', "the database system is starting up")] {
+            body.push(code);
+            body.extend_from_slice(text.as_bytes());
+            body.push(0);
+        }
+        body.push(0);
+        let mut reply = vec![b'E'];
+        reply.extend_from_slice(&u32::try_from(body.len() + 4).unwrap().to_be_bytes());
+        reply.extend_from_slice(&body);
+        socket.write_all(&reply).await?;
+        socket.shutdown().await
+    }
+
+    #[tokio::test]
+    async fn a_postmaster_still_starting_up_is_not_ready() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            while let Ok((socket, _)) = listener.accept().await {
+                let _ = refuse_startup(socket).await;
+            }
+        });
+        assert!(tokio::net::TcpStream::connect(("127.0.0.1", port)).await.is_ok(), "the port takes connections");
+        assert!(!healthcheck(port).await, "a refused session is not readiness");
+        server.abort();
     }
 }

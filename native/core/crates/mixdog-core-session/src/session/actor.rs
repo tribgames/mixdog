@@ -356,6 +356,7 @@ pub(crate) struct RetryWait {
     prompt: Option<String>,
     wake: bool,
     provenance: Option<Value>,
+    prior: Option<super::quota_lane::Prior>,
 }
 
 pub(crate) struct InputStart {
@@ -540,6 +541,9 @@ pub(crate) struct SessionActor {
     /// `None`: not read yet (a plain `turn/start` carrying the retry flags reads it first);
     /// `Some(None)`: the failed turn has none.
     retry_provenance: Option<Option<Value>>,
+    /// The failed message a retained retry resends (`retainedUserTurn`): the retry row keeps its id and carries its
+    /// recorded completions. Taken by the next turn start like `retry_provenance`.
+    retry_prior: Option<super::quota_lane::Prior>,
     /// Turns begun so far: a manual compaction's commit is refused when one began since its read.
     runs_begun: u64,
 }
@@ -650,6 +654,7 @@ impl SessionActor {
             compactions: 0,
             retry_hidden: false,
             retry_provenance: None,
+            retry_prior: None,
             runs_begun: 0,
             deps,
         }
@@ -1133,13 +1138,14 @@ impl SessionActor {
             }
             JobDone::ReminderGoal(start, goal) => self.start_run_read(*start, goal),
             JobDone::RetryProvenance(wait) => {
-                let RetryWait { input, body, op_ref, reply, prompt, wake, provenance } = *wait;
+                let RetryWait { input, body, op_ref, reply, prompt, wake, provenance, prior } = *wait;
                 self.starting = false;
                 // A delete closed the thread meanwhile: the turn never starts.
                 if self.deleting {
                     return;
                 }
                 self.retry_provenance = Some(provenance);
+                self.retry_prior = prior;
                 self.start_run_with(input, body, op_ref, reply, prompt, wake);
             }
             JobDone::Replied { op, tx, result } => self.replied(op, tx, result),
@@ -3837,7 +3843,9 @@ impl SessionActor {
             tokio::spawn(async move {
                 let messages: Vec<Value> = context.read().await.map(|rows| rows.into_iter().map(|(_, m)| m).collect()).unwrap_or_default();
                 let provenance = super::quota_lane::failed_provenance(&messages, retry_turn_id.as_deref());
-                let _ = jobs.send(JobDone::RetryProvenance(Box::new(RetryWait { input, body, op_ref, reply, prompt, wake, provenance })));
+                // `retainedFailedTurnInput(session.messages, retryTurnId)`: the failed user message the retry names.
+                let prior = super::quota_lane::retained_retry_input(&messages).filter(|retained| Some(retained.message_id.as_str()) == retry_turn_id.as_deref()).map(|retained| retained.prior());
+                let _ = jobs.send(JobDone::RetryProvenance(Box::new(RetryWait { input, body, op_ref, reply, prompt, wake, provenance, prior })));
             });
             return;
         }
@@ -3894,6 +3902,7 @@ impl SessionActor {
             // The lane refused the read: the turn does not start (its waiter hears the drop).
             self.starting = false;
             self.retry_provenance = None;
+            self.retry_prior = None;
         }
     }
 
@@ -3934,6 +3943,12 @@ impl SessionActor {
         // The retried turn's provenance rides its rebuilt row, so a retry of this retry reads it back.
         if let Some(Some(provenance)) = self.retry_provenance.take() {
             body["meta"]["provenance"] = provenance;
+        }
+        // The retained message keeps its id (`messageId: previousTranscript.messageId`), and its recorded completions ride
+        // the row (`retainedUserTurn`), so the failure a retry replaces is still in the history.
+        if let Some(prior) = self.retry_prior.take() {
+            body["meta"]["transcript"]["messageId"] = json!(prior.message_id);
+            body["meta"]["transcript"]["previousCompletions"] = Value::Array(prior.completions);
         }
         let input_body = body.clone();
         let hidden = std::mem::take(&mut self.retry_hidden);

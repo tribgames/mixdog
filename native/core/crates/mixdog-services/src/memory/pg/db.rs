@@ -62,7 +62,7 @@ impl Schema {
     }
 }
 
-fn config(port: u16, database: &str, search_path: Option<&str>) -> Config {
+pub(super) fn config(port: u16, database: &str, search_path: Option<&str>) -> Config {
     let mut config = Config::new();
     config
         .host("127.0.0.1")
