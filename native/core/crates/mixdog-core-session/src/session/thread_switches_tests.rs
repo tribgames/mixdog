@@ -70,7 +70,7 @@ impl WorkflowSurface for Table {
         Ok(self.workflows[id]["denied"].as_array().map(|list| list.iter().filter_map(|n| n.as_str().map(str::to_owned)).collect()).unwrap_or_default())
     }
 
-    async fn standalone_tools(&self, _: &Header) -> Result<Vec<Value>, SurfaceFailure> {
+    async fn internal_tools(&self, _: &Header) -> Result<Vec<Value>, SurfaceFailure> {
         Ok(self.standalone.clone())
     }
 
@@ -90,7 +90,7 @@ impl WorkflowSurface for Refusing {
     async fn live_denied_tools(&self, _: &Header, _: &Value) -> Result<Vec<String>, SurfaceFailure> {
         Err(SurfaceFailure("the gate read could not run".into()))
     }
-    async fn standalone_tools(&self, _: &Header) -> Result<Vec<Value>, SurfaceFailure> {
+    async fn internal_tools(&self, _: &Header) -> Result<Vec<Value>, SurfaceFailure> {
         Err(SurfaceFailure("the gate read could not run".into()))
     }
     async fn orchestration_instructions(&self, _: &str) -> Result<String, SurfaceFailure> {

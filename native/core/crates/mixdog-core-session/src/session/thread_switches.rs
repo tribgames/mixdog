@@ -95,7 +95,7 @@ pub trait WorkflowSurface: Send + Sync {
     /// `liveDeniedTools(session, summary)`: the tools the workflow denies this session.
     async fn live_denied_tools(&self, session: &Header, summary: &Value) -> Result<Vec<String>, SurfaceFailure>;
     /// `modelStandaloneTools()` as the session's workflow gates them.
-    async fn standalone_tools(&self, session: &Header) -> Result<Vec<Value>, SurfaceFailure>;
+    async fn internal_tools(&self, session: &Header) -> Result<Vec<Value>, SurfaceFailure>;
     /// `orchestrationInstructions(mode)`: the user's file for the mode, else the shipped one.
     async fn orchestration_instructions(&self, mode: &str) -> Result<String, SurfaceFailure>;
 }
@@ -503,7 +503,7 @@ async fn workflow_overlay(
     let reopened: Vec<String> = unique(strings(session.get("disallowedTools")).into_iter().chain(strings(session.get("workflowOpenedTools")))).into_iter().filter(|name| !denied.contains(&name.to_lowercase())).collect();
     let mut known: HashSet<String> = schema.iter().map(tool_name).collect();
     let mut fresh = Vec::new();
-    for tool in surface.standalone_tools(session).await? {
+    for tool in surface.internal_tools(session).await? {
         let name = tool_name(&tool);
         if reopened.contains(&name) && !known.contains(&name) {
             fresh.push(tool);

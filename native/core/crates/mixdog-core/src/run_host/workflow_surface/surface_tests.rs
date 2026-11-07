@@ -144,7 +144,7 @@ async fn reads_that_cannot_run_are_typed_failures() {
     let tools = &golden["standaloneTools"];
     let session = header(&json!({ "id": "sess_task", "callerDisallowedTools": [] }));
     let broken = surface_over(&world, Arc::new(BrokenFacts), ToolProfile::Interactive, tools, &golden["agentTools"]);
-    assert_eq!(broken.standalone_tools(&session).await.err(), Some(SurfaceFailure("the bridge probe could not run".into())));
+    assert_eq!(broken.internal_tools(&session).await.err(), Some(SurfaceFailure("the bridge probe could not run".into())));
     assert_eq!(broken.live_denied_tools(&session, &json!({})).await.err(), Some(SurfaceFailure("the bridge probe could not run".into())));
     let surface = surface(&world, ToolProfile::Interactive, tools, &golden["agentTools"]);
     let _refusing = mixdog_rt::testing::refuse_jobs_on_this_thread();

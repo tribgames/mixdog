@@ -60,7 +60,7 @@ pub fn workflow_allows_agents(inputs: &SurfaceInputs<'_>) -> bool {
 
 /// `modelStandaloneTools()`: `standalone` in its order, `agent_tools` the names of the delegation
 /// tools.
-pub fn model_standalone_tools(standalone: &[Arc<dyn Tool>], agent_tools: &HashSet<&str>, inputs: &SurfaceInputs<'_>) -> Vec<Arc<dyn Tool>> {
+pub fn model_internal_tools(standalone: &[Arc<dyn Tool>], agent_tools: &HashSet<&str>, inputs: &SurfaceInputs<'_>) -> Vec<Arc<dyn Tool>> {
     let name = |tool: &Arc<dyn Tool>| tool.spec().name.clone();
     let agent_owned = inputs
         .session
