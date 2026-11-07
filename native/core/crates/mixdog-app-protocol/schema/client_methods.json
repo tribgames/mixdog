@@ -8654,6 +8654,7 @@
       "description": "Params of `projectFs/readText`.",
       "properties": {
         "accessToken": {
+          "description": "A paired device's one-file grant (`transfer/grant/mint`): `root` and `rel` are then Node's `projectPath` and `relPath`.",
           "type": [
             "string",
             "null"
@@ -8792,6 +8793,7 @@
       "description": "Params of `projectFs/stat`.",
       "properties": {
         "accessToken": {
+          "description": "A paired device's one-file grant, as on `projectFs/readText`.",
           "type": [
             "string",
             "null"
