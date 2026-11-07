@@ -1,0 +1,2454 @@
+{
+  "cases": [
+    {
+      "name": "an unchanged session keeps its surface",
+      "steps": [
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a changed MCP schema replaces the definition in place",
+      "steps": [
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list",
+            "mcp__beta__ping"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "Fresher.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list",
+            "mcp__beta__ping"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "Fresher.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "Fresher.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a disconnected MCP tool leaves the surface",
+      "steps": [
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list",
+            "mcp__beta__ping"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__beta__ping"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a new MCP tool is appended after the surface",
+      "steps": [
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__get",
+              "description": "Get one thing.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list",
+            "mcp__alpha__get",
+            "mcp__beta__ping"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__get",
+              "description": "Get one thing.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__get",
+              "description": "Get one thing.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "an eager tool change is not adopted",
+      "steps": [
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "Changed.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "Changed.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "web_search",
+              "description": "web_search tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "web_search",
+              "description": "web_search tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a reordered session keeps the sent order",
+      "steps": [
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list",
+            "mcp__beta__ping"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list",
+            "mcp__beta__ping"
+          ],
+          "candidate": [
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a removed and a re-added tool take the end",
+      "steps": [
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list",
+            "mcp__beta__ping"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__beta__ping"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list",
+            "mcp__beta__ping"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "without a connected snapshot every MCP tool is available",
+      "steps": [
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": null,
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__get",
+              "description": "Get one thing.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": null,
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__get",
+              "description": "Get one thing.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__get",
+              "description": "Get one thing.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__get",
+              "description": "Get one thing.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__beta__ping"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a name listed twice is sent once, the first definition",
+      "steps": [
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "Twin.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "Twin first.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "Twin first.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "Twin first.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "everything changes at once",
+      "steps": [
+        {
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list",
+            "mcp__beta__ping"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "Ping beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        },
+        {
+          "tools": [
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__gamma__run",
+              "description": "mcp__gamma__run tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "New beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__gamma__run",
+            "mcp__beta__ping"
+          ],
+          "candidate": [
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__gamma__run",
+              "description": "mcp__gamma__run tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "New beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__beta__ping",
+              "description": "New beta.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__gamma__run",
+              "description": "mcp__gamma__run tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

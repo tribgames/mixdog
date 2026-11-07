@@ -2369,6 +2369,37 @@ impl mixdog_agent::env::McpCatalog for CountMcp {
     }
 }
 
+/// The session's tools as each request boundary finds them, one set per request.
+struct SwapMcp(std::sync::Mutex<std::collections::VecDeque<mixdog_agent::tools::ToolSet>>);
+
+#[async_trait::async_trait]
+impl mixdog_agent::env::McpCatalog for SwapMcp {
+    async fn refresh(&self) {}
+
+    async fn tools(&self) -> Option<mixdog_agent::tools::ToolSet> {
+        self.0.lock().unwrap().pop_front()
+    }
+}
+
+/// `adoptDynamicToolChanges`: the second request keeps the eager `echo` it started with and adopts the changed
+/// definition of the MCP tool.
+#[tokio::test]
+async fn a_changed_mcp_definition_reaches_the_next_request_and_an_eager_one_does_not() {
+    let echo = Echo::tool();
+    let described = |name: &str, description: &str| -> Arc<dyn Tool> { Arc::new(Echo(ToolSpec { name: name.into(), description: description.into(), ..echo.spec().clone() })) };
+    let set = |echo_text: &str, ping_text: &str| mixdog_agent::tools::ToolSet::new(vec![described("echo", echo_text), described("mcp__srv__ping", ping_text)]);
+    let mut h = Harness::new(vec![
+        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("done"), done(StopReason::EndTurn)]),
+    ]);
+    h.mcp = Some(Arc::new(SwapMcp(std::sync::Mutex::new([set("echo", "ping v1"), set("echo changed", "ping v2")].into()))));
+    finish(h.run(config(), vec![echo.clone(), described("mcp__srv__ping", "ping v1")], vec![AgentMessage::user("go")])).await;
+    let sent: Vec<Vec<(String, String)>> = h.provider.requests().iter().map(|r| r.tools.iter().map(|t| (t.name.clone(), t.description.clone())).collect()).collect();
+    let pair = |name: &str, text: &str| (name.to_owned(), text.to_owned());
+    assert_eq!(sent[0], [pair("echo", "echo"), pair("mcp__srv__ping", "ping v1")]);
+    assert_eq!(sent[1], [pair("echo", "echo"), pair("mcp__srv__ping", "ping v2")]);
+}
+
 /// Node refreshes the session's MCP catalog once per request (`request-boundary.mjs:77`), at the start of
 /// every tool call (`call-prep.mjs:70`) and, for an MCP call, again once its gate has passed (`tool-exec.mjs:114`):
 /// two requests, one plain and one MCP call make 1 + (1) + (1 + 1) + 1.

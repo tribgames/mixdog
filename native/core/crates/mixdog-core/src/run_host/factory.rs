@@ -163,6 +163,12 @@ pub trait RunParts: Send + Sync + 'static {
         Ok(())
     }
 
+    /// The thread's tools as its session holds them now (`session.tools`, after a refresh): the request boundary
+    /// adopts their changed MCP definitions. A host with no MCP catalog keeps the run's set.
+    async fn request_tools(&self, _thread: &ThreadId, _surface: &SessionSurface) -> Result<Option<ToolSet>, TurnError> {
+        Ok(None)
+    }
+
     /// `getHiddenAgent(agent).stallCap.idleSeconds`: an internal agent's own idle budget, which
     /// the progress watchdog honours.
     fn stall_cap_idle_seconds(&self, _agent: Option<&str>) -> Option<i64> {
@@ -620,6 +626,7 @@ fn prompt_text(body: &Value) -> String {
 struct ThreadMcp {
     parts: Arc<dyn RunParts>,
     thread: ThreadId,
+    surface: tokio::sync::watch::Receiver<Arc<SessionSurface>>,
 }
 
 #[async_trait]
@@ -627,6 +634,17 @@ impl mixdog_agent::env::McpCatalog for ThreadMcp {
     async fn refresh(&self) {
         if let Err(error) = self.parts.refresh_mcp(&self.thread).await {
             tracing::warn!("[mcp] catalog refresh failed: {error:?}");
+        }
+    }
+
+    async fn tools(&self) -> Option<ToolSet> {
+        let surface = self.surface.borrow().clone();
+        match self.parts.request_tools(&self.thread, &surface).await {
+            Ok(tools) => tools,
+            Err(error) => {
+                tracing::warn!("[mcp] request tools could not be rebuilt: {error:?}");
+                None
+            }
         }
     }
 }
@@ -834,7 +852,7 @@ async fn drive(
         reuse,
         reactions,
         tail,
-        mcp: Some(Arc::new(ThreadMcp { parts: parts.clone(), thread: thread.clone() })),
+        mcp: Some(Arc::new(ThreadMcp { parts: parts.clone(), thread: thread.clone(), surface: surface.clone() })),
         side,
         step_judge,
         artifacts,

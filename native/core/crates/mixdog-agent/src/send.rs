@@ -255,8 +255,7 @@ impl Run {
         // The tail reminder rides on this request only; the assistant turn it
         // produces keeps its text.
         self.last_reminder = self.env.tail.as_ref().and_then(|t| t.text(&self.model));
-        let tools = self.tools.definitions().into_iter().filter(|t| !self.dropped_tools.contains_key(&t.name)).collect();
-        wire_request(&self.model, options, messages, self.last_reminder.as_deref(), tools)
+        wire_request(&self.model, options, messages, self.last_reminder.as_deref(), self.request_tools())
     }
 
     /// Sends the transcript, recovering from failures. The returned response
@@ -699,6 +698,8 @@ impl Run {
         // The new provider takes no other provider's replay state.
         self.strip_replay_for_new_route();
         self.provider = switch.provider;
+        // A new route takes a fresh snapshot of the tools (`route-fallback.mjs`).
+        self.fixed_surface = None;
         self.config.effort = switch.effort;
         self.config.text_only = switch.text_only;
         self.model = switch.model.clone();
