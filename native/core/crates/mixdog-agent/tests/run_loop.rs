@@ -993,6 +993,43 @@ async fn parsed_tool_calls_survive_a_cut_stream() {
     assert!(h.waiter.0.lock().unwrap().is_empty(), "continued, not replayed");
 }
 
+/// A cut WebSocket stream keeps the replay envelope of the items it had finished (`partialProviderReplay`), and the
+/// recovered assistant message carries it (`send-with-recovery.mjs`), so the next request replays it. The ids are the
+/// ones Node recorded for the cut (`golden/stream_progress.json`, `outcome.error.partial.replay`).
+#[tokio::test]
+async fn a_cut_stream_s_partial_replay_is_kept_on_the_recovered_message() {
+    let golden: JsonValue =
+        serde_json::from_str(&std::fs::read_to_string(golden_dir().join("compact/golden/stream_progress.json")).unwrap()).unwrap();
+    let node_ids: Vec<String> = golden["decoders"]["responses"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find_map(|s| s["outcome"]["error"]["partial"]["replay"].as_array())
+        .expect("a recorded cut with a replay")
+        .iter()
+        .map(|id| id.as_str().unwrap().to_owned())
+        .collect();
+    let items: Vec<JsonValue> = node_ids.iter().map(|id| json!({ "type": "item", "id": id })).collect();
+    let mut cut = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
+    cut.partial_replay = Some(Box::new(mixdog_core_api::domain::provider::ProviderReplay {
+        owner: ProviderId::from("scripted"),
+        items: JsonValue::Array(items),
+    }));
+    let h = Harness::new(vec![
+        turn(vec![text("x"), call("c1", "echo", json!({})), Step::Fail(cut)]),
+        turn(vec![text("fin"), done(StopReason::EndTurn)]),
+    ]);
+    let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    let recovered = output.transcript.iter().find(|m| m.text() == "x").expect("the recovered assistant message");
+    let kept: Vec<String> = recovered
+        .message
+        .provider_replay()
+        .iter()
+        .flat_map(|r| r.items.as_array().unwrap().iter().map(|i| i["id"].as_str().unwrap().to_owned()))
+        .collect();
+    assert_eq!(kept, node_ids);
+}
+
 #[tokio::test]
 async fn turn_limits_answer_extra_calls_unrun_and_forbid_tools_after_the_notice() {
     let h = Harness::new(vec![
