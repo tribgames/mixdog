@@ -60,6 +60,7 @@ async fn model_list_matches_node() {
             config,
             primary_provider: Arc::new(move || route.clone()),
             unsupported: Arc::new(UnsupportedEfforts::default()),
+            host: None,
         };
         let (force, quick) = match case["read"].as_str().unwrap() {
             "force" => (true, false),
@@ -110,6 +111,7 @@ async fn a_snapshot_the_provider_listing_produced_reaches_the_rows() {
         config,
         primary_provider: Arc::new(|| "openai-oauth".to_owned()),
         unsupported: Arc::new(UnsupportedEfforts::default()),
+            host: None,
     };
     let rows = service.rows(false, false).await;
     let row = |id: &str| rows.iter().find(|r| r["id"] == id).unwrap_or_else(|| panic!("{id} in {rows:?}"));

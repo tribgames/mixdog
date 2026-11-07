@@ -7,6 +7,7 @@ export const DESKTOP_NOTICE_CODES = [
   'connector-sign-in-expired',
   'secret-storage-failed',
   'conversation-save-failed',
+  'update-ready',
 ] as const;
 export type DesktopNoticeCode = (typeof DESKTOP_NOTICE_CODES)[number];
 

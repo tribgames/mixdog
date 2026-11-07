@@ -67,7 +67,49 @@ pub trait UpdateInstaller: Send + Sync {
     /// Stages and verifies `version`. `Ok` carries the version actually staged when it differs;
     /// `Err` is the failure text the user reads (`npm install exited with code 1`, …).
     async fn stage(&self, version: &str) -> Result<Option<String>, String>;
+    /// `isStagedComplete(version)`: a verified package of `version` sits in the staging area.
+    async fn is_staged(&self, version: &str) -> bool;
 }
+
+/// One GET of the registry: `Some` when a response arrived, whatever its status.
+pub struct RegistryAnswer {
+    pub success: bool,
+    pub body: Vec<u8>,
+}
+
+/// The registry the update check asks. Production is [`ReqwestRegistry`]; tests inject a fake, so
+/// none of them reaches a network.
+#[async_trait]
+pub trait RegistryHttp: Send + Sync {
+    async fn get(&self, url: &str) -> Option<RegistryAnswer>;
+}
+
+/// The real registry client (`fetch` of `update-checker.mjs`, the `UPDATE_CHECK` deadline).
+pub struct ReqwestRegistry;
+
+#[async_trait]
+impl RegistryHttp for ReqwestRegistry {
+    async fn get(&self, url: &str) -> Option<RegistryAnswer> {
+        let link = ReqwestLink::new(&KeepaliveSchedule::SPEC, false).ok()?;
+        let request = WireRequest {
+            transport: TransportKind::Http1,
+            method: "GET".to_owned(),
+            url: url.to_owned(),
+            headers: Vec::new(),
+            body: Vec::new(),
+        };
+        let response = link.send(request, UPDATE_CHECK).await.ok()?;
+        let success = response.is_success();
+        if !success {
+            return Some(RegistryAnswer { success, body: Vec::new() });
+        }
+        Some(RegistryAnswer { success, body: response.read_all().await.ok()?.body })
+    }
+}
+
+/// `STAGE_POLL_MS` and `STAGE_POLL_MAX_MS` of `self-update.mjs`.
+const STAGE_POLL: std::time::Duration = std::time::Duration::from_secs(3);
+const STAGE_POLL_MAX: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 
 /// Stores the `update.auto` switch (`setAutoUpdate`'s `saveConfigAndAdopt`). The config
 /// actor's [`Settings`] is the production implementation.
@@ -97,6 +139,11 @@ pub struct UpdateConfig {
     pub current_version: String,
     /// [`REGISTRY_URL`], except in tests.
     pub registry_url: String,
+    /// What asks the registry.
+    pub registry: Arc<dyn RegistryHttp>,
+    /// `emitNotification('update ready', { kind: 'update-notice', version })`: tells the user a
+    /// staged version waits for a restart.
+    pub ready_notice: Arc<dyn Fn(&str) + Send + Sync>,
     pub data_dir: PathBuf,
     /// `config.update.auto !== false`, read on each use.
     pub auto_update: Arc<dyn Fn() -> bool + Send + Sync>,
@@ -335,19 +382,11 @@ impl UpdateService {
     }
 
     async fn fetch_latest(&self) -> Option<String> {
-        let link = ReqwestLink::new(&KeepaliveSchedule::SPEC, false).ok()?;
-        let request = WireRequest {
-            transport: TransportKind::Http1,
-            method: "GET".to_owned(),
-            url: self.config.registry_url.clone(),
-            headers: Vec::new(),
-            body: Vec::new(),
-        };
-        let response = link.send(request, UPDATE_CHECK).await.ok()?;
-        if !response.is_success() {
+        let answer = self.config.registry.get(&self.config.registry_url).await?;
+        if !answer.success {
             return None;
         }
-        let body: Value = serde_json::from_slice(&response.read_all().await.ok()?.body).ok()?;
+        let body: Value = serde_json::from_slice(&answer.body).ok()?;
         let version = match body.get("version") {
             Some(Value::String(version)) => mixdog_core_base::support::js_trim(version).to_owned(),
             _ => String::new(),
@@ -460,8 +499,8 @@ impl UpdateService {
     /// `startBootCheck()` of the controller (`self-update.mjs`), run once right after boot: one
     /// forced registry check (`checkLatestVersion({ force: true })`), remembered as the check
     /// state without touching the phase. When `update.auto` is on, this is not a dev install and
-    /// a newer version was found, that version is staged in the background. The "update ready"
-    /// notice Node announces once the staging is complete is not sent.
+    /// a newer version was found, that version is staged in the background and announced once
+    /// the staging is complete ([`Self::stage_and_announce`]).
     pub fn start_boot_check(self: &Arc<Self>) -> tokio::task::JoinHandle<()> {
         let service = self.clone();
         mixdog_rt::spawn("update-boot-check", mixdog_rt::TaskClass::Work, async move {
@@ -472,10 +511,30 @@ impl UpdateService {
                 && (service.config.auto_update)()
                 && !service.installer.is_dev_install()
             {
-                // Best effort, like Node's detached `spawnStagedInstall`: a failure is retried by the next launch.
-                let _ = service.installer.stage(&version).await;
+                service.stage_and_announce(&version).await;
             }
         })
+    }
+
+    /// The staging half of `startBootCheck`: a version already staged is announced at once;
+    /// otherwise it is staged (best effort, like the detached `spawnStagedInstall`: a failure is
+    /// retried by the next launch) and its completion polled every 3 s for up to 10 min. The
+    /// notice goes out once, when the staging is complete, never upfront.
+    async fn stage_and_announce(&self, version: &str) {
+        if self.installer.is_staged(version).await {
+            (self.config.ready_notice)(version);
+            return;
+        }
+        let _ = self.installer.stage(version).await;
+        let mut waited = std::time::Duration::ZERO;
+        while waited <= STAGE_POLL_MAX {
+            if self.installer.is_staged(version).await {
+                (self.config.ready_notice)(version);
+                return;
+            }
+            tokio::time::sleep(STAGE_POLL).await;
+            waited += STAGE_POLL;
+        }
     }
 
     /// `getUpdateSettings()`.

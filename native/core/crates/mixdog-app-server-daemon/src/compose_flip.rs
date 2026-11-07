@@ -415,6 +415,27 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The registry's own routed link, `ClientVersions` and client identity (`builder_env.http`, per wp-ai-svc), not a second set.
     let (http_send, client_versions, client_ids) = (builder_shared.http.clone(), builder_shared.versions.clone(), builder_shared.identity.clone());
     let readiness = mixdog_ai::catalog::ProviderReadiness::new(registry.clone(), b.catalog.clone());
+    // The providers of the loaded config (`loadConfig().providers`): the runtime's own provider config that
+    // `ensure_providers_ready(None)` initializes, and the view the dashboards and the model lists read.
+    let effective = Arc::new(mixdog_ai::registry::effective::EffectiveProviders::new(default_builder.clone(), media_keys.clone(), process.env.clone()));
+    let loaded_providers = effective.load(&config.agent(), true).await.map_err(ComposeError::Providers)?;
+    readiness.set_providers(loaded_providers.clone());
+    mixdog_rt::spawn("providers.sync", mixdog_rt::TaskClass::Work, {
+        let (effective, readiness, config, stop) = (effective.clone(), readiness.clone(), config.clone(), b.cancel.child_token());
+        async move {
+            let mut changes = config.changes();
+            loop {
+                tokio::select! {
+                    () = stop.cancelled() => return,
+                    changed = changes.changed() => if changed.is_err() { return },
+                }
+                match effective.load(&config.agent(), true).await {
+                    Ok(providers) => readiness.set_providers(providers),
+                    Err(error) => tracing::warn!(%error, "[providers] the loaded config could not be rebuilt; the previous one stays"),
+                }
+            }
+        }
+    });
 
     // The stores the warm gate, the resume timer, the media layer and the provider admin share (built here, ahead of step 5: the warmer\n    // needs the gate, and the gate needs the registry above).
     // The one `quota-resume.json` store: the setup tool's switch (`DomainSeams.quota_resume`, wp-config-setup-1), the goal
@@ -492,7 +513,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let setup_host = Arc::new(crate::setup_host::DaemonSetupHost { env: b.env.clone(), config: config.clone(), warmup: setup_warmup.clone() });
     let provider_setup = Arc::new(mixdog_core_domains::domains::ai_account::setup_cache::CachedProviderSetup::new(gatherer, keychain_live, overlays, setup_host));
     setup_warmup.bind(provider_setup.clone()).map_err(|_| ComposeError::AlreadyBound("provider setup warm-up"))?;
-    let dashboards = mixdog_core_domains::domains::ai_account::dashboards::Dashboards::new(Arc::new(crate::setup_host::SetupSourceOf { setup: provider_setup.clone(), config: config.clone() }));
+    let dashboards = mixdog_core_domains::domains::ai_account::dashboards::Dashboards::new(Arc::new(crate::setup_host::SetupSourceOf { setup: provider_setup.clone(), config: config.clone(), effective: effective.clone() }));
     let provider_effects = mixdog_core_domains::domains::ai_account::auth_refresh::ProviderEffects::new(config.clone(), readiness.clone(), admission.clone(), dashboards.clone());
     // Node's one `invalidateProviderCaches()` also drops the setup cache: the effects the flow runs are `ProviderEffects` plus that drop.
     let refresh: Arc<dyn mixdog_core_domains::domains::ai_account::collaborators::AuthRefresh> = mixdog_core_domains::domains::ai_account::auth_refresh::AuthRefreshFlow::new(Arc::new(
@@ -583,6 +604,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         config: config.clone(),
         primary_provider: { let main = main_route.clone(); Arc::new(move || main.provider()) },
         unsupported: unsupported.clone(),
+        host: Some(mixdog_core_domains::domains::ai_admin::model_list::ListHost::new(
+            readiness.clone(),
+            effective.clone(),
+            { let main = main_route.clone(); Arc::new(move || main.route()) },
+            loaded_providers.clone(),
+        )),
     });
     let web_search_models = Arc::new(mixdog_core_domains::domains::ai_admin::web_search_models::WebSearchModelsService::new(
         b.catalog.clone(),

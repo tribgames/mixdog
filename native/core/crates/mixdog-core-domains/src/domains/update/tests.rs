@@ -4,9 +4,7 @@
 
 #![allow(clippy::disallowed_methods, reason = "test setup: seeds and inspects the cache files on the test thread")]
 
-use std::io::Read;
-use std::io::Write;
-use std::net::TcpListener;
+use std::collections::HashMap;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering as AtomicOrdering;
 
@@ -43,38 +41,44 @@ fn semver_orders_as_the_node_comparison_does() {
     }
 }
 
-/// A registry on a loopback port: `ok` answers 200 with the body, `error` answers 500.
-fn registry(status: u16, body: &'static str) -> (String, Arc<AtomicUsize>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let url = format!(
-        "http://127.0.0.1:{}/mixdog/latest",
-        listener.local_addr().unwrap().port()
-    );
+/// What a scripted registry answers: each request takes the next entry, the last one repeats.
+struct Script {
+    answers: Vec<(u16, &'static str)>,
+    hits: Arc<AtomicUsize>,
+}
+
+/// The registries tests script, by URL. The fake client answers from here; nothing reaches a network.
+static SCRIPTS: std::sync::LazyLock<Mutex<HashMap<String, Script>>> = std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
+static NEXT_REGISTRY: AtomicUsize = AtomicUsize::new(0);
+
+struct FakeRegistry;
+
+#[async_trait]
+impl RegistryHttp for FakeRegistry {
+    async fn get(&self, url: &str) -> Option<RegistryAnswer> {
+        let scripts = SCRIPTS.lock().unwrap();
+        let script = scripts.get(url)?;
+        let at = script.hits.fetch_add(1, AtomicOrdering::SeqCst).min(script.answers.len() - 1);
+        let (status, body) = script.answers[at];
+        Some(RegistryAnswer { success: (200..300).contains(&status), body: body.as_bytes().to_vec() })
+    }
+}
+
+fn script(answers: Vec<(u16, &'static str)>) -> (String, Arc<AtomicUsize>) {
+    let url = format!("fake://registry/{}/mixdog/latest", NEXT_REGISTRY.fetch_add(1, AtomicOrdering::SeqCst));
     let hits = Arc::new(AtomicUsize::new(0));
-    let counted = hits.clone();
-    std::thread::spawn(move || {
-        while let Ok((mut stream, _)) = listener.accept() {
-            let mut buffer = [0u8; 2048];
-            let _ = stream.read(&mut buffer);
-            counted.fetch_add(1, AtomicOrdering::SeqCst);
-            let response = format!(
-                "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            );
-            let _ = stream.write_all(response.as_bytes());
-        }
-    });
+    SCRIPTS.lock().unwrap().insert(url.clone(), Script { answers, hits: hits.clone() });
     (url, hits)
 }
 
-/// A port nothing listens on.
+/// A registry that answers with the status and body.
+fn registry(status: u16, body: &'static str) -> (String, Arc<AtomicUsize>) {
+    script(vec![(status, body)])
+}
+
+/// A registry nothing answers: the request fails.
 fn closed() -> String {
-    let port = TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    format!("http://127.0.0.1:{port}/mixdog/latest")
+    "fake://registry/closed/mixdog/latest".to_owned()
 }
 
 struct Installer {
@@ -111,12 +115,19 @@ impl UpdateInstaller for Installer {
         }
         self.outcome.clone()
     }
+
+    /// Staged once a stage call succeeded.
+    async fn is_staged(&self, version: &str) -> bool {
+        self.outcome.is_ok() && self.staged.lock().unwrap().iter().any(|staged| staged == version)
+    }
 }
 
 struct Rig {
     service: Arc<UpdateService>,
     host: Arc<MockHostChannel>,
     dir: tempfile::TempDir,
+    /// The versions the "update ready" notice was sent for.
+    notices: Arc<Mutex<Vec<String>>>,
 }
 
 async fn rig(registry_url: String, installer: Arc<Installer>, current: &str) -> Rig {
@@ -141,10 +152,16 @@ async fn rig(registry_url: String, installer: Arc<Installer>, current: &str) -> 
         Arc::new(mixdog_core_config::config::NoEffects),
         Arc::new(|_| None),
     );
+    let notices = Arc::new(Mutex::new(Vec::new()));
     let service = UpdateService::new(
         UpdateConfig {
             current_version: current.into(),
             registry_url,
+            registry: Arc::new(FakeRegistry),
+            ready_notice: {
+                let notices = notices.clone();
+                Arc::new(move |version: &str| notices.lock().unwrap().push(version.to_owned()))
+            },
             data_dir: dir.path().to_owned(),
             // `autoUpdateEnabled()`: `config.update.auto !== false`.
             auto_update: Arc::new(move || {
@@ -162,7 +179,7 @@ async fn rig(registry_url: String, installer: Arc<Installer>, current: &str) -> 
         },
         &mixdog_rt::testing::tokens(),
     );
-    Rig { service, host, dir }
+    Rig { service, host, dir, notices }
 }
 
 fn cancel() -> mixdog_rt::CancellationToken {
@@ -250,6 +267,18 @@ async fn call(
     value(&*rig.service, request(method, params, op)).await
 }
 
+/// A staging that never completes is polled every 3 s for 10 min (paused time), then given up on
+/// without a notice.
+#[tokio::test(start_paused = true)]
+async fn the_boot_check_gives_up_on_a_staging_that_never_completes() {
+    let (url, _) = registry(200, r#"{"version":"9.9.9"}"#);
+    let installer = Installer::new(Err("staging in progress".into()));
+    let rig = rig(url, installer.clone(), "1.4.5").await;
+    rig.service.start_boot_check().await.unwrap();
+    assert_eq!(*installer.staged.lock().unwrap(), ["9.9.9"]);
+    assert!(rig.notices.lock().unwrap().is_empty());
+}
+
 /// `startBootCheck()`: one forced check at boot fills the settings (`latestVersion`) that a
 /// read answers, and leaves the phase alone.
 #[tokio::test]
@@ -260,6 +289,8 @@ async fn the_boot_check_remembers_the_latest_version() {
     rig.service.start_boot_check().await.unwrap();
     // `update.auto` is on and 9.9.9 is newer: it is staged in the background.
     assert_eq!(*installer.staged.lock().unwrap(), ["9.9.9"]);
+    // ...and announced once, when the staging is complete.
+    assert_eq!(*rig.notices.lock().unwrap(), ["9.9.9"]);
     let settings = call(&rig, "config/getUpdateSettings", json!({}), None).await.unwrap();
     assert_eq!(settings["latestVersion"], "9.9.9");
     assert_eq!(settings["updateAvailable"], true);
@@ -512,28 +543,7 @@ async fn the_desktop_updater_is_commanded_through_the_host() {
 
 /// A registry that answers each request with the next body; the last one repeats.
 fn sequence(bodies: &'static [&'static str]) -> (String, Arc<AtomicUsize>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let url = format!(
-        "http://127.0.0.1:{}/mixdog/latest",
-        listener.local_addr().unwrap().port()
-    );
-    let hits = Arc::new(AtomicUsize::new(0));
-    let counted = hits.clone();
-    std::thread::spawn(move || {
-        while let Ok((mut stream, _)) = listener.accept() {
-            let mut buffer = [0u8; 2048];
-            let _ = stream.read(&mut buffer);
-            let body = bodies[counted
-                .fetch_add(1, AtomicOrdering::SeqCst)
-                .min(bodies.len() - 1)];
-            let response = format!(
-                "HTTP/1.1 200 X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-                body.len()
-            );
-            let _ = stream.write_all(response.as_bytes());
-        }
-    });
-    (url, hits)
+    script(bodies.iter().map(|body| (200, *body)).collect())
 }
 
 /// `getUpdateSettings` and `setAutoUpdate` of the Node settings API over a config the setter

@@ -9,6 +9,7 @@ pub mod model_list;
 pub mod model_proxy;
 pub mod model_proxy_service;
 pub mod provider_status;
+mod quick_rows;
 pub mod route_actions;
 pub mod route_service;
 pub mod route_set_service;

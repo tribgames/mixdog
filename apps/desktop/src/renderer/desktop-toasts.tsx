@@ -58,6 +58,9 @@ export function desktopNoticeToast(notice: DesktopNotice): { text: string; tone:
         ),
         tone: 'error',
       };
+    case 'update-ready':
+      // The wording of the runtime's `update-notice` (tui/session/notification-plan.mjs); the core sends the version.
+      return { text: `mixdog v${notice.params.version || ''} ready — restart to apply.`, tone: 'info' };
     case 'conversation-save-failed':
       return {
         text: t(

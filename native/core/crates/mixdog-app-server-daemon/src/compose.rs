@@ -125,6 +125,8 @@ pub enum ComposeError {
     Channels(String),
     #[error("settling the stale agent workers: {0}")]
     AgentRecover(String),
+    #[error("loading the providers of the config: {0}")]
+    Providers(String),
     #[error("opening the quota resume store: {0}")]
     QuotaResume(mixdog_core_base::quota_resume::QuotaError),
     #[error("opening the prompt-cache warm store: {0}")]

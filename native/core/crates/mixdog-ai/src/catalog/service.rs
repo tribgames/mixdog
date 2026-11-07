@@ -27,7 +27,8 @@ use super::store::CatalogSnapshot;
 
 pub struct CatalogService {
     catalog: Arc<ProviderCatalog>,
-    sources: Vec<ModelSource>,
+    /// The listings a refresh asks: the registered providers' (`set_sources`).
+    sources: ArcSwap<Vec<ModelSource>>,
     metadata: Arc<ModelsDevSource>,
     /// The live-roster files, swapped whole when the catalog refreshes.
     pub(super) rosters: ArcSwap<RosterSnapshot>,
@@ -51,7 +52,7 @@ impl CatalogService {
         metadata.warm_from_disk().await;
         let service = Self {
             catalog,
-            sources,
+            sources: ArcSwap::from_pointee(sources),
             metadata,
             rosters: ArcSwap::from_pointee(RosterSnapshot::default()),
             roster_dir: None,
@@ -174,6 +175,13 @@ impl CatalogService {
         self.catalog.snapshot()
     }
 
+    /// Replaces the listings a refresh asks. Node's catalog load walks the providers the registry
+    /// holds (`sharedProviderCatalog(reg())`), so the readiness hands over the registered ones
+    /// after each initialization.
+    pub fn set_sources(&self, sources: Vec<ModelSource>) {
+        self.sources.store(Arc::new(sources));
+    }
+
     /// One refresh: model listings and models.dev (fetched only when its
     /// cache is stale or a retry is due), published as one snapshot.
     pub async fn refresh(&self) -> RefreshOutcome {
@@ -192,9 +200,10 @@ impl CatalogService {
     /// provider keeps what it loaded.
     pub async fn refresh_matching(&self, wanted: &str) -> RefreshOutcome {
         let only: Vec<ModelSource> = {
-            let ids: Vec<&str> = self.sources.iter().map(|s| s.provider().as_str()).collect();
+            let sources = self.sources.load_full();
+            let ids: Vec<&str> = sources.iter().map(|s| s.provider().as_str()).collect();
             let names = matching_providers(&ids, wanted);
-            self.sources.iter().filter(|s| names.contains(&s.provider().as_str())).cloned().collect()
+            sources.iter().filter(|s| names.contains(&s.provider().as_str())).cloned().collect()
         };
         let outcome = self.catalog.refresh_asking(&only, Ask::All).await;
         self.reload_rosters().await;
@@ -214,8 +223,9 @@ impl CatalogService {
                 source.load(false).await;
             }
         };
+        let sources = self.sources.load_full();
         let (outcome, _, ()) = futures::future::join3(
-            self.catalog.refresh_asking(&self.sources, ask),
+            self.catalog.refresh_asking(&sources, ask),
             self.metadata.load(false),
             litellm,
         )

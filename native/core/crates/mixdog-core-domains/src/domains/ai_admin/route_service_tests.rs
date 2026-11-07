@@ -174,6 +174,7 @@ pub(super) async fn rig(case: &Value) -> (RouteService, Arc<Writer>, Arc<Mutex<L
         config: config.clone(),
         primary_provider: Arc::new(String::new),
         unsupported: Arc::new(UnsupportedEfforts::default()),
+            host: None,
     });
     if !case["fileOverride"].is_null() {
         std::fs::write(&path, serde_json::to_vec(&json!({ "agent": case["fileOverride"] })).unwrap()).unwrap();
@@ -278,6 +279,7 @@ async fn a_model_chosen_while_the_catalog_is_read_is_taken_not_refused() {
         config: service.config.clone(),
         primary_provider: Arc::new(String::new),
         unsupported: Arc::new(UnsupportedEfforts::default()),
+            host: None,
     });
     let pick = async {
         asked.notified().await;
