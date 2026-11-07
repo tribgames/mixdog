@@ -33,7 +33,7 @@ fn git(cwd: &Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_owned()
 }
 
-fn fixture_repo() -> (tempfile::TempDir, std::path::PathBuf, String) {
+pub(crate) fn fixture_repo() -> (tempfile::TempDir, std::path::PathBuf, String) {
     let dir = tempfile::tempdir().unwrap();
     let repo = std::fs::canonicalize(dir.path()).unwrap().join("repo");
     std::fs::create_dir_all(repo.join("src")).unwrap();

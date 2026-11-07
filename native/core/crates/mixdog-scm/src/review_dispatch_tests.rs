@@ -158,6 +158,28 @@ async fn each_parameter_set_picks_the_read_node_runs() {
     assert_eq!(log.lock().unwrap().len(), 8, "one read each");
 }
 
+/// The repository form (`scope: repo`, `gitReview`) over a real repository answers Node's `GitReviewResult` and nothing more:
+/// the harness recorded `{repository, root, base, files, untrackedOmitted}` for `gitReview` (no `key`, which only the thread review
+/// carries for `known`, and no `totals`), and each row is `GitReviewFile`: `path`, `status`, `additions`, `deletions`,
+/// `untracked`, `revision`.
+#[tokio::test]
+async fn a_repository_review_has_the_fields_of_nodes_git_review_and_no_key() {
+    let (_guard, repo, _head) = crate::golden_tests::fixture_repo();
+    let handle = service(Log::default());
+    let reply = get(&handle, json!({ "scope": "repo", "cwd": repo.to_string_lossy() })).await.unwrap();
+    let keys = |value: &Value| value.as_object().unwrap().keys().cloned().collect::<std::collections::BTreeSet<_>>();
+    let expected = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(keys(&reply), expected(&["repository", "root", "base", "files", "untrackedOmitted"]), "{reply}");
+    assert_eq!((reply["repository"].clone(), reply["base"].clone(), reply["untrackedOmitted"].clone()), (json!(true), json!("main"), json!(0)));
+    let rows = reply["files"].as_array().unwrap();
+    assert!(!rows.is_empty(), "the fixture has edits");
+    for row in rows {
+        assert_eq!(keys(row), expected(&["path", "status", "additions", "deletions", "untracked", "revision"]), "{row}");
+    }
+    let untracked = rows.iter().find(|row| row["path"] == "new.txt").expect("the untracked file is listed");
+    assert_eq!((untracked["status"].clone(), untracked["additions"].clone(), untracked["deletions"].clone(), untracked["untracked"].clone()), (json!("A"), json!(1), json!(0), json!(true)));
+}
+
 #[tokio::test]
 async fn a_review_failure_keeps_the_message_node_threw() {
     let handle = service(Log::default());
