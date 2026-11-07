@@ -18,18 +18,81 @@ use super::record::Rates;
 pub struct ModelSource {
     provider: ProviderId,
     listing: Arc<dyn ModelListing>,
+    /// What the provider answers in place of a listing that failed (Node's offline floor); only a registry adapter has one.
+    floor: Option<Floor>,
+}
+
+/// The offline floors of Node's providers (`listModels` answering its static list), generated from Node's own lists by
+/// `benchmarks/rust-core/recorders/gen-offline-floors.mjs`.
+const OFFLINE_FLOORS: &str = include_str!("offline_floors.json");
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Floor {
+    /// `anthropic.mjs` `listModels`: no key, a failed fetch or an empty listing answers `MODELS`.
+    Anthropic,
+    /// `anthropic-oauth.mjs` `listModels`: a failed fetch answers `MODELS` as full-id family rows (an empty listing stands).
+    AnthropicOauth,
+    /// `gemini.mjs` `listModels`: no key or a failed fetch answers `GEMINI_MODELS`.
+    Gemini,
+}
+
+impl Floor {
+    fn of(provider: &str) -> Option<Self> {
+        match provider {
+            "anthropic" => Some(Self::Anthropic),
+            "anthropic-oauth" => Some(Self::AnthropicOauth),
+            "gemini" => Some(Self::Gemini),
+            _ => None,
+        }
+    }
+
+    /// Whether an empty successful listing is answered by the floor too.
+    fn covers_empty(self) -> bool {
+        self == Self::Anthropic
+    }
+
+    /// The floor's rows for `provider`, as the catalog stores them.
+    fn rows(self, provider: &ProviderId, env: &dyn Fn(&str) -> Option<String>) -> Vec<ModelRecord> {
+        let floors: serde_json::Value = serde_json::from_str(OFFLINE_FLOORS).expect("the bundled floors are valid JSON");
+        let list = floors[if self == Self::Gemini { "gemini" } else { "anthropic" }].as_array().cloned().unwrap_or_default();
+        list.iter()
+            .map(|row| {
+                let text = |key: &str| row[key].as_str().unwrap_or_default().to_owned();
+                let mut id = text("id");
+                if self == Self::AnthropicOauth {
+                    // ANTHROPIC_DEFAULT_<FAMILY>_MODEL overrides one family's id.
+                    let variable = format!("ANTHROPIC_DEFAULT_{}_MODEL", text("family").to_uppercase());
+                    if let Some(over) = env(&variable).filter(|v| !v.is_empty()) {
+                        id = over;
+                    }
+                }
+                let mut record = ModelRecord::new(provider.clone(), id);
+                record.display_name = Some(text("name"));
+                record.name = Some(text("name"));
+                record.family = row["family"].as_str().map(str::to_owned);
+                record.context_window = row["contextWindow"].as_u64();
+                if self == Self::AnthropicOauth {
+                    record.picker.tier = Some("family".to_owned());
+                    record.picker.latest = true;
+                }
+                record.source = MetadataSource::Native;
+                record
+            })
+            .collect()
+    }
 }
 
 impl ModelSource {
     pub fn new(provider: ProviderId, listing: Arc<dyn ModelListing>) -> Self {
-        Self { provider, listing }
+        Self { provider, listing, floor: None }
     }
 
     /// The registry-to-catalog bridge: `adapter`'s listing, or `None` for an
     /// adapter that lists no models (`ProviderAdapter::models`).
     pub fn of_adapter(provider: ProviderId, adapter: Arc<dyn ProviderAdapter>) -> Option<Self> {
         adapter.models()?;
-        Some(Self::new(provider, Arc::new(AdapterListing(adapter))))
+        let floor = Floor::of(provider.as_str());
+        Some(Self { floor, ..Self::new(provider, Arc::new(AdapterListing(adapter))) })
     }
 
     pub fn provider(&self) -> &ProviderId {
@@ -38,7 +101,17 @@ impl ModelSource {
 
     /// One fetch: the adapter's records, as the catalog stores them.
     pub async fn list(&self) -> Result<Vec<ModelRecord>, ProviderError> {
-        let listed = self.listing.list_models().await?;
+        let env = |name: &str| std::env::var(name).ok();
+        let listed = match (self.listing.list_models().await, self.floor) {
+            (Ok(listed), Some(floor)) if listed.is_empty() && floor.covers_empty() => return Ok(floor.rows(&self.provider, &env)),
+            (Ok(listed), _) => listed,
+            (Err(error), Some(floor)) => {
+                // Node writes the failure to stderr and answers its floor; the catalog sees a listing that worked.
+                tracing::warn!(provider = self.provider.as_str(), kind = ?error.kind, "[provider] listModels failed; answering the offline floor");
+                return Ok(floor.rows(&self.provider, &env));
+            }
+            (Err(error), None) => return Err(error),
+        };
         Ok(listed.into_iter().map(|record| catalog_record(&self.provider, record)).collect())
     }
 }
@@ -216,4 +289,66 @@ pub fn build_sources(config: &FullProviderConfig, factory: &dyn SourceFactory) -
         .filter(|entry| entry.enabled)
         .filter_map(|entry| Some(ModelSource::new(entry.id.clone(), factory.source(entry)?)))
         .collect()
+}
+#[cfg(test)]
+mod floor_tests {
+    use async_trait::async_trait;
+    use mixdog_core_api::domain::provider::DeliveryState;
+    use mixdog_core_api::domain::provider::ErrorKind;
+
+    use super::*;
+
+    /// A listing that answers what it is given: rows, or a transport failure.
+    struct Scripted(Option<Vec<mixdog_core_api::domain::provider::ModelRecord>>);
+
+    #[async_trait]
+    impl ModelListing for Scripted {
+        async fn list_models(&self) -> Result<Vec<mixdog_core_api::domain::provider::ModelRecord>, ProviderError> {
+            self.0.clone().ok_or_else(|| ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent))
+        }
+    }
+
+    fn source(provider: &str, rows: Option<Vec<mixdog_core_api::domain::provider::ModelRecord>>) -> ModelSource {
+        let id = ProviderId::from(provider);
+        ModelSource { floor: Floor::of(provider), ..ModelSource::new(id, Arc::new(Scripted(rows))) }
+    }
+
+    fn ids(rows: &[ModelRecord]) -> Vec<&str> {
+        rows.iter().map(|r| r.id.as_str()).collect()
+    }
+
+    #[tokio::test]
+    async fn a_failed_anthropic_listing_answers_nodes_models_floor() {
+        // `anthropic-models.mjs` MODELS: one id per family, window 1 000 000, family stated.
+        let rows = source("anthropic", None).list().await.unwrap();
+        assert_eq!(ids(&rows), ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-5-5"]);
+        assert_eq!(rows[0].display_name.as_deref(), Some("Claude Opus 5.5"));
+        assert_eq!((rows[0].context_window, rows[0].family.as_deref()), (Some(1_000_000), Some("opus")));
+        assert!(rows.iter().all(|r| r.provider.as_str() == "anthropic" && !r.picker.latest && r.picker.tier.is_none()));
+    }
+
+    #[tokio::test]
+    async fn an_empty_api_key_listing_is_the_floor_but_an_empty_oauth_listing_stands() {
+        assert_eq!(source("anthropic", Some(Vec::new())).list().await.unwrap().len(), 3);
+        assert!(source("anthropic-oauth", Some(Vec::new())).list().await.unwrap().is_empty());
+        assert!(source("gemini", Some(Vec::new())).list().await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_oauth_floor_is_family_rows_and_a_family_variable_names_its_id() {
+        let provider = ProviderId::from("anthropic-oauth");
+        let env = |name: &str| (name == "ANTHROPIC_DEFAULT_SONNET_MODEL").then(|| "claude-sonnet-custom".to_owned());
+        let rows = Floor::AnthropicOauth.rows(&provider, &env);
+        assert_eq!(ids(&rows), ["claude-opus-5-5", "claude-fable-5-1", "claude-sonnet-custom"]);
+        assert!(rows.iter().all(|r| r.picker.latest && r.picker.tier.as_deref() == Some("family") && r.provider == provider));
+        assert!(source("anthropic-oauth", None).list().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_failed_gemini_listing_answers_the_gemini_floor_and_another_provider_still_fails() {
+        let rows = source("gemini", None).list().await.unwrap();
+        assert_eq!(ids(&rows), ["gemini-3.8-flash", "gemini-3.1-pro-preview", "gemini-3.5-flash-lite"]);
+        assert!(rows.iter().all(|r| r.context_window == Some(1_048_576) && r.family.is_none()));
+        assert!(source("openai", None).list().await.is_err());
+    }
 }

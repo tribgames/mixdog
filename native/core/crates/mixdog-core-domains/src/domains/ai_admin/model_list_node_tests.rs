@@ -1,6 +1,6 @@
 //! The model lists against the Node recording (`fixtures/model-lists/node-model-lists.json`,
 //! `benchmarks/rust-core/recorders/model-lists/record.mjs`): Node's real `listProviderModels` (the quick
-//! read of a cold cache, then the full read) and `listWebSearchModels` for six profiles, each in an isolated
+//! read of a cold cache, then the full read) and `listWebSearchModels` for ten profiles, each in an isolated
 //! daemon whose model endpoints are a local fake and whose models.dev / LiteLLM catalogs are seeded.
 //!
 //! The Rust side is the production pipeline over the same profile and the same fake endpoint: config load,
@@ -71,14 +71,20 @@ impl BodyStream for Body {
 #[async_trait]
 impl HttpSend for Endpoint {
     async fn send(&self, request: WireRequest, _: Exchange) -> Result<HttpResponse, ProviderError> {
-        let path = request.url.strip_prefix(ENDPOINT).unwrap_or(&request.url);
+        let reply = |status: u16, body: Value| HttpResponse {
+            status,
+            headers: vec![("content-type".to_owned(), "application/json".to_owned())],
+            body: Box::new(Body(Some(body.to_string().into()))),
+        };
+        // Anything but the recorded endpoint is unreachable, as the recorded Node processes' fetch of other hosts was.
+        let Some(path) = request.url.strip_prefix(ENDPOINT) else { return Ok(reply(503, json!({}))) };
         let path = path.split('?').next().unwrap_or(path);
         let answer = self.routes.get(path).cloned().unwrap_or_else(|| json!({ "object": "list", "data": [] }));
-        Ok(HttpResponse {
-            status: 200,
-            headers: vec![("content-type".to_owned(), "application/json".to_owned())],
-            body: Box::new(Body(Some(answer.to_string().into()))),
-        })
+        // `{ "__status": n }` is that HTTP status with an empty object.
+        match answer.get("__status").and_then(Value::as_u64) {
+            Some(status) => Ok(reply(status as u16, json!({}))),
+            None => Ok(reply(200, answer)),
+        }
     }
 }
 
