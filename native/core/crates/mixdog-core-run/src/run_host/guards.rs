@@ -283,9 +283,6 @@ mod tests {
         async fn settle(&self, _: &ThreadId, _: GoalSettlement) -> Result<GoalSnapshot, PortError> {
             unreachable!()
         }
-        async fn extend(&self, _: &ThreadId, _: u64) -> Result<GoalSnapshot, PortError> {
-            unreachable!()
-        }
     }
 
     /// Running tasks as `(session, surface, detached, user_cycle)`.
