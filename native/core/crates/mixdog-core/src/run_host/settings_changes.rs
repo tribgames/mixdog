@@ -8,14 +8,35 @@ use std::sync::Arc;
 
 use mixdog_core_config::config::Config;
 use mixdog_core_config::config::SecretChanges;
+use mixdog_protocol::config::keys;
 use mixdog_rt::TaskClass;
 use serde_json::json;
 use tokio::sync::watch;
 
+/// What the desktop keeps in its own files in Node (`agent-greetings.json`, `remote-activated.json`, and the `desktop` section's
+/// siblings of the same kind) and the Rust config holds as keys (`desktop_profile/plan.rs` destinations). The Node daemon's stored
+/// settings root never contains them, so writing one is no settings change there.
+const DESKTOP_OWNED: [&str; 4] = [keys::DESKTOP, keys::NOTIFICATIONS, keys::AGENTS_GREETED, keys::REMOTE_ACTIVATED_AT];
+
+fn remove_path(root: &mut serde_json::Map<String, serde_json::Value>, path: &str) {
+    match path.split_once('.') {
+        None => {
+            root.remove(path);
+        }
+        Some((head, rest)) => {
+            if let Some(child) = root.get_mut(head).and_then(serde_json::Value::as_object_mut) {
+                remove_path(child, rest);
+            }
+        }
+    }
+}
+
 /// `configChangeSnapshot(...).settings`.
 fn settings_signature(config: &Config, secrets: &SecretChanges) -> String {
     let mut root = (*config.full()).clone();
-    root.remove("desktop");
+    for path in DESKTOP_OWNED {
+        remove_path(&mut root, path);
+    }
     json!([root, secrets.tokens()]).to_string()
 }
 
@@ -67,6 +88,56 @@ mod tests {
     use serde_json::Value;
 
     use super::*;
+
+    /// The Rust config holds the keys the Node desktop keeps in its own files (a greeting record, the notification store's stamp, the remote
+    /// activation time, the `desktop` section); the Node daemon's settings root has none of them, so writing one announces nothing. A write of
+    /// the `agent` section does. (The real-turn harness's Rust daemon announced twice where Node announced once: a catalog read recorded
+    /// `agents.greeted` while the thread was created.)
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn only_the_settings_node_stores_in_its_config_are_settings_changes() {
+        let dir = tempfile::tempdir().expect("dir");
+        let tokens = mixdog_rt::testing::tokens();
+        let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+        let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("config");
+        let secrets = mixdog_core_config::config::secret_changes::SecretChanges::open(config.clone()).await;
+        config
+            .update(|doc| {
+                doc.insert("agent".into(), serde_json::json!({ "default": "main" }));
+                doc.insert("remote".into(), serde_json::json!({ "enabled": true }));
+                Ok(())
+            })
+            .await
+            .expect("boot config");
+        let applied = settings_signature(&config, &secrets);
+        config
+            .update(|doc| {
+                doc.insert("agents".into(), serde_json::json!({ "greeted": ["advisor", "worker"] }));
+                doc.insert("notifications".into(), serde_json::json!({ "migratedAt": 1_794_088_917_107_i64 }));
+                doc.insert("desktop".into(), serde_json::json!({ "zoom": 1 }));
+                doc["remote"]["activatedAt"] = serde_json::json!(1_794_088_917_108_i64);
+                Ok(())
+            })
+            .await
+            .expect("desktop-owned keys");
+        assert_eq!(settings_signature(&config, &secrets), applied, "keys the desktop owns are no settings change");
+        config
+            .update(|doc| {
+                doc["remote"]["enabled"] = serde_json::json!(false);
+                Ok(())
+            })
+            .await
+            .expect("a setting");
+        assert_ne!(settings_signature(&config, &secrets), applied, "a stored setting is");
+        let applied = settings_signature(&config, &secrets);
+        config
+            .update(|doc| {
+                doc.insert("agent".into(), serde_json::json!({ "default": "workflow-lead" }));
+                Ok(())
+            })
+            .await
+            .expect("the agent section");
+        assert_ne!(settings_signature(&config, &secrets), applied, "the agent section is");
+    }
 
     /// The route a draft carries, adopted: the save `route/set` makes (`save_agent_config`, here `Config::update` of the same `agent`
     /// section, the preset the real-turn harness's `route-set.json` records) while the thread is being created.
