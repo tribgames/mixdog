@@ -364,14 +364,14 @@ pub struct RunPort {
     pub(crate) provider: Option<ProviderState>,
     /// The host that prices the thread's pressure, and the provider it prices on.
     pub(crate) meters: Arc<dyn super::turn_ops::ManualCompaction>,
-    pub(crate) meters_provider: String,
+    /// The provider the thread is on right now: a hop to another route moves it mid-run, and the meters\n    /// are prepared for the provider the reports will be priced on.\n    pub(crate) meters_provider: Arc<dyn Fn() -> String + Send + Sync>,
 }
 
 impl RunPort {
     /// Reads the facts of the stored attachments `messages` carry before a report that prices them
     /// reaches the actor, which meters synchronously (`MediaMeter::prepare`).
     async fn prepare_meters(&self, messages: &[mixdog_agent::message::AgentMessage]) {
-        self.meters.prepare_books(&self.thread, &self.meters_provider, messages).await;
+        self.meters.prepare_books(&self.thread, &(self.meters_provider)(), messages).await;
     }
 
     /// The session's saved provider state, read once at turn start as today's loop options
@@ -623,7 +623,7 @@ mod cancel_tests {
             ctl,
             provider: None,
             meters: Arc::new(crate::session::testing::TestCompaction::default()),
-            meters_provider: String::new(),
+            meters_provider: Arc::new(String::new),
         };
         (port, rx, ctl_rx, cancel)
     }
@@ -643,6 +643,23 @@ mod cancel_tests {
 
     fn compaction() -> Compaction {
         Compaction { replacement: Vec::new(), at: 0, dropped_count: 0, dropped: None }
+    }
+
+    /// A hop to another provider mid-run moves the thread's provider: the next report is prepared for the new
+    /// one, so its pressure is recorded (`books()` finds the meters of the provider the header names).
+    #[tokio::test]
+    async fn a_report_after_a_provider_switch_prepares_the_meters_of_the_new_provider() {
+        let (mut port, _actor, _ctl, _cancel) = port(8);
+        let meters = Arc::new(crate::session::testing::TestCompaction::default());
+        let provider = Arc::new(std::sync::Mutex::new("first".to_owned()));
+        let live = provider.clone();
+        port.meters = meters.clone();
+        port.meters_provider = Arc::new(move || live.lock().unwrap().clone());
+        let check = || SendCheck { messages: Vec::new(), tools: Vec::new(), reactive: false };
+        port.send_check(check()).await.unwrap();
+        *provider.lock().unwrap() = "second".to_owned();
+        port.send_check(check()).await.unwrap();
+        assert_eq!(*meters.prepared.lock().unwrap(), vec![("first".to_owned(), 0), ("second".to_owned(), 0)]);
     }
 
     #[tokio::test]

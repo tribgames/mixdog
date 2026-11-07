@@ -43,8 +43,10 @@ pub trait ConfigSeams: Send + Sync + 'static {
     fn run_settings(&self, thread: &ThreadId, header: &Header) -> RunSettings;
     /// `syncSessionCompaction(session, config)` (`session-compaction-sync.mjs`): the thread's `compaction`
     /// record once it follows the saved configuration, when that differs from the header's; `None` for a
-    /// configuration without the section or a record that already follows it.
-    fn synced_compaction(&self, header: &Header) -> Option<Value>;
+    /// configuration without the section or a record that already follows it. `install`: the session is being
+    /// installed (created or resumed), the one point that leaves a headless caller's injected configuration
+    /// alone (`usesInjectedConfig`); a configuration reload or settings save syncs regardless.
+    fn synced_compaction(&self, header: &Header, install: bool) -> Option<Value>;
     /// `readSection('agent').instructionFiles`, the stored setting.
     fn stored_instruction_files(&self) -> Option<Value>;
     /// The install's reply language `(code, name)` (`build_lead_language`), asked only for a header that

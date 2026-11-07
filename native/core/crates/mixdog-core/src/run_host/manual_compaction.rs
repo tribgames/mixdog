@@ -379,8 +379,8 @@ impl ManualCompaction for HostManualCompaction {
         self.parts.gauge.invalidate(thread);
     }
 
-    fn synced_compaction(&self, header: &Header) -> Option<Value> {
-        self.parts.config.synced_compaction(header)
+    fn synced_compaction(&self, header: &Header, install: bool) -> Option<Value> {
+        self.parts.config.synced_compaction(header, install)
     }
 
     async fn prepare_books(&self, thread: &ThreadId, provider: &str, messages: &[AgentMessage]) {

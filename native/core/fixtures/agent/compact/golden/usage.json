@@ -9526,6 +9526,211 @@
       }
     },
     {
+      "name": "install-none",
+      "op": "install",
+      "header": {
+        "id": "s-install-none",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "model": null,
+          "summaryModel": null,
+          "timeoutMs": null,
+          "bufferTokens": 4000,
+          "bufferRatio": 0.03,
+          "mainBufferTokens": null,
+          "reservedTokens": null,
+          "contextWindow": 128000,
+          "lastStage": "pre_send_check",
+          "compactCount": 2
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
+      },
+      "messages": [],
+      "args": {
+        "params": {},
+        "config": {
+          "compaction": {
+            "auto": true
+          }
+        }
+      },
+      "now": 1700000067000,
+      "result": null,
+      "after": {
+        "id": "s-install-none",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "contextWindow": 128000,
+          "lastStage": "pre_send_check",
+          "compactCount": 2,
+          "auto": true,
+          "onModelChange": true,
+          "summaryMode": "smart"
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
+      }
+    },
+    {
+      "name": "install-object",
+      "op": "install",
+      "header": {
+        "id": "s-install-object",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "model": null,
+          "summaryModel": null,
+          "timeoutMs": null,
+          "bufferTokens": 4000,
+          "bufferRatio": 0.03,
+          "mainBufferTokens": null,
+          "reservedTokens": null,
+          "contextWindow": 128000,
+          "lastStage": "pre_send_check",
+          "compactCount": 2
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
+      },
+      "messages": [],
+      "args": {
+        "params": {
+          "initialConfig": {
+            "compaction": {
+              "auto": false
+            }
+          }
+        },
+        "config": {
+          "compaction": {
+            "auto": true
+          }
+        }
+      },
+      "now": 1700000068000,
+      "result": null,
+      "after": {
+        "id": "s-install-object",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "model": null,
+          "summaryModel": null,
+          "timeoutMs": null,
+          "bufferTokens": 4000,
+          "bufferRatio": 0.03,
+          "mainBufferTokens": null,
+          "reservedTokens": null,
+          "contextWindow": 128000,
+          "lastStage": "pre_send_check",
+          "compactCount": 2
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
+      }
+    },
+    {
+      "name": "install-not-an-object",
+      "op": "install",
+      "header": {
+        "id": "s-install-not-an-object",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "model": null,
+          "summaryModel": null,
+          "timeoutMs": null,
+          "bufferTokens": 4000,
+          "bufferRatio": 0.03,
+          "mainBufferTokens": null,
+          "reservedTokens": null,
+          "contextWindow": 128000,
+          "lastStage": "pre_send_check",
+          "compactCount": 2
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
+      },
+      "messages": [],
+      "args": {
+        "params": {
+          "initialConfig": "x"
+        },
+        "config": {
+          "compaction": {
+            "auto": true
+          }
+        }
+      },
+      "now": 1700000069000,
+      "result": null,
+      "after": {
+        "id": "s-install-not-an-object",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "contextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "autoCompactTokenLimit": null,
+        "compactBoundaryTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "contextWindow": 128000,
+          "lastStage": "pre_send_check",
+          "compactCount": 2,
+          "auto": true,
+          "onModelChange": true,
+          "summaryMode": "smart"
+        },
+        "generation": 0,
+        "closed": false,
+        "tools": []
+      }
+    },
+    {
       "name": "sync-without-a-section-leaves-the-session-alone",
       "op": "sync",
       "header": {
@@ -9561,7 +9766,7 @@
           "other": 1
         }
       },
-      "now": 1700000067000,
+      "now": 1700000070000,
       "result": null,
       "after": {
         "id": "s-sync-none",

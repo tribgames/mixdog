@@ -108,3 +108,23 @@ async fn the_other_seams_answer_from_the_config_and_the_agent_store() {
     assert!(!plain.hidden_agent && !plain.agent_mode && !plain.read_body_required);
     assert!(plain.effort.is_none() && plain.limits.is_none() && plain.text_only.is_none());
 }
+
+/// A session is installed on the saved compaction settings unless the caller injected its own configuration:
+/// the recorded `install` cases (`fixtures/agent/compact/record_usage.mjs`, Node's `usesInjectedConfig` gate).
+#[tokio::test]
+async fn an_installed_session_follows_the_saved_compaction_unless_the_config_is_injected() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/agent/compact/golden/usage.json")).unwrap();
+    let mut seen = 0;
+    for case in golden["cases"].as_array().unwrap().iter().filter(|case| case["op"] == "install") {
+        let stored = json!({ "agent": { "compaction": case["args"]["config"]["compaction"].clone() } });
+        let (_dir, seams) = seams(Some(stored), HashMap::new()).await;
+        let injected = case["args"]["params"]["initialConfig"].is_object();
+        let seams = seams.with_injected_config(injected);
+        let header = header(case["header"].clone());
+        let name = case["name"].as_str().unwrap();
+        let got = seams.synced_compaction(&header, true).unwrap_or_else(|| header["compaction"].clone());
+        assert_eq!(got, case["after"]["compaction"], "{name}");
+        seen += 1;
+    }
+    assert_eq!(seen, 3);
+}

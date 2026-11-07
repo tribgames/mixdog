@@ -157,6 +157,8 @@ fn usage_bookkeeping_equals_node() {
                 let recorded = Value::Bool(patch.is_some());
                 (patch, recorded)
             }
+            // The install gate is the host's (`ConfigRunSeams::synced_compaction`): mixdog-core's run_seams tests replay it.
+            "install" => continue,
             "sync" => {
                 // `syncSessionCompaction(session, config)`: a config without the section leaves the session alone.
                 let mut working = header.clone();
@@ -207,6 +209,6 @@ fn usage_bookkeeping_equals_node() {
             assert_eq!(result, case["result"], "{name}: result");
         }
     }
-    assert_eq!(ops.into_iter().collect::<Vec<_>>(), ["check", "iteration", "pass", "settled", "sync", "terminal", "turnStart", "usage"]);
+    assert_eq!(ops.into_iter().collect::<Vec<_>>(), ["check", "install", "iteration", "pass", "settled", "sync", "terminal", "turnStart", "usage"]);
     assert!(cases.len() > 50, "the golden holds every writer's cases");
 }
