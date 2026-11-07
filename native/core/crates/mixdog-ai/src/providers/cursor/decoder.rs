@@ -45,6 +45,10 @@ use super::schema::exec_throw;
 use super::schema::interaction_response;
 use super::schema::kv_client_message;
 use crate::providers::connect::ConnectFailure;
+use crate::providers::leak;
+use crate::providers::leak::Dedupe;
+use crate::providers::leak::LeakGuard;
+use crate::providers::leak::Recovered;
 use crate::providers::connect::frame::FrameReader;
 use crate::providers::connect::provider_error;
 use crate::retry::advice;
@@ -180,9 +184,31 @@ pub struct CursorDecoder {
     terminal: bool,
     /// The catalog model a pinned suffix id bills as, reported with the usage.
     pricing_model: Option<String>,
+    /// The leaked tool-call guard over the answer text: Node's sink hands the chat consumer these deltas, whose guard
+    /// (harmony syntax on) is built from the request's tool names.
+    leak: LeakGuard,
+    /// Calls recovered from text, dispatched with the turn's end after the announced ones.
+    leaked: Vec<ToolCall>,
+    /// One dispatch per call across the recovered and the announced path.
+    dedupe: Dedupe,
 }
 
 impl CursorDecoder {
+    /// Recover tool calls leaked into the answer text, naming only these tools (the request's).
+    pub fn with_known_tools(mut self, names: HashSet<String>) -> Self {
+        self.leak = LeakGuard::new(names, true);
+        self
+    }
+
+    /// What the guard let through and recovered: visible text first, then the calls (each reports `tool`).
+    fn relay_leak(&mut self, (text, calls): (String, Vec<Recovered>), events: &mut Vec<StreamEvent>) {
+        self.emit_text(text, events);
+        for recovered in calls {
+            self.leaked.push(leak::openai_call(recovered));
+            events.push(StreamEvent::Progress(ProgressKind::Tool));
+        }
+    }
+
     pub fn with_pricing_model(mut self, pricing_model: Option<String>) -> Self {
         self.pricing_model = pricing_model;
         self
@@ -208,6 +234,9 @@ impl CursorDecoder {
             text_started: false,
             terminal: false,
             pricing_model: None,
+            leak: LeakGuard::new(HashSet::new(), true),
+            leaked: Vec::new(),
+            dedupe: Dedupe::default(),
         }
     }
 
@@ -220,6 +249,15 @@ impl CursorDecoder {
         if !reasoning.is_empty() {
             self.reasoning(reasoning, events);
         }
+        if self.leak.enabled() {
+            let scanned = self.leak.push(&content, false);
+            self.relay_leak(scanned, events);
+        } else {
+            self.emit_text(content, events);
+        }
+    }
+
+    fn emit_text(&mut self, content: String, events: &mut Vec<StreamEvent>) {
         if !content.is_empty() {
             if !self.text_started {
                 self.text_started = true;
@@ -646,8 +684,20 @@ impl CursorDecoder {
         let mut events = Vec::new();
         let (content, reasoning) = self.filter.flush();
         self.text(content, reasoning, &mut events);
+        // The stream ended: nothing is held back any more.
+        let tail = self.leak.flush();
+        self.relay_leak(tail, &mut events);
         let pending = std::mem::take(&mut self.pending);
         let tool_use = !pending.is_empty();
+        let mut announced = Vec::new();
+        // The recovered calls run at the turn's end, ahead of the announced ones (`drainLeakedCalls`, then the
+        // consumer's settlement).
+        for call in self.leaked.clone() {
+            if self.dedupe.should_dispatch(&call.name, &call.arguments, &call.id) {
+                self.exposure.tool_dispatched = true;
+                events.push(StreamEvent::ToolCallDone(call));
+            }
+        }
         for call in pending {
             events.push(StreamEvent::ItemStart {
                 kind: ItemKind::Tool,
@@ -658,12 +708,21 @@ impl CursorDecoder {
                 name: call.tool_name.clone(),
             });
             self.exposure.tool_dispatched = true;
-            events.push(StreamEvent::ToolCallDone(ToolCall {
+            let done = ToolCall {
                 id: call.tool_call_id,
                 name: call.tool_name,
                 arguments: call.arguments,
                 native_type: None,
-            }));
+            };
+            announced.push(done.clone());
+            if self.dedupe.should_dispatch(&done.name, &done.arguments, &done.id) {
+                events.push(StreamEvent::ToolCallDone(done));
+            }
+        }
+        // The list the turn returns, `dedupeToolCallList([...native, ...leaked])`.
+        if !self.leaked.is_empty() {
+            let all = announced.into_iter().chain(std::mem::take(&mut self.leaked)).collect();
+            events.push(StreamEvent::ReturnedCalls(leak::dedupe_list(all)));
         }
         // Checkpoint occupancy is not per-request prompt usage and supplies
         // no cache split: the input side is unknown.

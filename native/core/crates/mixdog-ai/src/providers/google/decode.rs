@@ -8,6 +8,8 @@
 //! the end of the body — replay envelope, citations, usage, `Completed` — are
 //! the truth.
 
+use std::collections::HashSet;
+
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::Exposure;
@@ -28,6 +30,9 @@ use serde_json::json;
 use super::error::ErrorDialect;
 use super::error::in_band;
 use super::json::synthesized_call_id;
+use crate::providers::leak;
+use crate::providers::leak::LeakGuard;
+use crate::providers::leak::Recovered;
 
 /// The JSON payload of one line of a Gemini SSE stream: the text after `data:`, trimmed. A line
 /// that is not a `data:` line (an `event:` name, a comment, a blank), an empty payload and the
@@ -167,6 +172,19 @@ pub struct GeminiDecoder {
     incomplete_call: bool,
     exposure: Exposure,
     done: bool,
+    /// The text-leak guard over the answer text (`createGeminiTextLeakGuard`, deferring its calls).
+    leak: LeakGuard,
+    /// Fingerprints of every call the guard or the native filter let through.
+    dispatched: HashSet<String>,
+    /// Calls recovered from text, released with the native ones after a clean finish.
+    leaked: Vec<ToolCall>,
+    /// Native calls held for the same release, so the turn's list is native first, then leaked.
+    native_done: Vec<ToolCall>,
+    /// The answer text of the chunk being decoded, when the guard is on.
+    chunk_text: String,
+    /// The answer text of the whole response (`rawContent`) and what of it was relayed.
+    raw: String,
+    shown: String,
 }
 
 /// `geminiChunkProgressKind(chunk)`: the one kind a chunk reports for all its parts, `None` for transport only.
@@ -201,7 +219,53 @@ impl GeminiDecoder {
             incomplete_call: false,
             exposure: Exposure::default(),
             done: false,
+            leak: LeakGuard::new(HashSet::new(), false),
+            dispatched: HashSet::new(),
+            leaked: Vec::new(),
+            native_done: Vec::new(),
+            chunk_text: String::new(),
+            raw: String::new(),
+            shown: String::new(),
         }
+    }
+
+    /// Recover tool calls leaked into the answer text, naming only these tools (the request's).
+    pub fn with_known_tools(mut self, names: HashSet<String>) -> Self {
+        self.leak = LeakGuard::new(names, false);
+        self
+    }
+
+    /// What the guard let through and recovered: visible text, then the calls (`tool` each, held for release).
+    fn relay_leak(&mut self, (text, calls): (String, Vec<Recovered>), out: &mut Vec<StreamEvent>) {
+        if !text.is_empty() {
+            self.open_item(ItemKind::Text, out);
+            self.exposure.text_emitted = true;
+            self.shown.push_str(&text);
+            out.push(StreamEvent::TextDelta(text));
+        }
+        self.recover_calls(calls, out);
+    }
+
+    /// A call the guard recovered: held for the release unless an identical one already passed (`tool` reported).
+    fn recover_calls(&mut self, calls: Vec<Recovered>, out: &mut Vec<StreamEvent>) {
+        for recovered in calls {
+            let call = leak::gemini_call(recovered);
+            if !self.dispatched.insert(leak::fingerprint(&call.name, &call.arguments)) {
+                continue;
+            }
+            self.leaked.push(call);
+            out.push(StreamEvent::Progress(ProgressKind::Tool));
+        }
+    }
+
+    /// `filterNativeToolCalls` + the release of the deferred calls after a clean finish.
+    fn release_calls(&mut self, out: &mut Vec<StreamEvent>) {
+        for call in std::mem::take(&mut self.native_done) {
+            if self.dispatched.insert(leak::fingerprint(&call.name, &call.arguments)) {
+                out.push(StreamEvent::ToolCallDone(call));
+            }
+        }
+        out.extend(std::mem::take(&mut self.leaked).into_iter().map(StreamEvent::ToolCallDone));
     }
 
     fn line(&mut self, raw: &[u8], out: &mut Vec<StreamEvent>) -> Result<(), ProviderError> {
@@ -264,6 +328,11 @@ impl GeminiDecoder {
         for part in candidate.pointer("/content/parts").and_then(Value::as_array).into_iter().flatten() {
             self.part(part, out);
         }
+        if !self.chunk_text.is_empty() {
+            let text = std::mem::take(&mut self.chunk_text);
+            let scanned = self.leak.push(&text, false);
+            self.relay_leak(scanned, out);
+        }
         Ok(())
     }
 
@@ -292,7 +361,12 @@ impl GeminiDecoder {
             self.open_item(ItemKind::Tool, out);
             out.push(StreamEvent::ToolCallStart { id: id.clone(), name: name.clone() });
             out.push(StreamEvent::ToolCallArgsDelta { id: id.clone(), delta: args.to_string() });
-            out.push(StreamEvent::ToolCallDone(ToolCall { id, name, arguments: args, native_type: None  }));
+            let call = ToolCall { id, name, arguments: args, native_type: None };
+            if self.leak.enabled() {
+                self.native_done.push(call);
+            } else {
+                out.push(StreamEvent::ToolCallDone(call));
+            }
             self.open = None;
             return;
         }
@@ -302,6 +376,10 @@ impl GeminiDecoder {
         if part.get("thought") == Some(&json!(true)) {
             self.open_item(ItemKind::Reasoning, out);
             out.push(StreamEvent::ReasoningDelta(text.to_owned()));
+        } else if self.leak.enabled() {
+            // The chunk's answer text goes through the guard as one piece (`geminiChunkText`).
+            self.chunk_text.push_str(text);
+            self.raw.push_str(text);
         } else {
             self.open_item(ItemKind::Text, out);
             self.exposure.text_emitted = true;
@@ -387,6 +465,24 @@ impl GeminiDecoder {
                 Some(StopReason::Other(self.finish.clone().unwrap_or_default()))
             }
         };
+        // The stream ended cleanly: nothing is held back, and the held calls are released.
+        let tail = self.leak.flush();
+        self.relay_leak(tail, &mut out);
+        // The returned content is the whole text scanned once more (`scrubAssistantText`); a call only that scan
+        // finds is recovered too.
+        if self.leak.enabled() {
+            let (content, calls) = self.leak.scrub(&self.raw);
+            self.recover_calls(calls, &mut out);
+            if content != self.shown {
+                out.push(StreamEvent::FinalContent(content));
+            }
+        }
+        let recovered = !self.leaked.is_empty();
+        self.release_calls(&mut out);
+        // A recovered call has no part in the response, so the parts cannot be replayed.
+        if recovered {
+            self.parts.clear();
+        }
         if !self.parts.is_empty() {
             out.push(StreamEvent::ReasoningReplay(ProviderReplay {
                 owner: self.dialect.owner.clone(),

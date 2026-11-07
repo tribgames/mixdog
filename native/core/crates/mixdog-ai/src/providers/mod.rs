@@ -15,6 +15,11 @@ pub mod custom;
 pub mod google;
 pub mod grok;
 pub(crate) mod js_value;
+pub mod leak;
+#[cfg(test)]
+pub(crate) mod leak_golden;
+#[cfg(test)]
+mod leak_tests;
 pub mod key_source;
 pub mod listing_row;
 pub mod local;
