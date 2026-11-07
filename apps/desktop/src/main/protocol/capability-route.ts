@@ -18,6 +18,8 @@ import type {
   DesktopCapabilityResult,
   SessionSnapshot,
 } from '../../shared/contract';
+import { normalizeSessionTitle } from '../../shared/session-title.mjs';
+import { sessionIdOf } from '../session-host-transport';
 import type { ProtocolConnection } from './connection';
 import { coreErrorForWindow } from './core-error';
 
@@ -94,6 +96,8 @@ export interface CapabilityLane {
     sessionId: string | undefined
   ): Promise<DesktopCapabilityResult<T>>;
   read(requests: ReadonlyArray<DesktopCapabilityReadRequest>): Promise<DesktopCapabilityReadResult[]>;
+  /** `SessionHostLifecycle.renameSession` on a core connection: the host's own checks, then `thread/name/set`. */
+  renameSession(sessionId: string, title: string): Promise<void>;
 }
 
 /** The converted capabilities whose op needs a `threadId`. Node serves them from its control session when the call has
@@ -205,6 +209,16 @@ export function createCapabilityLane({
     async invoke<T>(capability: DesktopCapability, args: unknown[] = [], sessionId?: string) {
       const value = (await send(capability, args, sessionId)) as T;
       return { value, snapshot: await stateOf(sessionId ?? (await controlThread())) };
+    },
+    // Node's host throws `TypeError('Session title is invalid.')` for a title that is empty once normalized, before the
+    // runtime is reached; the core cannot tell that case from a refusal ("Session is not available.", the runtime's `false`,
+    // which it sends as a code-less `domainError`), so the host check stays here. `setName` and `publishCatalogs` are the
+    // core's own (the title is stored and the section pushed by `thread/name/set`).
+    async renameSession(sessionId, title) {
+      const id = sessionIdOf(sessionId);
+      const normalized = normalizeSessionTitle(title, '');
+      if (!normalized) throw new TypeError('Session title is invalid.');
+      await send('renameSessionTitle', [id, normalized], id);
     },
     // Node answers every read from the control session and ignores the request's `sessionId`; so does this (an MCP read is
     // addressed to the control thread, as Node's carrier does). Reads are

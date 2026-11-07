@@ -507,3 +507,62 @@ test('noteUserInput is the client/activity notification: it sends no request and
   assert.deepEqual(world.inputs, [1234]);
   assert.deepEqual(all.filter((call) => call.method !== 'thread/read'), []);
 });
+
+// `renameSession` on a core connection, against the cases of `desktop-host-work-5`'s `record-session-rename` fixture (Node's
+// real host over 10 titles x 6 session states): the host's `Session title is invalid.` stays in the host, and the core's
+// refusal (a code-less `domainError`, which `thread/name/set` answers exactly where the runtime answered `false`) reaches
+// the window as `Session is not available.`.
+const renameTwin = JSON.parse(
+  readFileSync(new URL('../../../../../native/core/fixtures/desktop/settings/session-rename-twin.json', import.meta.url), 'utf8')
+);
+const notAvailable = Object.assign(new Error('rpc'), {
+  detail: { kind: 'rpc', data: { reason: 'domainError', domain: 'thread', message: 'Session is not available.' } },
+});
+
+function renameClient(returned) {
+  const { all, lane } = recordingLane(async () => {
+    if (returned === false) throw notAvailable;
+    return { ok: true };
+  });
+  const client = new DesktopServiceClient({
+    connect() {
+      throw new Error('the Node service must not be reached');
+    },
+    sessionOptions: () => ({}),
+    capabilityLane: lane,
+  });
+  return { all, client };
+}
+
+test('renameSession on a core connection is thread/name/set with the normalized title', async () => {
+  const { all, client } = renameClient(true);
+  await client.renameSession('sess-1', '  Spaced   out  ');
+  assert.deepEqual(
+    all.filter((call) => call.method === 'thread/name/set'),
+    [{ method: 'thread/name/set', params: { threadId: 'sess-1', title: 'Spaced out' } }]
+  );
+});
+
+test('renameSession on a core connection raises what Node raised in every recorded case', async () => {
+  assert.equal(renameTwin.cases.length, 60);
+  for (const item of renameTwin.cases) {
+    const { all, client } = renameClient(item.runtime.returned);
+    const outcome = await client.renameSession('sess-1', item.title).then(
+      () => ({ ok: true }),
+      (error) => ({ error: error.message, kind: error.constructor.name })
+    );
+    const expected = item.desktop.ok ? { ok: true } : { error: item.desktop.error, kind: item.desktop.kind };
+    assert.deepEqual(outcome, expected, JSON.stringify(item.title));
+    // The invalid-title refusal is the host's: the core is never reached for it.
+    const sent = all.filter((call) => call.method === 'thread/name/set');
+    assert.equal(sent.length, item.desktop.kind === 'TypeError' ? 0 : 1, JSON.stringify(item.title));
+  }
+  const { client } = renameClient(false);
+  await assert.rejects(client.renameSession('sess-1', 'x'), { message: renameTwin.missing.desktop.error });
+});
+
+test('renameSession keeps the host check for the session id before the title', async () => {
+  const { all, client } = renameClient(true);
+  await assert.rejects(client.renameSession('bad id!', ''), { name: 'TypeError', message: 'session id is invalid.' });
+  assert.deepEqual(all, []);
+});
