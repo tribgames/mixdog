@@ -364,7 +364,9 @@ pub struct RunPort {
     pub(crate) provider: Option<ProviderState>,
     /// The host that prices the thread's pressure, and the provider it prices on.
     pub(crate) meters: Arc<dyn super::turn_ops::ManualCompaction>,
-    /// The provider the thread is on right now: a hop to another route moves it mid-run, and the meters\n    /// are prepared for the provider the reports will be priced on.\n    pub(crate) meters_provider: Arc<dyn Fn() -> String + Send + Sync>,
+    /// The provider the thread is on right now: a hop to another route moves it mid-run, and the meters
+    /// are prepared for the provider the reports will be priced on.
+    pub(crate) meters_provider: Arc<dyn Fn() -> String + Send + Sync>,
 }
 
 impl RunPort {
