@@ -264,6 +264,50 @@ async fn untracked_rows_past_the_limit_are_counted_like_node() {
     }
 }
 
+/// Node's `gitReview` over nested repositories (`fixtures/desktop/git/review-nested.json`, recorder `record-review-nested.mjs`): git lists a
+/// nested repository as one `name/` untracked record (with or without a commit in it), and Node's row for it is
+/// `{path: "inner/", status: "A", additions: 0, deletions: 0, untracked: true}` with the folder's own work-tree identity.
+#[tokio::test]
+async fn a_nested_repository_is_the_row_node_lists() {
+    use crate::golden_tests::git;
+    let recording: Value = serde_json::from_str(include_str!("../../../fixtures/desktop/git/review-nested.json")).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let repo = std::fs::canonicalize(dir.path()).unwrap().join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "core.autocrlf", "false"]);
+    std::fs::write(repo.join("mod.txt"), "one\ntwo\n").unwrap();
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "base"]);
+    std::fs::write(repo.join("mod.txt"), "one\nTWO\nthree\n").unwrap();
+    let inner = repo.join("inner");
+    std::fs::create_dir_all(&inner).unwrap();
+    git(&inner, &["init", "-q", "-b", "main"]);
+    git(&inner, &["config", "core.autocrlf", "false"]);
+    std::fs::write(inner.join("a.txt"), "a\nb\n").unwrap();
+    git(&inner, &["add", "-A"]);
+    git(&inner, &["commit", "-q", "-m", "inner"]);
+    std::fs::write(inner.join("a.txt"), "a\nb\nc\n").unwrap();
+    let bare = repo.join("zz-bare");
+    std::fs::create_dir_all(&bare).unwrap();
+    git(&bare, &["init", "-q", "-b", "main"]);
+    std::fs::write(repo.join("plain.txt"), "plain\n").unwrap();
+
+    let handle = service(Log::default());
+    let reply = get(&handle, json!({ "scope": "repo", "cwd": repo.to_string_lossy() })).await.unwrap();
+    assert_eq!(reply["untrackedOmitted"], recording["untrackedOmitted"]);
+    let (got, want) = (reply["files"].as_array().unwrap(), recording["files"].as_array().unwrap());
+    let paths = |rows: &[Value]| rows.iter().map(|row| row["path"].as_str().unwrap().to_owned()).collect::<Vec<_>>();
+    assert_eq!(paths(got), paths(want), "the rows, in Node's order");
+    for (row, recorded) in got.iter().zip(want) {
+        for field in ["path", "status", "additions", "deletions", "untracked"] {
+            assert_eq!(row[field], recorded[field], "{} {field}", recorded["path"]);
+        }
+        let revision = row["revision"].as_str().unwrap();
+        assert!(revision.split(':').count() == 4 && revision.split(':').all(|part| part.parse::<u64>().is_ok()), "{}: {revision}", recorded["path"]);
+    }
+}
+
 #[tokio::test]
 async fn a_review_failure_keeps_the_message_node_threw() {
     let handle = service(Log::default());

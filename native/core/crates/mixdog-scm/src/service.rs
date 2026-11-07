@@ -476,7 +476,6 @@ impl ScmService {
             // In Node's order: `files.sort((a, b) => a.path.localeCompare(b.path))` (`git-history.ts`), a stable sort by the process
             // locale's collation; the summary's own order is by bytes.
             let mut rows: Vec<Value> = out["files"].as_array().cloned().unwrap_or_default();
-            rows.sort_by(|a, b| mixdog_js::locale_compare(a["path"].as_str().unwrap_or_default(), b["path"].as_str().unwrap_or_default()));
             // The review diffs trees, so an untracked file is an added one there. Node reads the untracked files from its status scan
             // (`reviewStatus`: the same command, the `?` records in git's order, bytes of the path): it lists the first
             // `REVIEW_UNTRACKED_LIMIT` of them as rows (`untracked: true`) and only counts the rest in `untrackedOmitted`. Tracked rows
@@ -496,6 +495,16 @@ impl ScmService {
             let all: std::collections::HashSet<&str> = listed.iter().copied().collect();
             let kept: std::collections::HashSet<&str> = listed.iter().take(REVIEW_UNTRACKED_LIMIT).copied().collect();
             rows.retain(|row| row["path"].as_str().is_none_or(|path| !all.contains(path) || kept.contains(path)));
+            // A nested repository is one `name/` record. The tree build sees it as a gitlink `name` (or nothing, with no commit), so its
+            // row is Node's own: `reviewStatus` lists the record and `untrackedStat` of a folder counts no lines (`A`, 0, 0, untracked).
+            for folder in all.iter().filter(|path| path.ends_with('/')) {
+                let bare = &folder[..folder.len() - 1];
+                rows.retain(|row| row["path"].as_str() != Some(bare));
+                if kept.contains(folder) {
+                    rows.push(json!({ "path": folder, "status": "A", "additions": 0, "deletions": 0, "untracked": true }));
+                }
+            }
+            rows.sort_by(|a, b| mixdog_js::locale_compare(a["path"].as_str().unwrap_or_default(), b["path"].as_str().unwrap_or_default()));
             for row in &mut rows {
                 let untracked = row["path"].as_str().is_some_and(|path| kept.contains(path));
                 row["untracked"] = json!(untracked);
