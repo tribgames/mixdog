@@ -96,8 +96,11 @@ export interface CapabilityLane {
   read(requests: ReadonlyArray<DesktopCapabilityReadRequest>): Promise<DesktopCapabilityReadResult[]>;
 }
 
-/** The converted capabilities whose op requires a `threadId`. Node serves them from its control session when the call has
- *  no session, so a call without one is addressed to the control thread. */
+/** The converted capabilities whose op needs a `threadId`. Node serves them from its control session when the call has
+ *  no session, so a call without one is addressed to the control thread. Most have a schema-required `threadId`; four have
+ *  an optional one that their handler refuses to go without (`getBranchMenu`, `setOutputStyle`, `setOrchestrationMode`:
+ *  `thread_of`), or answers `null` without (`contextStatus`: the daemon has no ambient current session, while Node's control
+ *  session answers its own, empty, status record). */
 export const THREAD_REQUIRED_CAPABILITIES: ReadonlySet<string> = new Set([
   'rewindToItem',
   'retryFailedTurn',
@@ -108,6 +111,10 @@ export const THREAD_REQUIRED_CAPABILITIES: ReadonlySet<string> = new Set([
   'clear',
   'prioritizeQueued',
   'restoreQueued',
+  'getBranchMenu',
+  'setOutputStyle',
+  'setOrchestrationMode',
+  'contextStatus',
 ]);
 
 /** The capabilities served by the core's `mcp/*` and `connector/*` ops: the same set as Node's `MCP_ACTIONS`

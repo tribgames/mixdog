@@ -31,6 +31,7 @@ const paramsSchema = (method) =>
 /** Capabilities with no request op (desktop-gaps-1): the spec map points them at a pushed section or deletes them. They
  *  fail before anything is sent. `noteUserInput` is a notification, sent by the lane and not routed to a request. */
 const NOTIFIED = ['noteUserInput'];
+const HANDLER_REQUIRES_THREAD = ['getBranchMenu', 'setOutputStyle', 'setOrchestrationMode', 'contextStatus'];
 const NOT_ROUTED = [
   ...NOTIFIED,
   'taskControl',
@@ -325,8 +326,16 @@ test('every routed capability sends the op the spec map names, with params the R
       }
     }
   }
-  // The ops that cannot run without a thread are exactly the ones the lane addresses to the control thread.
-  assert.deepEqual(requiresThread.sort(), [...THREAD_REQUIRED_CAPABILITIES].sort());
+  // The ops that cannot run without a thread are exactly the ones the lane addresses to the control thread: the ones whose
+  // schema requires it, and the four whose optional `threadId` the Rust handler needs (`thread_of`, or `null` without one).
+  assert.deepEqual(
+    [...requiresThread, ...HANDLER_REQUIRES_THREAD].sort(),
+    [...THREAD_REQUIRED_CAPABILITIES].sort()
+  );
+  for (const capability of HANDLER_REQUIRES_THREAD) {
+    const { method } = routeCapability(capability, [], 'pane-1');
+    assert.ok(!(paramsSchema(method).required ?? []).includes('threadId'), `${capability}: the schema leaves threadId optional`);
+  }
 });
 
 test('a capability with no op fails before anything is sent, and does not fall back', async () => {
