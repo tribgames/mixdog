@@ -60,28 +60,55 @@ pub fn resolve_contained(root: &Path, relative: &str) -> Option<PathBuf> {
     Some(out)
 }
 
-#[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
-fn read_json(path: &Path) -> Result<Value, String> {
-    let text = std::fs::read_to_string(path).map_err(|e| match e.raw_os_error() {
-        Some(code) => format!("cannot read file (os error {code})"),
-        None => "cannot read file".to_owned(),
-    })?;
-    serde_json::from_str(&text).map_err(|e| {
-        if e.is_eof() {
-            "invalid JSON: unexpected end of input".to_owned()
-        } else {
-            // Location only: the offending text may hold credentials.
-            format!("invalid JSON at line {} column {}", e.line(), e.column())
-        }
-    })
+/// The code Node's `readFileSync` error carries for a read that failed.
+fn error_code(lane: &InLane<MaintenanceIo>, path: &Path, error: &std::io::Error) -> &'static str {
+    use std::io::ErrorKind;
+    if mixdog_statefile::metadata(lane, path).is_ok_and(|meta| meta.is_dir()) {
+        return "EISDIR";
+    }
+    match error.kind() {
+        ErrorKind::NotFound => "ENOENT",
+        ErrorKind::PermissionDenied => "EACCES",
+        ErrorKind::NotADirectory => "ENOTDIR",
+        _ => "EIO",
+    }
 }
 
+/// `jsonErrorMessage(error)` (`plugin-mcp.mjs`): a JSON parse failure as a location only, since the
+/// engine's message may quote the offending source text, which can hold credentials. The location is
+/// read out of V8's message, so the text must be the message V8 raises.
+fn json_error_message(message: &str) -> String {
+    static LINE_COLUMN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"line (\d+) column (\d+)").expect("a fixed pattern"));
+    static POSITION: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"position (\d+)").expect("a fixed pattern"));
+    static END: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)end of (JSON|data) input").expect("a fixed pattern"));
+    if let Some(found) = LINE_COLUMN.captures(message) {
+        return format!("invalid JSON at line {} column {}", &found[1], &found[2]);
+    }
+    if let Some(found) = POSITION.captures(message) {
+        return format!("invalid JSON at position {}", &found[1]);
+    }
+    if END.is_match(message) { "invalid JSON: unexpected end of input".to_owned() } else { "invalid JSON".to_owned() }
+}
+
+/// `readJsonFile(path, errors)`: the parsed file, or the message Node records for it.
+fn read_json(lane: &InLane<MaintenanceIo>, path: &Path) -> Result<Value, String> {
+    let read = mixdog_statefile::read_content(path);
+    let bytes = match read {
+        Ok(Some(bytes)) => bytes,
+        Ok(None) => return Err("cannot read file (ENOENT)".to_owned()),
+        Err(error) => return Err(format!("cannot read file ({})", error_code(lane, path, &error))),
+    };
+    let text = String::from_utf8_lossy(&bytes);
+    mixdog_js::json_parse(&text).map_err(|_| {
+        let message = mixdog_js::v8_json_parse_error(&text).unwrap_or_else(|| unreachable!("the parser refused a text V8 accepts"));
+        json_error_message(&message)
+    })
+}
 /// The first manifest that parses to a truthy value (`readJsonSafe`, so a JSON array or string
 /// counts and ends the search) with its format; a plugin without one is an empty manifest.
-#[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
-pub fn manifest(_lane: &InLane<MaintenanceIo>, root: &Path) -> (PluginFormat, Value) {
+pub fn manifest(lane: &InLane<MaintenanceIo>, root: &Path) -> (PluginFormat, Value) {
     for file in MANIFEST_FILES {
-        if let Ok(value) = read_json(&root.join(file))
+        if let Ok(value) = read_json(lane, &root.join(file))
             && truthy(&value)
         {
             return (format_of(file), value);
@@ -119,8 +146,8 @@ pub struct RegisteredPlugin {
 
 /// `<data>/plugins/registry.json`; entries whose root is missing are skipped.
 #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
-pub fn read_registry(_lane: &InLane<MaintenanceIo>, data_dir: &Path) -> Vec<RegisteredPlugin> {
-    let Ok(registry) = read_json(&data_dir.join("plugins").join("registry.json")) else {
+pub fn read_registry(lane: &InLane<MaintenanceIo>, data_dir: &Path) -> Vec<RegisteredPlugin> {
+    let Ok(registry) = read_json(lane, &data_dir.join("plugins").join("registry.json")) else {
         return Vec::new();
     };
     registry
@@ -184,13 +211,14 @@ fn server_problem(entry: &Value) -> Option<String> {
     }
 }
 
-struct Collector {
+struct Collector<'a> {
+    lane: &'a InLane<MaintenanceIo>,
     /// In the order the keys were first declared; a later declaration of a key replaces it in place.
     servers: Vec<DeclaredServer>,
     errors: Vec<DeclarationError>,
 }
 
-impl Collector {
+impl Collector<'_> {
     fn error(&mut self, source: &Path, key: Option<&str>, message: impl Into<String>) {
         self.errors.push(DeclarationError {
             source: source.to_path_buf(),
@@ -232,7 +260,7 @@ impl Collector {
     }
 
     fn load_file(&mut self, path: &Path) {
-        match read_json(path) {
+        match read_json(self.lane, path) {
             Ok(doc) => {
                 if let Some(map) = self.server_map(&doc, path, "") {
                     self.add_all(map, path);
@@ -265,8 +293,8 @@ impl Collector {
 /// (a path, an inline object, or a list mixing both). Later sources override earlier ones by
 /// key. Never fails for plugin content; errors carry locations and field names, never values.
 #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
-pub fn load_declarations(_lane: &InLane<MaintenanceIo>, root: &Path) -> PluginMcpDeclarations {
-    let mut collector = Collector { servers: Vec::new(), errors: Vec::new() };
+pub fn load_declarations(lane: &InLane<MaintenanceIo>, root: &Path) -> PluginMcpDeclarations {
+    let mut collector = Collector { lane, servers: Vec::new(), errors: Vec::new() };
     let found = MANIFEST_FILES.iter().find(|f| root.join(f).exists()).copied();
     let mcp_json = root.join(".mcp.json");
     let has_mcp_json = mcp_json.exists();
@@ -283,7 +311,7 @@ pub fn load_declarations(_lane: &InLane<MaintenanceIo>, root: &Path) -> PluginMc
         let path = file.split('/').fold(root.to_path_buf(), |path, part| path.join(part));
         // The file found is the one read, whatever the later manifests hold; one that cannot be
         // read or parsed is reported and declares nothing.
-        let doc = match read_json(&path) {
+        let doc = match read_json(lane, &path) {
             Ok(doc) => doc,
             Err(message) => {
                 collector.error(&path, None, message);

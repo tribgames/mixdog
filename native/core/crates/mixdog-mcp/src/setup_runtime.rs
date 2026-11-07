@@ -101,27 +101,27 @@ impl SetupRuntime for ServiceSetupRuntime {
     }
 
     async fn set_extension_scope(&self, kind: &str, name: &str, projects: &[String]) -> Result<Value, String> {
-        call(self.plugins.as_ref(), "config/setExtensionScope", json!({"kind": kind, "name": name, "projects": projects})).await
+        call(self.plugins.as_ref(), "config/setExtensionScope", as_caller_params(json!({"kind": kind, "name": name, "projects": projects}))).await
     }
 
     async fn add_plugin(&self, source: &str) -> Result<Value, String> {
-        call(self.plugins.as_ref(), "plugins/addPlugin", json!({"source": source})).await
+        call(self.plugins.as_ref(), "plugins/addPlugin", as_caller_params(json!({"source": source}))).await
     }
 
     async fn update_plugin(&self, name: &str) -> Result<Value, String> {
-        call(self.plugins.as_ref(), "plugins/updatePlugin", json!({"plugin": name})).await
+        call(self.plugins.as_ref(), "plugins/updatePlugin", as_caller_params(json!({"plugin": name}))).await
     }
 
     async fn set_plugin_enabled(&self, name: &str, enabled: bool) -> Result<Value, String> {
-        call(self.plugins.as_ref(), "plugins/setPluginEnabled", json!({"plugin": name, "enabled": enabled})).await
+        call(self.plugins.as_ref(), "plugins/setPluginEnabled", as_caller_params(json!({"plugin": name, "enabled": enabled}))).await
     }
 
     async fn remove_plugin(&self, name: &str) -> Result<Value, String> {
-        call(self.plugins.as_ref(), "plugins/removePlugin", json!({"plugin": name})).await
+        call(self.plugins.as_ref(), "plugins/removePlugin", as_caller_params(json!({"plugin": name}))).await
     }
 
     async fn plugins_status(&self) -> Result<Value, String> {
-        call(self.plugins.as_ref(), "plugins/pluginsStatus", json!({})).await
+        call(self.plugins.as_ref(), "plugins/pluginsStatus", as_caller_params(json!({}))).await
     }
 
     async fn enable_plugin_mcp(&self, plugin: &Value) -> Result<Value, String> {
