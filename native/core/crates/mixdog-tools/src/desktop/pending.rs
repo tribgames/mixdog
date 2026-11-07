@@ -344,7 +344,7 @@ pub(crate) mod tests {
         w.cancel_session("s1");
         assert_eq!(one.wait().await, None);
         assert!(w.claim_terminal_run("tr"));
-        assert_eq!(run.wait().await.is_some(), true);
+        assert!(run.wait().await.is_some());
         w.cancel_all();
         assert_eq!(two.wait().await, None);
     }
