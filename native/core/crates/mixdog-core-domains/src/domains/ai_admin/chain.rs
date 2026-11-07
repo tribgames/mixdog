@@ -39,6 +39,11 @@ pub trait RouteFacts: Send + Sync {
     fn catalog_knows(&self, model: &str, provider: &str) -> bool;
     /// `fastCapableFor(provider, meta, effort, params)`.
     fn fast_capable(&self, provider: &str, meta: &Value, effort: Option<&str>, params: &Value) -> bool;
+    /// `collectProviderModels()` answers rows: some provider lists a model. Decides which text a
+    /// model-less route is refused with (`resolveMissingRouteModelForFirstTurn`).
+    fn provider_models_listed(&self) -> bool {
+        true
+    }
     /// `ultrafastCapableFor(provider, meta)`.
     fn ultrafast_capable(&self, provider: &str, meta: &Value) -> bool;
 }
@@ -56,6 +61,10 @@ impl RouteFacts for CatalogFacts {
         let developer = config.get("developer").cloned().unwrap_or(Value::Null);
         let client = model_proxy_client_mode(&|name| std::env::var(name).ok());
         is_known_provider(provider, &Value::Object(config.clone()), &|name| provider_available(name, client, &developer))
+    }
+
+    fn provider_models_listed(&self) -> bool {
+        self.catalog.snapshot().models.values().any(|rows| !rows.is_empty())
     }
 
     async fn ensure_ready(&self, config: &Obj, provider: &str) -> Result<(), String> {

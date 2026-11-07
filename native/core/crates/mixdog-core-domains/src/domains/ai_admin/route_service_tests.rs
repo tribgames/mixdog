@@ -75,6 +75,10 @@ impl RouteFacts for Facts {
     fn ultrafast_capable(&self, provider: &str, _: &Value) -> bool {
         self.case["ultraTable"][provider].as_bool().unwrap_or(false)
     }
+
+    fn provider_models_listed(&self) -> bool {
+        self.case["listed"] != json!(false)
+    }
 }
 
 pub(super) struct Writer {
@@ -180,6 +184,26 @@ fn options(case: &Value) -> SetRouteOptions {
         validate_only: o["validateOnly"] == json!(true),
         follow: FollowOptions::default(),
     }
+}
+
+/// A default route with no model is refused before a thread exists, with the text Node's
+/// `resolveMissingRouteModelForFirstTurn` throws (`fixtures/ai-admin/route-model-refusals.json`,
+/// extracted from the Node source); a route with a model is readied, not refused.
+#[tokio::test]
+async fn a_default_route_with_no_model_is_refused_with_the_texts_node_throws() {
+    let thread = ThreadId::from("t");
+    let refusals: Value = serde_json::from_str(include_str!("../../../../../fixtures/ai-admin/route-model-refusals.json")).unwrap();
+    for (listed, text) in [(true, "noModelSelected"), (false, "noProviderModels")] {
+        let case = json!({ "config": {}, "live": { "provider": "anthropic-oauth", "model": "" }, "listed": listed });
+        let (service, _writer, log, _dir) = rig(&case).await;
+        let refused = service.ready_default(&thread).await.expect_err("a model-less route is refused");
+        assert_eq!(refused, refusals[text].as_str().unwrap());
+        assert!(log.lock().unwrap().refreshes.is_empty(), "nothing is readied for it");
+    }
+    let case = json!({ "config": {}, "live": { "provider": "anthropic-oauth", "model": "claude-x" } });
+    let (service, _writer, log, _dir) = rig(&case).await;
+    service.ready_default(&thread).await.expect("a route with a model is readied");
+    assert_eq!(log.lock().unwrap().refreshes.len(), 1);
 }
 
 #[tokio::test]
