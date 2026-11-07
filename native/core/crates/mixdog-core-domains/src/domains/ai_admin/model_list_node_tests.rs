@@ -1,89 +1,129 @@
 //! The model lists against the Node recording (`fixtures/model-lists/node-model-lists.json`,
 //! `benchmarks/rust-core/recorders/model-lists/record.mjs`): Node's real `listProviderModels` (the quick
-//! read of a cold cache, then the full read) and `listWebSearchModels` for four profiles, each in an
-//! isolated daemon. The Rust side is the production pipeline over a registry whose providers are fake
-//! adapters behind the real `ModelSource::of_adapter`: config load, provider defaults, readiness, source
-//! hand-over, catalog, quick rows, hydration and sort. Every row, in order, must be Node's.
+//! read of a cold cache, then the full read) and `listWebSearchModels` for six profiles, each in an isolated
+//! daemon whose model endpoints are a local fake and whose models.dev / LiteLLM catalogs are seeded.
+//!
+//! The Rust side is the production pipeline over the same profile and the same fake endpoint: config load,
+//! provider defaults, the real `DefaultProviderBuilder` (the Anthropic and custom-provider adapters list
+//! through a fake `HttpSend` that serves the recording's endpoint bodies), readiness, the registry's
+//! adapters handed to the catalog through `ModelSource::of_adapter`, quick rows, hydration, sort and the
+//! web-search tiers. Every row, in order, must be Node's.
 
+use std::collections::{BTreeMap, HashMap};
+use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_ai::accounts::CredentialState;
-use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelsDevSource, ProviderReadiness};
+use mixdog_ai::accounts::AccountStore;
+use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ListingLookup, ModelsDevSource, ProviderReadiness};
 use mixdog_ai::oauth::CredentialIo;
-use mixdog_ai::providers::custom::listing::manual_rows;
+use mixdog_ai::oauth::pace::SystemPace;
+use mixdog_ai::providers::google::traits::{ModelTraits, ThinkingControl};
+use mixdog_ai::providers::openai::adapter::SessionContext;
+use mixdog_ai::providers::openai::config::{CodexIdentity, NoFacts};
+use mixdog_ai::registry::builder::{BuilderEnv, DefaultProviderBuilder};
 use mixdog_ai::registry::effective::EffectiveProviders;
 use mixdog_ai::registry::keys::{ApiKeyStore, Environment, MemoryVault};
 use mixdog_ai::registry::providers::{ProviderBuilder, ProviderRegistry};
 use mixdog_ai::service::admin_route::{Obj, resolve_route};
 use mixdog_ai::service::effort_configuration::UnsupportedEfforts;
-use mixdog_core_api::domain::mock::MockProvider;
-use mixdog_core_api::domain::provider::ProviderAdapter;
+use mixdog_ai::transport::http::{BodyStream, HttpResponse, HttpSend};
+use mixdog_ai::transport::{Exchange, KeepaliveDialer, KeepaliveSchedule, ReqwestLink};
+use mixdog_core_api::domain::provider::{ProviderAdapter, ProviderError, TransportFault, WireRequest};
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::mock::MockStatePublisher;
 use mixdog_core_config::config::{Config, ConfigLanes};
 use mixdog_core_ports::ports::route::{LiveRoute, Route};
-use mixdog_protocol::ProviderId;
 use serde_json::{Value, json};
 
 use super::model_list::{ListHost, ModelListService};
 use super::model_list_tests::Offline;
-use super::provider_sync::spawn_provider_sync;
+use super::provider_sync::{LoadedConfig, load_config, spawn_provider_sync};
 use super::web_search_models::{WebSearchModelsService, WebSearchRoutes};
 use crate::domains::ai_account::collaborators::WebSearchModels;
-use crate::domains::ai_account::custom_config::normalize;
 use crate::domains::ai_account::failure::Failure;
 
-/// The Node recording; its custom providers' `baseURL` is the recorder's loopback stub.
+/// The Node recording; a profile's `baseURL`s name the recorder's loopback endpoint.
 fn recording() -> Value {
     serde_json::from_str(include_str!("../../../../../fixtures/model-lists/node-model-lists.json")).unwrap()
 }
 
 /// The providers a profile can name that Node's route resolution knows.
-const KNOWN: [&str; 3] = ["custom-aaaa", "custom-bbbb", "anthropic-oauth"];
+const KNOWN: [&str; 4] = ["custom-aaaa", "custom-bbbb", "custom-dddd", "anthropic-oauth"];
+const GATED: [&str; 4] = ["mimo-oauth", "cursor-oauth", "devin-oauth", "antigravity-oauth"];
+/// Where the recorder's endpoint is, and a valid, unused address for the Rust profile.
+const ENDPOINT: &str = "http://127.0.0.1:9";
 
-/// A builder whose adapters are `MockProvider`s listing what a custom provider lists when its
-/// discovery answers nothing: its configured (manual) models under their overrides. `fail` makes
-/// every build refuse.
-struct FakeBuilder {
+/// The local fake model endpoint: GET of a recorded path answers its body, any other path an empty list.
+struct Endpoint {
+    routes: BTreeMap<String, Value>,
+}
+
+struct Body(Option<bytes::Bytes>);
+
+#[async_trait]
+impl BodyStream for Body {
+    async fn next(&mut self) -> Option<Result<bytes::Bytes, TransportFault>> {
+        self.0.take().map(Ok)
+    }
+}
+
+#[async_trait]
+impl HttpSend for Endpoint {
+    async fn send(&self, request: WireRequest, _: Exchange) -> Result<HttpResponse, ProviderError> {
+        let path = request.url.strip_prefix(ENDPOINT).unwrap_or(&request.url);
+        let path = path.split('?').next().unwrap_or(path);
+        let answer = self.routes.get(path).cloned().unwrap_or_else(|| json!({ "object": "list", "data": [] }));
+        Ok(HttpResponse {
+            status: 200,
+            headers: vec![("content-type".to_owned(), "application/json".to_owned())],
+            body: Box::new(Body(Some(answer.to_string().into()))),
+        })
+    }
+}
+
+struct Vars(HashMap<String, String>);
+impl Environment for Vars {
+    fn var(&self, name: &str) -> Option<String> {
+        self.0.get(name).cloned()
+    }
+}
+
+struct Traits;
+impl ModelTraits for Traits {
+    fn is_gemini_family(&self, _: &str) -> bool {
+        true
+    }
+    fn thinking(&self, _: &str) -> ThinkingControl {
+        ThinkingControl::Unspecified
+    }
+}
+
+/// The production builder over the fake endpoint; `fail` makes every build refuse.
+struct Builder {
+    inner: DefaultProviderBuilder,
     fail: bool,
 }
 
 #[async_trait]
-impl ProviderBuilder for FakeBuilder {
+impl ProviderBuilder for Builder {
     async fn build(&self, name: &str, config: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
         if self.fail {
             return Err("boom: the provider cannot be built".to_owned());
         }
-        let mut provider = MockProvider::new([]);
-        provider.id = ProviderId::from(name);
-        if config.get("type").and_then(Value::as_str) == Some("custom") {
-            provider.models = manual_rows(&normalize(config)?);
-        }
-        Ok(Arc::new(provider))
+        self.inner.build(name, config).await
     }
-
-    async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
-        Ok(Vec::new())
+    async fn custom_key_ids(&self, name: &str) -> Result<Vec<String>, String> {
+        self.inner.custom_key_ids(name).await
     }
-
     fn available(&self, name: &str) -> bool {
-        !["mimo-oauth", "cursor-oauth", "devin-oauth", "antigravity-oauth"].contains(&name)
+        !GATED.contains(&name)
     }
-
-    async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
-        Ok(false)
+    async fn oauth_credentials_usable(&self, name: &str) -> Result<bool, String> {
+        self.inner.oauth_credentials_usable(name).await
     }
-
-    async fn oauth_credential_state(&self, _: &str) -> Result<CredentialState, String> {
-        Ok(CredentialState::Absent)
-    }
-}
-
-struct NoEnv;
-impl Environment for NoEnv {
-    fn var(&self, _: &str) -> Option<String> {
-        None
+    async fn oauth_credential_state(&self, name: &str) -> Result<mixdog_ai::accounts::CredentialState, String> {
+        self.inner.oauth_credential_state(name).await
     }
 }
 
@@ -95,23 +135,47 @@ impl LiveRoute for NoCells {
     fn adopt_held(&self, _: &ThreadId, _: &Route) {}
 }
 
+/// A file written through the durability lane, as the tree's tests do.
+fn put(path: &Path, body: &str) {
+    use futures::FutureExt as _;
+    use mixdog_rt::LaneToken as _;
+    let (path, body) = (path.to_owned(), body.as_bytes().to_vec());
+    tokio::task::unconstrained(
+        mixdog_rt::testing::tokens()
+            .durability_io
+            .submit(&mixdog_rt::CancellationToken::new(), move |lane| mixdog_statefile::write_file(lane, &path, &body, &mixdog_statefile::Opts::default()))
+            .unwrap(),
+    )
+    .now_or_never()
+    .expect("the test backend runs the job inline")
+    .unwrap()
+    .unwrap();
+}
+
 struct Rig {
     config: Config,
     catalog: Arc<CatalogService>,
     registry: Arc<ProviderRegistry>,
     readiness: Arc<ProviderReadiness>,
     effective: Arc<EffectiveProviders>,
+    loaded: Arc<LoadedConfig>,
     service: Arc<ModelListService>,
     host: ListHost,
     _dir: tempfile::TempDir,
 }
 
-/// The profile `agent` as the stored section of a fresh config, and the production pipeline over it.
-async fn rig(agent: &Value, fail: bool) -> Rig {
+/// One recorded profile's pipeline; `fail` makes the provider builds refuse.
+async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
+    let io = || CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    // The catalogs Node's daemon was seeded with (fresh, so no fetch is due).
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
+    put(&dir.path().join("modelsdev-catalog.json"), &format!("{{\"fetchedAt\":{now},\"data\":{}}}\n", seeds["modelsDev"]));
+    put(&dir.path().join("litellm-catalog.json"), &format!("{{\"fetchedAt\":{now},\"data\":{}}}\n", seeds["litellm"]));
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
     let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    let agent: Value = serde_json::from_str(&scenario["agent"].to_string().replace("__BASE_URL__", ENDPOINT)).unwrap();
     let stored = agent.as_object().cloned().unwrap();
     config
         .update_agent(move |doc| {
@@ -121,19 +185,59 @@ async fn rig(agent: &Value, fail: bool) -> Rig {
         })
         .await
         .unwrap();
-    let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
-    let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io);
-    let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata).await);
-    let builder: Arc<dyn ProviderBuilder> = Arc::new(FakeBuilder { fail });
+    let listing = ListingLookup::new();
+    let metadata = ModelsDevSource::new(Arc::new(Offline), dir.path().to_path_buf(), io());
+    let catalog = Arc::new(
+        CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), metadata)
+            .await
+            .with_litellm(ModelsDevSource::litellm(Arc::new(Offline), dir.path().to_path_buf(), io()))
+            .await
+            .with_listing_lookup(listing.clone()),
+    );
+    let env_vars: HashMap<String, String> = scenario["env"].as_object().map(|m| m.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect()).unwrap_or_default();
+    let env: Arc<dyn Environment> = Arc::new(Vars(env_vars));
+    let keys = ApiKeyStore::new(Arc::new(MemoryVault::default()), env.clone(), false);
+    let accounts = AccountStore::new(dir.path().join("accounts"), io());
+    let endpoint = Arc::new(Endpoint {
+        routes: scenario["stub"].as_object().map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default(),
+    });
+    let link = Arc::new(ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap());
+    let builder: Arc<dyn ProviderBuilder> = Arc::new(Builder {
+        inner: DefaultProviderBuilder::new(BuilderEnv {
+            http: endpoint,
+            bidi: link,
+            dial: Arc::new(KeepaliveDialer::new(KeepaliveSchedule::SPEC)),
+            keys: keys.clone(),
+            accounts,
+            anthropic_caps: Arc::new(|_| None),
+            google_traits: Arc::new(Traits),
+            openai_facts: Arc::new(NoFacts),
+            openai_context: Arc::new(SessionContext::new()),
+            codex_identity: CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "1".into(), beta_features: String::new() },
+            pace: Arc::new(SystemPace),
+            gzip_lane: tokens.cpu_bulk,
+            client_version: "1.0.0".into(),
+            client_versions: None,
+            grok_client_version: None,
+            cursor_client_version: None,
+            antigravity_client_version: "1.0.0".into(),
+            listing,
+            env: env.clone(),
+            home_dir: dir.path().to_path_buf(),
+            io: io(),
+            gated_off: Arc::new(|name| GATED.contains(&name)),
+        }),
+        fail,
+    });
     let registry = Arc::new(ProviderRegistry::new(builder.clone()));
     let readiness = ProviderReadiness::new(registry.clone(), catalog.clone());
-    let env: Arc<dyn Environment> = Arc::new(NoEnv);
-    let effective = Arc::new(EffectiveProviders::new(builder, ApiKeyStore::new(Arc::new(MemoryVault::default()), env.clone(), false), env));
-    let initial = effective.load(&config.loaded_agent().await.unwrap(), true).await.unwrap();
+    let effective = Arc::new(EffectiveProviders::new(builder, keys, env));
+    let loaded = Arc::new(LoadedConfig::new(load_config(&config, &effective).await.unwrap()));
+    let initial = loaded.get().get("providers").and_then(Value::as_object).cloned().unwrap();
     readiness.set_providers(initial.clone());
-    let route = {
-        let config = config.clone();
-        Arc::new(move || resolve_route(&config.agent(), &Obj::new(), &|provider, _| KNOWN.contains(&provider)).unwrap_or_default())
+    let route: Arc<dyn Fn() -> Obj + Send + Sync> = {
+        let loaded = loaded.clone();
+        Arc::new(move || resolve_route(&loaded.get(), &Obj::new(), &|provider, _| KNOWN.contains(&provider)).unwrap_or_default())
     };
     let host = ListHost::new(readiness.clone(), effective.clone(), config.clone(), route.clone(), initial);
     let service = Arc::new(ModelListService {
@@ -143,12 +247,7 @@ async fn rig(agent: &Value, fail: bool) -> Rig {
         unsupported: Arc::new(UnsupportedEfforts::default()),
         host: Some(host.clone()),
     });
-    Rig { config, catalog, registry, readiness, effective, service, host, _dir: dir }
-}
-
-/// Node's profile with the recorder's stub address replaced by a valid, unused one.
-fn agent_of(scenario: &Value) -> Value {
-    serde_json::from_str(&scenario["agent"].to_string().replace("__BASE_URL__", "http://127.0.0.1:9/v1")).unwrap()
+    Rig { config, catalog, registry, readiness, effective, loaded, service, host, _dir: dir }
 }
 
 fn node_calls(scenario: &Value) -> [&Value; 3] {
@@ -171,11 +270,7 @@ fn web_search(rig: &Rig) -> WebSearchModelsService {
         rig.catalog.clone(),
         rig.config.clone(),
         rig.service.clone(),
-        WebSearchRoutes {
-            cells: Arc::new(NoCells),
-            main_route: Arc::new(|| json!({})),
-            web_search_route: Arc::new(|| Value::Null),
-        },
+        WebSearchRoutes { cells: Arc::new(NoCells), main_route: Arc::new(|| json!({})), web_search_route: Arc::new(|| Value::Null) },
     )
 }
 
@@ -184,7 +279,7 @@ async fn the_quick_rows_are_nodes_for_every_profile() {
     let recording = recording();
     for scenario in recording["scenarios"].as_array().unwrap() {
         let name = scenario["name"].as_str().unwrap();
-        let rig = rig(&agent_of(scenario), false).await;
+        let rig = rig(scenario, &recording["seeds"], false).await;
         let rows = rig.service.rows(false, true).await.unwrap();
         assert_rows(&format!("{name}: quick"), &rows, node_calls(scenario)[0]);
         rig.host.settle_warm().await;
@@ -194,39 +289,54 @@ async fn the_quick_rows_are_nodes_for_every_profile() {
 #[tokio::test]
 async fn the_full_and_web_search_reads_are_nodes_after_the_registry_hands_over_its_sources() {
     let recording = recording();
+    let mut searched = 0;
     for scenario in recording["scenarios"].as_array().unwrap() {
         let name = scenario["name"].as_str().unwrap();
         let [_, full, search] = node_calls(scenario);
-        let rig = rig(&agent_of(scenario), false).await;
+        let rig = rig(scenario, &recording["seeds"], false).await;
         // Node's read order: the quick read first, which warms the catalog, then the full read.
         rig.service.rows(false, true).await.unwrap();
         rig.host.settle_warm().await;
         let rows = rig.service.rows(false, false).await.unwrap();
         assert_rows(&format!("{name}: full"), &rows, full);
-        let enabled_custom = rig.registry.names().iter().any(|n| n.starts_with("custom-"));
+        let registered = rig.registry.names();
         let listed: Vec<String> = rig.catalog.snapshot().models.iter().map(|(p, _)| p.as_str().to_owned()).collect();
-        assert_eq!(listed.iter().any(|p| p.starts_with("custom-")), enabled_custom, "{name}: the registered custom provider is a catalog source");
-        let listed = web_search(&rig).list(None, false).await.unwrap();
-        assert_rows(&format!("{name}: web search"), listed.as_array().unwrap(), search);
+        assert_eq!(listed.iter().all(|p| registered.contains(p)), true, "{name}: every catalog source is a registered provider");
+        assert_eq!(registered.iter().all(|p| listed.contains(p)), true, "{name}: every registered provider is a catalog source");
+        let found = web_search(&rig).list(None, false).await.unwrap();
+        assert_rows(&format!("{name}: web search"), found.as_array().unwrap(), search);
+        searched += search.as_array().unwrap().len();
     }
+    assert!(searched > 0, "a recorded profile has a non-empty web-search list");
+}
+
+#[tokio::test]
+async fn a_custom_providers_discovered_models_list_as_node_lists_them() {
+    let recording = recording();
+    let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "custom-discovery").unwrap();
+    let rig = rig(scenario, &recording["seeds"], false).await;
+    let rows = rig.service.rows(false, false).await.unwrap();
+    let ids: Vec<&str> = rows.iter().map(|r| r["id"].as_str().unwrap()).collect();
+    // `disc-b` is discovered and hidden by its override; `m1` is configured and not discovered.
+    assert_eq!(ids, ["disc-a", "disc-c", "m1"]);
+    assert_rows("custom-discovery: full", &rows, node_calls(scenario)[1]);
 }
 
 #[tokio::test]
 async fn a_profile_with_no_enabled_provider_lists_nothing_and_registers_nothing() {
     let recording = recording();
     let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "defaults").unwrap();
-    let rig = rig(&agent_of(scenario), false).await;
+    let rig = rig(scenario, &recording["seeds"], false).await;
     assert!(rig.service.rows(false, false).await.unwrap().is_empty());
     assert!(rig.registry.names().is_empty());
-    // The web-search load awaits readiness outside any `try`, but it only asks for it when a search
-    // provider is enabled.
     assert_eq!(web_search(&rig).list(None, false).await.unwrap(), json!([]));
 }
 
 #[tokio::test]
 async fn a_failed_provider_load_reaches_the_callers_as_node_rejects_it() {
-    let agent = json!({ "providers": { "openai-oauth": { "enabled": true } } });
-    let rig = rig(&agent, true).await;
+    let recording = recording();
+    let scenario = json!({ "agent": { "providers": { "openai-oauth": { "enabled": true } } } });
+    let rig = rig(&scenario, &recording["seeds"], true).await;
     let error = rig.service.rows(false, false).await.unwrap_err();
     assert!(error.contains("boom"), "{error}");
     match web_search(&rig).list(None, true).await {
@@ -236,12 +346,13 @@ async fn a_failed_provider_load_reaches_the_callers_as_node_rejects_it() {
 }
 
 #[tokio::test]
-async fn the_sync_task_hands_each_config_change_to_the_readiness() {
-    let agent = json!({ "providers": { "custom-aaaa": { "type": "custom", "schemaVersion": 2, "name": "Alpha", "protocol": "openai-chat", "baseURL": "http://127.0.0.1:9/v1", "auth": "none", "enabled": true, "modelOverrides": { "m1": { "manual": true } } } } });
-    let rig = rig(&agent, false).await;
+async fn the_sync_task_hands_each_config_change_to_the_readiness_and_the_loaded_config() {
+    let recording = recording();
+    let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "custom-manual").unwrap();
+    let rig = rig(scenario, &recording["seeds"], false).await;
     let stop = mixdog_rt::CancellationToken::new();
-    let mut sync = spawn_provider_sync(rig.config.clone(), rig.effective.clone(), rig.readiness.clone(), stop.clone());
-    // A second provider is stored: the readiness, asked for its own config, now starts both.
+    let mut sync = spawn_provider_sync(rig.config.clone(), rig.effective.clone(), rig.readiness.clone(), rig.loaded.clone(), stop.clone());
+    // A second provider is stored: the loaded config and the readiness' own config now hold it.
     rig.config
         .update_agent(|doc| {
             let mut providers = doc.get("providers").and_then(Value::as_object).cloned().unwrap_or_default();
@@ -255,6 +366,7 @@ async fn the_sync_task_hands_each_config_change_to_the_readiness() {
         .await
         .unwrap();
     sync.applied.wait_for(|applied| *applied >= 1).await.unwrap();
+    assert!(rig.loaded.get()["providers"].get("custom-cccc").is_some(), "the loaded config follows the change");
     rig.readiness.ensure_providers_ready(None).await.unwrap();
     let names = rig.registry.names();
     assert!(names.contains("custom-aaaa") && names.contains("custom-cccc"), "{names:?}");
@@ -266,7 +378,7 @@ async fn the_sync_task_hands_each_config_change_to_the_readiness() {
 async fn the_registered_providers_listings_are_the_catalogs_sources() {
     let recording = recording();
     let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "custom-manual").unwrap();
-    let rig = rig(&agent_of(scenario), false).await;
+    let rig = rig(scenario, &recording["seeds"], false).await;
     rig.host.ensure_ready().await.unwrap();
     let outcome = rig.catalog.refresh().await;
     let refreshed: Vec<&str> = outcome.refreshed.iter().map(|p| p.as_str()).collect();

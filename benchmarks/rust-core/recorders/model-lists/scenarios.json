@@ -1,23 +1,373 @@
 [
-  {"name":"custom-manual","calls":[{"action":"listProviderModels","args":[{"quick":true}]},{"action":"listProviderModels","args":[{}]},{"action":"listWebSearchModels","args":[{}]}],"agent":{
-    "providers":{"custom-aaaa":{"type":"custom","schemaVersion":2,"name":"Alpha","protocol":"openai-chat","baseURL":"__BASE_URL__","auth":"none","enabled":true,
-      "modelOverrides":{
-        "m1":{"manual":true,"name":"Model One","contextWindow":64000,"maxOutputTokens":4096},
-        "m2":{"manual":true,"reasoning":{"levels":["low","high"]}},
-        "m3":{"manual":true,"hidden":true},
-        "m4":{"manual":true,"supportsVision":false}}}},
-    "presets":[{"id":"p1","name":"P1","provider":"custom-aaaa","model":"m1","effort":"high"},{"id":"p2","name":"P2","provider":"custom-aaaa","model":"unlisted"}],
-    "default":"p1",
-    "workflowRoutes":{"planner":{"provider":"custom-aaaa","model":"m2"},"search":{"provider":"custom-aaaa","model":"m1"}},
-    "agents":{"bot":{"provider":"custom-aaaa","model":"m4"}}}},
-  {"name":"defaults","calls":[{"action":"listProviderModels","args":[{"quick":true}]},{"action":"listProviderModels","args":[{}]},{"action":"listWebSearchModels","args":[{}]}],"agent":{}},
-  {"name":"stored-canon","calls":[{"action":"listProviderModels","args":[{"quick":true}]},{"action":"listProviderModels","args":[{}]},{"action":"listWebSearchModels","args":[{}]}],"agent":{
-    "providers":{"ollama":{"enabled":true}},
-    "presets":[{"id":"old","name":"OLD","provider":"ollama","model":"llama"},{"id":"bad","name":"BAD"},{"id":"ok","name":"OK","provider":"anthropic-oauth","model":"claude-sonnet-4-6"}],
-    "default":"old",
-    "agents":{"x":{"provider":"lmstudio","model":"q"}}}},
-  {"name":"new-hidden","calls":[{"action":"listProviderModels","args":[{"quick":true}]},{"action":"listProviderModels","args":[{}]},{"action":"listWebSearchModels","args":[{}]}],"agent":{
-    "providers":{"custom-bbbb":{"type":"custom","schemaVersion":2,"name":"Beta","protocol":"openai-chat","baseURL":"__BASE_URL__","auth":"none","enabled":true,
-      "discovery":{"newModelsHidden":true},"modelOverrides":{"listed":{"manual":true}}}},
-    "presets":[{"id":"q1","name":"Q1","provider":"custom-bbbb","model":"listed"},{"id":"q2","name":"Q2","provider":"custom-bbbb","model":"unlisted"}]}}
+  {
+    "name": "custom-manual",
+    "calls": [
+      {
+        "action": "listProviderModels",
+        "args": [
+          {
+            "quick": true
+          }
+        ]
+      },
+      {
+        "action": "listProviderModels",
+        "args": [
+          {}
+        ]
+      },
+      {
+        "action": "listWebSearchModels",
+        "args": [
+          {}
+        ]
+      }
+    ],
+    "agent": {
+      "providers": {
+        "custom-aaaa": {
+          "type": "custom",
+          "schemaVersion": 2,
+          "name": "Alpha",
+          "protocol": "openai-chat",
+          "baseURL": "__BASE_URL__/v1",
+          "auth": "none",
+          "enabled": true,
+          "modelOverrides": {
+            "m1": {
+              "manual": true,
+              "name": "Model One",
+              "contextWindow": 64000,
+              "maxOutputTokens": 4096
+            },
+            "m2": {
+              "manual": true,
+              "reasoning": {
+                "levels": [
+                  "low",
+                  "high"
+                ]
+              }
+            },
+            "m3": {
+              "manual": true,
+              "hidden": true
+            },
+            "m4": {
+              "manual": true,
+              "supportsVision": false
+            }
+          }
+        }
+      },
+      "presets": [
+        {
+          "id": "p1",
+          "name": "P1",
+          "provider": "custom-aaaa",
+          "model": "m1",
+          "effort": "high"
+        },
+        {
+          "id": "p2",
+          "name": "P2",
+          "provider": "custom-aaaa",
+          "model": "unlisted"
+        }
+      ],
+      "default": "p1",
+      "workflowRoutes": {
+        "planner": {
+          "provider": "custom-aaaa",
+          "model": "m2"
+        },
+        "search": {
+          "provider": "custom-aaaa",
+          "model": "m1"
+        }
+      },
+      "agents": {
+        "bot": {
+          "provider": "custom-aaaa",
+          "model": "m4"
+        }
+      }
+    }
+  },
+  {
+    "name": "defaults",
+    "calls": [
+      {
+        "action": "listProviderModels",
+        "args": [
+          {
+            "quick": true
+          }
+        ]
+      },
+      {
+        "action": "listProviderModels",
+        "args": [
+          {}
+        ]
+      },
+      {
+        "action": "listWebSearchModels",
+        "args": [
+          {}
+        ]
+      }
+    ],
+    "agent": {}
+  },
+  {
+    "name": "stored-canon",
+    "calls": [
+      {
+        "action": "listProviderModels",
+        "args": [
+          {
+            "quick": true
+          }
+        ]
+      },
+      {
+        "action": "listProviderModels",
+        "args": [
+          {}
+        ]
+      },
+      {
+        "action": "listWebSearchModels",
+        "args": [
+          {}
+        ]
+      }
+    ],
+    "agent": {
+      "providers": {
+        "ollama": {
+          "enabled": true
+        }
+      },
+      "presets": [
+        {
+          "id": "old",
+          "name": "OLD",
+          "provider": "ollama",
+          "model": "llama"
+        },
+        {
+          "id": "bad",
+          "name": "BAD"
+        },
+        {
+          "id": "ok",
+          "name": "OK",
+          "provider": "anthropic-oauth",
+          "model": "claude-sonnet-4-6"
+        }
+      ],
+      "default": "old",
+      "agents": {
+        "x": {
+          "provider": "lmstudio",
+          "model": "q"
+        }
+      }
+    }
+  },
+  {
+    "name": "new-hidden",
+    "calls": [
+      {
+        "action": "listProviderModels",
+        "args": [
+          {
+            "quick": true
+          }
+        ]
+      },
+      {
+        "action": "listProviderModels",
+        "args": [
+          {}
+        ]
+      },
+      {
+        "action": "listWebSearchModels",
+        "args": [
+          {}
+        ]
+      }
+    ],
+    "agent": {
+      "providers": {
+        "custom-bbbb": {
+          "type": "custom",
+          "schemaVersion": 2,
+          "name": "Beta",
+          "protocol": "openai-chat",
+          "baseURL": "__BASE_URL__/v1",
+          "auth": "none",
+          "enabled": true,
+          "discovery": {
+            "newModelsHidden": true
+          },
+          "modelOverrides": {
+            "listed": {
+              "manual": true
+            }
+          }
+        }
+      },
+      "presets": [
+        {
+          "id": "q1",
+          "name": "Q1",
+          "provider": "custom-bbbb",
+          "model": "listed"
+        },
+        {
+          "id": "q2",
+          "name": "Q2",
+          "provider": "custom-bbbb",
+          "model": "unlisted"
+        }
+      ]
+    }
+  },
+  {
+    "name": "anthropic-search",
+    "calls": [
+      {
+        "action": "listProviderModels",
+        "args": [
+          {
+            "quick": true
+          }
+        ]
+      },
+      {
+        "action": "listProviderModels",
+        "args": [
+          {}
+        ]
+      },
+      {
+        "action": "listWebSearchModels",
+        "args": [
+          {}
+        ]
+      }
+    ],
+    "stub": {
+      "/a/v1/models": {
+        "data": [
+          {
+            "id": "claude-sonnet-4-6",
+            "type": "model",
+            "display_name": "Claude Sonnet 4.6",
+            "created_at": "2025-08-01T00:00:00Z"
+          },
+          {
+            "id": "claude-haiku-4-5-20251001",
+            "type": "model",
+            "display_name": "Claude Haiku 4.5",
+            "created_at": "2025-10-01T00:00:00Z"
+          }
+        ],
+        "has_more": false
+      }
+    },
+    "agent": {
+      "providers": {
+        "anthropic": {
+          "baseURL": "__BASE_URL__/a"
+        }
+      }
+    },
+    "env": {
+      "ANTHROPIC_API_KEY": "fixture-key-not-a-credential"
+    }
+  },
+  {
+    "name": "custom-discovery",
+    "calls": [
+      {
+        "action": "listProviderModels",
+        "args": [
+          {
+            "quick": true
+          }
+        ]
+      },
+      {
+        "action": "listProviderModels",
+        "args": [
+          {}
+        ]
+      },
+      {
+        "action": "listWebSearchModels",
+        "args": [
+          {}
+        ]
+      }
+    ],
+    "stub": {
+      "/c/v1/models": {
+        "object": "list",
+        "data": [
+          {
+            "id": "disc-a",
+            "object": "model",
+            "owned_by": "fixture"
+          },
+          {
+            "id": "disc-b",
+            "object": "model",
+            "owned_by": "fixture"
+          },
+          {
+            "id": "disc-c",
+            "object": "model",
+            "owned_by": "fixture",
+            "context_length": 131072
+          }
+        ]
+      }
+    },
+    "agent": {
+      "providers": {
+        "custom-dddd": {
+          "type": "custom",
+          "schemaVersion": 2,
+          "name": "Delta",
+          "protocol": "openai-chat",
+          "baseURL": "__BASE_URL__/c/v1",
+          "auth": "none",
+          "enabled": true,
+          "modelOverrides": {
+            "disc-b": {
+              "hidden": true
+            },
+            "m1": {
+              "manual": true,
+              "name": "Manual One"
+            }
+          }
+        }
+      },
+      "presets": [
+        {
+          "id": "d1",
+          "name": "D1",
+          "provider": "custom-dddd",
+          "model": "disc-a"
+        }
+      ],
+      "default": "d1"
+    }
+  }
 ]
