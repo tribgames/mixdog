@@ -344,6 +344,21 @@ pub struct ProviderState {
     pub rest: serde_json::Map<String, serde_json::Value>,
 }
 
+impl ProviderState {
+    /// The state as JSON, equal to `serde_json::to_value(self)`. Built from the fields, not serialised, because it
+    /// cannot fail (strings, numbers and an already-JSON map) and a caller that carries it must not need a fallback.
+    pub fn to_json(&self) -> serde_json::Value {
+        let Self { gemini, rest } = self;
+        let mut out = serde_json::Map::new();
+        if let Some(gemini) = gemini {
+            out.insert("gemini".to_owned(), gemini.to_json());
+        }
+        // The flattened keys come after `gemini`, as serde writes them.
+        out.extend(rest.iter().map(|(key, value)| (key.clone(), value.clone())));
+        serde_json::Value::Object(out)
+    }
+}
+
 /// Node `providerState.gemini`, field for field (JSON keys are Node's).
 #[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -361,6 +376,35 @@ pub struct GeminiCacheState {
     pub cache_prefix_content_count: usize,
     pub cache_prefix_hash: String,
     pub cache_credential_fingerprint: String,
+}
+
+impl GeminiCacheState {
+    /// The state as JSON, equal to `serde_json::to_value(self)` (see [`ProviderState::to_json`]). The destructuring
+    /// names every field: a field added without its key stops compiling here.
+    pub fn to_json(&self) -> serde_json::Value {
+        let Self {
+            cache_name,
+            cache_created_at,
+            cache_created_at_iter,
+            cache_expires_at,
+            cache_model,
+            cache_token_size,
+            cache_prefix_content_count,
+            cache_prefix_hash,
+            cache_credential_fingerprint,
+        } = self;
+        let mut out = serde_json::Map::new();
+        out.insert("cacheName".to_owned(), cache_name.clone().into());
+        out.insert("cacheCreatedAt".to_owned(), (*cache_created_at).into());
+        out.insert("cacheCreatedAtIter".to_owned(), (*cache_created_at_iter).into());
+        out.insert("cacheExpiresAt".to_owned(), (*cache_expires_at).into());
+        out.insert("cacheModel".to_owned(), cache_model.clone().into());
+        out.insert("cacheTokenSize".to_owned(), (*cache_token_size).into());
+        out.insert("cachePrefixContentCount".to_owned(), (*cache_prefix_content_count).into());
+        out.insert("cachePrefixHash".to_owned(), cache_prefix_hash.clone().into());
+        out.insert("cacheCredentialFingerprint".to_owned(), cache_credential_fingerprint.clone().into());
+        serde_json::Value::Object(out)
+    }
 }
 
 /// A tool the provider runs itself.

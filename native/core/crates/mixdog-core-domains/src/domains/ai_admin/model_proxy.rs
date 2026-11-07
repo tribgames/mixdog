@@ -174,7 +174,7 @@ fn options_out(o: &p::RequestOptions) -> w::ProxyOptions {
             })
             .collect(),
         shared_cache_prefix_count: o.shared_cache_prefix_count.map(|n| u32::try_from(n).unwrap_or(u32::MAX)),
-        provider_state: o.provider_state.as_ref().and_then(|s| serde_json::to_value(s).ok()),
+        provider_state: o.provider_state.as_ref().map(p::ProviderState::to_json),
     }
 }
 
@@ -401,7 +401,7 @@ pub fn event_out(e: &p::StreamEvent) -> w::ProxyEvent {
         E::FinalContent(text) => w::ProxyEvent::FinalContent { text: text.clone() },
         E::ReturnedCalls(calls) => w::ProxyEvent::ReturnedCalls { calls: calls.iter().map(tool_call_out).collect() },
         E::ThinkingBlocks(value) => w::ProxyEvent::ThinkingBlocks { value: value.clone() },
-        E::ProviderState(state) => w::ProxyEvent::ProviderState { state: serde_json::to_value(state).unwrap_or(Value::Null) },
+        E::ProviderState(state) => w::ProxyEvent::ProviderState { state: state.to_json() },
         E::Completed { stop, pricing_model, request_ms } => w::ProxyEvent::Completed {
             pricing_model: pricing_model.clone(),
             request_ms: *request_ms,
