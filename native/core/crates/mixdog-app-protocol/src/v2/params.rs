@@ -4389,8 +4389,14 @@ pub struct TransferBeginZipParams {
 /// Params of `transfer/readRange`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct TransferReadRangeParams {
-    pub transfer_id: TransferId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transfer_id: Option<TransferId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rel: Option<String>,
     #[ts(type = "number")]
     pub offset: u64,
     #[ts(type = "number")]
@@ -4407,12 +4413,19 @@ pub struct TransferEndReadParams {
 /// Params of `transfer/beginWrite`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct TransferBeginWriteParams {
     pub op_id: OpId,
-    pub root: String,
-    pub rel: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rel: Option<String>,
     #[ts(type = "number")]
     pub size: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scope: Option<String>,
 }
 
 impl crate::common::HasOpId for TransferBeginWriteParams {
@@ -4462,9 +4475,13 @@ pub struct TransferTrashInfoParams {
 /// Params of `transfer/trash/entry`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
+#[ts(optional_fields)]
 pub struct TransferTrashEntryParams {
     pub op_id: OpId,
     pub path: String,
+    pub rel: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permanent: Option<bool>,
 }
 
 impl crate::common::HasOpId for TransferTrashEntryParams {
@@ -4477,6 +4494,7 @@ impl crate::common::HasOpId for TransferTrashEntryParams {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]
 pub struct LspDocumentParams {
+    pub project_path: String,
     pub root: String,
     pub document: JsonValue,
 }
@@ -4494,6 +4512,7 @@ pub struct LspSubscribeParams {
 #[serde(rename_all = "camelCase")]
 pub struct LspRequestParams {
     pub op_id: OpId,
+    pub project_path: String,
     pub root: String,
     pub request: JsonValue,
 }

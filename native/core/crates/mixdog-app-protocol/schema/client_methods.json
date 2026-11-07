@@ -2956,6 +2956,27 @@
             "initializeIfMissing"
           ],
           "type": "string"
+        },
+        {
+          "description": "Config path `notifications.devices.<id>` only: the value is a partial record merged onto the stored one, `events` and `quietHours` key by key; a device with none stored starts from the default record.",
+          "enum": [
+            "mergePatch"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "As `mergePatch`, but a device with none stored starts from the phone-app default (bot chats only).",
+          "enum": [
+            "mergePatchBots"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Config path `notifications.overrides` only: the value is `{target, setting}`; the target entry is replaced, or removed when the mode is `inherit`, and expired mutes are dropped.",
+          "enum": [
+            "setConversation"
+          ],
+          "type": "string"
         }
       ]
     },
@@ -6615,12 +6636,16 @@
       "description": "Params of `lsp/document`.",
       "properties": {
         "document": true,
+        "projectPath": {
+          "type": "string"
+        },
         "root": {
           "type": "string"
         }
       },
       "required": [
         "document",
+        "projectPath",
         "root"
       ],
       "type": "object"
@@ -6631,6 +6656,9 @@
         "opId": {
           "type": "string"
         },
+        "projectPath": {
+          "type": "string"
+        },
         "request": true,
         "root": {
           "type": "string"
@@ -6638,6 +6666,7 @@
       },
       "required": [
         "opId",
+        "projectPath",
         "request",
         "root"
       ],
@@ -16008,14 +16037,32 @@
     "TransferBeginWriteParams": {
       "description": "Params of `transfer/beginWrite`.",
       "properties": {
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "opId": {
           "type": "string"
         },
         "rel": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "root": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "scope": {
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "size": {
           "format": "uint64",
@@ -16025,8 +16072,6 @@
       },
       "required": [
         "opId",
-        "rel",
-        "root",
         "size"
       ],
       "type": "object"
@@ -16088,14 +16133,28 @@
           "minimum": 0.0,
           "type": "integer"
         },
+        "rel": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "root": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "transferId": {
-          "type": "string"
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "required": [
         "length",
-        "offset",
-        "transferId"
+        "offset"
       ],
       "type": "object"
     },
@@ -16211,11 +16270,21 @@
         },
         "path": {
           "type": "string"
+        },
+        "permanent": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "rel": {
+          "type": "string"
         }
       },
       "required": [
         "opId",
-        "path"
+        "path",
+        "rel"
       ],
       "type": "object"
     },

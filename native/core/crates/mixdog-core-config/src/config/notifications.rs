@@ -104,6 +104,63 @@ pub(crate) fn overrides(value: &Value) -> Option<Value> {
     typed::<Vec<ConversationNotificationOverride>>(value, |all| all.iter().all(override_ok))
 }
 
+/// `setNotificationPreferences`: `patch` applied over the stored record (`events` and `quietHours` key
+/// by key), or over the default of a device with none stored (`bots` starts from bot chats only),
+/// then validated as a stored record is.
+pub(crate) fn merge_device(stored: Option<&Value>, patch: &Value, bots: bool) -> Result<Value, String> {
+    let patch = patch.as_object().ok_or_else(|| "an object patch of device notification preferences".to_owned())?;
+    let mut merged = match stored {
+        Some(stored) => stored.clone(),
+        None => {
+            let mut base = serde_json::to_value(NotificationDevicePreferences::default()).expect("config types serialize");
+            if bots {
+                base["scope"] = Value::from("bots");
+            }
+            base
+        }
+    };
+    let record = merged.as_object_mut().ok_or_else(|| "stored device notification preferences".to_owned())?;
+    for (key, value) in patch {
+        match (record.get_mut(key), value) {
+            (Some(Value::Object(current)), Value::Object(change)) if key == "events" || key == "quietHours" => {
+                for (name, next) in change {
+                    current.insert(name.clone(), next.clone());
+                }
+            }
+            _ => {
+                record.insert(key.clone(), value.clone());
+            }
+        }
+    }
+    device(&merged).ok_or_else(|| "valid device notification preferences".to_owned())
+}
+
+/// `setConversationNotification`: the stored overrides without expired mutes and without the
+/// target's entry, plus the new entry unless the mode is `inherit`.
+pub(crate) fn set_conversation(stored: Option<&Value>, entry: &Value, now: i64) -> Result<Value, String> {
+    let shape = || "{target: {kind, id}, setting: {mode}}".to_owned();
+    let target = entry.get("target").filter(|t| t.is_object()).ok_or_else(shape)?;
+    let setting = entry.get("setting").filter(|s| s.is_object()).ok_or_else(shape)?;
+    let same = |other: &Value| other.get("kind") == target.get("kind") && other.get("id") == target.get("id");
+    let mut list: Vec<Value> = stored
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|held| {
+            let held_setting = held.get("setting");
+            let mode = held_setting.and_then(|s| s.get("mode")).and_then(Value::as_str);
+            let until = held_setting.and_then(|s| s.get("until")).and_then(Value::as_i64);
+            mode != Some("muted") || until.is_none_or(|until| until > now)
+        })
+        .filter(|held| !held.get("target").is_some_and(same))
+        .cloned()
+        .collect();
+    if setting.get("mode").and_then(Value::as_str) != Some("inherit") {
+        list.push(serde_json::json!({ "target": { "kind": target.get("kind"), "id": target.get("id") }, "setting": setting }));
+    }
+    overrides(&Value::Array(list)).ok_or_else(|| "valid conversation notification settings".to_owned())
+}
+
 pub(crate) fn migrated_at(value: &Value) -> Option<Value> {
     typed::<i64>(value, |n| (0..=MAX_SAFE_INTEGER).contains(n))
 }

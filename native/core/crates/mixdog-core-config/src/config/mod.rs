@@ -524,11 +524,36 @@ impl Shared {
         };
         let key = schema::lookup(&self.keys, path)
             .ok_or_else(|| invalid("a known config key".into()))?;
+        let wants = |kind: schema::Kind| std::mem::discriminant(&kind) == std::mem::discriminant(&key.kind);
+        let parts: Vec<&str> = path.split('.').collect();
+        if matches!(edit.mode, ConfigWriteMode::MergePatch | ConfigWriteMode::MergePatchBots) {
+            if !wants(schema::Kind::NotificationDevice) {
+                return Err(invalid("a notifications.devices.<id> path".into()));
+            }
+            let merged = notifications::merge_device(
+                get_in(doc, &parts),
+                &edit.value,
+                edit.mode == ConfigWriteMode::MergePatchBots,
+            )
+            .map_err(invalid)?;
+            set_in(doc, &parts, merged);
+            return Ok(());
+        }
+        if edit.mode == ConfigWriteMode::SetConversation {
+            if !wants(schema::Kind::NotificationOverrides) {
+                return Err(invalid("the notifications.overrides path".into()));
+            }
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |elapsed| elapsed.as_millis() as i64);
+            let next = notifications::set_conversation(get_in(doc, &parts), &edit.value, now).map_err(invalid)?;
+            set_in(doc, &parts, next);
+            return Ok(());
+        }
         let remove = edit.value.is_null() && matches!(key.kind, schema::Kind::Any);
         if !remove && !schema::accepts(key.kind, &edit.value) {
             return Err(invalid(schema::expected(key.kind)));
         }
-        let parts: Vec<&str> = path.split('.').collect();
         if matches!(key.kind, schema::Kind::Pins) {
             return write_pins(doc, &edit.value, edit.mode, path);
         }

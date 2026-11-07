@@ -1613,3 +1613,12 @@ async fn a_status_that_skips_line_stats_has_no_counts_and_leaves_the_counted_sca
     let counted = scm.git_status_counting(&repo, &cancel, true).await.unwrap();
     assert!(counted["files"].as_array().unwrap().iter().any(|file| file["additions"].as_u64().unwrap_or(0) > 0));
 }
+#[test]
+fn a_review_revision_names_the_file_identity_or_deleted() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("a.txt"), "abc").unwrap();
+    let revision = crate::inspect::status::worktree_revision(dir.path(), "a.txt");
+    assert!(revision.starts_with("3:"), "size first: {revision}");
+    assert_eq!(revision.split(':').count(), 4);
+    assert_eq!(crate::inspect::status::worktree_revision(dir.path(), "gone.txt"), "deleted");
+}

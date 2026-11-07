@@ -430,7 +430,18 @@ impl ScmService {
                     None => json!({ "pending": out["pending"] }),
                 });
             }
-            // `gitReview`: the rows with the repository and its base branch.
+            // `gitReview`: the rows with the repository, its base branch, each row's work-tree
+            // identity and the untracked files past the cap that are not listed.
+            let paths: Vec<String> = summary.files.iter().map(|file| file.path.clone()).collect();
+            let stat_root = root.clone();
+            let revisions = crate::repo::on_lane(self.scm.lane, cancel, move || {
+                paths.iter().map(|path| crate::inspect::status::worktree_revision(&stat_root, path)).collect::<Vec<_>>()
+            })
+            .await?;
+            for (row, revision) in out["files"].as_array_mut().into_iter().flatten().zip(revisions) {
+                row["revision"] = json!(revision);
+            }
+            out["untrackedOmitted"] = json!(summary.omitted);
             out["repository"] = json!(true);
             out["root"] = json!(root.to_string_lossy());
             out["base"] = json!(name);
