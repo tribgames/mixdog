@@ -32,6 +32,48 @@ static THINK: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<think>
 static SPACES: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\s+", "g"));
 static NOT_WORD: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"[^\p{L}\p{N}]+", "gu"));
 
+/// The attachment envelopes of `session-fallback-title.mjs`: payloads, not prose.
+const ATTACHMENT_TAGS: [&str; 6] = ["file", "attachment", "document", "image", "video", "pdf"];
+
+static ATTACHMENT_BLOCK: LazyLock<regex::Regex> = LazyLock::new(|| {
+    // One branch per tag stands for the source's `<(tag)\b[^>]*>[\s\S]*?<\/\1\s*>` backreference.
+    let branches: Vec<String> = ATTACHMENT_TAGS.iter().map(|tag| format!(r"<{tag}\b[^>]*>.*?</{tag}\s*>")).collect();
+    regex::Regex::new(&format!("(?is){}", branches.join("|"))).expect("attachment block pattern")
+});
+static ATTACHMENT_SELF_CLOSING: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(&format!(r"(?i)<(?:{})\b[^>]*/>", ATTACHMENT_TAGS.join("|"))).expect("self-closing pattern"));
+static ATTACHMENT_UNTERMINATED: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(&format!(r"(?is)<(?:{})\b[^>]*>.*$", ATTACHMENT_TAGS.join("|"))).expect("unterminated pattern"));
+static MEDIA_MARKER: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"(?i)\[(?:Image|Video|File)(?:\s*#?\d+)?(?::[^\]\r\n]*)?\]").expect("media marker pattern"));
+static MEDIA_PLACEHOLDER: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(?i)^\[(?:image|video|file)\]$").expect("media placeholder pattern"));
+static UNTITLED_PLACEHOLDER: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(?i)^untitled(?:\s+session)?$").expect("untitled pattern"));
+static REFERENCE_FILES: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(?i)^\s*reference files:").expect("reference files pattern"));
+
+/// `isUsableTitle` (`session-fallback-title.mjs`).
+pub(super) fn is_usable_title(title: &str) -> bool {
+    let text = js_trim(title);
+    !text.is_empty() && !UNTITLED_PLACEHOLDER.is_match(text)
+}
+
+/// `fallbackTitleFromText(content)`: a bounded single-line title from user-authored text; empty when
+/// nothing is usable.
+pub(super) fn fallback_title_from_text(content: &Value) -> String {
+    let raw = session_message_text(content);
+    if raw.is_empty() || REFERENCE_FILES.is_match(&raw) {
+        return String::new();
+    }
+    let prose = ATTACHMENT_BLOCK.replace_all(&raw, " ");
+    let prose = ATTACHMENT_SELF_CLOSING.replace_all(&prose, " ");
+    let prose = ATTACHMENT_UNTERMINATED.replace(&prose, " ");
+    let prose = MEDIA_MARKER.replace_all(&prose, " ");
+    if is_session_preview_noise(&prose) {
+        return String::new();
+    }
+    let title = compact_session_title(&clean_session_preview(&prose, 4_000));
+    if is_usable_title(&title) && !MEDIA_PLACEHOLDER.is_match(&title) { title } else { String::new() }
+}
+
 /// Why a title could not be made.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TitleError {
