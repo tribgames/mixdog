@@ -733,8 +733,11 @@ impl Worktrees {
         if !path.exists() {
             return Ok((Vec::new(), Vec::new(), Vec::new()));
         }
-        let status = self.scm().git.text(cancel, &path, &["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching"], &no_index_refresh()).await?;
-        let artefacts = dependency_artefacts(self.scm(), cancel, &path).await?;
+        // Node runs the two reads together (`Promise.all` in `automaticKeepPaths`).
+        let (status, artefacts) = tokio::try_join!(
+            self.scm().git.text(cancel, &path, &["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignored=matching"], &no_index_refresh()),
+            dependency_artefacts(self.scm(), cancel, &path),
+        )?;
         let (mut changed, mut ignored) = (Vec::new(), Vec::new());
         for (code, entry) in parse_status_entries(&status) {
             if code == "!!" { ignored.push(entry) } else { changed.push(entry) }
