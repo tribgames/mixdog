@@ -514,6 +514,24 @@ impl TaskWorkspace for mixdog_core_agents::agents::AgentDefinitions {
     }
 }
 
+/// What a `thread/start` and a `thread/fork` of the desktop need of the project side, which the directory cannot build
+/// itself (the workspace transitions need the directory). Bound late by the composition.
+#[async_trait::async_trait]
+pub trait NewThreadPlace: Send + Sync + 'static {
+    /// Every registered Project's path (`listProjectsStrict`).
+    async fn projects(&self) -> Result<Vec<String>, String>;
+    /// `createNewTask`'s worktree step, before the first prompt (`session-host-lifecycle.ts:847-897`): the created
+    /// `thread` enters the draft's `worktree` (`{branch?, create?, confirmLarge?, fromDefault?}`) through the workspace
+    /// service. `input` is the start's `initialInput` (its prompt titles the worktree, its submission id keys it).
+    async fn enter_worktree(
+        &self,
+        thread: &ThreadId,
+        worktree: &Value,
+        input: Option<&Value>,
+        cancel: &CancellationToken,
+    ) -> Result<(), CoreError>;
+}
+
 /// What a room member's thread tells the room it sits in. Each call carries the room id and comes
 /// after the thread's view carries the change.
 pub trait RoomMemberEvents: Send + Sync + 'static {

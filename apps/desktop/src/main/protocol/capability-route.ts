@@ -90,8 +90,8 @@ const startedThreadId = (started: unknown): string => {
   return id;
 };
 
-/** Every call is a request of the connection's core. The control thread is started (`thread/start`, a task, the way Node
- *  creates its control session) on first need and kept. A reply carries the state of the thread the call was addressed to,
+/** Every call is a request of the connection's core. The control thread is started (`thread/start` of `kind: "control"`, the
+ *  way Node creates its control session in `ensureControlSession`) on first need and kept. A reply carries the state of the thread the call was addressed to,
  *  read from the core when the reply arrives (`thread/read` without items, folded by the client library's own
  *  `sessionReducer`/`desktopSessionState`, with the `hostShellJobs` section the core pushes): nothing is held between calls.
  *  The pending approvals are the ones the core asked this connection
@@ -121,7 +121,7 @@ export function createCapabilityLane({
   let control: Promise<string> | null = null;
   const controlThread = (): Promise<string> => {
     if (control) return control;
-    const pending = request('thread/start', { kind: 'task' }).then(startedThreadId);
+    const pending = request('thread/start', { kind: 'control' }).then(startedThreadId);
     control = pending;
     // A failed start is tried again by the next call; this one still rejects to its caller.
     pending.catch(() => {

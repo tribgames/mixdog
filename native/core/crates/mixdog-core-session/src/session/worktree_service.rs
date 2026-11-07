@@ -155,7 +155,90 @@ fn session_ids(input: Option<&JsonValue>) -> Vec<String> {
         .collect()
 }
 
+/// `promptTitle(prompt, displayText)` (`session-title.mjs`) over a `TurnInput` as JSON: the visible text titles the
+/// worktree, else the prompt's text, else its first attachment.
+fn prompt_title(input: Option<&JsonValue>) -> String {
+    use mixdog_store::title::generated_session_title;
+    use mixdog_store::title::normalize_session_title;
+    let Some(input) = input else { return String::new() };
+    if let Some(shown) = input.pointer("/options/displayText").and_then(JsonValue::as_str).filter(|text| !text.is_empty()) {
+        let title = generated_session_title(shown, "", 32);
+        if !title.is_empty() {
+            return title;
+        }
+    }
+    match input.get("prompt") {
+        Some(JsonValue::String(text)) => generated_session_title(text, "", 32),
+        Some(JsonValue::Array(parts)) => {
+            let kind = |part: &JsonValue| part.get("type").and_then(JsonValue::as_str).unwrap_or_default().to_owned();
+            let fallback = match parts.iter().find(|part| ["image", "video", "file"].contains(&kind(part).as_str())) {
+                Some(part) => match kind(part).as_str() {
+                    "video" => "[Video]".to_owned(),
+                    "image" => "[Image]".to_owned(),
+                    _ => normalize_session_title(part.get("filename").and_then(JsonValue::as_str).unwrap_or_default(), "[File]", 32),
+                },
+                None => String::new(),
+            };
+            let text = parts
+                .iter()
+                .filter(|part| kind(part) == "text")
+                .map(|part| part.get("text").and_then(JsonValue::as_str).unwrap_or_default())
+                .collect::<Vec<_>>()
+                .join(" ");
+            generated_session_title(&text, &fallback, 32)
+        }
+        _ => String::new(),
+    }
+}
+
 impl ThreadScmService {
+    /// The draft's worktree step of `createNewTask` (`session-host-lifecycle.ts:847-897`), through the same workspace
+    /// transitions `thread/selectBranch` and `thread/requestWorktree` use: a named branch is selected (created when
+    /// `create`), else a worktree is provisioned at the current commit without the project folder's changes. The session
+    /// must have entered it before the first prompt. Only the settings default (`fromDefault`) is allowed to find the
+    /// repository unsupported and run in its folder.
+    pub(crate) async fn enter_new_thread_worktree(
+        &self,
+        thread: &ThreadId,
+        draft: &JsonValue,
+        input: Option<&JsonValue>,
+        cancel: &CancellationToken,
+    ) -> Result<(), CoreError> {
+        let not_entered = || CoreError::DomainError {
+            domain: WORKTREE_DOMAIN.into(),
+            code: Some("WORKTREE_NOT_IMPLEMENTED".into()),
+            message: Some("WORKTREE_NOT_IMPLEMENTED: The session did not enter its worktree before the first prompt.".into()),
+            detail: None,
+        };
+        let confirm = flag(draft, "confirmLarge");
+        let branch = string(draft, "branch");
+        if !branch.is_empty() {
+            let select = select_input(&json!({ "branch": branch, "create": flag(draft, "create"), "confirmLarge": confirm })).map_err(scm_error)?;
+            let done = self.workspaces.select_branch(thread.as_str(), select, false, cancel).await.map_err(scm_error)?;
+            return if done.pointer("/workspace/branch").and_then(JsonValue::as_str) == Some(branch.as_str()) { Ok(()) } else { Err(not_entered()) };
+        }
+        let tx_id = input
+            .and_then(|input| input.pointer("/options/clientSubmissionId"))
+            .and_then(JsonValue::as_str)
+            .map_or_else(|| format!("desktop-submit-{}", thread.as_str()), str::to_owned);
+        let request = request_input(&json!({
+            "provision": true,
+            "carryChanges": "leave",
+            "confirmLarge": confirm,
+            "prompt": prompt_title(input),
+            "txId": tx_id,
+        }))
+        .map_err(scm_error)?;
+        match self.workspaces.request_worktree(thread.as_str(), request, false, cancel).await {
+            Ok(done) => {
+                let bound = done.get("pending") == Some(&JsonValue::Bool(false)) && done.pointer("/workspace/worktreeId").is_some_and(JsonValue::is_string);
+                if bound { Ok(()) } else { Err(not_entered()) }
+            }
+            Err(failure) if flag(draft, "fromDefault") && matches!(&failure, ScmFailure::Coded { code, .. } if *code == "WORKTREE_UNSUPPORTED_REPO") => Ok(()),
+            Err(failure) => Err(scm_error(failure)),
+        }
+    }
+
     pub fn new(workspaces: SessionWorkspaces, review: Arc<dyn TurnReviewApi>, ops: OpScopes) -> Self {
         Self { workspaces, review, ops }
     }
@@ -230,6 +313,29 @@ impl ThreadScmService {
             self.review.turn_changes(session, read).await.map(JsonValue::Object).map_err(review_error)
         };
         self.ops.run(req, None, run, reproduce).await
+    }
+}
+
+/// [`NewThreadPlace`](super::NewThreadPlace) over the workspace service and the registered Projects.
+pub struct ScmNewThreadPlace {
+    scm: Arc<ThreadScmService>,
+    folders: Arc<dyn crate::session::thread_settings::ProjectFolders>,
+}
+
+impl ScmNewThreadPlace {
+    pub fn new(scm: Arc<ThreadScmService>, folders: Arc<dyn crate::session::thread_settings::ProjectFolders>) -> Self {
+        Self { scm, folders }
+    }
+}
+
+#[async_trait]
+impl crate::session::NewThreadPlace for ScmNewThreadPlace {
+    async fn projects(&self) -> Result<Vec<String>, String> {
+        self.folders.projects().await
+    }
+
+    async fn enter_worktree(&self, thread: &ThreadId, worktree: &JsonValue, input: Option<&JsonValue>, cancel: &CancellationToken) -> Result<(), CoreError> {
+        self.scm.enter_new_thread_worktree(thread, worktree, input, cancel).await
     }
 }
 
