@@ -349,17 +349,26 @@ impl RouteService {
     /// `resolveMissingRouteModelForFirstTurn` throws (`route-resolution.mjs:28-35`; no code, a
     /// plain `Error`): `collectProviderModels()` answers no row (providers that are not available
     /// list nothing, `row-hydration.mjs:107`), or it does and the user has not chosen one (never
-    /// auto-picked).
+    /// auto-picked). The live route is read again after the catalog read: a model chosen while
+    /// it loaded (a new task's draft landing meanwhile) stands (`route-resolution.mjs:28-30`).
     pub async fn ready_default(&self, thread: &ThreadId) -> Result<(), String> {
-        if clean(self.writer.route(thread).get("model")).is_empty() {
-            return Err(if self.models.rows(false, false).await.is_empty() {
-                "No provider models available. Open /providers to sign in, then /model to choose a model.".to_owned()
-            } else {
-                "No model selected. Choose a model with /model first.".to_owned()
-            });
+        if self.route_lacks_model(thread) {
+            let listed = !self.models.rows(false, false).await.is_empty();
+            if self.route_lacks_model(thread) {
+                return Err(if listed {
+                    "No model selected. Choose a model with /model first.".to_owned()
+                } else {
+                    "No provider models available. Open /providers to sign in, then /model to choose a model.".to_owned()
+                });
+            }
         }
         self.writer.refresh_route_effort(thread, None, true, None).await.map_err(port)?;
         Ok(())
+    }
+
+    /// `!routeHasModel()`: the live route as it is now.
+    fn route_lacks_model(&self, thread: &ThreadId) -> bool {
+        clean(self.writer.route(thread).get("model")).is_empty()
     }
 
     /// The created, empty thread takes the live route onto its header (`updateSessionInPlace`, the
