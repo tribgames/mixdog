@@ -893,6 +893,8 @@ export class DesktopServiceClient implements DesktopService {
     return this.cachedAgentPool.slice();
   }
   renameSession(sessionId: string, title: string): Promise<unknown> {
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.renameSession(sessionId, title);
     return this.invoke('renameSession', [sessionId, title]);
   }
   continueSessionInModel(sessionId: string, route: DesktopModelSelection): Promise<boolean> {
