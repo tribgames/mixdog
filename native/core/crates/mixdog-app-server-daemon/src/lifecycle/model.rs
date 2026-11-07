@@ -157,6 +157,8 @@ impl ReleaseCause {
     /// answers it and calls `onClientsEmpty()`, which is `maybeSelfShutdown('no live session clients')` (`daemon.mjs:1245`), so the
     /// stop is recorded with that text (the `detachedReason` of the sessions it detaches). The parent's IPC message (`:1311`,
     /// `child.send({ type: 'shutdown' })`) is a different event, which only a desktop that parents the daemon sends; the core has no such parent.
+    /// A `Quit` request that had to wait for running work is the recheck of that deferral, which reads what settled last
+    /// (`service calls settled` / `busy service work settled`, `daemon.mjs:530-560`): the machine notes it as a trigger (see `settle`).
     /// The other fences have no Node counterpart: they keep their own name, as do the carrying causes when no fact was noted.
     pub fn node_text(self) -> String {
         match self {

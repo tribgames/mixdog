@@ -438,7 +438,7 @@ impl Machine {
         let discovery = self.discovery();
         self.effects.push(Effect::Discovery(discovery));
         self.announce_drain();
-        // Already draining: the serving branch of `settle` (the only reader of the trigger) is not taken.
+        // Already draining: the serving branch of `settle` is not taken, and an empty trigger is the request finding the core idle.
         self.settle("");
     }
 
@@ -462,8 +462,15 @@ impl Machine {
         match &mut self.phase {
             Phase::Draining(drain) if !drain.releasing && !busy => {
                 drain.releasing = true;
-                let cause = ReleaseCause::Stop(drain.reason);
+                let reason = drain.reason;
+                let cause = ReleaseCause::Stop(reason);
                 self.seq += 1;
+                // A `Quit` request held back by work is Node's `/shutdown` deferred by `drainDeferral` (`daemon.mjs:530-560`): the stop that
+                // follows is the recheck's `maybeSelfShutdown('service calls settled' | 'busy service work settled')`, so it reads what settled.
+                // The empty trigger is the request itself finding the core idle. A signal's name, noted before, wins.
+                if reason == StopReason::Quit && !trigger.is_empty() {
+                    self.effects.push(Effect::NodeTrigger(trigger));
+                }
                 self.begin_release(cause);
             }
             Phase::Serving
