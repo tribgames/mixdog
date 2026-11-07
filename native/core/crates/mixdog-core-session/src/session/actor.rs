@@ -917,6 +917,8 @@ impl SessionActor {
             self.pump();
             self.cell.turn_held.store(self.turn_held(), SeqCst);
             self.cell.turn_pending.store(self.turn_pending(), SeqCst);
+            self.cell.ui_busy.store(self.ui_busy(), SeqCst);
+            self.cell.compacting.store(self.compactions > 0, SeqCst);
             #[cfg(any(test, feature = "test-support"))]
             {
                 self.cell.busy.store(self.turn_busy(), SeqCst);

@@ -107,6 +107,11 @@ const STORED_READS: [&str; 6] = [
     "thread/finalAnswer/read",
 ];
 
+/// Thread methods the directory serves whether or not the thread opens: `thread/delete` answers
+/// for a session that is not there as Node does (`deleted: false` / `not-archived`), not
+/// `threadNotFound`.
+const DIRECTORY_SERVED: [&str; 1] = ["thread/delete"];
+
 /// What a transport does after handing a message over.
 pub enum Inbound {
     Continue,
@@ -675,7 +680,7 @@ impl Shared {
                 class,
                 Box::pin(async move {
                     match thread {
-                        Some(id) if !STORED_READS.contains(&request.method.0) => {
+                        Some(id) if !STORED_READS.contains(&request.method.0) && !DIRECTORY_SERVED.contains(&request.method.0) => {
                             let handle = core.threads().open(&id, &request.ctx).await?;
                             handle.request(request).await
                         }

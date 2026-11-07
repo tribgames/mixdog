@@ -50,7 +50,7 @@ fn closed() -> String {
 impl ResumeHost for SessionResumeHost {
     /// `materializeSession(sessionId)`: the session is loaded under daemon ownership.
     async fn materialize(&self, session_id: &str) -> Result<(), String> {
-        self.directory.open_handle(&ThreadId::from(session_id), &caller()).await.map(drop).map_err(|error| failure_text(&error))
+        self.directory.open_admitted(&ThreadId::from(session_id), &caller()).await.map(drop).map_err(|error| failure_text(&error))
     }
 
     /// The route the session's next turn runs on: its header's `provider` / `model` (a route

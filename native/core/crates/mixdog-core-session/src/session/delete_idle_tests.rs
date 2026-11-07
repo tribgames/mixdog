@@ -9,6 +9,7 @@ use std::sync::atomic::Ordering::SeqCst;
 
 use mixdog_core_api::CoreError;
 use mixdog_core_api::Reply;
+use mixdog_core_api::ThreadDirectory;
 use mixdog_core_api::ThreadHandle;
 use mixdog_core_api::call::CallContext;
 use mixdog_core_api::call::CoreRequest;
@@ -181,6 +182,20 @@ async fn replay(name: &str, world: &World) -> Value {
             world.flags(false, false).await;
             json!({ "reply": world.ask(&id, same).await })
         }
+        // No such session: the app server hands the delete to the directory, which cannot open the
+        // thread (`threadNotFound` there is Node's `not-archived`, the id has no mark).
+        "unknown-session" => {
+            let reply = match world
+                .directory
+                .request(request("thread/delete", json!({ "threadId": "sess_never_made", "opId": "op-d", "ifIdle": same }), "op-d"))
+                .await
+                .expect("delete")
+            {
+                Reply::Value(value) => value,
+                other => panic!("{other:?}"),
+            };
+            json!({ "reply": reply })
+        }
         "favorite" => {
             world.flags(true, true).await;
             json!({ "reply": world.ask(&id, same).await })
@@ -245,6 +260,36 @@ async fn each_refusal_of_the_idle_delete_is_nodes() {
         replayed += 1;
     }
     assert_eq!(replayed, cases.len() - 1);
+}
+
+/// The paths that start a turn behind Node's ask lock besides a submit — an approval answer that
+/// resumes it (`approveSession`) and a materialization for a Goal or quota resume
+/// (`materializeSession`) — are admitted starts: refused while an idle delete fences the thread, and
+/// they hold the idle delete off (`turn-starting`) while they run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn approval_answers_and_materializations_pass_the_turn_gate() {
+    use mixdog_core_api::ids::ServerRequestId;
+    use mixdog_core_api::thread::Decision;
+    use mixdog_protocol::ConnectionKind;
+
+    let world = world().await;
+    let gate = world.directory.turn_gate().clone();
+    let decision = || Decision {
+        request: ServerRequestId("srv_1".into()),
+        connection: ConnectionId(1),
+        device: "desktop-1".into(),
+        connection_kind: ConnectionKind::Desktop,
+        result: json!({ "approved": true }),
+    };
+    let ctx = CallContext::internal("test");
+    let fence = gate.fence(&world.handle.id).expect("not being admitted");
+    assert!(matches!(world.handle.decide(decision()), Err(CoreError::ThreadClosing { .. })), "an answer is refused while fenced");
+    assert!(matches!(world.directory.open_admitted(&world.handle.id, &ctx).await, Err(CoreError::ThreadClosing { .. })), "so is a materialization");
+    drop(fence);
+    assert!(!matches!(world.handle.decide(decision()), Err(CoreError::ThreadClosing { .. })), "an answer is admitted once the fence is gone");
+    world.directory.open_admitted(&world.handle.id, &ctx).await.expect("materialized");
+    // Neither leaves an admission behind.
+    drop(gate.fence(&world.handle.id).expect("none is being admitted"));
 }
 
 /// Another idle delete's fence and a start in its intake each keep the idle delete from closing the

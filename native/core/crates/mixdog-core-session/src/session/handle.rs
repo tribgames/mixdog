@@ -565,6 +565,9 @@ impl RunControl for SessionHandle {
     }
 
     fn decide(&self, decision: Decision) -> Result<(), CoreError> {
+        // An answer resumes the turn: an admitted start (`approveSession`, session-turns.mjs).
+        let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
+        let _admitted = directory.gate().enter(&self.id).ok_or_else(|| self.closing())?;
         self.cell.decide(decision)
     }
 }

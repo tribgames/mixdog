@@ -194,6 +194,10 @@ pub(crate) struct ControlCell {
     /// A Goal or quota-resume turn is about to start (a Goal entry being checked, a resume
     /// pending): Node's turn waiting for the ask lock (`sessionLockContended`).
     pub turn_pending: std::sync::atomic::AtomicBool,
+    /// Node's `state.busy` (a turn runs or starts) and `state.commandBusy` (a compaction runs), as
+    /// the actor last stepped: what the desktop host counts as the session working.
+    pub ui_busy: std::sync::atomic::AtomicBool,
+    pub compacting: std::sync::atomic::AtomicBool,
     /// Woken after every step of the thread's actor, so a test waits on the thread's state by its
     /// change (`tests::eventually_on`, and `SessionHandle::stepped` for the tests of other crates).
     #[cfg(any(test, feature = "test-support"))]
