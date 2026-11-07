@@ -112,8 +112,20 @@ pub(super) fn header_diff(header: &Header, after: &Map<String, Value>) -> Header
     change
 }
 
-/// The header change of a route change's tool surface: `header` already names the new route.
-pub fn route_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: &Header, prepared: Option<PreparedTools>, hidden_agent: bool) -> HeaderChange {
+/// Whether `previous` is no route at all: the thread is being seated on its first one.
+pub fn is_first_route(previous: &Route) -> bool {
+    ["provider", "model"].iter().all(|key| clean(previous.get(*key)).is_empty())
+}
+
+/// The header change of a route change's tool surface: `header` already names the new route. A thread seated on its
+/// first route (`previous` names none) has no surface to rebuild: `thread/start` seeded it for that route, as
+/// `createSession` resolves it with the route already on the session. Preparing the tools again would store the whole
+/// resolved list over the deferred surface (a Lead is no agent, so `applyAgentToolExposure` does not select again),
+/// and nothing rebuilds it before the first request.
+pub fn route_surface_change(surface: &ToolSurface, clock: &dyn Clock, header: &Header, previous: &Route, prepared: Option<PreparedTools>, hidden_agent: bool) -> HeaderChange {
+    if is_first_route(previous) {
+        return HeaderChange { set: Map::new(), unset: Vec::new() };
+    }
     let mut session = Value::Object(header.clone());
     let model = clean(header.get("model"));
     if let Some(prepared) = prepared {
@@ -218,11 +230,11 @@ impl RouteFacts for AiRouteFacts {
         session_provider_cache_opts(provider, session_id, agent, header, &(self.auto_clear)())
     }
 
-    async fn surface_change(&self, header: &Header, _previous: &Route) -> HeaderChange {
-        let prepared = self.prepare_tools.prepare(header).await;
+    async fn surface_change(&self, header: &Header, previous: &Route) -> HeaderChange {
+        let prepared = if is_first_route(previous) { None } else { self.prepare_tools.prepare(header).await };
         let surface = ToolSurface { host: self.surface_host.as_ref(), clock: self.clock.as_ref() };
         let agent = header.get("agent").and_then(Value::as_str);
-        route_surface_change(&surface, self.clock.as_ref(), header, prepared, (self.hidden_agent)(agent))
+        route_surface_change(&surface, self.clock.as_ref(), header, previous, prepared, (self.hidden_agent)(agent))
     }
 }
 
@@ -290,7 +302,8 @@ mod tests {
                 continue;
             }
             let header = row["before"].as_object().unwrap().clone();
-            let change = route_surface_change(&surface, &Fixed, &header, None, false);
+            let previous = Route::from_iter([("provider".to_owned(), json!("previous")), ("model".to_owned(), json!("previous"))]);
+            let change = route_surface_change(&surface, &Fixed, &header, &previous, None, false);
             let mut got = header.clone();
             for key in &change.unset {
                 got.shift_remove(key);
