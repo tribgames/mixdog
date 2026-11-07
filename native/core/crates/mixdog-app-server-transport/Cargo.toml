@@ -22,6 +22,9 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
+# The relay-only grant is judged by the real server's origin gate, behind the real listener.
+mixdog-app-server = { workspace = true }
+serde_json = { workspace = true }
 mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "sync", "time", "net", "macros", "test-util"] }
