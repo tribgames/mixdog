@@ -37,11 +37,22 @@
       "itemsAppend": null
     }
   },
-  "router": {
-    "source": "src/tui/session/agent-job-feed.test.mjs:171-181 (Node's own test of the router the recording was made with): two deliveries of setup-changed, each counted",
-    "seqs": [
-      1,
-      2
-    ]
+  "twoDeliveries": {
+    "recorder": "record-setup-changed.mjs",
+    "source": "Node src/: config-change-effects.mjs (two settings changes) -> notification-bus.mjs -> agent-job-feed.mjs -> notification-router.mjs; the setupChanged each delivery published into the session state, in order, and the state after both (`at` is a time, not recorded)",
+    "published": [
+      {
+        "action": "settings_changed",
+        "seq": 1
+      },
+      {
+        "action": "settings_changed",
+        "seq": 2
+      }
+    ],
+    "final": {
+      "action": "settings_changed",
+      "seq": 2
+    }
   }
 }
