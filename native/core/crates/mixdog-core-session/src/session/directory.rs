@@ -12,6 +12,7 @@ use std::sync::Mutex;
 use std::sync::MutexGuard;
 
 use async_trait::async_trait;
+use mixdog_app_protocol::v2::thread::ThreadStartKind;
 use mixdog_app_protocol::v2::thread::ThreadStartParams;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::Reply;
@@ -1218,6 +1219,11 @@ impl ThreadDirectory for SessionDirectory {
                 header.insert("updatedAt".into(), json!(now));
                 if let Some(path) = &params.project_path {
                     header.insert("cwd".into(), json!(path));
+                } else if params.kind == ThreadStartKind::Task {
+                    // A task runs in the task workspace, resolved by the core as Node's host resolves it (`TaskWorkspace`);
+                    // the tools below are composed for that folder.
+                    let folder = self.inner.deps.task_workspace.path().await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
+                    header.insert("cwd".into(), json!(folder));
                 }
                 // Node's `sessionOptions` always applies: with no options a Lead is `full`, denied the goal tools.
                 super::session_options::write_header(&params.session.clone().unwrap_or_default(), &mut header);

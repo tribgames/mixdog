@@ -1055,6 +1055,28 @@ async fn a_thread_started_without_options_still_denies_the_goal_tools() {
     assert_eq!(header["disallowedTools"], json!(["get_goal", "create_goal", "set_goal_tasks", "update_goal"]));
 }
 
+/// `kind: task` with no project begins in the task workspace the core resolves (Node: `cwd: await taskWorkspace()` for a
+/// task session and for the control session); a project path is kept, and a project start names no task folder.
+#[tokio::test(start_paused = true)]
+async fn a_task_thread_begins_in_the_task_workspace() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(Arc::new(rig.deps_parts(rig.store.clone())));
+    let cwd_of = |reply: Reply| {
+        let Reply::Subscribe(started) = reply else { panic!("thread/start subscribes") };
+        let id = ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id"));
+        directory.handle(&id).expect("loaded").cell.header.load_full().get("cwd").cloned()
+    };
+    let task = directory.request(request("thread/start", json!({ "opId": "op-task", "kind": "task" }), "op-task")).await.expect("thread/start");
+    assert_eq!(cwd_of(task), Some(json!("/tasks")));
+    let kept = directory
+        .request(request("thread/start", json!({ "opId": "op-kept", "kind": "task", "projectPath": "/repo" }), "op-kept"))
+        .await
+        .expect("thread/start");
+    assert_eq!(cwd_of(kept), Some(json!("/repo")));
+    let project = directory.request(request("thread/start", json!({ "opId": "op-proj", "kind": "project" }), "op-proj")).await.expect("thread/start");
+    assert_eq!(cwd_of(project), None);
+}
+
 /// `notification-bus.test.mjs` "a queued completion wakes its owner session" and
 /// `ask-queue.mjs:87-101`: the completion is the woken turn's input, a task-notification row.
 #[tokio::test(start_paused = true)]

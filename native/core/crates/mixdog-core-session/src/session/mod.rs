@@ -198,6 +198,7 @@ pub use self::seams::EffortPrewarm;
 pub use self::seams::FeedFactory;
 pub use self::seams::NewThreadRoute;
 pub use self::seams::NewThreadTools;
+pub use self::seams::TaskWorkspace;
 pub use self::seams::ResumedTools;
 pub use self::seams::RoomMemberEvents;
 pub use self::seams::HeadRead;
@@ -243,6 +244,8 @@ pub struct SessionDeps {
     pub new_tools: Arc<dyn NewThreadTools>,
     /// The route a `thread/start` thread begins on (its draft's pick, else the config's default).
     pub new_route: Arc<dyn NewThreadRoute>,
+    /// The folder a `thread/start` of `kind: task` begins in.
+    pub task_workspace: Arc<dyn TaskWorkspace>,
     /// The tool surface a stored thread opened for use takes (`_refreshResumedTools`).
     pub resumed_tools: Arc<dyn ResumedTools>,
     /// A room member's handed-off questions moved or its approval resolved: its room follows.
