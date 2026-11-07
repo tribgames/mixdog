@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 use crate::engine::Scm;
 use crate::testing::TestProcesses;
 
-fn git(cwd: &Path, args: &[&str]) -> String {
+pub(crate) fn git(cwd: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
         .args(["-c", "core.autocrlf=false", "-c", "commit.gpgsign=false"])
         .args(args)

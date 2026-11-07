@@ -471,15 +471,33 @@ impl ScmService {
             }
             // `gitReview`: the rows with the repository, its base branch, each row's work-tree
             // identity and the untracked files past the cap that are not listed.
-            let paths: Vec<String> = summary.files.iter().map(|file| file.path.clone()).collect();
+            // In Node's order: `files.sort((a, b) => a.path.localeCompare(b.path))` (`git-history.ts`), a stable sort by the process
+            // locale's collation; the summary's own order is by bytes.
+            let mut rows: Vec<Value> = out["files"].as_array().cloned().unwrap_or_default();
+            rows.sort_by(|a, b| mixdog_js::locale_compare(a["path"].as_str().unwrap_or_default(), b["path"].as_str().unwrap_or_default()));
+            // The review diffs trees, so an untracked file is an added one there; Node's rows say which are untracked (its status scan's
+            // `?` records, `--untracked-files=all`).
+            let options = crate::git::RunOptions::read();
+            let others = self
+                .scm
+                .git
+                .text(cancel, &root, &["--no-optional-locks", "ls-files", "--others", "--exclude-standard", "-z"], &options)
+                .await?;
+            let untracked: std::collections::HashSet<&str> = others.split('\0').filter(|path| !path.is_empty()).collect();
+            for row in &mut rows {
+                let listed = row["path"].as_str().is_some_and(|path| untracked.contains(path));
+                row["untracked"] = json!(listed);
+            }
+            let paths: Vec<String> = rows.iter().filter_map(|row| row["path"].as_str().map(str::to_owned)).collect();
             let stat_root = root.clone();
             let revisions = crate::repo::on_lane(self.scm.lane, cancel, move || {
                 paths.iter().map(|path| crate::inspect::status::worktree_revision(&stat_root, path)).collect::<Vec<_>>()
             })
             .await?;
-            for (row, revision) in out["files"].as_array_mut().into_iter().flatten().zip(revisions) {
+            for (row, revision) in rows.iter_mut().zip(revisions) {
                 row["revision"] = json!(revision);
             }
+            out["files"] = Value::Array(rows);
             out["untrackedOmitted"] = json!(summary.omitted);
             // Node's `gitReview` answers `{repository, root, base, files, untrackedOmitted}` (`git-history.ts` `GitReviewResult`): no `key`
             // (the cache key `known` is asked against) and no `totals`, which are the thread review's.

@@ -180,6 +180,53 @@ async fn a_repository_review_has_the_fields_of_nodes_git_review_and_no_key() {
     assert_eq!((untracked["status"].clone(), untracked["additions"].clone(), untracked["deletions"].clone(), untracked["untracked"].clone()), (json!("A"), json!(1), json!(0), json!(true)));
 }
 
+/// Node's `gitReview` recorded over a dirty repository (`fixtures/desktop/git/review.json`, recorder `record-review.mjs`): a modified,
+/// an added (staged), a deleted, a renamed (git's index holds it as a delete and an add: the review reads without renames) and
+/// untracked files, with accent and case pairs in their names. Same repository here, same rows in the same order (`localeCompare`).
+/// Case-only pairs (`b.txt` / `B.txt`) are not in it: the recording ran on NTFS, where they are one file. A row's `revision` is the
+/// work tree's identity, `size:mtimeNs:ctimeNs:ino` or `deleted`: its form is compared, not its numbers.
+#[tokio::test]
+async fn a_dirty_repository_review_matches_the_row_by_row_recording_of_node() {
+    use crate::golden_tests::git;
+    let recording: Value = serde_json::from_str(include_str!("../../../fixtures/desktop/git/review.json")).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let repo = std::fs::canonicalize(dir.path()).unwrap().join("repo");
+    std::fs::create_dir_all(repo.join("dir")).unwrap();
+    git(&repo, &["init", "-q", "-b", "main"]);
+    git(&repo, &["config", "core.autocrlf", "false"]);
+    for (name, text) in [("mod.txt", "one\ntwo\nthree\n"), ("del.txt", "gone\nsoon\n"), ("ren.txt", "alpha\nbeta\ngamma\ndelta\n"), ("same.txt", "unchanged\n"), ("dir/inner.txt", "in\n")] {
+        std::fs::write(repo.join(name), text).unwrap();
+    }
+    git(&repo, &["add", "-A"]);
+    git(&repo, &["commit", "-q", "-m", "base"]);
+    std::fs::write(repo.join("mod.txt"), "one\nTWO\nthree\nfour\n").unwrap();
+    std::fs::remove_file(repo.join("del.txt")).unwrap();
+    std::fs::write(repo.join("added.txt"), "added\nlines\n").unwrap();
+    git(&repo, &["add", "added.txt"]);
+    git(&repo, &["mv", "ren.txt", "moved.txt"]);
+    std::fs::write(repo.join("dir/inner.txt"), "in\nside\n").unwrap();
+    for (name, text) in recording["untracked"].as_object().unwrap() {
+        std::fs::write(repo.join(name), text.as_str().unwrap()).unwrap();
+    }
+
+    let handle = service(Log::default());
+    let reply = get(&handle, json!({ "scope": "repo", "cwd": repo.to_string_lossy() })).await.unwrap();
+    assert_eq!((reply["repository"].clone(), reply["base"].clone(), reply["untrackedOmitted"].clone()), (recording["repository"].clone(), recording["base"].clone(), recording["untrackedOmitted"].clone()));
+    let (got, want) = (reply["files"].as_array().unwrap(), recording["files"].as_array().unwrap());
+    let paths = |rows: &[Value]| rows.iter().map(|row| row["path"].as_str().unwrap().to_owned()).collect::<Vec<_>>();
+    assert_eq!(paths(got), paths(want), "the rows, in Node's order");
+    for (row, recorded) in got.iter().zip(want) {
+        for field in ["path", "status", "additions", "deletions", "untracked"] {
+            assert_eq!(row[field], recorded[field], "{} {field}", recorded["path"]);
+        }
+        let revision = row["revision"].as_str().unwrap();
+        match recorded["revision"].as_str().unwrap() {
+            "deleted" => assert_eq!(revision, "deleted", "{}", recorded["path"]),
+            _ => assert!(revision.split(':').count() == 4 && revision.split(':').all(|part| part.parse::<u64>().is_ok()), "{}: {revision}", recorded["path"]),
+        }
+    }
+}
+
 #[tokio::test]
 async fn a_review_failure_keeps_the_message_node_threw() {
     let handle = service(Log::default());

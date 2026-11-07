@@ -1,0 +1,185 @@
+{
+ "node": "v22.20.0",
+ "locale": "ko-KR",
+ "untracked": {
+  "new.txt": "untracked\n",
+  "b.txt": "b\n",
+  "Banana.txt": "Banana\n",
+  "apple.txt": "apple\n",
+  "Zed.txt": "Zed\n",
+  "z.txt": "z\n",
+  "e.txt": "e\n",
+  "é.txt": "e acute\n",
+  "eclair.txt": "eclair\n",
+  "Éclair.txt": "E acute clair\n",
+  "resume.txt": "resume\n",
+  "résumé.txt": "resume acute\n",
+  "ä.txt": "a umlaut\n",
+  "a.txt": "a\n"
+ },
+ "repository": true,
+ "base": "main",
+ "untrackedOmitted": 0,
+ "files": [
+  {
+   "path": "a.txt",
+   "status": "A",
+   "additions": 1,
+   "deletions": 0,
+   "untracked": true,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "ä.txt",
+   "status": "A",
+   "additions": 1,
+   "deletions": 0,
+   "untracked": true,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "added.txt",
+   "status": "A",
+   "additions": 2,
+   "deletions": 0,
+   "untracked": false,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "apple.txt",
+   "status": "A",
+   "additions": 1,
+   "deletions": 0,
+   "untracked": true,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "b.txt",
+   "status": "A",
+   "additions": 1,
+   "deletions": 0,
+   "untracked": true,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "Banana.txt",
+   "status": "A",
+   "additions": 1,
+   "deletions": 0,
+   "untracked": true,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "del.txt",
+   "status": "D",
+   "additions": 0,
+   "deletions": 2,
+   "untracked": false,
+   "revision": "deleted"
+  },
+  {
+   "path": "dir/inner.txt",
+   "status": "M",
+   "additions": 1,
+   "deletions": 0,
+   "untracked": false,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "e.txt",
+   "status": "A",
+   "additions": 1,
+   "deletions": 0,
+   "untracked": true,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "é.txt",
+   "status": "A",
+   "additions": 1,
+   "deletions": 0,
+   "untracked": true,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "eclair.txt",
+   "status": "A",
+   "additions": 1,
+   "deletions": 0,
+   "untracked": true,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "Éclair.txt",
+   "status": "A",
+   "additions": 1,
+   "deletions": 0,
+   "untracked": true,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "mod.txt",
+   "status": "M",
+   "additions": 2,
+   "deletions": 1,
+   "untracked": false,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "moved.txt",
+   "status": "A",
+   "additions": 4,
+   "deletions": 0,
+   "untracked": false,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "new.txt",
+   "status": "A",
+   "additions": 1,
+   "deletions": 0,
+   "untracked": true,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "ren.txt",
+   "status": "D",
+   "additions": 0,
+   "deletions": 4,
+   "untracked": false,
+   "revision": "deleted"
+  },
+  {
+   "path": "resume.txt",
+   "status": "A",
+   "additions": 1,
+   "deletions": 0,
+   "untracked": true,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "résumé.txt",
+   "status": "A",
+   "additions": 1,
+   "deletions": 0,
+   "untracked": true,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "z.txt",
+   "status": "A",
+   "additions": 1,
+   "deletions": 0,
+   "untracked": true,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  },
+  {
+   "path": "Zed.txt",
+   "status": "A",
+   "additions": 1,
+   "deletions": 0,
+   "untracked": true,
+   "revision": "size:mtimeNs:ctimeNs:ino"
+  }
+ ]
+}
