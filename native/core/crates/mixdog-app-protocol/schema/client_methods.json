@@ -2958,7 +2958,7 @@
           "type": "string"
         },
         {
-          "description": "Config path `notifications.devices.<id>` only: the value is a partial record merged onto the stored one, `events` and `quietHours` key by key; a device with none stored starts from the default record.",
+          "description": "`notifications.devices.<id>` only: the value is a partial record merged onto the stored one, `events` and `quietHours` key by key; a device with none stored starts from the default record.",
           "enum": [
             "mergePatch"
           ],
@@ -2972,7 +2972,7 @@
           "type": "string"
         },
         {
-          "description": "Config path `notifications.overrides` only: the value is `{target, setting}`; the target entry is replaced, or removed when the mode is `inherit`, and expired mutes are dropped.",
+          "description": "`notifications.overrides` only: the value is `{target, setting}`; the target's entry is replaced, or removed when the mode is `inherit`, and expired mutes are dropped.",
           "enum": [
             "setConversation"
           ],
@@ -13014,7 +13014,8 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "default": null
         }
       },
       "type": "object"
@@ -13121,6 +13122,7 @@
     "ThreadContext": {
       "properties": {
         "autoCompactTokenLimit": {
+          "default": null,
           "format": "int64",
           "type": [
             "integer",
@@ -13135,6 +13137,7 @@
           ]
         },
         "contextPercent": {
+          "default": null,
           "format": "double",
           "type": [
             "number",
@@ -13149,6 +13152,7 @@
           ]
         },
         "contextWindow": {
+          "default": null,
           "format": "int64",
           "type": [
             "integer",
@@ -13156,6 +13160,7 @@
           ]
         },
         "displayContextWindow": {
+          "default": null,
           "format": "int64",
           "type": [
             "integer",
@@ -14615,6 +14620,7 @@
           ]
         },
         "effort": {
+          "default": null,
           "type": [
             "string",
             "null"
@@ -14680,6 +14686,7 @@
           ]
         },
         "turnEffort": {
+          "default": null,
           "type": [
             "string",
             "null"
@@ -14690,7 +14697,9 @@
     },
     "ThreadRuntime": {
       "properties": {
-        "activeTools": true,
+        "activeTools": {
+          "default": null
+        },
         "busy": {
           "default": false,
           "type": "boolean"
@@ -14707,9 +14716,15 @@
           "default": false,
           "type": "boolean"
         },
-        "commandStatus": true,
-        "progressHint": true,
-        "spinner": true,
+        "commandStatus": {
+          "default": null
+        },
+        "progressHint": {
+          "default": null
+        },
+        "spinner": {
+          "default": null
+        },
         "storage": {
           "anyOf": [
             {
@@ -14720,7 +14735,9 @@
             }
           ]
         },
-        "thinking": true,
+        "thinking": {
+          "default": null
+        },
         "toasts": {
           "default": [],
           "items": true,
@@ -15020,7 +15037,7 @@
           "type": "string"
         },
         {
-          "description": "The desktop's control session (Node's `ensureControlSession`, created with `desktopSession: null`): it runs in\nthe task workspace, carries no classification and, while empty, is not listed. Rust name: `ThreadStartKind::Control`.",
+          "description": "The desktop's control session (Node's `ensureControlSession`, created with `desktopSession: null`): it runs in the task workspace, carries no classification and, while empty, is not listed. Rust name: `ThreadStartKind::Control`.",
           "enum": [
             "control"
           ],

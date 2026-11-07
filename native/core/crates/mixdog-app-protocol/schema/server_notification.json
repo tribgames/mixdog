@@ -2424,7 +2424,7 @@
           "type": "string"
         },
         {
-          "description": "Desktop host state; key = `browserTabs` | `browserImport` | `visualize` | `displayPreferences`.",
+          "description": "Desktop host state; key = `browserTabs` | `browserImport` | `visualize` | `displayPreferences` (desktop-published), or `remoteViewing` (core-published: the session ids paired devices show).",
           "enum": [
             "hostState"
           ],
@@ -2674,7 +2674,8 @@
             {
               "type": "null"
             }
-          ]
+          ],
+          "default": null
         }
       },
       "type": "object"
@@ -2682,6 +2683,7 @@
     "ThreadContext": {
       "properties": {
         "autoCompactTokenLimit": {
+          "default": null,
           "format": "int64",
           "type": [
             "integer",
@@ -2696,6 +2698,7 @@
           ]
         },
         "contextPercent": {
+          "default": null,
           "format": "double",
           "type": [
             "number",
@@ -2710,6 +2713,7 @@
           ]
         },
         "contextWindow": {
+          "default": null,
           "format": "int64",
           "type": [
             "integer",
@@ -2717,6 +2721,7 @@
           ]
         },
         "displayContextWindow": {
+          "default": null,
           "format": "int64",
           "type": [
             "integer",
@@ -3360,6 +3365,7 @@
           ]
         },
         "effort": {
+          "default": null,
           "type": [
             "string",
             "null"
@@ -3425,6 +3431,7 @@
           ]
         },
         "turnEffort": {
+          "default": null,
           "type": [
             "string",
             "null"
@@ -3435,7 +3442,9 @@
     },
     "ThreadRuntime": {
       "properties": {
-        "activeTools": true,
+        "activeTools": {
+          "default": null
+        },
         "busy": {
           "default": false,
           "type": "boolean"
@@ -3452,9 +3461,15 @@
           "default": false,
           "type": "boolean"
         },
-        "commandStatus": true,
-        "progressHint": true,
-        "spinner": true,
+        "commandStatus": {
+          "default": null
+        },
+        "progressHint": {
+          "default": null
+        },
+        "spinner": {
+          "default": null
+        },
         "storage": {
           "anyOf": [
             {
@@ -3465,7 +3480,9 @@
             }
           ]
         },
-        "thinking": true,
+        "thinking": {
+          "default": null
+        },
         "toasts": {
           "default": [],
           "items": true,

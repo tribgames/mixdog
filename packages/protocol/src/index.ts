@@ -3500,7 +3500,7 @@ export type ThreadClearSessionChangeHistoryParams = { opId: OpId, threadId?: Thr
 
 export type ThreadCompactStartParams = { threadId: ThreadId, opId: OpId, options?: JsonValue, };
 
-export type ThreadContext = { contextPercent?: number, contextTokens?: number, contextDefaultPercent?: number, contextWindow?: number, displayContextWindow?: number, autoCompactTokenLimit?: number, stats?: JsonValue, };
+export type ThreadContext = { contextPercent?: number, contextTokens?: number, contextDefaultPercent?: number, contextWindow: number, displayContextWindow: number, autoCompactTokenLimit: number, stats?: JsonValue, };
 
 /**
  * Params of `thread/contextStatus`.
@@ -13013,7 +13013,7 @@ export const methodTable = {
         "relay"
       ],
       "params": "FsWatchParams",
-      "result": "JsonValue",
+      "result": "v2::feed::Subscription",
       "scope": {
         "field": "watchId",
         "kind": "fsWatch"
@@ -14894,7 +14894,7 @@ export const methodTable = {
         "relay"
       ],
       "params": "TerminalAttachParams",
-      "result": "v2::feed::Subscription",
+      "result": "JsonValue",
       "scope": {
         "field": "tabId",
         "kind": "terminal"
