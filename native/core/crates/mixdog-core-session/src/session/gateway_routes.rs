@@ -216,6 +216,8 @@ struct Queued {
 struct Queue {
     changes: Vec<Queued>,
     draining: bool,
+    /// `gatewaySessionRoutesSettled` callers, woken when the drain ends.
+    settled: Vec<tokio::sync::oneshot::Sender<()>>,
 }
 
 struct Shared {
@@ -268,7 +270,22 @@ impl GatewaySessionRoutes {
             let mut queue = self.queue();
             queue.changes.clear();
             queue.draining = false;
+            queue.settled.clear();
         }
+    }
+
+    /// `gatewaySessionRoutesSettled`: resolves once every route change queued so far is on disk (or failed); at once when nothing is draining.
+    pub async fn settled(&self) {
+        let wait = {
+            let mut queue = self.queue();
+            if !queue.draining {
+                return;
+            }
+            let (done, wait) = tokio::sync::oneshot::channel();
+            queue.settled.push(done);
+            wait
+        };
+        let _ = wait.await;
     }
 
     /// `statusRoutes.writeGatewaySessionRoute(...)` for a route entry; false when nothing is queued.
@@ -307,6 +324,9 @@ fn drain(lane: &InLane<MaintenanceIo>, shared: &Shared) {
             let mut queue = shared.queue.lock().unwrap_or_else(PoisonError::into_inner);
             if queue.changes.is_empty() {
                 queue.draining = false;
+                for waiter in std::mem::take(&mut queue.settled) {
+                    let _ = waiter.send(());
+                }
                 return;
             }
             std::mem::take(&mut queue.changes)

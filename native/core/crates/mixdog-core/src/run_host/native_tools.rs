@@ -171,6 +171,9 @@ const DEFAULT_SESSION: &str = "default";
 /// `DEFERRED_SESSION_RELEASE_MS` (`computer-bridge/client.mjs:41`).
 const IDLE_RELEASE: Duration = Duration::from_secs(2 * 60);
 
+/// `SHUTDOWN_SESSION_RELEASE_TIMEOUT_MS` (`client.mjs:43`).
+const SHUTDOWN_RELEASE: Duration = Duration::from_secs(5);
+
 /// Decorates a session's backend as it is made.
 pub type WrapBackend = Arc<dyn Fn(&str, Arc<dyn ComputerBackend>) -> Arc<dyn ComputerBackend> + Send + Sync>;
 
@@ -239,6 +242,24 @@ impl ComputerSessionPool {
             let _disarmed = timer.cancel();
         }
         entry.process.release_session().await
+    }
+
+    /// `releaseAllComputerSessions` (`bridge-clients.mjs`), which the daemon's shutdown awaits after its sessions closed: every pending idle release is
+    /// cancelled, then each session that reached the helper is released, all at once. Returns how many releases the helper confirmed. Each release is bounded by
+    /// `SHUTDOWN_SESSION_RELEASE_TIMEOUT_MS` (`client.mjs:761`) and one that does not end in time counts as unconfirmed, so a stuck helper cannot hold the stop steps
+    /// after this one (they share the `closeDataHandles` budget). The release dropped on expiry takes its backend with it, whose drop runs the helper's `--abort-cleanup`.
+    pub async fn release_all(&self) -> usize {
+        let bound: Vec<String> = {
+            let mut entries = self.entries();
+            for entry in entries.values_mut() {
+                if let Some(timer) = entry.idle.take() {
+                    let _disarmed = timer.cancel();
+                }
+            }
+            entries.iter().filter(|(_, entry)| entry.process.is_bound()).map(|(id, _)| id.clone()).collect()
+        };
+        let outcomes = futures::future::join_all(bound.iter().map(|id| async move { tokio::time::timeout(SHUTDOWN_RELEASE, self.release(id)).await.unwrap_or(false) })).await;
+        outcomes.into_iter().filter(|released| *released).count()
     }
 
     /// `endComputerExecution(id)`: the turn's execution ends, the helper stays warm. False for a
@@ -527,5 +548,53 @@ mod tests {
         assert!(!Arc::ptr_eq(&a, &pool.backend("thread-a")), "a released session starts over");
         assert!(Arc::ptr_eq(&b, &pool.backend("thread-b")), "another thread's state is untouched");
         assert!(!pool.defer_release("never-used"), "a session that never reached the helper owns nothing");
+    }
+
+    /// A process manager whose spawn never answers: the helper of a session is stuck.
+    struct Stuck;
+
+    #[async_trait]
+    impl ProcessManager for Stuck {
+        async fn spawn(&self, _: mixdog_core_api::domain::process::SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, mixdog_core_api::domain::process::ProcessError> {
+            std::future::pending().await
+        }
+        fn subscribe(
+            &self,
+            _: &mixdog_protocol::ProcessHandle,
+            _: Option<u64>,
+        ) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<mixdog_core_api::domain::process::ProcessEvent>>, mixdog_core_api::domain::process::ProcessError> {
+            unreachable!("nothing was spawned")
+        }
+        async fn write_stdin(&self, _: &mixdog_protocol::ProcessHandle, _: Vec<u8>) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Ok(())
+        }
+        fn close_stdin(&self, _: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Ok(())
+        }
+        fn resize_pty(&self, _: &mixdog_protocol::ProcessHandle, _: mixdog_core_api::domain::process::PtySize) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Ok(())
+        }
+        fn kill(&self, _: &mixdog_protocol::ProcessHandle) -> Result<(), mixdog_core_api::domain::process::ProcessError> {
+            Ok(())
+        }
+        fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
+            Vec::new()
+        }
+    }
+
+    /// Node bounds each shutdown release (`client.mjs:761`): a helper that never answers is given up on after the timeout, so `release_all` ends and the stop steps after it
+    /// (memory, PostgreSQL) still run. Paused time: the timeout elapses without a sleep.
+    #[tokio::test(start_paused = true)]
+    async fn a_stuck_helper_release_ends_at_the_shutdown_timeout() {
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(Arc::new(Stuck), plain()).await.expect("helper");
+        let backend = pool.backend("stuck");
+        let read = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+        let call = tokio::spawn(async move { backend.run(read, CancellationToken::new()).await });
+        eventually(|| pool.entries().get("stuck").is_some_and(|entry| entry.process.is_bound())).await;
+        let started = tokio::time::Instant::now();
+        assert_eq!(pool.release_all().await, 0, "the stuck release is unconfirmed");
+        assert!(started.elapsed() >= SHUTDOWN_RELEASE, "the release was given its whole bound");
+        assert!(!pool.entries().contains_key("stuck"), "the session's state goes anyway");
+        call.abort();
     }
 }

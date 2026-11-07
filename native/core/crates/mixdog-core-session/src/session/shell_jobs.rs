@@ -81,6 +81,36 @@ fn row_json(row: &ShellJobRow) -> Value {
     Value::Object(job)
 }
 
+/// A finished row of a thread's strip: the running fields plus the outcome (`normalizedJobs(.., finished)` of the shell-jobs poller).
+fn finished_row_json(row: &ShellJobRow) -> Value {
+    let mut job = row_json(row);
+    job["status"] = json!(row.status.map_or("", mixdog_spawn::tasks::TaskStatus::as_str));
+    job["exitCode"] = json!(row.exit_code);
+    job["finishedAt"] = json!(row.finished_at_ms);
+    job
+}
+
+/// One thread's strip as the `shellJobs` section carries it (`normalizedStatus`): `elapsedLabel` travels only for jobs the list does not carry, and the
+/// registry lists every running job, so it is always empty.
+pub fn thread_strip(state: &mixdog_spawn::tasks::ShellJobsState) -> Value {
+    json!({
+        "count": state.count,
+        "elapsedLabel": "",
+        "jobs": state.jobs.iter().map(row_json).collect::<Vec<_>>(),
+        "finished": state.finished.iter().map(finished_row_json).collect::<Vec<_>>(),
+    })
+}
+
+/// The host's strip as the `hostShellJobs` section carries it: every running background shell, and the held shells whose owner thread closed.
+pub fn host_strip(state: &mixdog_spawn::tasks::HostShellJobs) -> Value {
+    json!({
+        "count": state.count,
+        "elapsedLabel": "",
+        "jobs": state.jobs.iter().map(row_json).collect::<Vec<_>>(),
+        "orphaned": state.orphaned.iter().map(row_json).collect::<Vec<_>>(),
+    })
+}
+
 impl ShellJobsService {
     pub fn new(shells: Arc<ShellControl>, threads: Arc<dyn ThreadState>, sight: Arc<dyn WorkspaceSight>, ops: OpScopes) -> Self {
         Self { shells, threads, sight, ops }

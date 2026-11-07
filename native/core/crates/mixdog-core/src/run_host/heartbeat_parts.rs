@@ -18,14 +18,18 @@ use mixdog_protocol::{ThreadItem, TurnId};
 use mixdog_services::bots::beat::digest::{SessionReader, TranscriptItem, TranscriptPage};
 use mixdog_services::bots::beat::maintainer::{MaintainerModel, MaintainerRoute};
 use mixdog_services::bots::beat::tick::HeartbeatSettings;
+use mixdog_services::bots::beat::{FactSources, Heartbeat, HeartbeatParts, HeartbeatStore, HeldRequests, Maintainer, SessionCatalog, TaskWatches, UserActivity};
+use mixdog_services::bots::delivery::home::AgentHomeDelivery;
 use mixdog_services::bots::live::{LiveSurface, WakeOptions, WakeTurn};
+use mixdog_services::bots::{HeartbeatSessions, MixyWake, RoutineRecords, RoutineRuntime, WakeHost};
+use mixdog_services::scheduler::Clock as SchedulerClock;
 use mixdog_ai::retry::StandardRetryDecider;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
 use crate::run_host::retry::{RandomJitter, TimerWait};
 use crate::run_host::routine_host::RoutineAgents;
-use crate::run_host::summary_host::{NoApprovals, SummaryDeps, maintainer_of};
+use crate::run_host::summary_host::{NoApprovals, SummaryDeps, SummaryServices, maintainer_of};
 
 /// `getConfigSnapshot().heartbeat`, `heartbeatIntervalMinutes` and the representative bot's
 /// presence, read live at every tick.
@@ -201,6 +205,71 @@ impl MaintainerModel for HeartbeatMaintainer {
         };
         one_shot.call_prompt(&call, system, user).await.map(|out| out.text).map_err(|error| error.to_string())
     }
+}
+
+/// The reporting turns whose report is not queued yet (`agentTaskWatches`), from the home
+/// delivery's stored watches: the heartbeat reads each watch's `taskSessionId`.
+pub struct DeliveryTaskWatches {
+    delivery: Arc<AgentHomeDelivery>,
+}
+
+impl DeliveryTaskWatches {
+    pub fn new(delivery: Arc<AgentHomeDelivery>) -> Arc<Self> {
+        Arc::new(Self { delivery })
+    }
+}
+
+#[async_trait]
+impl TaskWatches for DeliveryTaskWatches {
+    async fn task_session_ids(&self) -> Result<Vec<String>, String> {
+        let watches = self.delivery.task_watches().await?;
+        Ok(watches.iter().filter_map(|watch| watch.get("taskSessionId").and_then(Value::as_str)).map(str::to_owned).collect())
+    }
+}
+
+/// What the daemon holds that Mixy's heartbeat is built from.
+pub struct HeartbeatHolds {
+    /// The one clock the daemon's schedules and routines read.
+    pub clock: Arc<dyn SchedulerClock>,
+    /// The heartbeat state file, shared with the user-activity probe and the `session` tool's suggestions.
+    pub store: Arc<HeartbeatStore>,
+    pub activity: Arc<UserActivity>,
+    /// The live config (`heartbeat`, `intervalMinutes`).
+    pub settings: Settings,
+    /// The routine agents' presence rule (the representative bot exists).
+    pub agents: Arc<dyn RoutineAgents>,
+    pub directory: Arc<SessionDirectory>,
+    /// The Maintainer's providers.
+    pub summaries: Arc<SummaryServices>,
+    /// The home delivery whose watches mark a task session as still reporting.
+    pub delivery: Arc<AgentHomeDelivery>,
+    /// The session catalog `listSessionCatalog` reads.
+    pub catalog: Arc<dyn SessionCatalog>,
+    /// `pendingHeldRequests`.
+    pub held: Arc<dyn HeldRequests>,
+    /// The automation store (schedules and webhooks).
+    pub records: Arc<dyn RoutineRecords>,
+    pub routines: Arc<RoutineRuntime>,
+    /// The session side of a wake (the hidden session, the Lead route, the home-chat delivery).
+    pub wake_host: Arc<dyn WakeHost>,
+    /// The process's one `HeartbeatSessions`.
+    pub marks: Arc<HeartbeatSessions>,
+}
+
+/// Mixy's heartbeat over what the daemon holds. [`mixdog_services::bots::beat::start_mixy_heartbeat`]
+/// puts it on its timers (`FIRST_TICK`, then `TICK`).
+pub fn production_heartbeat(holds: HeartbeatHolds) -> Arc<Heartbeat> {
+    Heartbeat::new(HeartbeatParts {
+        clock: holds.clock,
+        store: holds.store.clone(),
+        activity: holds.activity,
+        settings: ConfigHeartbeatSettings::new(holds.settings, holds.agents),
+        facts: FactSources { catalog: holds.catalog, watches: DeliveryTaskWatches::new(holds.delivery), held: holds.held, routines: holds.records },
+        tails: DirectorySessionReader::new(holds.directory.clone()),
+        maintainer: Maintainer::new(holds.summaries.heartbeat_maintainer()),
+        wake: Arc::new(MixyWake::new(holds.routines, holds.wake_host, holds.marks, holds.store)),
+        live: DirectoryLiveSurface::new(holds.directory),
+    })
 }
 
 #[cfg(test)]

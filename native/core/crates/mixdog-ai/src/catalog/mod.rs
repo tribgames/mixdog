@@ -12,7 +12,7 @@ mod listing;
 mod lookup;
 mod modelsdev;
 mod modelsdev_source;
-mod pricing;
+pub mod pricing;
 mod readiness;
 mod record;
 mod rosters;

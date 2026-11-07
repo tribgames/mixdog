@@ -21,6 +21,7 @@ pub mod lead;
 mod model_tests;
 #[cfg(test)]
 mod purge_tests;
+pub mod listing;
 
 use mixdog_rt::CancellationToken;
 use mixdog_rt::InLane;
@@ -2273,10 +2274,18 @@ impl ReadPool {
         self: &Arc<Self>,
         f: impl FnOnce(&Connection) -> Result<T, DbError> + Send + 'static,
     ) -> impl Future<Output = Result<T, DbError>> + Send + 'static {
+        self.run_in_lane(move |_, c| f(c))
+    }
+
+    /// [`run`](Self::run) for a read that also touches files: the job gets the lane proof.
+    pub(crate) fn run_in_lane<T: Send + 'static>(
+        self: &Arc<Self>,
+        f: impl FnOnce(&InLane<InteractiveIo>, &Connection) -> Result<T, DbError> + Send + 'static,
+    ) -> impl Future<Output = Result<T, DbError>> + Send + 'static {
         let pool = self.clone();
         let job = self
             .lane
-            .submit(&CancellationToken::new(), move |_| pool.with(f))
+            .submit(&CancellationToken::new(), move |lane| pool.with(|c| f(lane, c)))
             .map_err(|_| DbError::LaneFull);
         async move { job?.await.map_err(|_| DbError::Stopped)? }
     }

@@ -48,4 +48,4 @@ impl<S: RoomStore + 'static, R: CallRunner + 'static> RoomRelay for MemberRelay<
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

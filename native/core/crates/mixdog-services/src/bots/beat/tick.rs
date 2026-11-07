@@ -26,7 +26,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use futures::FutureExt;
+use futures::future::BoxFuture;
+use futures::stream::FuturesUnordered;
+use futures::{FutureExt, StreamExt};
 use mixdog_core_base::rooms::ids::{MIXY_AGENT_ID, agent_home_session_id};
 use mixdog_rt::{CancellationToken, TaskClass};
 use serde_json::json;
@@ -492,43 +494,94 @@ fn hex(bytes: &[u8]) -> String {
 pub struct RunningHeartbeat {
     heartbeat: Arc<Heartbeat>,
     cancel: CancellationToken,
+    /// The one task that holds both timers and the checks they began; taken by the first wait for it.
+    timers: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
-/// Daemon start: tick the heartbeat `first` after start, then every `every`; the timers do not
-/// wait for a check to end.
+/// Resolves once the injected clock reads `due` (epoch ms). The wait is the core ticker's, armed
+/// for what the clock says is left and re-armed until it says none is, so a clock that moves is
+/// followed, never raced.
+async fn until(heartbeat: &Heartbeat, due: i64) {
+    loop {
+        let left = due - heartbeat.now();
+        if left <= 0 {
+            return;
+        }
+        mixdog_rt::ticker().wait_until(std::time::Instant::now() + Duration::from_millis(left.unsigned_abs())).await;
+    }
+}
+
+/// One check begun by a timer (`const tick = () => void heartbeat.tick()`).
+fn check(heartbeat: &Arc<Heartbeat>) -> BoxFuture<'static, ()> {
+    let heartbeat = Arc::clone(heartbeat);
+    async move {
+        heartbeat.tick().await;
+    }
+    .boxed()
+}
+
+/// Daemon start (`startMixyHeartbeat`): tick the heartbeat `first` after start, then every `every`
+/// (`setTimeout` and `setInterval`, whose next step is a full `every` after the one that ran), all
+/// read off the heartbeat's clock. The timers do not wait for a check to end; a tick that finds
+/// one running answers [`Outcome::Running`].
 pub fn start_mixy_heartbeat(heartbeat: Arc<Heartbeat>, first: Duration, every: Duration) -> RunningHeartbeat {
     let cancel = CancellationToken::new();
-    let tick = |heartbeat: &Arc<Heartbeat>| {
-        let heartbeat = Arc::clone(heartbeat);
-        mixdog_rt::spawn("services.heartbeat.tick", TaskClass::Work, async move {
-            heartbeat.tick().await;
-        });
+    let timers = {
+        let (heartbeat, cancel) = (Arc::clone(&heartbeat), cancel.clone());
+        mixdog_rt::spawn("services.heartbeat.timers", TaskClass::Work, async move {
+            let millis = |wait: Duration| i64::try_from(wait.as_millis()).unwrap_or(i64::MAX);
+            let began = heartbeat.now();
+            let mut first_at = Some(began.saturating_add(millis(first)));
+            let mut every_at = began.saturating_add(millis(every));
+            let mut checks: FuturesUnordered<BoxFuture<'static, ()>> = FuturesUnordered::new();
+            loop {
+                let next = first_at.map_or(every_at, |at| at.min(every_at));
+                tokio::select! {
+                    // A stop wins over a timer that fell due with it: `clearTimeout` is at once.
+                    biased;
+                    () = cancel.cancelled() => break,
+                    Some(()) = checks.next(), if !checks.is_empty() => {}
+                    () = until(&heartbeat, next) => {
+                        let now = heartbeat.now();
+                        if first_at.is_some_and(|at| now >= at) {
+                            first_at = None;
+                            checks.push(check(&heartbeat));
+                        }
+                        if now >= every_at {
+                            every_at = now.saturating_add(millis(every));
+                            checks.push(check(&heartbeat));
+                        }
+                    }
+                }
+            }
+            // Checks already begun end; none begins after the stop.
+            while checks.next().await.is_some() {}
+        })
     };
-    {
-        let (heartbeat, cancel) = (Arc::clone(&heartbeat), cancel.clone());
-        mixdog_rt::spawn("services.heartbeat.first", TaskClass::Work, async move {
-            if cancel.run_until_cancelled(tokio::time::sleep(first)).await.is_some() {
-                tick(&heartbeat);
-            }
-        });
-    }
-    {
-        let (heartbeat, cancel) = (Arc::clone(&heartbeat), cancel.clone());
-        mixdog_rt::spawn("services.heartbeat.timer", TaskClass::Work, async move {
-            let mut timer = tokio::time::interval_at(tokio::time::Instant::now() + every, every);
-            timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            while cancel.run_until_cancelled(timer.tick()).await.is_some() {
-                tick(&heartbeat);
-            }
-        });
-    }
-    RunningHeartbeat { heartbeat, cancel }
+    RunningHeartbeat { heartbeat, cancel, timers: Mutex::new(Some(timers)) }
 }
 
 impl RunningHeartbeat {
-    /// Stops scheduling at once; resolves when the check in progress ends.
-    pub async fn stop(self) {
+    /// `clearTimeout` and `clearInterval`: no check begins after this. Once is as good as twice.
+    pub fn halt(&self) {
         self.cancel.cancel();
+    }
+
+    /// Resolves when the check in progress has ended (`heartbeat.idle()`), however the timers
+    /// were halted; it waits for the timers' task, which holds the checks they began.
+    pub async fn ended(&self) {
+        let timers = self.timers.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(timers) = timers
+            && let Err(error) = timers.await
+        {
+            tracing::warn!("mixdog heartbeat: timers ended abnormally: {error}");
+        }
         self.heartbeat.idle().await;
+    }
+
+    /// Node's `stopHeartbeat()`: stops scheduling at once; resolves when the check in progress ends.
+    pub async fn stop(&self) {
+        self.halt();
+        self.ended().await;
     }
 }

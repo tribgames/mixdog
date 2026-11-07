@@ -78,6 +78,11 @@ impl SummaryServices {
         Self { deps: Arc::new(deps) }
     }
 
+    /// The heartbeat's Maintainer model over the same providers (`createMaintainerCall`).
+    pub fn heartbeat_maintainer(&self) -> Arc<crate::run_host::heartbeat_parts::HeartbeatMaintainer> {
+        crate::run_host::heartbeat_parts::HeartbeatMaintainer::new(self.deps.clone())
+    }
+
     /// The title model over the same providers (`generateSessionTitle`).
     pub fn title_completion(&self) -> crate::run_host::title_completion::TitleCompletion {
         crate::run_host::title_completion::TitleCompletion::new(self.deps.clone())

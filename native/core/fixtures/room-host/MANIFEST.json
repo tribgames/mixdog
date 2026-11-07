@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-room-host.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 4691,
+      "path": "room-host-twin.json",
+      "sha256": "a67af12f6031894c56a41a38658085571ee8024c6c3f2b762e87b5d76ed9a13f"
+    }
+  ],
+  "product": {
+    "appsSha256": "9bd8fb856b7e00e551f02099c8aa5ad3f6450f5e03419b97b2dc9be008094ac1",
+    "commit": "b17c052c7414f977895257fd8eb59cbf634a8bc0",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9249,
+    "refComparison": {
+      "closestCommit": "b17c052c7414f977895257fd8eb59cbf634a8bc0",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "16c012f0b32155ce5082fbc2e84b4d65bdce04fbef9a185eabc0c708e5c64e7c",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-room-host.mjs",
+  "set": "room-host",
+  "totalBytes": 4691
+}

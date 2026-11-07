@@ -1,0 +1,248 @@
+{
+  "domain": "room-host-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-room-host.mjs",
+  "steps": [
+    {
+      "op": "active",
+      "answer": {
+        "error": {
+          "name": "Error",
+          "message": "group rooms run in the desktop app, and no desktop app is attached to this runtime"
+        }
+      }
+    },
+    {
+      "op": "relay",
+      "sessionId": "room01::bench",
+      "prompt": "REPORT: done",
+      "options": {
+        "id": "awake_1",
+        "hop": 2
+      },
+      "answer": {
+        "error": {
+          "name": "Error",
+          "message": "group rooms run in the desktop app, and no desktop app is attached to this runtime"
+        }
+      }
+    },
+    {
+      "op": "register",
+      "host": "A",
+      "as": "a1",
+      "answer": {}
+    },
+    {
+      "op": "active",
+      "answer": {
+        "host": "A"
+      }
+    },
+    {
+      "op": "relay",
+      "sessionId": "room01::bench",
+      "prompt": "REPORT: done",
+      "options": {
+        "id": "awake_1",
+        "hop": 2
+      },
+      "answer": {
+        "relayed": {
+          "host": "A",
+          "sessionId": "room01::bench",
+          "prompt": "REPORT: done",
+          "id": "awake_1",
+          "hop": 2
+        }
+      }
+    },
+    {
+      "op": "register",
+      "host": "B",
+      "as": "b1",
+      "answer": {}
+    },
+    {
+      "op": "active",
+      "answer": {
+        "host": "B"
+      }
+    },
+    {
+      "op": "relay",
+      "sessionId": "room01::bench",
+      "prompt": "REPORT: done",
+      "options": {
+        "id": "awake_1",
+        "hop": 2
+      },
+      "answer": {
+        "relayed": {
+          "host": "B",
+          "sessionId": "room01::bench",
+          "prompt": "REPORT: done",
+          "id": "awake_1",
+          "hop": 2
+        }
+      }
+    },
+    {
+      "op": "register",
+      "host": "A",
+      "as": "a2",
+      "answer": {}
+    },
+    {
+      "op": "active",
+      "answer": {
+        "host": "A"
+      }
+    },
+    {
+      "op": "unregister",
+      "as": "b1",
+      "answer": {}
+    },
+    {
+      "op": "active",
+      "answer": {
+        "host": "A"
+      }
+    },
+    {
+      "op": "unregister",
+      "as": "a2",
+      "answer": {}
+    },
+    {
+      "op": "active",
+      "answer": {
+        "host": "A"
+      }
+    },
+    {
+      "op": "unregister",
+      "as": "a2",
+      "answer": {}
+    },
+    {
+      "op": "active",
+      "answer": {
+        "host": "A"
+      }
+    },
+    {
+      "op": "register",
+      "host": "B",
+      "as": "b2",
+      "answer": {}
+    },
+    {
+      "op": "unregister",
+      "as": "a1",
+      "answer": {}
+    },
+    {
+      "op": "active",
+      "answer": {
+        "host": "B"
+      }
+    },
+    {
+      "op": "relay",
+      "sessionId": "room01::bench",
+      "prompt": "REPORT: done",
+      "options": {
+        "id": "",
+        "hop": 0
+      },
+      "answer": {
+        "relayed": {
+          "host": "B",
+          "sessionId": "room01::bench",
+          "prompt": "REPORT: done",
+          "id": "",
+          "hop": 0
+        }
+      }
+    },
+    {
+      "op": "unregister",
+      "as": "b2",
+      "answer": {}
+    },
+    {
+      "op": "active",
+      "answer": {
+        "error": {
+          "name": "Error",
+          "message": "group rooms run in the desktop app, and no desktop app is attached to this runtime"
+        }
+      }
+    },
+    {
+      "op": "relay",
+      "sessionId": "room01::bench",
+      "prompt": "REPORT: done",
+      "options": {
+        "id": "awake_1",
+        "hop": 2
+      },
+      "answer": {
+        "error": {
+          "name": "Error",
+          "message": "group rooms run in the desktop app, and no desktop app is attached to this runtime"
+        }
+      }
+    },
+    {
+      "op": "unregister",
+      "as": "b2",
+      "answer": {}
+    },
+    {
+      "op": "register",
+      "host": "C",
+      "as": "c1",
+      "answer": {}
+    },
+    {
+      "op": "relay",
+      "sessionId": "room01::bench",
+      "prompt": "REPORT: done",
+      "options": {
+        "id": "awake_1",
+        "hop": 2
+      },
+      "answer": {
+        "relayed": {
+          "host": "C",
+          "sessionId": "room01::bench",
+          "prompt": "REPORT: done",
+          "id": "awake_1",
+          "hop": 2
+        }
+      }
+    },
+    {
+      "op": "unregister",
+      "as": "c1",
+      "answer": {}
+    },
+    {
+      "op": "relay",
+      "sessionId": "room01::bench",
+      "prompt": "REPORT: done",
+      "options": {
+        "id": "awake_1",
+        "hop": 2
+      },
+      "answer": {
+        "error": {
+          "name": "Error",
+          "message": "group rooms run in the desktop app, and no desktop app is attached to this runtime"
+        }
+      }
+    }
+  ]
+}

@@ -110,6 +110,17 @@ pub struct TranscriptWatch {
 /// opens the vector schema without loading the model.
 const EMBEDDING_META: &str = "embedding-meta.json";
 
+/// Awaits `open`; when it fails, runs `release` (what gives back the resource `open` worked over) before the error is returned.
+pub(crate) async fn release_on_failure<T, E>(open: impl std::future::Future<Output = std::result::Result<T, E>>, release: impl std::future::Future<Output = ()>) -> std::result::Result<T, E> {
+    match open.await {
+        Ok(opened) => Ok(opened),
+        Err(error) => {
+            release.await;
+            Err(error)
+        }
+    }
+}
+
 /// `_initStore`'s dimensions: the saved measurement of this identity, else the profile's, else a
 /// cold warm-up that measures them (and saves the result). A model the profiles do not list
 /// therefore needs the embedding model installed and loadable at the first start.
@@ -180,13 +191,28 @@ impl MemoryStack {
         let dims = resolve_dims(&data_dir, lane, &identity, &model_id, runtime.as_deref()).await?;
 
         let cluster = PgCluster::ensure(PgRuntime::new(pg_runtime), data_dir.join("pgdata"), DEFAULT_PORT, lane, processes, &cancel).await?;
-        let memory_db = Db::open(&cluster, Schema::Memory).await?;
-        ensure_memory_schema(&memory_db, dims, &identity).await?;
-        // Root vectors made under the older root text are replaced by the paced sweep below;
-        // an existing sweep keeps its progress.
-        start_root_embed_sweep(&memory_db).await?;
-        let search_db = Db::open(&cluster, Schema::SessionSearch).await?;
-        let search = SessionSearchIngest::new(SessionSearchDb::open(search_db.clone()).await?, sensitive.clone());
+        // The postmaster is up: a failure from here to the end of the stack's construction stops it (Node's boot error goes through `shutdown`, whose memory stop ends
+        // PostgreSQL, `daemon.mjs:1347,377,383`), as `stop` does: a secondary process leaves the shared one running.
+        let (memory_db, search_db, search) = release_on_failure(
+            async {
+                let memory_db = Db::open(&cluster, Schema::Memory).await?;
+                ensure_memory_schema(&memory_db, dims, &identity).await?;
+                // Root vectors made under the older root text are replaced by the paced sweep below;
+                // an existing sweep keeps its progress.
+                start_root_embed_sweep(&memory_db).await?;
+                let search_db = Db::open(&cluster, Schema::SessionSearch).await?;
+                let search = SessionSearchIngest::new(SessionSearchDb::open(search_db.clone()).await?, sensitive.clone());
+                Ok::<_, MemoryError>((memory_db, search_db, search))
+            },
+            async {
+                if !flags.secondary {
+                    if let Err(error) = cluster.stop(Duration::from_secs(STOP_SECONDS)).await {
+                        tracing::warn!(error = %error.message(), "[pg-process] stopping PostgreSQL after a failed memory start");
+                    }
+                }
+            },
+        )
+        .await?;
 
         let query: Option<Arc<dyn QueryEmbedder>> = embedder.clone().map(|provider| provider as Arc<dyn QueryEmbedder>);
         let recall = Recall::new(RecallDeps {

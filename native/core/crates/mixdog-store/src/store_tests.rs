@@ -2156,3 +2156,82 @@ async fn lead_pages_filter_before_they_are_cut() {
     let cut = env.store.lead_page(None, LeadFilter { archived: None, cwd: Some("C:/a".into()) }, 1).await.unwrap();
     assert_eq!((ids(cut.clone()), cut.more), (vec!["f1".to_owned()], true));
 }
+
+/// The header of a session as the sweep and the heartbeat's catalog read it.
+fn listed_head(id: &str, fields: serde_json::Value) -> CatalogHead {
+    let mut header = fields.as_object().unwrap().clone();
+    header.insert("id".into(), json!(id));
+    CatalogHead { session: id.into(), log_id: LOG_ID.into(), base_session: None, header }
+}
+
+/// One query lists every session with the fields the idle sweep decides from (its owner, status,
+/// timestamps, activity baseline, message count) and its newest log file's mtime; the heartbeat's
+/// catalog reads the same listing without the agent-only sessions, in pages.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn one_listing_serves_the_idle_sweep_and_the_heartbeat_catalog() {
+    use crate::sqlite::listing::RecordStamp;
+    use crate::sqlite::lead::{decode_catalog_cursor, encode_catalog_cursor};
+    let env = Env::new();
+    let w = env.create("l1", None).await;
+    let (w, _) = env.commit(w, vec![user("a", "one"), answer("b")]).await;
+    drop(w);
+    drop(env.create("l2", None).await);
+    drop(env.create("l3", None).await);
+    env.store
+        .upsert(
+            listed_head("l1", json!({"owner": "cli", "status": "running", "createdAt": 100, "updatedAt": 200, "lastHeartbeatAt": 300, "sourceName": "agent:mixy@run"})),
+            DirtyMark::Keep,
+        )
+        .await
+        .unwrap();
+    env.store
+        .upsert(listed_head("l2", json!({"owner": "agent", "visibility": "agent-only", "createdAt": 120, "updatedAt": 150})), DirtyMark::Keep)
+        .await
+        .unwrap();
+    env.store.upsert(listed_head("l3", json!({"createdAt": 90, "updatedAt": 100, "closed": true})), DirtyMark::Keep).await.unwrap();
+    let log = |id: &str| env.dir(id).join(log_name(0));
+    std::fs::File::options().write(true).open(log("l1")).unwrap().set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(5000)).unwrap();
+    std::fs::remove_file(log("l3")).unwrap();
+
+    let swept = env.store.sweep_sessions(env.data.join("sessions")).await.unwrap();
+    let by = |id: &str| swept.iter().find(|s| s.id == id).unwrap().clone();
+    assert_eq!(swept.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(), ["l1", "l2", "l3"], "agent-only sessions are swept too");
+    let l1 = by("l1");
+    assert_eq!(
+        (l1.owner.as_str(), l1.status.as_str(), l1.closed, l1.created_at, l1.updated_at, l1.last_heartbeat_at, l1.activity, l1.message_count, l1.record),
+        ("cli", "running", false, 100, 200, 300, 300, 2, RecordStamp::At(5_000_000)),
+    );
+    assert_eq!(by("l2").owner, "agent");
+    let l3 = by("l3");
+    assert_eq!((l3.owner.as_str(), l3.status.as_str(), l3.closed, l3.record), ("user", "closed", true, RecordStamp::Absent), "no owner lists as the summary row's 'user'");
+
+    let ids = |rows: Vec<crate::sqlite::listing::Listed>| rows.iter().map(|r| r.row["id"].as_str().unwrap().to_owned()).collect::<Vec<_>>();
+    let first = env.store.list_sessions(false, None, Some(1)).await.unwrap();
+    assert_eq!(first[0].row["sourceName"], "agent:mixy@run");
+    let cursor = encode_catalog_cursor(&first[0].row);
+    assert_eq!(ids(first), ["l1"]);
+    let rest = env.store.list_sessions(false, decode_catalog_cursor(Some(&cursor)).unwrap(), None).await.unwrap();
+    assert_eq!(ids(rest), ["l3"], "agent-only l2 is left out of the catalog");
+    assert_eq!(ids(env.store.list_sessions(true, None, None).await.unwrap()), ["l1", "l2", "l3"]);
+}
+/// The sweep's conversation count is Node's `conversationCountOf`: user and assistant messages only
+/// (`message_rows.counted`, the rule `messageCount` is kept by), never tool or system ones.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_listed_message_count_is_the_user_and_assistant_messages() {
+    let env = Env::new();
+    let w = env.create("c1", None).await;
+    let (_w, _) = env
+        .commit(
+            w,
+            vec![
+                message("u1", json!({"role":"user","content":"hi"})),
+                message("t1", json!({"role":"assistant","content":"plan","toolCalls":[{"id":"c1"}]})),
+                message("r1", json!({"role":"tool","content":"out","toolCallId":"c1"})),
+                message("s1", json!({"role":"system","content":"note"})),
+                message("a1", json!({"role":"assistant","content":"done"})),
+            ],
+        )
+        .await;
+    let swept = env.store.sweep_sessions(env.data.join("sessions")).await.unwrap();
+    assert_eq!(swept[0].message_count, 3);
+}

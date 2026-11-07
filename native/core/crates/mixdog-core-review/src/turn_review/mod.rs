@@ -27,7 +27,7 @@ mod review_diff;
 mod scm_ports;
 mod shadow;
 mod snapshot;
-mod seams;
+pub mod seams;
 mod service;
 mod session_review;
 mod store;

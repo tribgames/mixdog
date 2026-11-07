@@ -30,6 +30,7 @@ pub mod exchange_run;
 pub mod member_turn;
 pub mod turn_prompt;
 pub mod usage;
+pub mod room_hosts;
 pub mod room_relay;
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]

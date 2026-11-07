@@ -62,9 +62,9 @@ pub(crate) enum Ctl {
     /// `thread/delete`'s close (`closeSession(id, reason)`): the thread takes no more work, its
     /// pending approvals are resolved, a running turn is aborted with `reason`; `closed`
     /// answers once the turn ended. With `idle`, a running turn or queued input refuses
-    /// instead (`busy`, `queued`) and nothing changes. Then the delete mark is appended when
-    /// `mark` fires, `marked` answering at its ack, and the actor stops; a dropped `mark`
-    /// stops it unmarked. A `guard` is rechecked here, on the actor, before anything is closed
+    /// instead (`busy`, `queued`) and nothing changes. Then the header change `mark` carries is
+    /// appended (the delete mark `{deleted: true}`, or an idle close's tombstone), `marked`
+    /// answering at its ack, and the actor stops; a dropped `mark` stops it unmarked. A `guard` is rechecked here, on the actor, before anything is closed
     /// (`changed` refuses): Node hands `treeChanged` to the delete and asks it again inside
     /// the destructive step.
     Delete {
@@ -72,7 +72,7 @@ pub(crate) enum Ctl {
         idle: bool,
         guard: Option<DeleteGuard>,
         closed: tokio::sync::oneshot::Sender<Result<(), &'static str>>,
-        mark: tokio::sync::oneshot::Receiver<()>,
+        mark: tokio::sync::oneshot::Receiver<serde_json::Map<String, serde_json::Value>>,
         marked: tokio::sync::oneshot::Sender<Result<(), super::run::RunError>>,
     },
 }

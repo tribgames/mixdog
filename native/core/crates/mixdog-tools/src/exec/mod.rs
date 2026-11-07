@@ -22,7 +22,7 @@ pub(crate) mod scan;
 pub(crate) mod settle;
 mod shell;
 mod shell_choice;
-mod shell_control;
+pub mod shell_control;
 mod snapshot;
 mod spill;
 mod task;

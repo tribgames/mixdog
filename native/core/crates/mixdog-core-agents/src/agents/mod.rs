@@ -9,7 +9,7 @@
 
 mod avatar;
 mod catalog_json;
-mod connector_api;
+pub mod connector_api;
 mod connectors;
 mod contact_ids;
 mod edit;

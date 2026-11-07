@@ -26,6 +26,7 @@ use crate::compose::drain_feed;
 use crate::control::ControlConfig;
 use crate::control::ControlServer;
 use crate::control::Legacy;
+use crate::lifecycle::CorePort;
 use crate::lifecycle::Exiter;
 use crate::control::new_token;
 use crate::control::ControlListener;
@@ -54,6 +55,10 @@ pub enum ServingError {
     Rpc(#[from] ListenError),
     #[error("reading this process's start time: {0}")]
     StartTime(#[source] std::io::Error),
+    #[error("the {0} was already bound")]
+    Bound(&'static str),
+    #[error("{0}")]
+    Unbound(crate::compose::ComposeError),
 }
 
 /// The user's `release{pid}` decision on an undecidable prior owner. Only the startup exclusion
@@ -148,17 +153,94 @@ pub struct StartIn {
     pub update_text: String,
 }
 
-/// Binds both listeners, builds the one `Lifecycle` and starts serving the control socket and the
-/// RPC listener. The lifecycle is `booting`; the caller sets it `serving` when startup is done.
-pub async fn start(
-    tokens: &LaneTokens,
-    core: Arc<ComposedCore>,
-    outgoing: Arc<mixdog_app_server::Outgoing>,
-    given: StartIn,
-) -> Result<Serving, ServingError> {
+/// The lifecycle's `CorePort` while the core is not yet composed (LR §3 steps 2 to 5 run before composition: the control listener must answer a blocked verdict
+/// while nothing else exists). Nothing is running, open or queued yet, so every step has nothing to do until `attach` binds the core's port; the user's
+/// `release{pid}` decision goes to the verdict gate, which is bound from the start.
+struct LateCorePort {
+    release: Arc<ReleaseSlot>,
+    core: OnceLock<RuntimeCore>,
+}
+
+impl crate::lifecycle::CorePort for LateCorePort {
+    fn drain_notice(&self, notice: &crate::lifecycle::DrainNotice) {
+        if let Some(core) = self.core.get() {
+            core.drain_notice(notice);
+        }
+    }
+
+    fn health(&self, stalled_ms: u64) {
+        if let Some(core) = self.core.get() {
+            core.health(stalled_ms);
+        }
+    }
+
+    fn lane_health(&self, lane: &str, wedged: usize) {
+        if let Some(core) = self.core.get() {
+            core.lane_health(lane, wedged);
+        }
+    }
+
+    fn cancel_running(&self, running: &[crate::lifecycle::Running]) {
+        if let Some(core) = self.core.get() {
+            core.cancel_running(running);
+        }
+    }
+
+    fn release_decision(&self, pid: u32) {
+        self.release.decide(pid);
+    }
+
+    fn release_started(&self, reason: &str) {
+        if let Some(core) = self.core.get() {
+            core.release_started(reason);
+        }
+    }
+
+    fn final_barriers(&self) {
+        if let Some(core) = self.core.get() {
+            core.final_barriers();
+        }
+    }
+
+    fn close_connections(&self) {
+        if let Some(core) = self.core.get() {
+            core.close_connections();
+        }
+    }
+
+    fn close_ext_host(&self) {
+        if let Some(core) = self.core.get() {
+            core.close_ext_host();
+        }
+    }
+
+    fn close_data_handles(&self) {
+        if let Some(core) = self.core.get() {
+            core.close_data_handles();
+        }
+    }
+
+    fn flush_log(&self) {
+        if let Some(core) = self.core.get() {
+            core.flush_log();
+        }
+    }
+}
+
+/// What `begin` has started: the control listener, serving, and the one `Lifecycle` in `booting`, with the discovery document naming the control endpoint only.
+pub struct Booting {
+    pub lifecycle: Arc<Lifecycle>,
+    pub release: Arc<ReleaseSlot>,
+    pub discovery: Arc<DiscoveryPublication>,
+    core_port: Arc<LateCorePort>,
+    token: String,
+    control: ControlServer,
+}
+
+/// LR §3 step 2: binds the control listener, builds the one `Lifecycle` and starts serving the control socket. The lifecycle is `booting`; the verdict, the barrier and the
+/// migration (`startup::start`) run next, and `attach` opens the RPC listener once the core is composed.
+pub async fn begin(tokens: &LaneTokens, given: StartIn) -> Result<Booting, ServingError> {
     let StartIn { runtime_root, exiter, update_text } = given;
-    let running = Running::build(core.clone(), outgoing).map_err(ServingError::Limits)?;
-    let sections = core.sections().clone();
     let release = Arc::new(ReleaseSlot::default());
 
     let root = runtime_root;
@@ -171,13 +253,6 @@ pub async fn start(
     .map_err(ServingError::RuntimeRoot)?;
     let token = new_token();
     let control = blocking(tokens, ControlListener::bind).await.and_then(|bound| bound).map_err(ServingError::Control)?;
-    let rpc = WebSocketListener::bind(
-        SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
-        running.hub.clone(),
-        BearerAuth::new(&token),
-        ListenerOrigin::Loopback,
-    )
-    .await?;
 
     let pid = std::process::id();
     let start_ms = blocking(tokens, move || OsProcessTable.query(u64::from(pid)))
@@ -207,26 +282,54 @@ pub async fn start(
     };
     let publication = Arc::new(DiscoveryPublication::new(root.clone(), base));
     let discovery = publication.clone();
-    publication.set_rpc_port(rpc.local_addr().port());
+    let core_port = Arc::new(LateCorePort { release: release.clone(), core: OnceLock::new() });
     let lifecycle = Lifecycle::new(
         LifecycleConfig { instance_id, version: version.to_owned(), runtime_root: root },
-        Ports {
-            core: Arc::new(RuntimeCore::new(core_wiring(&core, &running, &sections, &release))),
-            discovery: publication,
-            exiter,
-        },
+        Ports { core: core_port.clone(), discovery: publication, exiter },
     );
-    // Bound before the listener accepts (the spawn of `server.rpc` below): a request admitted earlier would not be counted.
-    core.late_lifecycle().bind(lifecycle.clone()).expect("serving::start binds the lifecycle once");
     let control = ControlServer::serve(
         control,
         ControlConfig {
-            token,
+            token: token.clone(),
             legacy: Legacy { pid, version: version.to_owned(), update_text },
         },
         lifecycle.clone(),
     )
     .map_err(ServingError::Control)?;
+    Ok(Booting { lifecycle, release, discovery, core_port, token, control })
+}
+
+/// LR §3 step 6: the core is composed, so its lifecycle port is bound, the cells only the server can bind are bound and verified, and the RPC listener opens. The
+/// discovery document names the RPC port from here on; the caller sets the lifecycle `serving`.
+pub async fn attach(
+    booting: Booting,
+    core: Arc<ComposedCore>,
+    outgoing: Arc<mixdog_app_server::Outgoing>,
+) -> Result<Serving, ServingError> {
+    let Booting { lifecycle, release, discovery, core_port, token, control } = booting;
+    let running = Running::build(core.clone(), outgoing).map_err(ServingError::Limits)?;
+    // The local dialer of a phone served by this core: the connection hub and the hand-off to the server's drive loop exist only now.
+    {
+        let server = running.server.clone();
+        core.local_dialer()
+            .bind(running.hub.clone(), Arc::new(move |accepted| crate::server::spawn_drive(server.clone(), accepted)))
+            .map_err(ServingError::Bound)?;
+    }
+    let sections = core.sections().clone();
+    let rpc = WebSocketListener::bind(
+        SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+        running.hub.clone(),
+        BearerAuth::new(&token),
+        ListenerOrigin::Loopback,
+    )
+    .await?;
+    discovery.set_rpc_port(rpc.local_addr().port());
+    core_port.core.set(RuntimeCore::new(core_wiring(&core, &running, &sections, &release))).map_err(|_| ServingError::Bound("runtime core"))?;
+    // Bound before the listener accepts (the spawn of `server.rpc` below): a request admitted earlier would not be counted.
+    core.late_lifecycle().bind(lifecycle.clone()).expect("serving::attach binds the lifecycle once");
+    // Before the listener accepts: the cells only `serve` can bind are bound (`compose` verified every other one).
+    let cells: [&dyn mixdog_core::run_host::late::Bound; 3] = [&**core.local_dialer(), core.connection_owners(), &**core.late_lifecycle()];
+    crate::compose::verify_bound(&cells).map_err(ServingError::Unbound)?;
     mixdog_rt::spawn("server.rpc", TaskClass::Control, async move { running.serve_transport(rpc).await });
     // The composed core answers admission from its own state; follow the lifecycle's.
     let mut state = lifecycle.state();
@@ -238,6 +341,16 @@ pub async fn start(
         }
     });
     Ok(Serving { lifecycle, sections, release, discovery, _control: control })
+}
+
+/// `begin`, then `attach`: the whole of serving for a caller whose core is composed already (the tests).
+pub async fn start(
+    tokens: &LaneTokens,
+    core: Arc<ComposedCore>,
+    outgoing: Arc<mixdog_app_server::Outgoing>,
+    given: StartIn,
+) -> Result<Serving, ServingError> {
+    attach(begin(tokens, given).await?, core, outgoing).await
 }
 
 #[cfg(test)]
@@ -284,7 +397,9 @@ mod tests {
     /// control and RPC listeners answer (and refuse a wrong token), and a stop takes the lifecycle
     /// through the release procedure: barriers once, `last-exit.json`, discovery withdrawn, `Stopped`.
     #[tokio::test(flavor = "multi_thread")]
+    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
     async fn start_serves_both_listeners_and_a_stop_releases_once() {
+        let _one = crate::compose_test_support::exclusive().await;
         let dir = tempfile::tempdir().unwrap();
         let tokens = mixdog_rt::testing::tokens();
         let outgoing = mixdog_app_server::Outgoing::new();
@@ -292,11 +407,12 @@ mod tests {
             crate::compose::compose(
                 &tokens,
                 ComposeConfig {
-                    data_dir: dir.path().join("data"),
+                    data_dir: crate::compose_test_support::data_dir().to_path_buf(),
                     user_data_dir: dir.path().join("userdata"),
                     js_runtime: crate::js_runtime::fixture(dir.path()),
                     ort_library: mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
-                    host: outgoing.clone(),
+                    outgoing: outgoing.clone(),
+            ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
                     log: crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new()),
                     stop: mixdog_rt::CancellationToken::new(),
                 },

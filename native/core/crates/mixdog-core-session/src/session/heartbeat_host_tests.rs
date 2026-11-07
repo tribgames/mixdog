@@ -158,7 +158,7 @@ fn host_with(rig: &Rig, main: Value, messages: Arc<AgentHomeDelivery>) -> (Arc<S
     let providers = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(NoProviders)));
     let read_state = Arc::new(mixdog_tools::fs::ReadState::new(None));
     let close = SessionClose::new(directory.clone(), providers, hooks.clone(), read_state);
-    let host = SessionWakeHost::new(directory.clone(), close, Arc::new(Main(obj(main))), messages);
+    let host = SessionWakeHost::new(directory.clone(), Arc::new(close), Arc::new(Main(obj(main))), messages);
     (directory, hooks, host)
 }
 

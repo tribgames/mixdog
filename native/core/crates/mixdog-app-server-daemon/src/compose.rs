@@ -1,11 +1,10 @@
 //! The composition root: builds the [`CoreHandle`] the server serves (protocol.md §2.1).
 //!
-//! Real services register in [`domains`] as their crates land, each claiming the exact
-//! methods it lists; the table methods still unclaimed get one [`MockDomain`] that echoes
-//! `{method, params}`, and the boot log counts those methods, so the wired/mock split is
-//! visible at every start. The thread directory, app feed,
-//! op index, host media sink and lifecycle are the [`MockCore`] seams until the session core
-//! (`mixdog-core-session`, `mixdog-core-base::{feed, ops}`) lands.
+//! [`compose`] opens the state store, the feeds and the process-level services, hands them to
+//! [`crate::compose_flip::real_core`] (the session directory, every domain service and the late cells),
+//! and wraps what it returns in [`ComposedCore`]. A method no service claims is a start-up error
+//! (`ComposeError::Unclaimed`), and a late cell left unbound is another (`ComposeError::Unbound`,
+//! checked before the listener accepts): nothing answers in place of a service.
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -22,9 +21,6 @@ use mixdog_services::tidy::process::Processes;
 use mixdog_services::tool_state::StateTick;
 use mixdog_core_api::domain::fs::FileService;
 use mixdog_exthost::DEFAULT_PENDING_CAP;
-use mixdog_exthost::BrowserService;
-use mixdog_exthost::DocumentService;
-use mixdog_exthost::VisualizeService;
 use mixdog_workspace::localfs::LocalFileService;
 use mixdog_exthost::ExtHostConfig;
 use mixdog_exthost::ExtHostError;
@@ -35,34 +31,23 @@ use mixdog_mcp::launcher::SkillRuntime;
 use mixdog_tools::exec::SkillRuntime as ExecSkillRuntime;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::feed::ScopedFeeds;
-use mixdog_scm::tracked::GixTrackedFiles;
 use mixdog_spawn::LocalProcessManager;
 use mixdog_spawn::ProcessConfig;
-use mixdog_workspace::lanes::Lanes as WorkspaceLanes;
-use mixdog_workspace::service::Deps as WorkspaceDeps;
-use mixdog_workspace::service::WorkspaceService;
 
 use crate::catalog::CatalogError;
 use crate::catalog::CatalogHost;
 use crate::catalog::build_catalog;
 use crate::domain_seams::settings_effects::ConfiguredShell;
 use crate::exec::Exec;
-use crate::exec::ExecEvents;
 use crate::exec::build_exec;
-use async_trait::async_trait;
 use mixdog_core_base::ops::CoreOpIndex;
 use mixdog_core_base::ops::OpGate;
 use mixdog_core_base::ops::StateOpStore;
-use mixdog_core_base::ops::ThreadOpGates;
-use mixdog_core_api::CallContext;
 use mixdog_core_api::CoreError;
-use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::ops::OpScope;
 use mixdog_store::sqlite::DbError;
 use mixdog_store::state::CoreState;
 
-use mixdog_core_domains::domains::Domains;
-use mixdog_core_domains::domains::DomainsBuilder;
 use mixdog_core_domains::domains::DomainsError;
 use mixdog_app_protocol::v2::host::CoreDrainParams;
 use mixdog_core_base::feed::CoreFeed;
@@ -76,15 +61,11 @@ use crate::lifecycle::new_instance_id;
 use mixdog_core_api::CoreState as LifecycleState;
 use mixdog_core_api::DomainService;
 use mixdog_core_api::FeedSource;
-use mixdog_core_api::HostChannel;
 use mixdog_app_protocol::limits::Limits;
 use mixdog_app_server::HostMedia;
 use mixdog_core_api::HostMediaSink;
 use mixdog_core_api::OpIndex;
 use mixdog_core_api::ThreadDirectory;
-use mixdog_core_api::mock::MockCore;
-use mixdog_core_api::mock::MockDomain;
-use mixdog_core_api::mock::MockLimits;
 use tokio::sync::watch;
 
 /// The app feed's ring (SPEC §3.1: 1 MiB for the app feed, 4 MiB per thread feed).
@@ -93,9 +74,10 @@ const APP_RING_BYTES: usize = 1 << 20;
 const MAX_SNAPSHOT_BYTES: usize = 3 << 20;
 
 /// The non-thread op scopes (protocol §9.2); each has a gate over its rows in state/core.sqlite.
-const OP_SCOPES: [&str; 15] = [
+pub(crate) const OP_SCOPES: [&str; 22] = [
     "config", "account", "agent", "project", "media", "channel", "mcp", "skills", "plugins",
-    "localProvider", "terminal", "git", "remoteAccess", "core", "workflow",
+    "localProvider", "terminal", "git", "remoteAccess", "core", "workflow", "notify", "room", "thread",
+    "update", "diagnostics", "feedback", "instructions",
 ];
 
 #[derive(Debug, thiserror::Error)]
@@ -118,6 +100,39 @@ pub enum ComposeError {
     EffortJudge(mixdog_services::model_install::InstallError),
     #[error("starting the extension host: {0}")]
     ExtHost(ExtHostError),
+    /// Table methods no composed service claims: the core serves nothing in their place (no mock stands in for them).
+    #[error("table methods no service claims: {methods:?}")]
+    Unclaimed { methods: Vec<&'static str> },
+    /// Opening the rooms at start (the interrupted-exchange recover).
+    #[error("starting the rooms: {0}")]
+    Rooms(String),
+    // The failures of `compose_flip::real_core`, one per stage that can fail; each carries its own typed error.
+    #[error("{0}")]
+    Config(String),
+    #[error("no home directory")]
+    NoHome,
+    #[error("reading the voice runtime manifest: {0}")]
+    VoiceManifest(String),
+    #[error("the {0} was bound twice")]
+    AlreadyBound(&'static str),
+    #[error("composing the domain services: {0}")]
+    ComposeDomains(crate::compose_domains::ComposeDomainsError),
+    #[error("starting the process services: {0}")]
+    Process(std::io::Error),
+    #[error("starting remote access: {0}")]
+    Remote(String),
+    #[error("reading the channels' webhook configuration: {0}")]
+    Channels(String),
+    #[error("settling the stale agent workers: {0}")]
+    AgentRecover(String),
+    #[error("opening the quota resume store: {0}")]
+    QuotaResume(mixdog_core_base::quota_resume::QuotaError),
+    #[error("opening the prompt-cache warm store: {0}")]
+    WarmStore(std::io::Error),
+    #[error("{0}")]
+    SurfaceVariant(mixdog_core::run_host::agent_variants::VariantError),
+    #[error("building the session directory: {0}")]
+    TurnPath(mixdog_core::run_host::turn_path::TurnPathError),
     #[error("starting the workspace service: {0:?}")]
     Workspace(mixdog_workspace::error::WsError),
     #[error(transparent)]
@@ -138,17 +153,6 @@ pub enum ComposeError {
 pub fn verify_bound(cells: &[&dyn mixdog_core::run_host::late::Bound]) -> Result<(), ComposeError> {
     mixdog_core::run_host::late::require(cells).map_err(|unbound| ComposeError::Unbound { cell: unbound.cell })
 }
-/// Thread directory is still the mock's (empty), so no thread has an op gate; the session core
-/// supplies the real ones.
-struct NoThreadGates;
-
-#[async_trait]
-impl ThreadOpGates for NoThreadGates {
-    async fn gate(&self, thread: &ThreadId, _ctx: &CallContext) -> Result<OpGate, CoreError> {
-    Err(CoreError::ThreadNotFound { thread_id: thread.clone() })
-    }
-}
-
 /// Why the core is stopping, as Node words it; written once ([`ComposedCore::set_stop_reason`]).
 #[derive(Default)]
 pub struct StopReasonCell(std::sync::OnceLock<String>);
@@ -161,7 +165,10 @@ impl StopReasonCell {
 }
 
 pub struct ComposedCore {
-    base: MockCore,
+    /// What the real composition built: the session directory, the domain services, the late cells and what the stop procedure holds.
+    real: crate::compose_flip::Real,
+    /// The core's state as the lifecycle publishes it (`serving::start` follows the lifecycle into it); the admission of a request reads it.
+    state: watch::Sender<LifecycleState>,
     /// The real [HostMediaSink]; the browser view binds its stream targets here.
     host_media: Arc<HostMedia>,
     app_feed: Arc<CoreFeed>,
@@ -171,21 +178,13 @@ pub struct ComposedCore {
     /// Every scoped feed a service created, found by id for `feed/subscribe`.
     feed_index: Arc<CoreScopedFeeds>,
     ops: CoreOpIndex,
-    domains: Domains,
-    mocked: &'static [&'static str],
     exec: Exec,
-    exec_events: std::sync::Mutex<Option<ExecEvents>>,
     ext_host: Arc<ExtHostPool>,
     file_service: Arc<dyn FileService>,
-    models: Models,
     catalog: CatalogHost,
     tidy_processes: Processes,
     /// The concrete manager behind `processes`/`tidy_processes` (it is `Clone`): the process and terminal services take it by value.
     local_processes: LocalProcessManager,
-    /// The five owners of per-connection state, bound once the composition has built them (erify_bound checks it).
-    connection_owners: crate::connection_close::ConnectionOwnersCell,
-    /// The lifecycle, built by `serving::start` after `compose()` and bound there before the listener accepts: the service-call count reads it.
-    lifecycle: Arc<crate::late_lifecycle::LateLifecycle>,
     /// The one shell registry and kill route of the process (xec.runtime).
     shell_control: Arc<mixdog_tools::exec::ShellControl>,
     stop_steps: std::sync::Mutex<Vec<(&'static str, StopStep)>>,
@@ -200,7 +199,7 @@ pub struct ComposedCore {
 type StopStep = std::pin::Pin<Box<dyn Future<Output = ()> + Send>>;
 
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
-async fn create_dir(tokens: &LaneTokens, path: PathBuf) -> std::io::Result<()> {
+pub(crate) async fn create_dir(tokens: &LaneTokens, path: PathBuf) -> std::io::Result<()> {
     use mixdog_rt::LaneToken;
     let job = tokens
         .durability_io
@@ -232,7 +231,7 @@ pub struct Models {
 /// Graph sessions the embedder keeps so concurrent embeds do not queue on one another.
 const EMBED_SESSIONS: usize = 2;
 
-fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: OrtRuntime) -> Result<Models, ComposeError> {
+pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: OrtRuntime) -> Result<Models, ComposeError> {
     let tick = StateTick::default();
     let embeddings = match &ort_library {
         OrtRuntime::Library(library) => Some(Arc::new(EmbeddingProvider::with_tick(
@@ -268,12 +267,6 @@ impl ComposedCore {
         &self.exec
     }
 
-    /// The receiving ends of the runtime's event channels, handed once to the session directory
-    /// (completions) and the section publisher (strips).
-    pub fn take_exec_events(&self) -> Option<ExecEvents> {
-        self.exec_events.lock().unwrap_or_else(|e| e.into_inner()).take()
-    }
-
     /// The one file service the tools and `WriteHost` share.
     pub fn file_service(&self) -> &Arc<dyn FileService> {
         &self.file_service
@@ -288,11 +281,6 @@ impl ComposedCore {
     /// (one `CatalogTraits` per provider, built where the provider adapters are).
     pub fn catalog(&self) -> &CatalogHost {
         &self.catalog
-    }
-
-    /// The embedding and effort-judge models.
-    pub fn models(&self) -> &Models {
-        &self.models
     }
 
     /// The core's stop step for the extension host: closes it and returns once every worker
@@ -376,14 +364,29 @@ impl ComposedCore {
         &self.tidy_processes
     }
 
+    /// Mixy's heartbeat on its timers; `serve` calls it once startup has finished.
+    pub fn start_heartbeat(&self) {
+        self.real.start_heartbeat();
+    }
+
+    /// The idle sweep's store (`Real::sweep_store`).
+    pub fn sweep_store(&self, data_dir: &std::path::Path, stop: tokio_util::sync::CancellationToken) -> Arc<crate::sweep_store::DirectorySweepStore> {
+        self.real.sweep_store(data_dir, stop)
+    }
+
+    /// The webhook event pipeline, which `serve` runs once startup has finished.
+    pub fn event_pipeline(&self) -> &Arc<crate::event_pipeline::EventPipeline> {
+        &self.real.event_pipeline
+    }
+
     /// The cell `serving::start` binds the built `Lifecycle` into. Not `lifecycle()`: that is `CoreHandle::lifecycle` (the state watch), which a call through the `Arc` would pick.
     pub fn late_lifecycle(&self) -> &Arc<crate::late_lifecycle::LateLifecycle> {
-        &self.lifecycle
+        &self.real.late_lifecycle
     }
 
     /// Bind the terminal, screen, workspace, system and device owners once; a close before that is written to the daemon log.
     pub fn connection_owners(&self) -> &crate::connection_close::ConnectionOwnersCell {
-        &self.connection_owners
+        &self.real.connection_owners
     }
 
     /// The concrete `LocalProcessManager` (`ProcessFeeds`, `ProcessService`, `TerminalService`).
@@ -412,19 +415,19 @@ impl ComposedCore {
         &self.app_feed
     }
 
-    /// Methods served by a mock rather than a real crate.
-    pub fn mocked_domains(&self) -> &[&'static str] {
-        self.mocked
+    pub fn set_state(&self, state: LifecycleState) {
+        self.state.send_replace(state);
     }
 
-    pub fn set_state(&self, state: LifecycleState) {
-        self.base.set_state(state);
+    /// The dialer for a phone served by this core: `serving::start` binds it once the connection hub exists and verifies it before the listener accepts.
+    pub fn local_dialer(&self) -> &Arc<crate::domain_seams::remote::LateDialer> {
+        &self.real.local_dialer
     }
 }
 
 impl CoreHandle for ComposedCore {
     fn threads(&self) -> &dyn ThreadDirectory {
-        self.base.threads()
+        self.real.directory.as_ref()
     }
 
     fn app_feed(&self) -> Arc<dyn FeedSource> {
@@ -440,7 +443,7 @@ impl CoreHandle for ComposedCore {
     }
 
     fn domain_for(&self, method: &str) -> Option<&dyn DomainService> {
-        self.domains.get(method)
+        self.real.domains.get(method)
     }
 
     fn host_media(&self) -> &dyn HostMediaSink {
@@ -448,15 +451,15 @@ impl CoreHandle for ComposedCore {
     }
 
     fn lifecycle(&self) -> watch::Receiver<LifecycleState> {
-        self.base.lifecycle()
+        self.state.subscribe()
     }
 
     fn connection_closed(&self, connection: mixdog_core_api::ids::ConnectionId) {
-        self.connection_owners.connection_closed(connection, &self.log);
+        self.real.connection_owners.connection_closed(connection, &self.log);
     }
 
     fn request_started(&self) -> mixdog_core_api::handle::RequestGuard {
-        match self.lifecycle.get() {
+        match self.real.late_lifecycle.get() {
             Some(lifecycle) => Box::new(lifecycle.begin_call()),
             // A startup bug (the listener accepts only after the bind): said, not silently left out of the count.
             None => {
@@ -467,69 +470,11 @@ impl CoreHandle for ComposedCore {
     }
 }
 
-/// What the real services are built from.
-struct Seams {
-    tokens: LaneTokens,
-    state: CoreState,
-    scoped_feeds: Arc<dyn ScopedFeeds>,
-    processes: Arc<dyn ProcessManager>,
-    recovery_dir: PathBuf,
-    user_data_dir: PathBuf,
-    ext_host: Arc<ExtHostPool>,
-    host: Arc<dyn HostChannel>,
-}
-
 /// `CoreWiring.drain_feed`: the `core/drain` notification as the next frame of the app feed, so
 /// every attached client gets it in order with the sections. `app` is the section state built over
 /// [`ComposedCore::app_feed_core`], the feed's only producer.
 pub fn drain_feed(app: Arc<mixdog_core_base::state::SectionFeedState>) -> Arc<dyn Fn(CoreDrainParams) + Send + Sync> {
     Arc::new(move |params| app.notify("core/drain", &params))
-}
-
-/// Registers the real service of every slot that has one, then returns the slots left over.
-fn register_real(builder: &mut DomainsBuilder, seams: &Seams) -> Result<(), ComposeError> {
-    let tokens = &seams.tokens;
-    let workspace: Arc<dyn DomainService> = WorkspaceService::new(WorkspaceDeps {
-        lanes: WorkspaceLanes {
-            interactive: tokens.interactive_io,
-            durability: tokens.durability_io,
-            maintenance: tokens.maintenance_io,
-            cpu_bulk: tokens.cpu_bulk,
-        },
-        feeds: seams.scoped_feeds.clone(),
-        processes: seams.processes.clone(),
-        tracked: Arc::new(GixTrackedFiles::new(tokens.maintenance_io)),
-        state: seams.state.clone(),
-        recovery_dir: seams.recovery_dir.clone(),
-        user_data_dir: seams.user_data_dir.clone(),
-        // mediaAsset, attachment and export register here as their domains land.
-        sources: Vec::new(),
-        // The adapter over the shared `CodeGraphTool` lands with the composed tool runtime.
-        code_graph: None,
-        // The one shared `TurnReviewApi` is handed in by the composition that builds it.
-        turn_review: None,
-    })
-    .map_err(ComposeError::Workspace)?;
-    builder.register(workspace)?;
-    // Document previews run in the extension host. Node caches converted documents under the
-    // desktop profile folder (`userDataPath` in `desktop-operations.ts`), the runtime keeps its
-    // own subfolders there.
-    let cache_root = seams.user_data_dir.to_string_lossy().into_owned();
-    builder.register(Arc::new(DocumentService::new(seams.ext_host.clone(), cache_root)))?;
-    // Browser and visualize commands are the desktop host's: the core forwards them over the
-    // host channel and the host claims the capability.
-    builder.register(Arc::new(BrowserService::new(seams.host.clone())))?;
-    builder.register(Arc::new(VisualizeService::new(seams.host.clone())))?;
-    Ok(())
-}
-
-fn domains(seams: &Seams) -> Result<(Domains, &'static [&'static str]), ComposeError> {
-    let mut builder = DomainsBuilder::new();
-    register_real(&mut builder, seams)?;
-    // Leaked once at start: a service lists its methods as `'static`.
-    let mocked: &'static [&'static str] = Box::leak(builder.unclaimed().into_boxed_slice());
-    builder.register(Arc::new(MockDomain::serving(mocked)))?;
-    Ok((builder.build(), mocked))
 }
 
 /// The bundled JavaScript runtime, from the install layout: what runs skill scripts and the
@@ -549,17 +494,43 @@ pub struct ComposeConfig {
     pub js_runtime: JsRuntime,
     /// The ONNX Runtime shared library (install layout), or that the platform has no binding.
     pub ort_library: OrtRuntime,
-    /// The server's host channel (`Outgoing`), built before the core: what the browser and
-    /// visualize domains forward their commands through.
-    pub host: Arc<dyn HostChannel>,
+    /// The server's connection table (`Outgoing`), built before the core. It is the host channel the browser, visualize and model-proxy services forward through, the
+    /// claimed channel and desktop presence the secret fill and the terminal tool ask, the notifier of `modelProxy/run/event`, the sink of server requests.
+    pub outgoing: Arc<mixdog_app_server::Outgoing>,
+    /// The data-directory lock (`startup::Started.ownership`): every log writer revalidates it before it writes, and a failed check fences the core.
+    pub ownership: Arc<dyn mixdog_core_api::domain::ownership::Ownership>,
     /// The one daemon log, built where the daemon starts (`serve`): the real core hands it to every writer (the quota resume timer, ...).
     pub log: crate::daemon_log::DaemonLog,
     /// The daemon's run token, the one `log` holds. The stop procedure cancels it after the last stop step.
     pub stop: tokio_util::sync::CancellationToken,
 }
 
+/// `process.env` as the services read it.
+fn process_env() -> mixdog_core::run_host::run_seams::EnvReader {
+    Arc::new(|name: &str| std::env::var(name).ok())
+}
+
+/// The extension host pool of this install: the core's, and the migration's office extractor (`boot`) start the same worker.
+pub(crate) fn ext_host_config(js: &JsRuntime, data_dir: &Path, tokens: &LaneTokens) -> ExtHostConfig {
+    ExtHostConfig {
+        program: js.program.clone(),
+        args: vec![js.package_root.join("src").join("ext-host").join("worker.mjs").into_os_string()],
+        electron: js.electron,
+        workers: worker_count(None, std::thread::available_parallelism().map_or(1, |n| n.get())),
+        pending_cap: DEFAULT_PENDING_CAP,
+        spawn_io: tokens.spawn_io,
+        render_browser: RenderBrowserConfig { command: None, profile_root: data_dir.join("render-browser"), no_sandbox: false },
+    }
+}
+
 pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<ComposedCore, ComposeError> {
-    let ComposeConfig { data_dir, user_data_dir, js_runtime, ort_library, host, log, stop } = config;
+    compose_interruptible(tokens, config, tokio_util::sync::CancellationToken::new()).await
+}
+
+/// [`compose`], whose slow waits (the PostgreSQL install and start) end when `interrupt` is cancelled: `serve` cancels it when a stop arrives meanwhile. A composition that
+/// fails, interrupted or not, gives back what it had acquired before it returns the error (`Acquired`), so no PostgreSQL is left running.
+pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, interrupt: tokio_util::sync::CancellationToken) -> Result<ComposedCore, ComposeError> {
+    let ComposeConfig { data_dir, user_data_dir, js_runtime, ort_library, outgoing, ownership, log, stop } = config;
     let data_dir = data_dir.as_path();
     let state_dir = data_dir.join("state");
     create_dir(tokens, state_dir.clone()).await.map_err(ComposeError::StateDir)?;
@@ -582,34 +553,11 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
     let skill_launcher_dir =
         skills.ensure_dir(tokens.durability_io, data_dir).await.map_err(ComposeError::Launcher)?;
     let ext_host = Arc::new(
-        ExtHostPool::new(ExtHostConfig {
-            program: js.program.clone(),
-            args: vec![js.package_root.join("src").join("ext-host").join("worker.mjs").into_os_string()],
-            electron: js.electron,
-            workers: worker_count(None, std::thread::available_parallelism().map_or(1, |n| n.get())),
-            pending_cap: DEFAULT_PENDING_CAP,
-            spawn_io: tokens.spawn_io,
-            render_browser: RenderBrowserConfig {
-                command: None,
-                profile_root: data_dir.join("render-browser"),
-                no_sandbox: false,
-            },
-        })
-        .map_err(ComposeError::ExtHost)?,
+        ExtHostPool::new(ext_host_config(js, data_dir, tokens)).map_err(ComposeError::ExtHost)?,
     );
     let local_processes = LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default());
     let process_manager: Arc<dyn ProcessManager> = Arc::new(local_processes.clone());
     let tidy_processes = Processes::new(process_manager.clone(), tokens.durability_io);
-    let (domains, mocked) = domains(&Seams {
-        tokens: tokens.clone(),
-        state: state.clone(),
-        scoped_feeds,
-        processes: process_manager.clone(),
-        recovery_dir: data_dir.join("recovery"),
-        user_data_dir,
-        ext_host: ext_host.clone(),
-        host,
-    })?;
     let file_service: Arc<dyn FileService> = Arc::new(LocalFileService::new());
     let models = build_models(tokens, data_dir, ort_library)?;
     // The listing sources are built from the full provider config; the config domain supplies it
@@ -628,7 +576,7 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
         skill_runtime,
         ext_host.clone(),
     );
-    let shell_control = Arc::new(mixdog_tools::exec::ShellControl::new(exec.runtime.clone(), process_manager));
+    let shell_control = Arc::new(mixdog_tools::exec::ShellControl::new(exec.runtime.clone(), process_manager.clone()));
     let id = FeedId::from("app");
     let epoch = FeedEpoch::from(new_instance_id());
     let app_feed = Arc::new(CoreFeed::new(
@@ -647,143 +595,123 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
                 .map_err(|error| ComposeError::OpGate { scope, error })?,
         );
     }
-    Ok(ComposedCore {
-        base: MockCore::new(&[], MockLimits::default()),
+    let thread_gates = Arc::new(crate::late_seams::LateThreadGates::default());
+    let sections = Arc::new(mixdog_core_base::state::SectionFeedState::new(app_feed.clone()));
+    let stop_reason: Arc<StopReasonCell> = Arc::default();
+    let acquired = crate::acquired::Acquired::new(interrupt);
+    let built = crate::compose_flip::Built {
+        acquired: acquired.clone(),
+        tokens: tokens.clone(),
+        data_dir: data_dir.to_path_buf(),
+        user_data_dir,
+        package_root: js_runtime.package_root.clone(),
+        js_runtime,
+        env: process_env(),
+        app_feed: app_feed.clone(),
+        scoped_feeds,
+        host: outgoing.clone(),
+        claimed_host: outgoing.clone(),
+        presence: outgoing.clone(),
+        approval_presence: outgoing.clone(),
+        client_epoch: outgoing.clone(),
+        notifier: outgoing.clone(),
+        server_requests: outgoing,
+        ext_host: ext_host.clone(),
+        process_manager,
+        local_processes: local_processes.clone(),
+        tidy_processes: tidy_processes.clone(),
+        models,
+        catalog: catalog.service().clone(),
+        exec: exec.runtime.clone(),
+        shell_control: shell_control.clone(),
+        files: file_service.clone(),
+        gates: OP_SCOPES.iter().copied().zip(gates.iter().cloned()).collect(),
+        cancel: stop.clone(),
+        log: log.clone(),
+        wakes: exec.wakes.clone(),
+        configured_shell: exec.configured_shell.clone(),
+        core_state: state,
+        ownership,
+        thread_gates: thread_gates.clone(),
+        sections: sections.clone(),
+    };
+    // Every late cell the composition owns is bound, or this fails (`ComposeError::Unbound`); a method no service claims fails it too (`Unclaimed`).
+    let real = match crate::compose_flip::real_core(built).await {
+        Ok(real) => real,
+        Err(error) => {
+            acquired.release().await;
+            return Err(error);
+        }
+    };
+    // The stop procedure's first steps, in this order: the quota resume timer ends before the directory it resumes sessions on shuts down, then the directory.
+    let resume_timer = real.resume_timer.clone();
+    let shutdown = real.session_shutdown_step(stop_reason.clone());
+    let later = real.runtime_stop_steps(stop_reason.clone());
+    // The shell runtime's completions and strip changes (Node's `shellJobsPoller` and `notifySessionCompletion`) reach the directory and the sections.
+    crate::exec_events::consume(
+        exec_events,
+        crate::exec_events::Targets {
+            directory: real.directory.clone(),
+            threads: Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(real.directory.clone())),
+            publisher: real.publisher.clone(),
+        },
+        stop.clone(),
+    );
+    let core = ComposedCore {
+        real,
+        state: watch::Sender::new(LifecycleState::Serving),
         host_media: HostMedia::new(Limits::default().max_media_frame_bytes),
-        sections: Arc::new(mixdog_core_base::state::SectionFeedState::new(app_feed.clone())),
+        sections,
         app_feed,
         feed_index,
-        ops: CoreOpIndex::new(gates, Arc::new(NoThreadGates)),
-        domains,
-        mocked,
+        ops: CoreOpIndex::new(gates, thread_gates),
         exec,
-        exec_events: std::sync::Mutex::new(Some(exec_events)),
         ext_host,
         file_service,
-        models,
         catalog,
         tidy_processes,
         local_processes,
-        connection_owners: Default::default(),
-        lifecycle: Default::default(),
         shell_control,
         stop_steps: std::sync::Mutex::new(Vec::new()),
         final_barriers: std::sync::Mutex::new(Vec::new()),
         log,
         stop,
-        stop_reason: Arc::default(),
-    })
+        stop_reason,
+    };
+    // Node's first step after the heartbeat (`daemon.mjs:302`): the relayed model calls are aborted and settle before anything they depend on stops.
+    let (name, halt) = core.real.heartbeat_halt_step(); // stopHeartbeat?.(), the first act of Node's shutdown after its flags (daemon.mjs:285)
+    core.on_stop(name, halt);
+    let (name, close) = core.real.close_step();
+    core.on_stop(name, close);
+    let (name, ended) = core.real.heartbeat_ended_step(); // wait heartbeatEnded right after the model proxy closed, before the session service stops (daemon.mjs:312)
+    core.on_stop(name, ended);
+    let timer = resume_timer.clone();
+    core.on_stop("quota resume timer", async move { timer.stop().await });
+    core.on_stop("session directory shutdown", shutdown);
+    for (name, step) in later {
+        core.on_stop(name, step);
+    }
+    // `startQuotaResume`, the boot step (daemon.mjs:1132).
+    resume_timer.start();
+    Ok(core)
 }
 
 #[cfg(test)]
 mod tests {
-    use mixdog_app_protocol::CLIENT_METHODS;
-    use mixdog_app_protocol::CLIENT_NOTIFICATIONS;
-    use mixdog_core_domains::domains::CORE_NAMESPACES;
-    use mixdog_core_api::CallContext;
-    use mixdog_core_api::CoreRequest;
-    use mixdog_core_api::Reply;
-    use mixdog_core_api::HostCapability;
-    use mixdog_core_api::ids::Method;
-    use mixdog_core_api::mock::MockHostChannel;
-    use serde_json::json;
-
     use super::*;
 
-    /// The desktop commands reach the host channel the server was built with, through the real
-    /// services (not the echo mock), each addressed by its own capability.
-    #[tokio::test]
-    async fn browser_and_visualize_commands_go_to_the_hosts_channel() {
-        let dir = tempfile::tempdir().unwrap();
-        let host = Arc::new(MockHostChannel::default());
-        host.claim(HostCapability::Browser);
-        host.claim(HostCapability::Visualize);
-        host.reply(Method("host/browser/command"), json!({ "from": "browser" }));
-        host.reply(Method("host/visualize/command"), json!({ "from": "visualize" }));
-        let core = compose(
-            &mixdog_rt::testing::tokens(),
-            ComposeConfig {
-                data_dir: dir.path().to_path_buf(),
-                user_data_dir: dir.path().join("userdata"),
-                js_runtime: crate::js_runtime::fixture(dir.path()),
-                ort_library: OrtRuntime::NoBinding,
-                host: host.clone(),
-                log: crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new()),
-                stop: mixdog_rt::CancellationToken::new(),
-            },
-        )
-        .await
-        .unwrap();
-        assert!(!core.mocked_domains().contains(&"browser/command"));
-        assert!(!core.mocked_domains().contains(&"visualize/command"));
-
-        let call = |method: &'static str, params| CoreRequest {
-            method: Method(method),
-            params,
-            op: None,
-            ctx: CallContext::internal("test"),
-        };
-        let browser = core.domain_for("browser/command").unwrap();
-        let Reply::Value(value) = browser.call(call("browser/command", json!({ "action": "hide" }))).await.unwrap() else {
-            panic!("a value reply")
-        };
-        assert_eq!(value, json!({ "from": "browser" }));
-        let visualize = core.domain_for("visualize/command").unwrap();
-        let params = json!({ "action": "close", "input": { "sessionId": "s", "tabId": "t" } });
-        let Reply::Value(value) = visualize.call(call("visualize/command", params)).await.unwrap() else {
-            panic!("a value reply")
-        };
-        assert_eq!(value, json!({ "from": "visualize" }));
-        let sent = host.sent();
-        assert_eq!(sent.len(), 2);
-        assert_eq!((sent[0].0, sent[0].1.as_str()), (HostCapability::Browser, "host/browser/command"));
-        assert_eq!((sent[1].0, sent[1].1.as_str()), (HostCapability::Visualize, "host/visualize/command"));
-    }
-
-    #[tokio::test]
-    async fn every_domain_method_has_a_service() {
-        let dir = tempfile::tempdir().unwrap();
-        let core = compose(
-            &mixdog_rt::testing::tokens(),
-            ComposeConfig {
-                data_dir: dir.path().to_path_buf(),
-                user_data_dir: dir.path().join("userdata"),
-                js_runtime: crate::js_runtime::fixture(dir.path()),
-                ort_library: OrtRuntime::NoBinding,
-                host: Arc::new(MockHostChannel::default()),
-                log: crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new()),
-                stop: mixdog_rt::CancellationToken::new(),
-            },
-        )
-        .await.unwrap();
-        let table = CLIENT_METHODS
-            .iter()
-            .map(|spec| spec.method)
-            .chain(CLIENT_NOTIFICATIONS.iter().map(|spec| spec.method));
-        for method in table {
-            let namespace = method.split('/').next().unwrap();
-            let service = core.domain_for(method);
-            if CORE_NAMESPACES.contains(&namespace) {
-                assert!(service.is_none(), "{method} is served by the core itself");
-                continue;
-            }
-            let service = service.unwrap_or_else(|| panic!("{method} has no service"));
-            if !core.mocked_domains().contains(&method) {
-                continue;
-            }
-            let reply = service
-                .call(CoreRequest {
-                    method: Method(method),
-                    params: json!({ "n": method }),
-                    op: None,
-                    ctx: CallContext::internal("test"),
-                })
-                .await
-                .unwrap();
-            match reply {
-                Reply::Value(value) => assert_eq!(value["params"]["n"], method),
-                Reply::Subscribe(_) => panic!("mock domain subscribed"),
-            }
+    /// The config every test composes with: a fresh `Outgoing` (no desktop connected), the mock ownership, the fixture JS runtime, the shared data directory
+    /// (`compose_test_support`: the PostgreSQL runtime is installed into it once). The caller holds `compose_test_support::exclusive()`.
+    fn config(dir: &Path, log: crate::daemon_log::DaemonLog, stop: tokio_util::sync::CancellationToken) -> ComposeConfig {
+        ComposeConfig {
+            data_dir: crate::compose_test_support::data_dir().to_path_buf(),
+            user_data_dir: dir.join("userdata"),
+            js_runtime: crate::js_runtime::fixture(dir),
+            ort_library: OrtRuntime::NoBinding,
+            outgoing: mixdog_app_server::Outgoing::new(),
+            ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
+            log,
+            stop,
         }
     }
 
@@ -810,22 +738,12 @@ mod tests {
     /// The release procedure runs the final barriers in registration order, then (after the
     /// extension host has closed) the stop steps; neither runs twice.
     #[tokio::test]
+    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
     async fn release_runs_the_barriers_then_the_stop_steps_once() {
+        let _one = crate::compose_test_support::exclusive().await;
         let dir = tempfile::tempdir().unwrap();
-        let core = compose(
-            &mixdog_rt::testing::tokens(),
-            ComposeConfig {
-                data_dir: dir.path().to_path_buf(),
-                user_data_dir: dir.path().join("userdata"),
-                js_runtime: crate::js_runtime::fixture(dir.path()),
-                ort_library: OrtRuntime::NoBinding,
-                host: Arc::new(mixdog_core_api::mock::MockHostChannel::default()),
-                log: crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new()),
-                stop: mixdog_rt::CancellationToken::new(),
-            },
-        )
-        .await
-        .unwrap();
+        let log = crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new());
+        let core = compose(&mixdog_rt::testing::tokens(), config(dir.path(), log, mixdog_rt::CancellationToken::new())).await.unwrap();
         let order = Arc::new(std::sync::Mutex::new(Vec::<&'static str>::new()));
         for name in ["first", "second"] {
             let order = order.clone();
@@ -833,6 +751,8 @@ mod tests {
         }
         let steps = order.clone();
         core.on_stop("step", async move { steps.lock().unwrap().push("step") });
+        // The release states the reason before its first step (`release_started`); the directory's and the channels' steps read it.
+        core.set_stop_reason("test");
         core.run_final_barriers();
         core.run_stop_steps().await;
         core.run_final_barriers();
@@ -842,32 +762,57 @@ mod tests {
 
     /// The stop procedure writes the log out before the run token ends: a line a step logs is on disk when it returns.
     #[tokio::test]
+    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
     #[allow(clippy::disallowed_methods, reason = "reads the log file the test just had written")]
     async fn the_stop_steps_flush_the_daemon_log_and_then_end_the_run_token() {
+        let _one = crate::compose_test_support::exclusive().await;
         let dir = tempfile::tempdir().unwrap();
         let stop = tokio_util::sync::CancellationToken::new();
         let log = crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, stop.clone());
         log.enable_file_logging();
-        let core = compose(
-            &mixdog_rt::testing::tokens(),
-            ComposeConfig {
-                data_dir: dir.path().to_path_buf(),
-                user_data_dir: dir.path().join("userdata"),
-                js_runtime: crate::js_runtime::fixture(dir.path()),
-                ort_library: OrtRuntime::NoBinding,
-                host: Arc::new(mixdog_core_api::mock::MockHostChannel::default()),
-                log: log.clone(),
-                stop: stop.clone(),
-            },
-        )
-        .await
-        .unwrap();
+        let core = compose(&mixdog_rt::testing::tokens(), config(dir.path(), log.clone(), stop.clone())).await.unwrap();
         let writer = log.clone();
         core.on_stop("log a line", async move { writer.log("closing") });
         assert!(!stop.is_cancelled());
+        core.set_stop_reason("test");
         core.run_stop_steps().await;
         assert!(stop.is_cancelled());
         let text = std::fs::read_to_string(dir.path().join("daemon.log")).unwrap();
         assert!(text.contains("[daemon] closing"), "{text}");
+    }
+}
+
+/// Every scope the composition asks an op gate for must be in `OP_SCOPES`, or `compose` fails at startup with "the op gate of `<scope>` was not passed".
+#[cfg(test)]
+mod op_scope_tests {
+    use super::OP_SCOPES;
+
+    fn asked(source: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut rest = source;
+        while let Some(at) = rest.find(".scopes(\"") {
+            rest = &rest[at + ".scopes(\"".len()..];
+            if let Some(end) = rest.find('"') {
+                out.push(rest[..end].to_owned());
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn every_scope_the_composition_asks_for_has_a_gate() {
+        let sources = [
+            include_str!("compose_flip.rs"),
+            include_str!("compose_domains.rs"),
+            include_str!("compose_domains/rows.rs"),
+            include_str!("compose_domains/local.rs"),
+        ];
+        let mut missing: Vec<String> = sources.iter().flat_map(|s| asked(s)).filter(|scope| !OP_SCOPES.contains(&scope.as_str())).collect();
+        missing.sort();
+        missing.dedup();
+        assert!(missing.is_empty(), "scopes asked of an op gate but absent from OP_SCOPES: {missing:?}");
+        for scope in crate::compose_domains::OP_SCOPES {
+            assert!(OP_SCOPES.contains(&scope), "compose_domains::OP_SCOPES lists `{scope}`, absent from compose OP_SCOPES");
+        }
     }
 }

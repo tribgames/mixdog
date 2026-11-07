@@ -38,6 +38,23 @@ async fn dimensions_come_from_the_saved_measurement_then_the_profile() {
     assert_eq!(resolve_dims(dir.path(), lane, &listed, DEFAULT_MODEL_ID, None).await.expect("profile"), 384);
 }
 
+/// A start that fails after the postmaster is up stops it before the error leaves (`pg_ctl stop`), and one that succeeds does not.
+#[tokio::test(start_paused = true)]
+async fn a_failed_open_over_a_running_cluster_stops_the_cluster() {
+    use crate::memory::boot::release_on_failure;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let stopped = AtomicUsize::new(0);
+    let release = || async { stopped.fetch_add(1, Ordering::SeqCst); };
+
+    let failed: Result<(), &str> = release_on_failure(async { Err("schema") }, release()).await;
+    assert_eq!(failed, Err("schema"), "the open's own error is the one returned");
+    assert_eq!(stopped.load(Ordering::SeqCst), 1);
+
+    let opened: Result<u8, &str> = release_on_failure(async { Ok(1) }, release()).await;
+    assert_eq!(opened, Ok(1));
+    assert_eq!(stopped.load(Ordering::SeqCst), 1, "a good open keeps the cluster");
+}
+
 /// Node's `metaKey` (`index.mjs` `_initStore`), which `openDatabase` stores as
 /// `embedding.current_model`; the same key under Node must not reset the vectors.
 #[test]

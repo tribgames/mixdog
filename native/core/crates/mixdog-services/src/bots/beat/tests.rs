@@ -209,12 +209,18 @@ struct Settings {
     enabled: AtomicBool,
     mixy: AtomicBool,
     asked: AtomicUsize,
+    /// A check waits inside its settings read until `freed`.
+    held: AtomicBool,
+    freed: tokio::sync::Notify,
 }
 
 #[async_trait]
 impl HeartbeatSettings for Settings {
     async fn is_enabled(&self) -> Result<bool, String> {
         self.asked.fetch_add(1, Ordering::SeqCst);
+        if self.held.load(Ordering::SeqCst) {
+            self.freed.notified().await;
+        }
         Ok(self.enabled.load(Ordering::SeqCst))
     }
     async fn mixy_exists(&self) -> Result<bool, String> {
@@ -307,7 +313,13 @@ async fn rig(model: Option<&str>, seed: Option<Value>) -> Rig {
     world.activity();
     let model_fake = Arc::new(Model { route: Mutex::new(None), gate: Mutex::new(Gate::Nothing), decides: AtomicUsize::new(0) });
     model_fake.set_model(model);
-    let settings = Arc::new(Settings { enabled: AtomicBool::new(true), mixy: AtomicBool::new(true), asked: AtomicUsize::new(0) });
+    let settings = Arc::new(Settings {
+        enabled: AtomicBool::new(true),
+        mixy: AtomicBool::new(true),
+        asked: AtomicUsize::new(0),
+        held: AtomicBool::new(false),
+        freed: tokio::sync::Notify::new(),
+    });
     let live = Arc::new(Live::default());
     let sessions = Arc::new(Sessions::default());
     let marks = HeartbeatSessions::new();
@@ -399,25 +411,99 @@ fn the_timers_are_a_minute_then_five() {
     assert_eq!((FIRST_TICK, TICK), (Duration::from_secs(60), Duration::from_secs(300)));
 }
 
+fn asked(r: &Rig) -> usize {
+    r.settings.asked.load(Ordering::SeqCst)
+}
+
+/// Moves the injected clock and the paused runtime clock together, 10 ms at a time, so each timer
+/// sees the time it falls due at (the heartbeat reads its timers off the clock it was given).
+async fn run_for(r: &Rig, millis: i64) {
+    for _ in 0..millis / 10 {
+        r.clock.advance(10);
+        tokio::time::advance(Duration::from_millis(10)).await;
+        for _ in 0..32 {
+            tokio::task::yield_now().await;
+        }
+    }
+}
+
+/// `startMixyHeartbeat` (mixy-heartbeat.mjs): `setTimeout(tick, firstTickMs)` and
+/// `setInterval(tick, tickMs)`, whose first step is a full tick after the start and each next one
+/// a full tick after the one that ran (the test scales 60 s / 5 min down to 100 ms / 400 ms).
 #[tokio::test(start_paused = true)]
 async fn the_first_tick_comes_after_its_wait_and_the_rest_at_the_tick() {
     let r = rig(None, None).await;
     r.settings.enabled.store(false, Ordering::SeqCst);
     let running = start_mixy_heartbeat(r.hb.clone(), Duration::from_millis(100), Duration::from_millis(400));
-    let asked = |r: &Rig| r.settings.asked.load(Ordering::SeqCst);
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    run_for(&r, 50).await;
     assert_eq!(asked(&r), 0, "nothing before the first wait");
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    run_for(&r, 200).await;
     assert_eq!(asked(&r), 1, "the first tick after the wait");
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    run_for(&r, 200).await;
     assert_eq!(asked(&r), 2, "the repeating timer's first tick is a full tick after the start (400 ms)");
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    run_for(&r, 200).await;
     assert_eq!(asked(&r), 2);
-    tokio::time::sleep(Duration::from_millis(350)).await;
+    run_for(&r, 350).await;
     assert_eq!(asked(&r), 3, "then one per tick (800 ms; the next at 1200)");
     running.stop().await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    run_for(&r, 500).await;
     assert_eq!(asked(&r), 3, "a stopped heartbeat ticks no more");
+}
+
+#[tokio::test(start_paused = true)]
+async fn the_timers_follow_the_injected_clock_not_the_runtime_timer_alone() {
+    let r = rig(None, None).await;
+    r.settings.enabled.store(false, Ordering::SeqCst);
+    let running = start_mixy_heartbeat(r.hb.clone(), Duration::from_millis(100), Duration::from_millis(400));
+    tokio::time::advance(Duration::from_secs(10)).await;
+    for _ in 0..32 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(asked(&r), 0, "time the clock never read is no tick");
+    run_for(&r, 100).await;
+    assert_eq!(asked(&r), 1, "the clock reached the first wait");
+    running.stop().await;
+}
+
+/// `stop()` clears both timers at once (`['clear timeout'], ['clear interval']`).
+#[tokio::test(start_paused = true)]
+async fn a_heartbeat_stopped_before_its_first_tick_never_ticks() {
+    let r = rig(None, None).await;
+    let running = start_mixy_heartbeat(r.hb.clone(), Duration::from_millis(100), Duration::from_millis(400));
+    run_for(&r, 50).await;
+    running.stop().await;
+    run_for(&r, 2_000).await;
+    assert_eq!(asked(&r), 0);
+}
+
+/// Node's `stopHeartbeat()` clears both timers when it is called and returns `heartbeat.idle()`,
+/// which the shutdown awaits only after the model proxy has closed: the halt is at once, the wait
+/// settles when the check in progress has ended, and a tick the interval made before found it
+/// running and began none.
+#[tokio::test(start_paused = true)]
+async fn a_halt_is_at_once_and_the_wait_ends_with_the_check_running() {
+    let r = rig(None, None).await;
+    r.settings.enabled.store(false, Ordering::SeqCst);
+    r.settings.held.store(true, Ordering::SeqCst);
+    let running = Arc::new(start_mixy_heartbeat(r.hb.clone(), Duration::from_millis(100), Duration::from_millis(400)));
+    run_for(&r, 100).await;
+    assert_eq!(asked(&r), 1, "the first check runs and waits inside its settings read");
+    run_for(&r, 300).await;
+    assert_eq!(asked(&r), 1, "the interval's tick found a check running");
+    running.halt();
+    run_for(&r, 1_000).await;
+    assert_eq!(asked(&r), 1, "no timer is left after the halt");
+    let ending = tokio::spawn({
+        let running = running.clone();
+        async move { running.ended().await }
+    });
+    run_for(&r, 100).await;
+    assert!(!ending.is_finished(), "the wait lasts as long as the check in progress");
+    r.settings.freed.notify_one();
+    ending.await.unwrap();
+    run_for(&r, 1_000).await;
+    assert_eq!(asked(&r), 1);
+    running.stop().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

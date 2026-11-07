@@ -508,8 +508,8 @@ pub(crate) struct SessionActor {
     prompt_appends: prompt_history::AppendQueue,
     /// Answered once the deleted thread's turn ended.
     delete_closed: Option<oneshot::Sender<Result<(), &'static str>>>,
-    /// The delete's go for the mark, awaited once `delete_closed` answered.
-    delete_mark: Option<oneshot::Receiver<()>>,
+    /// The delete's go for the mark with the header change to append, awaited once `delete_closed` answered.
+    delete_mark: Option<oneshot::Receiver<serde_json::Map<String, Value>>>,
     /// Answered at the mark's ack.
     delete_marked: Option<oneshot::Sender<Result<(), RunError>>>,
     generation: u64,
@@ -702,7 +702,7 @@ impl SessionActor {
             tokio::select! {
                 biased;
                 Some(ctl) = self.ch.ctl_rx.recv() => self.on_ctl(ctl),
-                go = mark_go(&mut self.delete_mark), if marking => self.mark_deleted(go.is_ok()),
+                go = mark_go(&mut self.delete_mark), if marking => self.mark_deleted(go.ok()),
                 Some(msg) = self.ch.dur_rx.recv() => self.on_durability(msg),
                 Some(done) = self.jobs_rx.recv() => self.on_job(done),
                 _ = sleep_until(deadline), if deadline.is_some() => self.on_deadline(),
@@ -738,7 +738,7 @@ impl SessionActor {
         idle: bool,
         guard: Option<super::control::DeleteGuard>,
         closed: oneshot::Sender<Result<(), &'static str>>,
-        mark: oneshot::Receiver<()>,
+        mark: oneshot::Receiver<serde_json::Map<String, Value>>,
         marked: oneshot::Sender<Result<(), RunError>>,
     ) {
         // Another delete holds the thread: it is gone for this one.
@@ -808,16 +808,15 @@ impl SessionActor {
         }
     }
 
-    /// The delete mark (FORMAT.md §5.1 `meta`, `deleted: true`), acked to `delete_marked`;
-    /// `false`: the delete gave up, the thread stops unmarked.
-    fn mark_deleted(&mut self, go: bool) {
+    /// The header change the delete asked for (FORMAT.md §5.1 `meta`: the delete mark
+    /// `deleted: true`, or an idle close's tombstone), acked to `delete_marked`;
+    /// `None`: the delete gave up, the thread stops unmarked.
+    fn mark_deleted(&mut self, go: Option<serde_json::Map<String, Value>>) {
         self.delete_mark = None;
         let Some(marked) = self.delete_marked.take() else { return };
-        if !go {
+        let Some(set) = go else {
             return;
-        }
-        let mut set = serde_json::Map::new();
-        set.insert(mixdog_store::summary::DELETED.into(), json!(true));
+        };
         let meta = Record::Meta(MetaRecord { op: None, change: Slot::Inline(HeaderChange { set, unset: Vec::new() }) });
         self.accept_record(meta, Class::Control, Display::None, Vec::new(), vec![Effect::ItemAck(marked)]);
     }
@@ -4329,7 +4328,7 @@ async fn sleep_until(deadline: Option<tokio::time::Instant>) {
 }
 
 /// A delete's go for its mark; an error when the delete dropped it.
-async fn mark_go(mark: &mut Option<oneshot::Receiver<()>>) -> Result<(), oneshot::error::RecvError> {
+async fn mark_go(mark: &mut Option<oneshot::Receiver<serde_json::Map<String, Value>>>) -> Result<serde_json::Map<String, Value>, oneshot::error::RecvError> {
     match mark {
         Some(mark) => mark.await,
         None => std::future::pending().await,

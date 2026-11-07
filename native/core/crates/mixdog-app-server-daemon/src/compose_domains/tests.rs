@@ -406,8 +406,10 @@ impl SetupUiSurface for Quiet {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
 #[allow(clippy::disallowed_methods, reason = "test setup")]
 async fn every_method_of_the_domains_built_here_has_a_real_service() {
+    let _one = crate::compose_test_support::exclusive().await;
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let host: Arc<dyn HostChannel> = Arc::new(MockHostChannel::default());
@@ -431,11 +433,12 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
     let core = compose(
         &tokens,
         ComposeConfig {
-            data_dir: dir.path().to_path_buf(),
+            data_dir: crate::compose_test_support::data_dir().to_path_buf(),
             user_data_dir: dir.path().join("userdata"),
             js_runtime: crate::js_runtime::fixture(dir.path()),
             ort_library: OrtRuntime::NoBinding,
-            host: host.clone(),
+            outgoing: mixdog_app_server::Outgoing::new(),
+            ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
             log: crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new()),
             stop: mixdog_rt::CancellationToken::new(),
         },
@@ -470,7 +473,7 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
         gates.push((scope, OpGate::domain(OpScope::Domain(scope.into()), store).await.unwrap()));
     }
     let quiet = Arc::new(Quiet);
-    let models = core.models();
+    let models = crate::compose::build_models(&tokens, dir.path(), OrtRuntime::NoBinding).unwrap();
     let app_feed = core.app_feed_core().clone();
     let state = Arc::new(mixdog_core_base::state::StateRuntime::new(app_feed.clone()));
     let (config, _) = mixdog_core_config::config::Config::open(
@@ -580,4 +583,7 @@ async fn every_method_of_the_domains_built_here_has_a_real_service() {
         .filter(|method| !OTHER_OWNERS.iter().any(|(name, _)| name == method))
         .collect();
     assert!(missing.is_empty(), "owned methods without a service: {missing:?}");
+    // The core's memory stack stops with it: the next real-core test starts the cluster of the shared data directory.
+    core.set_stop_reason("test");
+    core.run_stop_steps().await;
 }

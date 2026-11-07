@@ -40,7 +40,8 @@ type Pending = Arc<Mutex<HashMap<String, (Option<ExchangeView>, Vec<Value>)>>>;
 
 pub struct SessionRoomApprovals {
     directory: Arc<SessionDirectory>,
-    summaries: Arc<RoomSummaries>,
+    /// Bound once the room summaries exist: they sit on the thread list, which reads the room runner, which sits on the live rooms that hold these approvals (a true cycle).
+    summaries: OnceLock<Arc<RoomSummaries>>,
     questions: Arc<HandoffQuestionsHub>,
     /// The newest view of each room not published yet: a publish sends what is newest when it
     /// runs, so views published in quick succession never land out of order.
@@ -48,8 +49,23 @@ pub struct SessionRoomApprovals {
 }
 
 impl SessionRoomApprovals {
-    pub fn new(directory: Arc<SessionDirectory>, summaries: Arc<RoomSummaries>, questions: Arc<HandoffQuestionsHub>) -> Self {
-        Self { directory, summaries, questions, pending: Arc::default() }
+    pub fn new(directory: Arc<SessionDirectory>, questions: Arc<HandoffQuestionsHub>) -> Self {
+        Self { directory, summaries: OnceLock::new(), questions, pending: Arc::default() }
+    }
+
+    /// Binds the room summaries; a second bind is refused.
+    pub fn bind_summaries(&self, summaries: Arc<RoomSummaries>) -> Result<(), Arc<RoomSummaries>> {
+        self.summaries.set(summaries)
+    }
+}
+
+impl crate::run_host::late::Bound for SessionRoomApprovals {
+    fn cell(&self) -> &'static str {
+        "room approvals summaries"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.summaries.get().is_some()
     }
 }
 
@@ -115,7 +131,7 @@ impl RoomApprovals for SessionRoomApprovals {
 
     fn publish_view(&self, room_session_id: &str, view: Option<ExchangeView>, questions: Vec<Value>) {
         lock(&self.pending).insert(room_session_id.to_owned(), (view, questions));
-        let (summaries, pending, room) = (self.summaries.clone(), self.pending.clone(), room_session_id.to_owned());
+        let (summaries, pending, room) = (self.summaries.get().expect("room summaries bound (compose::verify_bound)").clone(), self.pending.clone(), room_session_id.to_owned());
         mixdog_rt::spawn("rooms.publish-view", mixdog_rt::TaskClass::Work, async move {
             let Some((view, questions)) = lock(&pending).remove(&room) else { return };
             let state = view.map(|view| RoomViewState { speaking: view.speaking, speaking_name: view.speaking_name, typing_id: view.typing_id, approval: view.approval });

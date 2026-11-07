@@ -323,6 +323,16 @@ mod tests {
         }
     }
 
+    /// `readOnlyFilesystemTools()` holds `code_graph` (`tool-resolution.mjs:96`), but only of a pool it is registered in: the explorer host keeps one snapshot at `bind`,
+    /// so the composition binds it after `code_graph` joins the pool.
+    #[test]
+    fn the_read_only_filesystem_tools_include_code_graph_once_it_is_in_the_pool() {
+        let mut pool: Tools = vec![stub("read"), stub("grep")];
+        assert!(!names(&readonly_filesystem_tools(&pool)).contains(&"code_graph".to_owned()));
+        pool.push(stub("code_graph"));
+        assert!(names(&readonly_filesystem_tools(&pool)).contains(&"code_graph".to_owned()));
+    }
+
     fn golden() -> Value {
         serde_json::from_str(include_str!("golden/session_tools.json")).expect("fixture")
     }
