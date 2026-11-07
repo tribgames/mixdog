@@ -234,6 +234,7 @@ export class SessionHost implements DesktopService {
   /** The session lifecycle, wired to this host's publication, transport,
    *  catalog and project registry. */
   private createLifecycle(options: SerializableDesktopServiceOptions): SessionHostLifecycle {
+    const runtime = this.runtime;
     return new SessionHostLifecycle({
       client: this.sessionClient,
       publication: this.publication,
@@ -270,7 +271,9 @@ export class SessionHost implements DesktopService {
       openHints: (sessionId) => this.openHints(sessionId),
       readSession: (sessionId, forceFull, publish, readTraceId, page) =>
         this.readSession(sessionId, forceFull, publish, readTraceId, page),
-      ...(this.runtime.capabilityLane ? { coreLane: this.runtime.capabilityLane } : {}),
+      get coreLane() {
+        return runtime.capabilityLane;
+      },
       invokeSession: (sessionId, method, args) =>
         hostSessionAction(this.runtime.capabilityLane, sessionId, method, args ?? [], () =>
           this.transport.invokeSession(sessionId, method, args)

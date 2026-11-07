@@ -12,6 +12,7 @@ import {
   hostControlAction,
   hostSessionAction,
 } from './protocol/capability-route.ts';
+import { viewSyncHost } from './test-support/view-sync-host.mjs';
 import { sessionRemoteMethods } from './remote-session-methods.ts';
 import { SessionHostLifecycle } from './session-host-lifecycle.ts';
 
@@ -150,33 +151,81 @@ for (const refuse of [false, true]) {
   });
 }
 
-test('the host mutations with a protocol op and an unread reply go to the core; the rest stay on Node', async () => {
-  assert.deepEqual([...CORE_HOST_ACTIONS].sort(), ['purgeAgentDefinition', 'setArchivedSessionWorktrees', 'setCwd', 'setOrchestrationMode', 'setWorkflow']);
-  const { calls, lane } = coreLane();
-  const node = async () => {
-    throw new Error('Node');
-  };
-  await hostSessionAction(lane, SESSION, 'setCwd', ['/work'], node);
-  await hostSessionAction(lane, SESSION, 'setWorkflow', ['wf'], node);
-  await hostSessionAction(lane, SESSION, 'setOrchestrationMode', ['multi'], node);
-  await hostControlAction(lane, 'setArchivedSessionWorktrees', [{ sessionIds: ['a', 'b'], archived: true }], node);
-  await hostControlAction(lane, 'purgeAgentDefinition', ['bot'], node);
-  assert.deepEqual(
-    calls.filter((call) => call.method !== 'thread/read'),
-    [
-      { method: 'thread/setCwd', params: { threadId: SESSION, path: '/work' } },
-      { method: 'thread/setWorkflow', params: { threadId: SESSION, workflowId: 'wf' } },
-      { method: 'thread/setOrchestrationMode', params: { threadId: SESSION, mode: 'multi' } },
-      { method: 'project/setArchivedSessionWorktrees', params: { input: { sessionIds: ['a', 'b'], archived: true } } },
-      { method: 'agent/purgeAgentDefinition', params: { agentId: 'bot' } },
-    ]
-  );
-  // The session reply keeps the shape the host reads; an action whose reply the host reads, or a Node connection, is the Node transport's.
-  const reply = await hostSessionAction(lane, SESSION, 'setCwd', ['/w'], node);
-  assert.deepEqual(Object.keys(reply).sort(), ['result', 'snapshot', 'value']);
-  const before = calls.length;
-  await assert.rejects(hostControlAction(lane, 'deleteSession', [SESSION], node), /Node/);
-  await assert.rejects(hostSessionAction(lane, SESSION, 'setRoute', [{}], node), /Node/);
-  await assert.rejects(hostControlAction(undefined, 'setCwd', [], node), /Node/);
-  assert.equal(calls.length, before);
+const CONVERTED = [
+  { control: true, method: 'deleteSession', args: [SESSION], request: { method: 'thread/delete', params: { threadId: SESSION } } },
+  { method: 'stopShellJob', args: ['t1'], request: { method: 'thread/backgroundTerminals/terminate', params: { threadId: SESSION, taskId: 't1' } } },
+  { method: 'releaseShellJob', args: ['t1'], request: { method: 'thread/backgroundTerminals/release', params: { threadId: SESSION, taskId: 't1' } } },
+  { method: 'setFast', args: [true], request: { method: 'fast/set', params: { threadId: SESSION, on: true } } },
+  { method: 'setWorkflow', args: ['wf'], request: { method: 'thread/setWorkflow', params: { threadId: SESSION, workflowId: 'wf' } } },
+  { method: 'setOrchestrationMode', args: ['multi'], request: { method: 'thread/setOrchestrationMode', params: { threadId: SESSION, mode: 'multi' } } },
+  {
+    control: true,
+    method: 'setArchivedSessionWorktrees',
+    args: [{ sessionIds: ['a', 'b'], archived: true }],
+    request: { method: 'project/setArchivedSessionWorktrees', params: { input: { sessionIds: ['a', 'b'], archived: true } } },
+  },
+  { control: true, method: 'purgeAgentDefinition', args: ['bot'], request: { method: 'agent/purgeAgentDefinition', params: { agentId: 'bot' } } },
+];
+
+test('the converted host actions are exactly the ones whose core reply serves the host', () => {
+  assert.deepEqual([...CORE_HOST_ACTIONS].sort(), CONVERTED.map((item) => item.method).sort());
+});
+
+test('a constructed SessionHost on a core connection sends its converted actions to the core and the rest to Node', async () => {
+  const world = await viewSyncHost();
+  try {
+    const { calls, lane } = coreLane();
+    world.runtime.capabilityLane = lane;
+    const owner = world.host.lifecycle.owner;
+    for (const item of CONVERTED) {
+      const before = calls.length;
+      const reply = item.control ? await owner.invokeControl(item.method, item.args) : await owner.invokeSession(SESSION, item.method, item.args);
+      assert.deepEqual(calls[before], item.request, item.method);
+      assert.deepEqual(reply, item.control ? { ok: true } : { value: { ok: true }, snapshot: reply.snapshot, result: {} }, item.method);
+    }
+    // An action whose reply the host reads stays on the Node transport: the session client answers (and here refuses) it.
+    const sent = calls.length;
+    await assert.rejects(owner.invokeSession(SESSION, 'setRoute', [{}]), /Unexpected configuration|not available/);
+    assert.equal(calls.length, sent);
+  } finally {
+    await world.close();
+  }
+});
+
+test('a constructed SessionHost on a core connection keeps session metadata in the core', async () => {
+  const world = await viewSyncHost();
+  try {
+    const { calls, lane } = coreLane();
+    world.runtime.capabilityLane = lane;
+    const { host } = world;
+    await host.setSessionFavorite(SESSION, true);
+    await host.archiveSessionAlone(SESSION);
+    await host.lifecycle.setSessionArchived(SESSION, false, false);
+    await host.forgetSessionMetadata(SESSION);
+    assert.deepEqual(calls, [
+      { method: 'thread/metadata/update', params: { threadId: SESSION, favorite: true } },
+      { method: 'thread/archive', params: { threadId: SESSION } },
+      { method: 'thread/unarchive', params: { threadId: SESSION } },
+    ]);
+    // The Node-side metadata file is not written.
+    await host.sessionMetadata.load();
+    assert.equal(Object.keys(host.sessionMetadata.favorites).length, 0);
+    assert.equal(Object.keys(host.sessionMetadata.archived).length, 0);
+    const renamed = await settle(host.renameSession(SESSION, 'Plan'));
+    assert.deepEqual(renamed, { ok: true });
+    assert.deepEqual(calls.at(-1), { method: 'thread/name/set', params: { threadId: SESSION, title: 'Plan' } });
+  } finally {
+    await world.close();
+  }
+});
+
+test('a host without a lane (a Node connection) keeps every action on the Node transport', async () => {
+  const world = await viewSyncHost();
+  try {
+    const owner = world.host.lifecycle.owner;
+    await assert.rejects(owner.invokeSession(SESSION, 'setFast', [true]), /Unexpected configuration|not available/);
+    assert.equal(owner.coreLane, undefined);
+  } finally {
+    await world.close();
+  }
 });
