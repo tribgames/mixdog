@@ -1119,11 +1119,7 @@ impl DirInner {
 fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog) -> Opened {
     let mut state = SessionState::new(deps.limits.view_items);
     state.header = log.header;
-    state.sections.title = state
-        .header
-        .get("title")
-        .and_then(Value::as_str)
-        .map(str::to_owned);
+    state.sections.title = super::state::title_of(&state.header);
     state.history_rev = log.history_rev;
     state.lineage_start = log.lineage_start;
     state.has_older = log.has_older;

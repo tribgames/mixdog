@@ -551,7 +551,14 @@ fn merge_context(held: ThreadContext, new: ThreadContext) -> ThreadContext {
     }
 }
 
-fn title_of(header: &Header) -> Option<String> {
+/// The thread state's `title`: the name the user gave. Node's session state never carries a title (the
+/// desktop names a session from its catalog row, which has the fallback and generated titles), so only a
+/// locked title whose source is not the model's (a locked one without a source is the user's, as in
+/// `update_ai_title`) is published here and in `thread/name/updated`.
+pub(crate) fn title_of(header: &Header) -> Option<String> {
+    if header.get("titleLocked") != Some(&Value::Bool(true)) || header.get("titleSource").and_then(Value::as_str) == Some("ai") {
+        return None;
+    }
     header
         .get("title")
         .and_then(Value::as_str)
@@ -603,6 +610,20 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    fn header(fields: Value) -> Header {
+        fields.as_object().cloned().expect("object")
+    }
+
+    /// Node's session state carries no title: the fallback and the model's titles stay in the header, and only
+    /// the user's rename is published.
+    #[test]
+    fn only_a_title_the_user_gave_is_published_in_the_thread_state() {
+        assert_eq!(title_of(&header(json!({ "title": "Read hello.txt…", "titleUpdatedAt": 1 }))), None);
+        assert_eq!(title_of(&header(json!({ "title": "Haiku", "titleLocked": true, "titleSource": "ai" }))), None);
+        assert_eq!(title_of(&header(json!({ "title": "Mine", "titleLocked": true, "titleSource": "user" }))).as_deref(), Some("Mine"));
+        assert_eq!(title_of(&header(json!({ "title": "Old", "titleLocked": true }))).as_deref(), Some("Old"));
+    }
 
     /// A hint is the runtime section's `progressHint` only: publishing one must not reset what else
     /// the section holds (the whole-section `Runtime` replaces it).
