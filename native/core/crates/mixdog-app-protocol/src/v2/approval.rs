@@ -8,14 +8,13 @@ use mixdog_protocol::JsonValue;
 use mixdog_protocol::OpId;
 use mixdog_protocol::ThreadId;
 use mixdog_protocol::TurnId;
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
 use crate::rpc::RequestId;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ToolApprovalKind {
     Shell,
@@ -28,9 +27,10 @@ pub enum ToolApprovalKind {
 }
 
 /// Fields every approval request carries.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ApprovalEnvelope {
     pub thread_id: ThreadId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -43,17 +43,18 @@ pub struct ApprovalEnvelope {
     /// Delegation chain from the surface thread to the asking thread.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chain: Option<Vec<ThreadId>>,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub requested_at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub expires_at: Option<i64>,
     /// Per-surface presentation order; the lowest is the active card (P §8.5).
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub order: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ToolApprovalRequestParams {
     #[serde(flatten)]
@@ -64,7 +65,8 @@ pub struct ToolApprovalRequestParams {
     pub request: JsonValue,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct UserInputRequestParams {
     #[serde(flatten)]
@@ -73,7 +75,8 @@ pub struct UserInputRequestParams {
     pub questions: Vec<JsonValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct PermissionsRequestParams {
     #[serde(flatten)]
@@ -83,7 +86,8 @@ pub struct PermissionsRequestParams {
     pub request: JsonValue,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserApprovalRequestParams {
     #[serde(flatten)]
@@ -93,7 +97,8 @@ pub struct BrowserApprovalRequestParams {
     pub request: JsonValue,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ComputerApprovalRequestParams {
     #[serde(flatten)]
@@ -102,7 +107,8 @@ pub struct ComputerApprovalRequestParams {
 }
 
 /// To every eligible connection, losers included (P §8.4 step 4).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ServerRequestResolvedParams {
     pub thread_id: ThreadId,
@@ -112,7 +118,8 @@ pub struct ServerRequestResolvedParams {
 
 /// Secret answer of a human-gate `provide-secret` request (today's `provideSecretInput`);
 /// never part of a decision or a log record.
-#[derive(Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ApprovalProvideSecretParams {
     pub op_id: OpId,

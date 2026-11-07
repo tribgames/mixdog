@@ -3,17 +3,17 @@
 
 use std::collections::BTreeMap;
 
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(transparent)]
 pub struct ConfigPath(pub String);
 
 /// How a `config/value/write` edit applies.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ConfigWriteMode {
     /// Replace the value (default).
@@ -78,7 +78,8 @@ pub mod desktop_files {
 // ---- `notifications` (the storage half of `notification-preferences.ts`, issue #221) ----
 // A missing or invalid field reads as its default, as the Node loader does.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum NotificationScope {
     All,
@@ -86,7 +87,8 @@ pub enum NotificationScope {
     Off,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum NotificationQuietDays {
     Every,
@@ -95,7 +97,8 @@ pub enum NotificationQuietDays {
 }
 
 /// Which kinds of event notify.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", default)]
 pub struct NotificationEvents {
     pub finished: bool,
@@ -115,7 +118,8 @@ impl Default for NotificationEvents {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", default)]
 pub struct NotificationQuietHours {
     pub enabled: bool,
@@ -140,7 +144,8 @@ impl Default for NotificationQuietHours {
 }
 
 /// One device's preferences (this PC under device id `pc`, a paired device under its client id).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", default)]
 pub struct NotificationDevicePreferences {
     pub scope: NotificationScope,
@@ -167,7 +172,8 @@ impl Default for NotificationDevicePreferences {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum NotificationTargetKind {
     Session,
@@ -176,7 +182,8 @@ pub enum NotificationTargetKind {
 }
 
 /// What a conversation override is attached to.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct NotificationTarget {
     pub kind: NotificationTargetKind,
@@ -185,19 +192,21 @@ pub struct NotificationTarget {
 }
 
 /// An override in force; "inherit" is the absence of an entry.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "mode", rename_all = "camelCase")]
 pub enum ConversationNotificationSetting {
     /// Notifies whatever the device scope says (quiet hours still apply).
     Always,
     /// `until`: epoch ms, or `null` for no end.
     Muted {
-        #[ts(type = "number | null")]
+        #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
         until: Option<i64>,
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ConversationNotificationOverride {
     pub target: NotificationTarget,
@@ -205,11 +214,12 @@ pub struct ConversationNotificationOverride {
 }
 
 /// The value of config key `notifications`.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", default)]
 pub struct NotificationPreferences {
     /// When the store was first written: devices paired before it keep today's behaviour.
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub migrated_at: i64,
     /// By device id.
     pub devices: BTreeMap<String, NotificationDevicePreferences>,

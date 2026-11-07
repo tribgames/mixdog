@@ -2,7 +2,8 @@
 //! WebSocket, every client method with its scope/class/mutation/origins row,
 //! server requests, notifications, error reasons, `initialize` limits and
 //! capabilities, the X17 media frame header and the host channel. JSON Schema
-//! and TypeScript goldens are generated from these types (`export`).
+//! and TypeScript goldens are generated from these types (`export`, behind the
+//! `codegen` feature, which the crate's own tests enable).
 //!
 //! Unknown fields: params accept and ignore unknown fields, so older cores
 //! serve newer clients. Only settings and update params (`*Set*Params`,
@@ -14,6 +15,7 @@
 
 pub mod common;
 pub mod error;
+#[cfg(feature = "codegen")]
 pub mod export;
 pub mod inventory;
 pub mod limits;

@@ -7,12 +7,21 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# JSON Schema and TypeScript derives plus the `export` module that writes the goldens.
+# Off for every ordinary build; the crate's own tests turn it on (see dev-dependencies).
+codegen = ["dep:schemars", "dep:ts-rs", "mixdog-protocol/codegen"]
+
 [dependencies]
 mixdog-protocol = { workspace = true }
-schemars = { workspace = true }
+schemars = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-ts-rs = { workspace = true, features = ["serde-json-impl", "no-serde-warnings"] }
+ts-rs = { workspace = true, optional = true, features = ["serde-json-impl", "no-serde-warnings"] }
 
 [dev-dependencies]
+# Self dependency: a test build of this package (`cargo test`, `cargo nextest`) resolves the
+# `codegen` feature on, so the golden tests run in the plain workspace test run without
+# `required-features` skipping them. Dev-dependency features do not reach `cargo build`.
+mixdog-app-protocol = { workspace = true, features = ["codegen"] }
 pretty_assertions = { workspace = true }

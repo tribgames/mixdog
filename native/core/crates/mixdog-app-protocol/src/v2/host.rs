@@ -4,15 +4,14 @@
 use mixdog_protocol::HostId;
 use mixdog_protocol::JsonValue;
 use mixdog_protocol::ThreadId;
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
 use crate::rpc::RequestId;
 
 /// Claims the host role for this install (`hostId` generated per install).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct HostClaimParams {
     pub host_id: HostId,
@@ -20,7 +19,8 @@ pub struct HostClaimParams {
 
 /// Publishes desktop-owned state into section `hostState`: `{key, value}`, the value's shape
 /// picked by the key. Only `visualize` is typed; the others stay the desktop's own JSON.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "key", content = "value", rename_all = "camelCase")]
 pub enum HostStateSetParams {
     BrowserTabs(JsonValue),
@@ -43,7 +43,8 @@ impl HostStateSetParams {
 
 /// What the desktop publishes under `visualize`: the visualize service's `hostSnapshot()`
 /// (every session's state, sent again on each claim) or one `publishRemote` change event.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(untagged)]
 pub enum VisualizeHostValue {
     Snapshot(Vec<VisualizeHostState>),
@@ -52,9 +53,10 @@ pub enum VisualizeHostValue {
 
 /// `VisualizeHostEvent` (`apps/desktop/src/shared/visualize.ts`), main → core: the change
 /// `DesktopVisualizeEvent` carries, with host paths.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct VisualizeHostEvent {
     pub session_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -72,21 +74,22 @@ pub struct VisualizeHostEvent {
     pub held: Option<bool>,
     /// With `held`: when the turn started (ms).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub held_since: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub open_url: Option<String>,
 }
 
 /// One session's tabs with their resolved files.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct VisualizeHostState {
     pub session_id: String,
     pub tabs: Vec<VisualizeHostTab>,
     /// Always written; `null` when no tab is active.
-    #[ts(optional = false, type = "string | null")]
+    #[cfg_attr(feature = "codegen", ts(optional = false, type = "string | null"))]
     pub active: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub history: Option<Vec<VisualizeHistoryItem>>,
@@ -103,9 +106,10 @@ where
     Option::<T>::deserialize(deserializer).map(Some)
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct VisualizeHostTab {
     pub id: String,
     pub label: String,
@@ -117,19 +121,19 @@ pub struct VisualizeHostTab {
     pub panes: Vec<VisualizeHostPane>,
     /// Always `true` when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "true")]
+    #[cfg_attr(feature = "codegen", ts(type = "true"))]
     pub missing: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub problems: Option<Vec<VisualizeProblem>>,
     /// Always `true` when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "true")]
+    #[cfg_attr(feature = "codegen", ts(type = "true"))]
     pub network_allowed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub versions: Option<Vec<VisualizeVersionView>>,
     /// The version shown instead of the live files; `null` = live.
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "null_or_value")]
-    #[ts(type = "number | null")]
+    #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
     pub version: Option<Option<u32>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compare: Option<bool>,
@@ -145,9 +149,10 @@ pub struct VisualizeHostTab {
 }
 
 /// A pane with the symlink-resolved file it shows.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct VisualizeHostPane {
     pub kind: VisualizePaneKind,
     pub label: String,
@@ -168,7 +173,8 @@ pub struct VisualizeHostPane {
     pub remote_render_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum VisualizePaneKind {
     Html,
@@ -181,7 +187,8 @@ pub enum VisualizePaneKind {
 }
 
 /// What `open` can render straight from `input.content`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum VisualizeInlineKind {
     Mermaid,
@@ -191,9 +198,10 @@ pub enum VisualizeInlineKind {
     Markdown,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct VisualizeInlineContent {
     pub kind: VisualizeInlineKind,
     pub source: String,
@@ -201,18 +209,19 @@ pub struct VisualizeInlineContent {
     pub title: Option<String>,
     /// Always `true` when present: a device's snapshot left the source out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "true")]
+    #[cfg_attr(feature = "codegen", ts(type = "true"))]
     pub deferred: Option<bool>,
 }
 
 /// One kept version of a tab's files (`n` counts up per tab from 1).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct VisualizeVersionView {
     pub n: u32,
     /// When it was kept (ms since epoch).
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
@@ -221,16 +230,18 @@ pub struct VisualizeVersionView {
 }
 
 /// One agent turn's span (ms since epoch).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct VisualizeVersionTurn {
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub since: i64,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub end: i64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum VisualizeProblemKind {
     Exception,
@@ -246,9 +257,10 @@ pub enum VisualizeProblemKind {
 }
 
 /// One distinct runtime problem of a tab's HTML pane; `source` is project-relative.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct VisualizeProblem {
     pub kind: VisualizeProblemKind,
     pub message: String,
@@ -262,9 +274,10 @@ pub struct VisualizeProblem {
 }
 
 /// The agent's mark on displayed pane `pane` (selectors and labels only).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct VisualizeAnnotation {
     pub pane: u32,
     pub selector: String,
@@ -273,7 +286,8 @@ pub struct VisualizeAnnotation {
 }
 
 /// The pane kinds and inline kinds a history entry can show, or a `split` of several.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum VisualizeHistoryKind {
     Html,
@@ -291,7 +305,8 @@ pub enum VisualizeHistoryKind {
 }
 
 /// One thing opened in a session (open or since closed); path-free.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct VisualizeHistoryItem {
     pub id: String,
@@ -299,13 +314,14 @@ pub struct VisualizeHistoryItem {
     pub kind: VisualizeHistoryKind,
     pub versions: u32,
     /// When it was last opened (ms since epoch).
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub at: i64,
     pub open: bool,
 }
 
 /// An open of a finished turn whose tab had nothing left to show.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct VisualizeGoneOpen {
     pub tab: String,
@@ -313,9 +329,10 @@ pub struct VisualizeGoneOpen {
 }
 
 /// SSH server core the local core bridges phone connections to (R25).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct HostRemoteTargetSetParams {
     /// `ws://127.0.0.1:<port>/rpc` of the tunnel; absent = the local core.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -324,9 +341,10 @@ pub struct HostRemoteTargetSetParams {
     pub token: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct HostCommandParams {
     pub action: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -336,12 +354,14 @@ pub struct HostCommandParams {
 }
 
 /// Params of `host/notification/status` (core → host): none.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(deny_unknown_fields)]
 pub struct HostNotificationStatusParams {}
 
 /// Result of `host/notification/status` (Node's host method `notificationStatus`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct HostNotificationStatus {
     /// Whether this PC can show OS notifications (`Notification.isSupported()`).
@@ -352,18 +372,21 @@ pub struct HostNotificationStatus {
     pub idle_seconds: Option<f64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct HostSystemProxyResolveParams {
     pub url: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct HostSystemProxyResolveResponse {
     /// Chromium proxy rules for the URL (`DIRECT`, `PROXY host:port`, …).
     pub rules: String,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum UpdaterAction {
     Check,
@@ -371,8 +394,9 @@ pub enum UpdaterAction {
 }
 
 /// Params of `host/update/command` (core → host).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
-#[ts(optional_fields)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct HostUpdateCommandParams {
     pub action: UpdaterAction,
     /// Node's `updaterInstall` argument `args[0]`: the user confirmed the install.
@@ -381,7 +405,8 @@ pub struct HostUpdateCommandParams {
 }
 
 /// Params of `update/desktop/command` (any client → core).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateDesktopCommandParams {
     pub op_id: mixdog_protocol::OpId,
@@ -395,9 +420,10 @@ impl crate::common::HasOpId for UpdateDesktopCommandParams {
 }
 
 /// Params of `host/capture/fileSnapshot` (core → host). The core has already confined the path.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct HostFileSnapshotParams {
     pub root: String,
     pub rel: String,
@@ -406,18 +432,20 @@ pub struct HostFileSnapshotParams {
 }
 
 /// Result of `host/capture/fileSnapshot`: the picture of the file.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct HostFileSnapshot {
     /// `data:image/png;base64,…` or `data:image/jpeg;base64,…`.
     pub data_url: String,
     pub mtime_ms: f64,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub size: u64,
 }
 
 /// What a `host/localPage/url` lease covers; absent means `project`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum LocalPageScope {
     File,
@@ -425,9 +453,10 @@ pub enum LocalPageScope {
 }
 
 /// Params of `host/localPage/url` (core → host); the result is the URL string.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct HostLocalPageUrlParams {
     pub root: String,
     pub rel: String,
@@ -436,7 +465,8 @@ pub struct HostLocalPageUrlParams {
 }
 
 /// The visualize service's actions (`host/visualize/command`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum VisualizeAction {
     Open,
@@ -452,9 +482,10 @@ pub enum VisualizeAction {
 /// Params of `host/visualize/command` (core → host): the loopback bridge's request body.
 /// The result is the service's object (`{text, tabs?, path?, …}`), `null` when it returns nothing
 /// (`visualizeCommand`: `(await visualize.command(…)) ?? null`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct HostVisualizeCommandParams {
     pub session_id: String,
     pub cwd: String,
@@ -463,9 +494,10 @@ pub struct HostVisualizeCommandParams {
     pub input: Option<JsonValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct HostNotificationShowParams {
     pub title: String,
     pub body: String,
@@ -478,7 +510,8 @@ pub struct HostNotificationShowParams {
 }
 
 /// First viewer → `on`, last viewer gone → `off` (SPEC §4.7.3).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct HostBrowserViewFramesParams {
     pub tab_id: String,
@@ -493,9 +526,10 @@ pub struct HostBrowserViewFramesParams {
 /// window to reveal or hide a session's browser surface (`browserRemoteOpen`). The core publishes
 /// it as `ui/openRequested { kind: "browser" }` so every attached client, paired phones included,
 /// opens the same surface. Fields are `UiOpenBrowser`'s.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct HostBrowserSurfaceParams {
     pub session_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -526,38 +560,44 @@ impl From<HostBrowserSurfaceParams> for UiOpenBrowser {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum PowerEvent {
     Suspend,
     Resume,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct HostPowerParams {
     pub event: PowerEvent,
 }
 
 /// Today's `DesktopUpdaterState`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct HostUpdateReportParams {
     pub state: JsonValue,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct HostNotificationClickedParams {
     pub thread_id: ThreadId,
 }
 
 /// `client/activity`: sent on user input, at most once per 60 s (client-side rate).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct ClientActivityParams {
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub at: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct ClientPerfLogParams {
     pub line: String,
 }
@@ -565,7 +605,8 @@ pub struct ClientPerfLogParams {
 /// App-feed event (`desktop-services.md` §12.4): the core asks attached UIs to open something.
 /// One variant per Node flow it replaces: `browser-open-requested`, `terminal-run-requested`
 /// and the visualize open (`visualize/open-actions.ts`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum UiOpenRequestedParams {
     Browser(UiOpenBrowser),
@@ -574,9 +615,10 @@ pub enum UiOpenRequestedParams {
 }
 
 /// `DesktopBrowserOpenRequest` (`shared/contract-browser.ts`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct UiOpenBrowser {
     pub session_id: String,
     /// `false` creates or retains the surface without opening the session dock.
@@ -600,9 +642,10 @@ pub struct UiOpenBrowser {
 
 /// `DesktopTerminalRunRequest` (`shared/terminal-command.ts`): the `terminal` tool ran a command
 /// in one of the session's terminals.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct UiOpenTerminal {
     pub session_id: String,
     /// The terminal the command went to; its tab is selected. (The spec's §6.3 sketch calls it
@@ -620,23 +663,25 @@ pub struct UiOpenTerminal {
 }
 
 /// `DesktopTerminalRunTab`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct UiTerminalTab {
     pub id: String,
     /// Tab number within the session (1 = the session's first terminal).
     pub tab: u32,
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "null_or_value")]
-    #[ts(type = "string | null")]
+    #[cfg_attr(feature = "codegen", ts(type = "string | null"))]
     pub cwd: Option<Option<String>>,
 }
 
 /// The visualize open: a web URL handed to the session's browser panel (`openUrl`), or a
 /// revealed tab (`reveal`, `tab`), as `DesktopVisualizeEvent` carries them.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct UiOpenVisualize {
     pub session_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -664,7 +709,8 @@ pub struct UiOpenVisualize {
 /// ends with no page id after 3000 ms, or when the open is cancelled, a new open reuses the
 /// request id, or the session's browser is released. With no page id the agent is told to find
 /// the page with the browser tool's `list_tabs`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct UiNewTabCreatedParams {
     pub session_id: String,
@@ -679,7 +725,8 @@ pub struct UiNewTabCreatedParams {
 /// 500 ms for the claim's trip back) and then settles the run as `shown: false`, reported to the
 /// agent as running in the background; with no UI attached it settles `shown: false` at once. A
 /// claim settles its run once: a claim for an unknown or already-settled id has no effect.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct UiTerminalRunClaimedParams {
     pub request_id: String,
@@ -700,9 +747,10 @@ pub struct UiTerminalRunClaimedParams {
 /// subscription is keyed by (Node's `setForeground(visible, browserId)`): at most 64 UTF-16
 /// units, kept until the phone states another, and ignored on every connection that is not a
 /// relay connection.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct UiScreenSessionsChangedParams {
     pub session_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -711,7 +759,8 @@ pub struct UiScreenSessionsChangedParams {
 
 /// Notification `core/drain` (`lifecycle-remote.md` §5.1 step 2): the core is draining; sent to
 /// every connected client with what is still running, and the token that authorizes an abort.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct CoreDrainParams {
     pub drain_id: String,
@@ -720,7 +769,8 @@ pub struct CoreDrainParams {
 }
 
 /// One unit of running work, as listed to the user.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct DrainRunning {
     pub thread_id: Option<String>,
@@ -730,7 +780,8 @@ pub struct DrainRunning {
 }
 
 /// App-feed event: remote pointer position (today's `notify` remote pointer).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct RemotePointerParams {
     pub pointer: JsonValue,
 }
@@ -738,20 +789,23 @@ pub struct RemotePointerParams {
 /// Server core → a connection with `capabilities.modelProxy`: run one model call
 /// with this machine's accounts. Completion is the response; losing the
 /// connection resolves the call `cancelled`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct ModelProxyExecuteParams {
     pub call: crate::v2::model_proxy::ProxyCall,
 }
 
 /// A failed call answers with a JSON-RPC error whose data is a
 /// [`crate::v2::model_proxy::ProxyFailure`].
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct ModelProxyResult {
     pub result: crate::v2::model_proxy::ProxyAnswer,
 }
 
 /// Electron → server core: one streamed event of a `model/proxy/execute` request.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ModelProxyEventParams {
     pub request_id: RequestId,
@@ -759,14 +813,16 @@ pub struct ModelProxyEventParams {
 }
 
 /// Electron → server core: these `model/proxy/execute` requests are still being run; the first beat of a request claims it, each renews its lease.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ModelProxyHeartbeatParams {
     pub request_ids: Vec<RequestId>,
 }
 
 /// Electron → its local core: execute a proxied call.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ModelProxyRunParams {
     /// Stream id the local core stamps on `modelProxy/run/event`.
@@ -774,7 +830,7 @@ pub struct ModelProxyRunParams {
     pub call: crate::v2::model_proxy::ProxyCall,
     /// The providers this server may use through this PC: the host's saved list, `null` for every provider enabled here. Always sent: a message without it is refused, never read as every provider.
     #[serde(deserialize_with = "required_list")]
-    #[schemars(required)]
+    #[cfg_attr(feature = "codegen", schemars(required))]
     pub allowed_providers: Option<Vec<String>>,
 }
 
@@ -787,7 +843,8 @@ where
 }
 
 /// Local core → Electron: one streamed event of a `modelProxy/run` request.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ModelProxyRunEventParams {
     pub run_id: String,
@@ -796,7 +853,8 @@ pub struct ModelProxyRunEventParams {
 
 /// Server core → the connection running a `model/proxy/execute` request: the call was given up
 /// (cancelled, abandoned); stop spending on it. The connection's answer is no longer read.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ModelProxyCancelParams {
     pub request_id: RequestId,
@@ -804,7 +862,8 @@ pub struct ModelProxyCancelParams {
 
 /// Electron → its local core: stop the `modelProxy/run` run `run_id` (the abort of a
 /// `model/proxy/cancel`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ModelProxyRunCancelParams {
     pub run_id: String,

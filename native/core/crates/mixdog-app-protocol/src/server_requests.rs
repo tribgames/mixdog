@@ -1,7 +1,9 @@
 //! Requests from the core to clients (P §8.1, R18, R41, DS §12.3–12.4).
 //! `mcpServer/elicitation/request` is not in the 1.4.6 set (R41).
 
+#[cfg(feature = "codegen")]
 use mixdog_protocol::JsonValue;
+#[cfg(feature = "codegen")]
 use mixdog_protocol::ToolApprovalDecision;
 
 use crate::v2::approval::*;

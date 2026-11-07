@@ -2,15 +2,14 @@
 //! section, carried as the params of the section's `<domain>/updated`
 //! notification on the app feed or on the scoped feed named by its scope.
 
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
 use crate::JsonValue;
 
 /// Where a section is delivered (SPEC R14).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum SectionFeed {
     /// App feed; part of the app attach snapshot.
@@ -30,7 +29,8 @@ pub enum SectionFeed {
 macro_rules! sections {
     ($($(#[doc = $doc:literal])* $variant:ident => $wire:literal, $method:literal, $feed:ident, keyed: $keyed:literal;)*) => {
         /// Every section name. The registry is closed: adding one is a contract change.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, TS)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+        #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
         pub enum SectionName {
             $($(#[doc = $doc])* #[serde(rename = $wire)] $variant,)*
         }
@@ -134,10 +134,11 @@ sections! {
 
 /// Value above `INLINE_MAX` is replaced by a stub; the client pages the detail
 /// with the section's list method.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SectionStub {
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub count: u64,
     /// Always `true`.
     pub stub: bool,
@@ -147,14 +148,15 @@ pub struct SectionStub {
 /// `{"section", "key", "revision", "value"}` or `{…, "removed": true}` or
 /// `{…, "stub": {count, stub:true}}`. Exactly one of `value`, `removed`, `stub`.
 /// The client keeps `(section,key)` iff `revision` is greater than the stored one.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct SectionUpdate {
     pub section: SectionName,
     pub key: Option<String>,
     /// Per `(section,key)`, strictly increasing.
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub revision: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub value: Option<JsonValue>,
@@ -173,18 +175,20 @@ pub trait Section {
 /// The `pairCode` member of the `remote` section (today's `DesktopRemotePairCode`):
 /// the relay code of an open Settings → Connection screen. `remoteAccess/pairCode`
 /// issues or renews it; the section carries it, `null` once it expires or is released.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RemotePairCode {
     /// Six digits, no separator.
     pub code: String,
     /// Epoch ms.
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub expires_at: i64,
 }
 
 /// Section value of `computer` (SPEC R40).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ComputerSection {
     pub active: bool,

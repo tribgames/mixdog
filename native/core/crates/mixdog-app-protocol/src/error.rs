@@ -9,10 +9,8 @@ use mixdog_protocol::OpId;
 use mixdog_protocol::QueuedId;
 use mixdog_protocol::ThreadId;
 use mixdog_protocol::TurnId;
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
 use crate::common::Origin;
 use crate::common::RequestClass;
@@ -29,7 +27,8 @@ pub use mixdog_protocol::DomainErrorDetail;
 pub use mixdog_protocol::DrainReason;
 
 /// `{"reason": …, …typed fields}`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "reason", rename_all = "camelCase")]
 pub enum ErrorData {
     // -32600
@@ -52,16 +51,16 @@ pub enum ErrorData {
     #[serde(rename_all = "camelCase")]
     CoreMigrating {
         kind: String,
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         done: u64,
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         total: u64,
     },
     #[serde(rename_all = "camelCase")]
     CatalogRebuilding {
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         done: u64,
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         total: u64,
     },
     #[serde(rename_all = "camelCase")]
@@ -76,7 +75,7 @@ pub enum ErrorData {
     TurnNotActive {
         thread_id: ThreadId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         turn_id: Option<TurnId>,
     },
     #[serde(rename_all = "camelCase")]
@@ -113,9 +112,9 @@ pub enum ErrorData {
     #[serde(rename_all = "camelCase")]
     StoreDamaged {
         thread_id: ThreadId,
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         file_no: u64,
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         offset: u64,
     },
     /// The blob is permanently unavailable (never stored, or collected):
@@ -126,7 +125,7 @@ pub enum ErrorData {
     },
     #[serde(rename_all = "camelCase")]
     ItemTooLarge {
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         limit: u64,
     },
     /// A failure of a domain operation (today's coded errors such as `WORKTREE_DIRTY`), as
@@ -136,13 +135,13 @@ pub enum ErrorData {
     DomainError {
         domain: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         code: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         message: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         detail: Option<Box<DomainErrorDetail>>,
     },
     // -32601
@@ -169,12 +168,12 @@ pub enum ErrorData {
     #[serde(rename_all = "camelCase")]
     CursorInvalidated {
         thread_id: ThreadId,
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         history_rev: u64,
     },
     #[serde(rename_all = "camelCase")]
     InputTooLarge {
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         limit: u64,
     },
     // -32603
@@ -207,7 +206,7 @@ pub enum ErrorData {
     ProviderError {
         provider: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         status: Option<u16>,
         kind: String,
     },
@@ -223,7 +222,7 @@ pub enum ErrorData {
     #[serde(rename_all = "camelCase")]
     InflightLimit {
         class: RequestClass,
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         limit: u32,
     },
     /// Durability window full; retry after the thread's next feed event.

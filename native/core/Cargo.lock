@@ -3849,6 +3849,7 @@ dependencies = [
 name = "mixdog-app-protocol"
 version = "1.4.5"
 dependencies = [
+ "mixdog-app-protocol",
  "mixdog-protocol",
  "pretty_assertions",
  "schemars 0.8.22",

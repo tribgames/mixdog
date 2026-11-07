@@ -6,15 +6,14 @@
 #![allow(clippy::derive_partial_eq_without_eq)]
 
 use mixdog_protocol::*;
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
 /// Params of `model/list`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ModelListParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub force: Option<bool>,
@@ -25,7 +24,8 @@ pub struct ModelListParams {
 }
 
 /// Params of `feedback/upload`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct FeedbackUploadParams {
     pub op_id: OpId,
@@ -39,9 +39,10 @@ impl crate::common::HasOpId for FeedbackUploadParams {
 }
 
 /// Params of `route/set`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct RouteSetParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -58,9 +59,10 @@ impl crate::common::HasOpId for RouteSetParams {
 }
 
 /// Params of `fast/set`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct FastSetParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -75,9 +77,10 @@ impl crate::common::HasOpId for FastSetParams {
 }
 
 /// Params of `thread/contextStatus`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadContextStatusParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -86,9 +89,10 @@ pub struct ThreadContextStatusParams {
 }
 
 /// Params of `thread/getSessionUsage`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadGetSessionUsageParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -97,9 +101,10 @@ pub struct ThreadGetSessionUsageParams {
 }
 
 /// Params of `thread/getSessionWorktreeWork`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadGetSessionWorktreeWorkParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -108,9 +113,10 @@ pub struct ThreadGetSessionWorktreeWorkParams {
 }
 
 /// Params of `thread/inheritancePreflight`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadInheritancePreflightParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -121,36 +127,40 @@ pub struct ThreadInheritancePreflightParams {
 }
 
 /// Params of `thread/listShellJobs`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadListShellJobsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `thread/listStoppableShellJobs`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadListStoppableShellJobsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `thread/getBranchMenu`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadGetBranchMenuParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `thread/askSide`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadAskSideParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -165,9 +175,10 @@ impl crate::common::HasOpId for ThreadAskSideParams {
 }
 
 /// Params of `thread/cancelSide`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadCancelSideParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -183,9 +194,10 @@ impl crate::common::HasOpId for ThreadCancelSideParams {
 }
 
 /// Params of `thread/agentControl`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadAgentControlParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -201,9 +213,10 @@ impl crate::common::HasOpId for ThreadAgentControlParams {
 }
 
 /// Params of `thread/switchContext`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadSwitchContextParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -219,9 +232,10 @@ impl crate::common::HasOpId for ThreadSwitchContextParams {
 }
 
 /// Params of `thread/setCwd`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadSetCwdParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -236,9 +250,10 @@ impl crate::common::HasOpId for ThreadSetCwdParams {
 }
 
 /// Params of `thread/setEffort`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadSetEffortParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -255,9 +270,10 @@ impl crate::common::HasOpId for ThreadSetEffortParams {
 }
 
 /// Params of `thread/setToolMode`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadSetToolModeParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -272,9 +288,10 @@ impl crate::common::HasOpId for ThreadSetToolModeParams {
 }
 
 /// Params of `thread/setWorkflow`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadSetWorkflowParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -291,9 +308,10 @@ impl crate::common::HasOpId for ThreadSetWorkflowParams {
 }
 
 /// Params of `thread/setOrchestrationMode`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadSetOrchestrationModeParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -310,9 +328,10 @@ impl crate::common::HasOpId for ThreadSetOrchestrationModeParams {
 }
 
 /// Params of `thread/setOutputStyle`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadSetOutputStyleParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -327,9 +346,10 @@ impl crate::common::HasOpId for ThreadSetOutputStyleParams {
 }
 
 /// Params of `thread/revertTurnReview`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadRevertTurnReviewParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -345,9 +365,10 @@ impl crate::common::HasOpId for ThreadRevertTurnReviewParams {
 }
 
 /// Params of `thread/revertTurnReviewFile`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadRevertTurnReviewFileParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -364,16 +385,17 @@ impl crate::common::HasOpId for ThreadRevertTurnReviewFileParams {
 }
 
 /// Params of `thread/revertTurnChanges`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadRevertTurnChangesParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
     pub checkpoint_id: String,
     pub file: JsonValue,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub revision: i64,
 }
 
@@ -384,16 +406,17 @@ impl crate::common::HasOpId for ThreadRevertTurnChangesParams {
 }
 
 /// Params of `thread/reapplyTurnChanges`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadReapplyTurnChangesParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
     pub checkpoint_id: String,
     pub file: JsonValue,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub revision: i64,
 }
 
@@ -404,9 +427,10 @@ impl crate::common::HasOpId for ThreadReapplyTurnChangesParams {
 }
 
 /// Params of `thread/clearSessionChangeHistory`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadClearSessionChangeHistoryParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -420,9 +444,10 @@ impl crate::common::HasOpId for ThreadClearSessionChangeHistoryParams {
 }
 
 /// Params of `thread/stageAttachmentOriginal`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadStageAttachmentOriginalParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -437,9 +462,10 @@ impl crate::common::HasOpId for ThreadStageAttachmentOriginalParams {
 }
 
 /// Params of `thread/resizeImage`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadResizeImageParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -454,9 +480,10 @@ impl crate::common::HasOpId for ThreadResizeImageParams {
 }
 
 /// Params of `thread/pushNotice`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadPushNoticeParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -473,9 +500,10 @@ impl crate::common::HasOpId for ThreadPushNoticeParams {
 }
 
 /// Params of `thread/requestWorktree`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadRequestWorktreeParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -490,9 +518,10 @@ impl crate::common::HasOpId for ThreadRequestWorktreeParams {
 }
 
 /// Params of `thread/mergeWorkspace`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadMergeWorkspaceParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -507,9 +536,10 @@ impl crate::common::HasOpId for ThreadMergeWorkspaceParams {
 }
 
 /// Params of `thread/selectBranch`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadSelectBranchParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -524,9 +554,10 @@ impl crate::common::HasOpId for ThreadSelectBranchParams {
 }
 
 /// Params of `project/inspectProjectBranch`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectInspectProjectBranchParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -534,9 +565,10 @@ pub struct ProjectInspectProjectBranchParams {
 }
 
 /// Params of `project/getProjectBranchMenu`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectGetProjectBranchMenuParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -544,9 +576,10 @@ pub struct ProjectGetProjectBranchMenuParams {
 }
 
 /// Params of `project/getProjectConnectors`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectGetProjectConnectorsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -554,18 +587,20 @@ pub struct ProjectGetProjectConnectorsParams {
 }
 
 /// Params of `project/listWorktrees`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectListWorktreesParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `project/previewWorktreeCleanup`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectPreviewWorktreeCleanupParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -574,9 +609,10 @@ pub struct ProjectPreviewWorktreeCleanupParams {
 }
 
 /// Params of `project/selectProjectBranch`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectSelectProjectBranchParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -591,9 +627,10 @@ impl crate::common::HasOpId for ProjectSelectProjectBranchParams {
 }
 
 /// Params of `project/mergeProjectBranch`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectMergeProjectBranchParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -608,9 +645,10 @@ impl crate::common::HasOpId for ProjectMergeProjectBranchParams {
 }
 
 /// Params of `project/manageProjectBranch`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectManageProjectBranchParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -625,9 +663,10 @@ impl crate::common::HasOpId for ProjectManageProjectBranchParams {
 }
 
 /// Params of `project/removeWorktree`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectRemoveWorktreeParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -645,9 +684,10 @@ impl crate::common::HasOpId for ProjectRemoveWorktreeParams {
 }
 
 /// Params of `project/pruneWorktrees`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectPruneWorktreesParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -663,9 +703,10 @@ impl crate::common::HasOpId for ProjectPruneWorktreesParams {
 }
 
 /// Params of `project/deleteWorktree`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectDeleteWorktreeParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -680,9 +721,10 @@ impl crate::common::HasOpId for ProjectDeleteWorktreeParams {
 }
 
 /// Params of `project/setArchivedSessionWorktrees`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectSetArchivedSessionWorktreesParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -697,9 +739,10 @@ impl crate::common::HasOpId for ProjectSetArchivedSessionWorktreesParams {
 }
 
 /// Params of `project/setProjectConnectorEnabled`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectSetProjectConnectorEnabledParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -718,9 +761,10 @@ impl crate::common::HasOpId for ProjectSetProjectConnectorEnabledParams {
 }
 
 /// Params of `agent/agentDefinitionPresence`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentAgentDefinitionPresenceParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -728,9 +772,10 @@ pub struct AgentAgentDefinitionPresenceParams {
 }
 
 /// Params of `agent/archivedAgentIdentities`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentArchivedAgentIdentitiesParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -738,9 +783,10 @@ pub struct AgentArchivedAgentIdentitiesParams {
 }
 
 /// Params of `agent/getAgentDefinition`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentGetAgentDefinitionParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -748,9 +794,10 @@ pub struct AgentGetAgentDefinitionParams {
 }
 
 /// Params of `agent/getAgentAvatarImage`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentGetAgentAvatarImageParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -758,9 +805,10 @@ pub struct AgentGetAgentAvatarImageParams {
 }
 
 /// Params of `agent/getAgentConnectors`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentGetAgentConnectorsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -768,9 +816,10 @@ pub struct AgentGetAgentConnectorsParams {
 }
 
 /// Params of `agent/getAgentAlwaysAllowedTools`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentGetAgentAlwaysAllowedToolsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -778,9 +827,10 @@ pub struct AgentGetAgentAlwaysAllowedToolsParams {
 }
 
 /// Params of `agent/getAgentConnectorTools`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentGetAgentConnectorToolsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -788,9 +838,10 @@ pub struct AgentGetAgentConnectorToolsParams {
 }
 
 /// Params of `agent/getAgentPermissions`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentGetAgentPermissionsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -798,54 +849,60 @@ pub struct AgentGetAgentPermissionsParams {
 }
 
 /// Params of `agent/getLeadPersona`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentGetLeadPersonaParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `agent/getLeadAgentBody`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentGetLeadAgentBodyParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `agent/getLeadStatus`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentGetLeadStatusParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `agent/getLeadHomeRoute`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentGetLeadHomeRouteParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `agent/getLeadAppearance`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentGetLeadAppearanceParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `agent/saveAgentDefinition`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentSaveAgentDefinitionParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -862,9 +919,10 @@ impl crate::common::HasOpId for AgentSaveAgentDefinitionParams {
 }
 
 /// Params of `agent/deleteAgentDefinition`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentDeleteAgentDefinitionParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -879,9 +937,10 @@ impl crate::common::HasOpId for AgentDeleteAgentDefinitionParams {
 }
 
 /// Params of `agent/restoreAgentDefinition`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentRestoreAgentDefinitionParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -896,9 +955,10 @@ impl crate::common::HasOpId for AgentRestoreAgentDefinitionParams {
 }
 
 /// Params of `agent/purgeAgentDefinition`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentPurgeAgentDefinitionParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -913,9 +973,10 @@ impl crate::common::HasOpId for AgentPurgeAgentDefinitionParams {
 }
 
 /// Params of `agent/setAgentConnectors`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentSetAgentConnectorsParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -933,9 +994,10 @@ impl crate::common::HasOpId for AgentSetAgentConnectorsParams {
 }
 
 /// Params of `agent/setAgentConnectorEnabled`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentSetAgentConnectorEnabledParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -954,9 +1016,10 @@ impl crate::common::HasOpId for AgentSetAgentConnectorEnabledParams {
 }
 
 /// Params of `agent/setAgentConnectorToolPermission`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentSetAgentConnectorToolPermissionParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -976,9 +1039,10 @@ impl crate::common::HasOpId for AgentSetAgentConnectorToolPermissionParams {
 }
 
 /// Params of `agent/setAgentPermission`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentSetAgentPermissionParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -997,9 +1061,10 @@ impl crate::common::HasOpId for AgentSetAgentPermissionParams {
 }
 
 /// Params of `agent/recordAgentApprovalAudit`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentRecordAgentApprovalAuditParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1016,9 +1081,10 @@ impl crate::common::HasOpId for AgentRecordAgentApprovalAuditParams {
 }
 
 /// Params of `agent/saveLeadPersona`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentSaveLeadPersonaParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1033,9 +1099,10 @@ impl crate::common::HasOpId for AgentSaveLeadPersonaParams {
 }
 
 /// Params of `agent/saveLeadAgentBody`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentSaveLeadAgentBodyParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1050,9 +1117,10 @@ impl crate::common::HasOpId for AgentSaveLeadAgentBodyParams {
 }
 
 /// Params of `agent/setLeadCreated`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentSetLeadCreatedParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1069,9 +1137,10 @@ impl crate::common::HasOpId for AgentSetLeadCreatedParams {
 }
 
 /// Params of `agent/saveLeadIdentity`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentSaveLeadIdentityParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1086,9 +1155,10 @@ impl crate::common::HasOpId for AgentSaveLeadIdentityParams {
 }
 
 /// Params of `agent/setLeadAppearance`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AgentSetLeadAppearanceParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1103,9 +1173,10 @@ impl crate::common::HasOpId for AgentSetLeadAppearanceParams {
 }
 
 /// Params of `config/getBotOrder`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetBotOrderParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -1114,7 +1185,8 @@ pub struct ConfigGetBotOrderParams {
 /// The one bot order (Lead and Sessions bot lists): trimmed, de-duplicated agent ids, at most
 /// 500. Mixy is pinned first by the UI and is not part of it. Empty means no stored order.
 /// Result of `config/getBotOrder` and `config/setBotOrder`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct BotOrder {
     pub order: Vec<String>,
 }
@@ -1122,9 +1194,10 @@ pub struct BotOrder {
 /// Params of `config/setBotOrder`. Node rejects more than 500 ids, or an id that is empty after
 /// trimming or longer than 128, with `usage: setBotOrder(an array of agent ids)`; an empty
 /// list clears the stored order.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetBotOrderParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1139,7 +1212,8 @@ impl crate::common::HasOpId for ConfigSetBotOrderParams {
 }
 
 /// Params of `agent/home/open`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct AgentHomeOpenParams {
     pub op_id: OpId,
@@ -1153,7 +1227,8 @@ impl crate::common::HasOpId for AgentHomeOpenParams {
 }
 
 /// Params of `agent/home/reset`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct AgentHomeResetParams {
     pub op_id: OpId,
@@ -1167,14 +1242,16 @@ impl crate::common::HasOpId for AgentHomeResetParams {
 }
 
 /// Params of `agent/memory/list`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct AgentMemoryListParams {
     pub agent_id: String,
 }
 
 /// Params of `agent/memory/delete`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct AgentMemoryDeleteParams {
     pub op_id: OpId,
@@ -1190,12 +1267,14 @@ impl crate::common::HasOpId for AgentMemoryDeleteParams {
 }
 
 /// Params of `agent/pool/list`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct AgentPoolListParams {}
 
 /// Params of `room/create`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RoomCreateParams {
     pub op_id: OpId,
@@ -1209,7 +1288,8 @@ impl crate::common::HasOpId for RoomCreateParams {
 }
 
 /// Params of `room/update`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RoomUpdateParams {
     pub op_id: OpId,
@@ -1223,7 +1303,8 @@ impl crate::common::HasOpId for RoomUpdateParams {
 }
 
 /// Params of `room/continue`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RoomContinueParams {
     pub op_id: OpId,
@@ -1237,7 +1318,8 @@ impl crate::common::HasOpId for RoomContinueParams {
 }
 
 /// Params of `room/leave`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RoomLeaveParams {
     pub op_id: OpId,
@@ -1251,7 +1333,8 @@ impl crate::common::HasOpId for RoomLeaveParams {
 }
 
 /// Params of `room/remove`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RoomRemoveParams {
     pub op_id: OpId,
@@ -1265,18 +1348,20 @@ impl crate::common::HasOpId for RoomRemoveParams {
 }
 
 /// Params of `instructions/listInstructionFiles`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct InstructionsListInstructionFilesParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `instructions/getInstructionFile`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct InstructionsGetInstructionFileParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -1285,9 +1370,10 @@ pub struct InstructionsGetInstructionFileParams {
 }
 
 /// Params of `instructions/saveInstructionFile`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct InstructionsSaveInstructionFileParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1302,9 +1388,10 @@ impl crate::common::HasOpId for InstructionsSaveInstructionFileParams {
 }
 
 /// Params of `instructions/resetInstructionFile`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct InstructionsResetInstructionFileParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1322,9 +1409,10 @@ impl crate::common::HasOpId for InstructionsResetInstructionFileParams {
 }
 
 /// Params of `instructions/setInstructionFiles`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct InstructionsSetInstructionFilesParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1339,9 +1427,10 @@ impl crate::common::HasOpId for InstructionsSetInstructionFilesParams {
 }
 
 /// Params of `connector/listConnectorTools`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConnectorListConnectorToolsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -1349,9 +1438,10 @@ pub struct ConnectorListConnectorToolsParams {
 }
 
 /// Params of `connector/addConnectorAccount`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConnectorAddConnectorAccountParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1366,171 +1456,190 @@ impl crate::common::HasOpId for ConnectorAddConnectorAccountParams {
 }
 
 /// Params of `config/getAutoClear`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetAutoClearParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `config/getCacheWarmingSettings`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetCacheWarmingSettingsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `config/getCompactionSettings`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetCompactionSettingsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `config/getDeveloperSettings`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetDeveloperSettingsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `config/getOutputStyle`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetOutputStyleParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `config/getOrchestrationMode`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetOrchestrationModeParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `config/getConfiguredOrchestrationMode`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetConfiguredOrchestrationModeParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `config/getProfile`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetProfileParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `config/getRecapSettings`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetRecapSettingsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `config/getSessionTitleSettings`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetSessionTitleSettingsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `config/getHeartbeatSettings`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetHeartbeatSettingsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `config/getReactionSettings`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetReactionSettingsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `config/getSystemShell`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetSystemShellParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `config/getTheme`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetThemeParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `config/getToolModuleSettings`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetToolModuleSettingsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `config/getUpdateSettings`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetUpdateSettingsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `config/getWorktreeSettings`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetWorktreeSettingsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `config/listOutputStyles`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigListOutputStylesParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `config/getNetworkProxy`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetNetworkProxyParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -1539,9 +1648,10 @@ pub struct ConfigGetNetworkProxyParams {
 }
 
 /// Params of `config/testNetworkProxy`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigTestNetworkProxyParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -1550,9 +1660,10 @@ pub struct ConfigTestNetworkProxyParams {
 }
 
 /// Params of `config/getWorkflowPack`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigGetWorkflowPackParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -1560,9 +1671,10 @@ pub struct ConfigGetWorkflowPackParams {
 }
 
 /// Params of `config/isSetupRequestActive`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigIsSetupRequestActiveParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -1571,9 +1683,10 @@ pub struct ConfigIsSetupRequestActiveParams {
 }
 
 /// Params of `config/setAutoUpdate`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetAutoUpdateParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1588,9 +1701,10 @@ impl crate::common::HasOpId for ConfigSetAutoUpdateParams {
 }
 
 /// Params of `config/setCacheWarmingEnabled`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetCacheWarmingEnabledParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1605,9 +1719,10 @@ impl crate::common::HasOpId for ConfigSetCacheWarmingEnabledParams {
 }
 
 /// Params of `config/setRecapEnabled`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetRecapEnabledParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1622,9 +1737,10 @@ impl crate::common::HasOpId for ConfigSetRecapEnabledParams {
 }
 
 /// Params of `config/setAiSessionTitles`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetAiSessionTitlesParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1639,9 +1755,10 @@ impl crate::common::HasOpId for ConfigSetAiSessionTitlesParams {
 }
 
 /// Params of `config/setHeartbeatEnabled`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetHeartbeatEnabledParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1656,9 +1773,10 @@ impl crate::common::HasOpId for ConfigSetHeartbeatEnabledParams {
 }
 
 /// Params of `config/setReactionsEnabled`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetReactionsEnabledParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1673,9 +1791,10 @@ impl crate::common::HasOpId for ConfigSetReactionsEnabledParams {
 }
 
 /// Params of `config/setWebSearchEnabled`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetWebSearchEnabledParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1690,9 +1809,10 @@ impl crate::common::HasOpId for ConfigSetWebSearchEnabledParams {
 }
 
 /// Params of `config/setMemoryToolsEnabled`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetMemoryToolsEnabledParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1707,9 +1827,10 @@ impl crate::common::HasOpId for ConfigSetMemoryToolsEnabledParams {
 }
 
 /// Params of `config/setAutoClear`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetAutoClearParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1725,9 +1846,10 @@ impl crate::common::HasOpId for ConfigSetAutoClearParams {
 }
 
 /// Params of `config/setCompactionSettings`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetCompactionSettingsParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1743,9 +1865,10 @@ impl crate::common::HasOpId for ConfigSetCompactionSettingsParams {
 }
 
 /// Params of `config/setDeveloperOption`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetDeveloperOptionParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1761,9 +1884,10 @@ impl crate::common::HasOpId for ConfigSetDeveloperOptionParams {
 }
 
 /// Params of `config/setProfile`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetProfileParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1779,14 +1903,15 @@ impl crate::common::HasOpId for ConfigSetProfileParams {
 }
 
 /// Params of `config/setHeartbeatInterval`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetHeartbeatIntervalParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub minutes: i64,
 }
 
@@ -1797,9 +1922,10 @@ impl crate::common::HasOpId for ConfigSetHeartbeatIntervalParams {
 }
 
 /// Params of `config/setSystemShell`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetSystemShellParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1814,9 +1940,10 @@ impl crate::common::HasOpId for ConfigSetSystemShellParams {
 }
 
 /// Params of `config/setTheme`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetThemeParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1833,9 +1960,10 @@ impl crate::common::HasOpId for ConfigSetThemeParams {
 }
 
 /// Params of `config/setWebSearchRoute`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetWebSearchRouteParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1850,9 +1978,10 @@ impl crate::common::HasOpId for ConfigSetWebSearchRouteParams {
 }
 
 /// Params of `config/setAutoEffortBase`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetAutoEffortBaseParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1867,9 +1996,10 @@ impl crate::common::HasOpId for ConfigSetAutoEffortBaseParams {
 }
 
 /// Params of `config/setBuiltinToolEnabled`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetBuiltinToolEnabledParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1885,9 +2015,10 @@ impl crate::common::HasOpId for ConfigSetBuiltinToolEnabledParams {
 }
 
 /// Params of `config/installBuiltinFeature`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigInstallBuiltinFeatureParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1904,9 +2035,10 @@ impl crate::common::HasOpId for ConfigInstallBuiltinFeatureParams {
 }
 
 /// Params of `config/setWorktreeSettings`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetWorktreeSettingsParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1921,9 +2053,10 @@ impl crate::common::HasOpId for ConfigSetWorktreeSettingsParams {
 }
 
 /// Params of `config/setNetworkProxy`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetNetworkProxyParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1940,9 +2073,10 @@ impl crate::common::HasOpId for ConfigSetNetworkProxyParams {
 }
 
 /// Params of `config/saveWorkflowPack`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSaveWorkflowPackParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1957,9 +2091,10 @@ impl crate::common::HasOpId for ConfigSaveWorkflowPackParams {
 }
 
 /// Params of `config/createWorkflow`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigCreateWorkflowParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1974,9 +2109,10 @@ impl crate::common::HasOpId for ConfigCreateWorkflowParams {
 }
 
 /// Params of `config/deleteWorkflow`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigDeleteWorkflowParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1991,9 +2127,10 @@ impl crate::common::HasOpId for ConfigDeleteWorkflowParams {
 }
 
 /// Params of `config/setModelPreferences`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetModelPreferencesParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2009,9 +2146,10 @@ impl crate::common::HasOpId for ConfigSetModelPreferencesParams {
 }
 
 /// Params of `config/skipOnboarding`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSkipOnboardingParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2025,9 +2163,10 @@ impl crate::common::HasOpId for ConfigSkipOnboardingParams {
 }
 
 /// Params of `config/completeOnboarding`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigCompleteOnboardingParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2043,9 +2182,10 @@ impl crate::common::HasOpId for ConfigCompleteOnboardingParams {
 }
 
 /// Params of `config/saveStarterGuideState`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSaveStarterGuideStateParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2060,9 +2200,10 @@ impl crate::common::HasOpId for ConfigSaveStarterGuideStateParams {
 }
 
 /// Params of `config/claimSetupRequest`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigClaimSetupRequestParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2078,9 +2219,10 @@ impl crate::common::HasOpId for ConfigClaimSetupRequestParams {
 }
 
 /// Params of `config/completeSetupRequest`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigCompleteSetupRequestParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2097,9 +2239,10 @@ impl crate::common::HasOpId for ConfigCompleteSetupRequestParams {
 }
 
 /// Params of `config/setExtensionScope`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ConfigSetExtensionScopeParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2117,9 +2260,10 @@ impl crate::common::HasOpId for ConfigSetExtensionScopeParams {
 }
 
 /// Params of `channel/getChannelSettings`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ChannelGetChannelSettingsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -2128,27 +2272,30 @@ pub struct ChannelGetChannelSettingsParams {
 }
 
 /// Params of `channel/getChannelSetup`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ChannelGetChannelSetupParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `channel/getChannelWorkerStatus`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ChannelGetChannelWorkerStatusParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `channel/setWebhookConfig`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ChannelSetWebhookConfigParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2163,9 +2310,10 @@ impl crate::common::HasOpId for ChannelSetWebhookConfigParams {
 }
 
 /// Params of `channel/saveSchedule`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ChannelSaveScheduleParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2180,9 +2328,10 @@ impl crate::common::HasOpId for ChannelSaveScheduleParams {
 }
 
 /// Params of `channel/deleteSchedule`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ChannelDeleteScheduleParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2197,9 +2346,10 @@ impl crate::common::HasOpId for ChannelDeleteScheduleParams {
 }
 
 /// Params of `channel/setScheduleEnabled`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ChannelSetScheduleEnabledParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2215,9 +2365,10 @@ impl crate::common::HasOpId for ChannelSetScheduleEnabledParams {
 }
 
 /// Params of `channel/runScheduleNow`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ChannelRunScheduleNowParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2232,9 +2383,10 @@ impl crate::common::HasOpId for ChannelRunScheduleNowParams {
 }
 
 /// Params of `channel/runWebhookNow`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ChannelRunWebhookNowParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2249,9 +2401,10 @@ impl crate::common::HasOpId for ChannelRunWebhookNowParams {
 }
 
 /// Params of `channel/retryRoutineDelivery`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ChannelRetryRoutineDeliveryParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2267,9 +2420,10 @@ impl crate::common::HasOpId for ChannelRetryRoutineDeliveryParams {
 }
 
 /// Params of `channel/testWebhook`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ChannelTestWebhookParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2284,9 +2438,10 @@ impl crate::common::HasOpId for ChannelTestWebhookParams {
 }
 
 /// Params of `channel/saveWebhook`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ChannelSaveWebhookParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2301,9 +2456,10 @@ impl crate::common::HasOpId for ChannelSaveWebhookParams {
 }
 
 /// Params of `channel/deleteWebhook`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ChannelDeleteWebhookParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2318,9 +2474,10 @@ impl crate::common::HasOpId for ChannelDeleteWebhookParams {
 }
 
 /// Params of `channel/setWebhookEnabled`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ChannelSetWebhookEnabledParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2336,9 +2493,10 @@ impl crate::common::HasOpId for ChannelSetWebhookEnabledParams {
 }
 
 /// Params of `import/getConversationImportJobs`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ImportGetConversationImportJobsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -2347,9 +2505,10 @@ pub struct ImportGetConversationImportJobsParams {
 }
 
 /// Params of `import/listImportableConversations`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ImportListImportableConversationsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -2357,9 +2516,10 @@ pub struct ImportListImportableConversationsParams {
 }
 
 /// Params of `import/startConversationImport`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ImportStartConversationImportParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2374,9 +2534,10 @@ impl crate::common::HasOpId for ImportStartConversationImportParams {
 }
 
 /// Params of `import/cancelConversationImport`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ImportCancelConversationImportParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2391,9 +2552,10 @@ impl crate::common::HasOpId for ImportCancelConversationImportParams {
 }
 
 /// Params of `import/registerConversationImportFile`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ImportRegisterConversationImportFileParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2408,9 +2570,10 @@ impl crate::common::HasOpId for ImportRegisterConversationImportFileParams {
 }
 
 /// Params of `media/getMediaDefault`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaGetMediaDefaultParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -2418,9 +2581,10 @@ pub struct MediaGetMediaDefaultParams {
 }
 
 /// Params of `media/getMediaJob`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaGetMediaJobParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -2428,18 +2592,20 @@ pub struct MediaGetMediaJobParams {
 }
 
 /// Params of `media/getMediaPins`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaGetMediaPinsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `media/listMediaAssets`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaListMediaAssetsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -2448,18 +2614,20 @@ pub struct MediaListMediaAssetsParams {
 }
 
 /// Params of `media/listMediaBoards`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaListMediaBoardsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `media/listMediaLanes`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaListMediaLanesParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -2468,9 +2636,10 @@ pub struct MediaListMediaLanesParams {
 }
 
 /// Params of `media/readMediaAsset`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaReadMediaAssetParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -2480,9 +2649,10 @@ pub struct MediaReadMediaAssetParams {
 }
 
 /// Params of `media/resolveMediaFile`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaResolveMediaFileParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -2492,9 +2662,10 @@ pub struct MediaResolveMediaFileParams {
 }
 
 /// Params of `media/startMediaJob`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaStartMediaJobParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2509,9 +2680,10 @@ impl crate::common::HasOpId for MediaStartMediaJobParams {
 }
 
 /// Params of `media/cancelMediaJob`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaCancelMediaJobParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2526,9 +2698,10 @@ impl crate::common::HasOpId for MediaCancelMediaJobParams {
 }
 
 /// Params of `media/deleteMediaAsset`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaDeleteMediaAssetParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2543,9 +2716,10 @@ impl crate::common::HasOpId for MediaDeleteMediaAssetParams {
 }
 
 /// Params of `media/deleteMediaAssets`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaDeleteMediaAssetsParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2560,9 +2734,10 @@ impl crate::common::HasOpId for MediaDeleteMediaAssetsParams {
 }
 
 /// Params of `media/createMediaBoard`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaCreateMediaBoardParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2577,9 +2752,10 @@ impl crate::common::HasOpId for MediaCreateMediaBoardParams {
 }
 
 /// Params of `media/renameMediaBoard`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaRenameMediaBoardParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2595,9 +2771,10 @@ impl crate::common::HasOpId for MediaRenameMediaBoardParams {
 }
 
 /// Params of `media/deleteMediaBoard`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaDeleteMediaBoardParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2612,9 +2789,10 @@ impl crate::common::HasOpId for MediaDeleteMediaBoardParams {
 }
 
 /// Params of `media/setMediaAssetBoard`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaSetMediaAssetBoardParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2630,9 +2808,10 @@ impl crate::common::HasOpId for MediaSetMediaAssetBoardParams {
 }
 
 /// Params of `media/setMediaDefault`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaSetMediaDefaultParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2647,9 +2826,10 @@ impl crate::common::HasOpId for MediaSetMediaDefaultParams {
 }
 
 /// Params of `media/setMediaPin`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaSetMediaPinParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2664,9 +2844,10 @@ impl crate::common::HasOpId for MediaSetMediaPinParams {
 }
 
 /// Params of `media/cacheMediaThumbnail`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaCacheMediaThumbnailParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2682,9 +2863,10 @@ impl crate::common::HasOpId for MediaCacheMediaThumbnailParams {
 }
 
 /// Params of `media/openMediaAsset`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaOpenMediaAssetParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2699,9 +2881,10 @@ impl crate::common::HasOpId for MediaOpenMediaAssetParams {
 }
 
 /// Params of `media/openMediaFolder`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MediaOpenMediaFolderParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2717,9 +2900,10 @@ impl crate::common::HasOpId for MediaOpenMediaFolderParams {
 }
 
 /// Params of `mcp/getMcpServerConfig`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct McpGetMcpServerConfigParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -2727,9 +2911,10 @@ pub struct McpGetMcpServerConfigParams {
 }
 
 /// Params of `mcp/getMcpOAuthLoginStatus`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct McpGetMcpOAuthLoginStatusParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -2739,18 +2924,20 @@ pub struct McpGetMcpOAuthLoginStatusParams {
 }
 
 /// Params of `mcp/mcpStatus`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct McpMcpStatusParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `mcp/addMcpServer`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct McpAddMcpServerParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2765,9 +2952,10 @@ impl crate::common::HasOpId for McpAddMcpServerParams {
 }
 
 /// Params of `mcp/saveMcpServer`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct McpSaveMcpServerParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2782,9 +2970,10 @@ impl crate::common::HasOpId for McpSaveMcpServerParams {
 }
 
 /// Params of `mcp/removeMcpServer`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct McpRemoveMcpServerParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2799,9 +2988,10 @@ impl crate::common::HasOpId for McpRemoveMcpServerParams {
 }
 
 /// Params of `mcp/setMcpServerEnabled`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct McpSetMcpServerEnabledParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2817,9 +3007,10 @@ impl crate::common::HasOpId for McpSetMcpServerEnabledParams {
 }
 
 /// Params of `mcp/reconnectMcp`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct McpReconnectMcpParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2835,9 +3026,10 @@ impl crate::common::HasOpId for McpReconnectMcpParams {
 }
 
 /// Params of `mcp/beginMcpOAuthLogin`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct McpBeginMcpOAuthLoginParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2854,9 +3046,10 @@ impl crate::common::HasOpId for McpBeginMcpOAuthLoginParams {
 }
 
 /// Params of `mcp/cancelMcpOAuthLogin`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct McpCancelMcpOAuthLoginParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2871,9 +3064,10 @@ impl crate::common::HasOpId for McpCancelMcpOAuthLoginParams {
 }
 
 /// Params of `mcp/completeMcpOAuthLogin`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct McpCompleteMcpOAuthLoginParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2889,9 +3083,10 @@ impl crate::common::HasOpId for McpCompleteMcpOAuthLoginParams {
 }
 
 /// Params of `mcp/signOutMcpServer`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct McpSignOutMcpServerParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2906,9 +3101,10 @@ impl crate::common::HasOpId for McpSignOutMcpServerParams {
 }
 
 /// Params of `mcp/probeMcpServerAuth`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct McpProbeMcpServerAuthParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2923,9 +3119,10 @@ impl crate::common::HasOpId for McpProbeMcpServerAuthParams {
 }
 
 /// Params of `mcp/enablePluginMcp`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct McpEnablePluginMcpParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2940,9 +3137,10 @@ impl crate::common::HasOpId for McpEnablePluginMcpParams {
 }
 
 /// Params of `account/getOAuthProviderLoginStatus`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountGetOAuthProviderLoginStatusParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -2950,9 +3148,10 @@ pub struct AccountGetOAuthProviderLoginStatusParams {
 }
 
 /// Params of `account/listWebSearchModels`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountListWebSearchModelsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -2961,9 +3160,10 @@ pub struct AccountListWebSearchModelsParams {
 }
 
 /// Params of `account/getQuotaHistory`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountGetQuotaHistoryParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -2972,9 +3172,10 @@ pub struct AccountGetQuotaHistoryParams {
 }
 
 /// Params of `account/authenticateProvider`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountAuthenticateProviderParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2990,9 +3191,10 @@ impl crate::common::HasOpId for AccountAuthenticateProviderParams {
 }
 
 /// Params of `account/beginOAuthProviderLogin`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountBeginOAuthProviderLoginParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3009,9 +3211,10 @@ impl crate::common::HasOpId for AccountBeginOAuthProviderLoginParams {
 }
 
 /// Params of `account/completeOAuthProviderLogin`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountCompleteOAuthProviderLoginParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3027,9 +3230,10 @@ impl crate::common::HasOpId for AccountCompleteOAuthProviderLoginParams {
 }
 
 /// Params of `account/cancelOAuthProviderLogin`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountCancelOAuthProviderLoginParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3044,9 +3248,10 @@ impl crate::common::HasOpId for AccountCancelOAuthProviderLoginParams {
 }
 
 /// Params of `account/loginOAuthProvider`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountLoginOAuthProviderParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3061,9 +3266,10 @@ impl crate::common::HasOpId for AccountLoginOAuthProviderParams {
 }
 
 /// Params of `account/forgetProviderAuth`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountForgetProviderAuthParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3080,9 +3286,10 @@ impl crate::common::HasOpId for AccountForgetProviderAuthParams {
 }
 
 /// Params of `account/updateProviderAccounts`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountUpdateProviderAccountsParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3098,9 +3305,10 @@ impl crate::common::HasOpId for AccountUpdateProviderAccountsParams {
 }
 
 /// Params of `account/saveProviderApiKey`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountSaveProviderApiKeyParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3118,9 +3326,10 @@ impl crate::common::HasOpId for AccountSaveProviderApiKeyParams {
 }
 
 /// Params of `account/saveCustomProvider`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountSaveCustomProviderParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3135,9 +3344,10 @@ impl crate::common::HasOpId for AccountSaveCustomProviderParams {
 }
 
 /// Params of `account/saveCustomProviderKey`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountSaveCustomProviderKeyParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3153,9 +3363,10 @@ impl crate::common::HasOpId for AccountSaveCustomProviderKeyParams {
 }
 
 /// Params of `account/removeCustomProvider`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountRemoveCustomProviderParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3170,9 +3381,10 @@ impl crate::common::HasOpId for AccountRemoveCustomProviderParams {
 }
 
 /// Params of `account/updateCustomProviderModel`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountUpdateCustomProviderModelParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3189,9 +3401,10 @@ impl crate::common::HasOpId for AccountUpdateCustomProviderModelParams {
 }
 
 /// Params of `account/testCustomProvider`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountTestCustomProviderParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3206,9 +3419,10 @@ impl crate::common::HasOpId for AccountTestCustomProviderParams {
 }
 
 /// Params of `account/checkCustomProviderKeyEnv`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountCheckCustomProviderKeyEnvParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3223,9 +3437,10 @@ impl crate::common::HasOpId for AccountCheckCustomProviderKeyEnvParams {
 }
 
 /// Params of `account/discoverCustomProviderModels`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountDiscoverCustomProviderModelsParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3240,9 +3455,10 @@ impl crate::common::HasOpId for AccountDiscoverCustomProviderModelsParams {
 }
 
 /// Params of `account/saveOpenAIUsageSessionKey`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountSaveOpenAIUsageSessionKeyParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3257,9 +3473,10 @@ impl crate::common::HasOpId for AccountSaveOpenAIUsageSessionKeyParams {
 }
 
 /// Params of `account/consumeCodexRateLimitResetCredit`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountConsumeCodexRateLimitResetCreditParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3275,9 +3492,10 @@ impl crate::common::HasOpId for AccountConsumeCodexRateLimitResetCreditParams {
 }
 
 /// Params of `account/refreshProviderSetup`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct AccountRefreshProviderSetupParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3297,9 +3515,10 @@ impl crate::common::HasOpId for AccountRefreshProviderSetupParams {
 }
 
 /// Params of `localProvider/searchLocalProviderModels`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct LocalProviderSearchLocalProviderModelsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -3307,9 +3526,10 @@ pub struct LocalProviderSearchLocalProviderModelsParams {
 }
 
 /// Params of `localProvider/inspectHuggingFaceModel`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct LocalProviderInspectHuggingFaceModelParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -3317,9 +3537,10 @@ pub struct LocalProviderInspectHuggingFaceModelParams {
 }
 
 /// Params of `localProvider/getLocalProviderModelDetails`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct LocalProviderGetLocalProviderModelDetailsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -3327,9 +3548,10 @@ pub struct LocalProviderGetLocalProviderModelDetailsParams {
 }
 
 /// Params of `localProvider/installLocalProviderModel`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct LocalProviderInstallLocalProviderModelParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3344,9 +3566,10 @@ impl crate::common::HasOpId for LocalProviderInstallLocalProviderModelParams {
 }
 
 /// Params of `localProvider/startLocalProviderInstallation`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct LocalProviderStartLocalProviderInstallationParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3363,9 +3586,10 @@ impl crate::common::HasOpId for LocalProviderStartLocalProviderInstallationParam
 }
 
 /// Params of `localProvider/cancelLocalProviderInstallation`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct LocalProviderCancelLocalProviderInstallationParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3380,9 +3604,10 @@ impl crate::common::HasOpId for LocalProviderCancelLocalProviderInstallationPara
 }
 
 /// Params of `localProvider/discardLocalProviderInstallation`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct LocalProviderDiscardLocalProviderInstallationParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3399,14 +3624,15 @@ impl crate::common::HasOpId for LocalProviderDiscardLocalProviderInstallationPar
 }
 
 /// Params of `localProvider/setLocalProviderIdleTtl`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct LocalProviderSetLocalProviderIdleTtlParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub seconds: i64,
 }
 
@@ -3417,15 +3643,16 @@ impl crate::common::HasOpId for LocalProviderSetLocalProviderIdleTtlParams {
 }
 
 /// Params of `localProvider/setLocalProviderContext`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct LocalProviderSetLocalProviderContextParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
     pub model_id: String,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub tokens: i64,
 }
 
@@ -3436,9 +3663,10 @@ impl crate::common::HasOpId for LocalProviderSetLocalProviderContextParams {
 }
 
 /// Params of `localProvider/registerHuggingFaceModel`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct LocalProviderRegisterHuggingFaceModelParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3454,9 +3682,10 @@ impl crate::common::HasOpId for LocalProviderRegisterHuggingFaceModelParams {
 }
 
 /// Params of `localProvider/startLocalProviderModelMaintenance`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct LocalProviderStartLocalProviderModelMaintenanceParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3472,9 +3701,10 @@ impl crate::common::HasOpId for LocalProviderStartLocalProviderModelMaintenanceP
 }
 
 /// Params of `localProvider/deleteLocalProviderModel`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct LocalProviderDeleteLocalProviderModelParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3489,9 +3719,10 @@ impl crate::common::HasOpId for LocalProviderDeleteLocalProviderModelParams {
 }
 
 /// Params of `usage/getUsageDashboard`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct UsageGetUsageDashboardParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -3500,9 +3731,10 @@ pub struct UsageGetUsageDashboardParams {
 }
 
 /// Params of `usage/getUsageStats`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct UsageGetUsageStatsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -3511,9 +3743,10 @@ pub struct UsageGetUsageStatsParams {
 }
 
 /// Params of `usage/getUsageRequests`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct UsageGetUsageRequestsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -3522,18 +3755,20 @@ pub struct UsageGetUsageRequestsParams {
 }
 
 /// Params of `update/getUpdateStatus`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct UpdateGetUpdateStatusParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `update/checkForUpdate`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct UpdateCheckForUpdateParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3549,9 +3784,10 @@ impl crate::common::HasOpId for UpdateCheckForUpdateParams {
 }
 
 /// Params of `update/runUpdateNow`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct UpdateRunUpdateNowParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3565,18 +3801,20 @@ impl crate::common::HasOpId for UpdateRunUpdateNowParams {
 }
 
 /// Params of `voice/getVoiceStatus`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct VoiceGetVoiceStatusParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `voice/toggleVoice`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct VoiceToggleVoiceParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3591,9 +3829,10 @@ impl crate::common::HasOpId for VoiceToggleVoiceParams {
 }
 
 /// Params of `voice/transcribeAudio`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct VoiceTranscribeAudioParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3608,9 +3847,10 @@ impl crate::common::HasOpId for VoiceTranscribeAudioParams {
 }
 
 /// Params of `voice/prepareTranscription`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct VoicePrepareTranscriptionParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3624,27 +3864,30 @@ impl crate::common::HasOpId for VoicePrepareTranscriptionParams {
 }
 
 /// Params of `tidy/getTidyEngineStatus`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TidyGetTidyEngineStatusParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `tidy/getTidyInstallStatus`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TidyGetTidyInstallStatusParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `skills/skillsStatus`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct SkillsSkillsStatusParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -3653,9 +3896,10 @@ pub struct SkillsSkillsStatusParams {
 }
 
 /// Params of `skills/skillContent`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct SkillsSkillContentParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -3663,18 +3907,20 @@ pub struct SkillsSkillContentParams {
 }
 
 /// Params of `skills/getDisabledSkills`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct SkillsGetDisabledSkillsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `skills/addSkill`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct SkillsAddSkillParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3689,9 +3935,10 @@ impl crate::common::HasOpId for SkillsAddSkillParams {
 }
 
 /// Params of `skills/saveSkill`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct SkillsSaveSkillParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3706,9 +3953,10 @@ impl crate::common::HasOpId for SkillsSaveSkillParams {
 }
 
 /// Params of `skills/removeSkill`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct SkillsRemoveSkillParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3723,9 +3971,10 @@ impl crate::common::HasOpId for SkillsRemoveSkillParams {
 }
 
 /// Params of `skills/reloadSkills`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct SkillsReloadSkillsParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3739,9 +3988,10 @@ impl crate::common::HasOpId for SkillsReloadSkillsParams {
 }
 
 /// Params of `skills/setDisabledSkills`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct SkillsSetDisabledSkillsParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3756,18 +4006,20 @@ impl crate::common::HasOpId for SkillsSetDisabledSkillsParams {
 }
 
 /// Params of `plugins/pluginsStatus`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct PluginsPluginsStatusParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
 }
 
 /// Params of `plugins/addPlugin`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct PluginsAddPluginParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3782,9 +4034,10 @@ impl crate::common::HasOpId for PluginsAddPluginParams {
 }
 
 /// Params of `plugins/updatePlugin`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct PluginsUpdatePluginParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3799,9 +4052,10 @@ impl crate::common::HasOpId for PluginsUpdatePluginParams {
 }
 
 /// Params of `plugins/setPluginEnabled`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct PluginsSetPluginEnabledParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3817,9 +4071,10 @@ impl crate::common::HasOpId for PluginsSetPluginEnabledParams {
 }
 
 /// Params of `plugins/removePlugin`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct PluginsRemovePluginParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3834,9 +4089,10 @@ impl crate::common::HasOpId for PluginsRemovePluginParams {
 }
 
 /// Params of `plugins/reloadPlugins`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct PluginsReloadPluginsParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3850,9 +4106,10 @@ impl crate::common::HasOpId for PluginsReloadPluginsParams {
 }
 
 /// Params of `tools/toolsStatus`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ToolsToolsStatusParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thread_id: Option<ThreadId>,
@@ -3861,9 +4118,10 @@ pub struct ToolsToolsStatusParams {
 }
 
 /// Params of `memory/memoryControl`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MemoryMemoryControlParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3879,9 +4137,10 @@ impl crate::common::HasOpId for MemoryMemoryControlParams {
 }
 
 /// Params of `memory/recall`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MemoryRecallParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3898,9 +4157,10 @@ impl crate::common::HasOpId for MemoryRecallParams {
 }
 
 /// Params of `diagnostics/runDoctor`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct DiagnosticsRunDoctorParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3916,19 +4176,22 @@ impl crate::common::HasOpId for DiagnosticsRunDoctorParams {
 }
 
 /// Params of `project/list`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectListParams {}
 
 /// Params of `project/read`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectReadParams {
     pub path: String,
 }
 
 /// Params of `project/create`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectCreateParams {
     pub op_id: OpId,
@@ -3942,7 +4205,8 @@ impl crate::common::HasOpId for ProjectCreateParams {
 }
 
 /// Params of `project/touch`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectTouchParams {
     pub op_id: OpId,
@@ -3956,7 +4220,8 @@ impl crate::common::HasOpId for ProjectTouchParams {
 }
 
 /// Params of `project/update`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProjectUpdateParams {
     pub op_id: OpId,
@@ -3971,7 +4236,8 @@ impl crate::common::HasOpId for ProjectUpdateParams {
 }
 
 /// Params of `project/delete`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectDeleteParams {
     pub op_id: OpId,
@@ -3985,7 +4251,8 @@ impl crate::common::HasOpId for ProjectDeleteParams {
 }
 
 /// Params of `project/ensureDirectory`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectEnsureDirectoryParams {
     pub op_id: OpId,
@@ -3999,26 +4266,30 @@ impl crate::common::HasOpId for ProjectEnsureDirectoryParams {
 }
 
 /// Params of `project/directory`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectDirectoryParams {
     pub path: String,
 }
 
 /// Params of `project/recoveryDirectory`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectRecoveryDirectoryParams {
     pub path: String,
 }
 
 /// Params of `project/taskWorkspace`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectTaskWorkspaceParams {}
 
 /// Params of `project/codeGraph`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectCodeGraphParams {
     pub path: String,
@@ -4027,7 +4298,8 @@ pub struct ProjectCodeGraphParams {
 }
 
 /// Params of `projectFs/listDir`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsListDirParams {
     pub root: String,
@@ -4035,9 +4307,10 @@ pub struct ProjectFsListDirParams {
 }
 
 /// Params of `projectFs/readText`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectFsReadTextParams {
     pub root: String,
     pub rel: String,
@@ -4047,9 +4320,10 @@ pub struct ProjectFsReadTextParams {
 }
 
 /// Params of `projectFs/writeText`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectFsWriteTextParams {
     pub op_id: OpId,
     pub root: String,
@@ -4067,7 +4341,8 @@ impl crate::common::HasOpId for ProjectFsWriteTextParams {
 }
 
 /// Params of `projectFs/writeTextBatch`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsWriteTextBatchParams {
     pub op_id: OpId,
@@ -4082,9 +4357,10 @@ impl crate::common::HasOpId for ProjectFsWriteTextBatchParams {
 }
 
 /// Params of `projectFs/stat`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectFsStatParams {
     pub root: String,
     pub rel: String,
@@ -4094,7 +4370,8 @@ pub struct ProjectFsStatParams {
 }
 
 /// Params of `projectFs/create`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsCreateParams {
     pub op_id: OpId,
@@ -4111,7 +4388,8 @@ impl crate::common::HasOpId for ProjectFsCreateParams {
 }
 
 /// Params of `projectFs/rename`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsRenameParams {
     pub op_id: OpId,
@@ -4127,7 +4405,8 @@ impl crate::common::HasOpId for ProjectFsRenameParams {
 }
 
 /// Params of `projectFs/move`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsMoveParams {
     pub op_id: OpId,
@@ -4143,7 +4422,8 @@ impl crate::common::HasOpId for ProjectFsMoveParams {
 }
 
 /// Params of `projectFs/copy`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsCopyParams {
     pub op_id: OpId,
@@ -4159,7 +4439,8 @@ impl crate::common::HasOpId for ProjectFsCopyParams {
 }
 
 /// Params of `projectFs/trash`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsTrashParams {
     pub op_id: OpId,
@@ -4174,7 +4455,8 @@ impl crate::common::HasOpId for ProjectFsTrashParams {
 }
 
 /// Params of `projectFs/entryPath`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsEntryPathParams {
     pub root: String,
@@ -4182,23 +4464,26 @@ pub struct ProjectFsEntryPathParams {
 }
 
 /// Params of `projectFs/readLocal`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsReadLocalParams {
     pub path: String,
 }
 
 /// Params of `projectFs/statLocal`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsStatLocalParams {
     pub paths: Vec<String>,
 }
 
 /// Params of `projectFs/browseDirs`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectFsBrowseDirsParams {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4206,7 +4491,8 @@ pub struct ProjectFsBrowseDirsParams {
 }
 
 /// Params of `projectFs/searchText`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsSearchTextParams {
     pub root: String,
@@ -4214,9 +4500,10 @@ pub struct ProjectFsSearchTextParams {
 }
 
 /// Params of `projectFs/replaceText`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectFsReplaceTextParams {
     pub op_id: OpId,
     pub root: String,
@@ -4233,9 +4520,10 @@ impl crate::common::HasOpId for ProjectFsReplaceTextParams {
 }
 
 /// Params of `projectFs/recovery`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectFsRecoveryParams {
     pub op_id: OpId,
     pub root: String,
@@ -4253,14 +4541,16 @@ impl crate::common::HasOpId for ProjectFsRecoveryParams {
 }
 
 /// Params of `projectFs/backup/read`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsBackupReadParams {
     pub source_path: String,
 }
 
 /// Params of `projectFs/backup/write`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsBackupWriteParams {
     pub op_id: OpId,
@@ -4276,7 +4566,8 @@ impl crate::common::HasOpId for ProjectFsBackupWriteParams {
 }
 
 /// Params of `projectFs/backup/delete`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsBackupDeleteParams {
     pub op_id: OpId,
@@ -4290,14 +4581,16 @@ impl crate::common::HasOpId for ProjectFsBackupDeleteParams {
 }
 
 /// Params of `projectFs/workspaceFile/read`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsWorkspaceFileReadParams {
     pub workspace_file: String,
 }
 
 /// Params of `projectFs/workspaceFile/write`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsWorkspaceFileWriteParams {
     pub op_id: OpId,
@@ -4312,9 +4605,10 @@ impl crate::common::HasOpId for ProjectFsWorkspaceFileWriteParams {
 }
 
 /// Params of `projectFs/readEditorSettings`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProjectFsReadEditorSettingsParams {
     pub root: String,
     pub rel: String,
@@ -4323,7 +4617,8 @@ pub struct ProjectFsReadEditorSettingsParams {
 }
 
 /// Params of `projectFs/captureSnapshot`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsCaptureSnapshotParams {
     pub root: String,
@@ -4331,7 +4626,8 @@ pub struct ProjectFsCaptureSnapshotParams {
 }
 
 /// Params of `projectFs/localPageUrl`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectFsLocalPageUrlParams {
     pub root: String,
@@ -4339,7 +4635,8 @@ pub struct ProjectFsLocalPageUrlParams {
 }
 
 /// Params of `fs/watch`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct FsWatchParams {
     pub watch_id: WatchId,
@@ -4348,16 +4645,18 @@ pub struct FsWatchParams {
 }
 
 /// Params of `fs/unwatch`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct FsUnwatchParams {
     pub watch_id: WatchId,
 }
 
 /// Params of `search/start`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct SearchStartParams {
     pub session_id: SearchSessionId,
     pub roots: Vec<String>,
@@ -4372,7 +4671,8 @@ pub struct SearchStartParams {
 }
 
 /// Params of `search/update`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SearchUpdateParams {
     pub session_id: SearchSessionId,
@@ -4380,14 +4680,16 @@ pub struct SearchUpdateParams {
 }
 
 /// Params of `search/stop`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SearchStopParams {
     pub session_id: SearchSessionId,
 }
 
 /// Params of `transfer/beginZip`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferBeginZipParams {
     pub root: String,
@@ -4395,9 +4697,10 @@ pub struct TransferBeginZipParams {
 }
 
 /// Params of `transfer/readRange`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TransferReadRangeParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transfer_id: Option<TransferId>,
@@ -4405,30 +4708,32 @@ pub struct TransferReadRangeParams {
     pub root: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rel: Option<String>,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub offset: u64,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub length: u64,
 }
 
 /// Params of `transfer/endRead`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferEndReadParams {
     pub transfer_id: TransferId,
 }
 
 /// Params of `transfer/beginWrite`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TransferBeginWriteParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub root: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rel: Option<String>,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub size: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
@@ -4443,17 +4748,19 @@ impl crate::common::HasOpId for TransferBeginWriteParams {
 }
 
 /// Params of `transfer/writeChunk`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferWriteChunkParams {
     pub transfer_id: TransferId,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub offset: u64,
     pub bytes_b64: String,
 }
 
 /// Params of `transfer/commit`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferCommitParams {
     pub op_id: OpId,
@@ -4467,23 +4774,26 @@ impl crate::common::HasOpId for TransferCommitParams {
 }
 
 /// Params of `transfer/abort`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferAbortParams {
     pub transfer_id: TransferId,
 }
 
 /// Params of `transfer/trash/info`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TransferTrashInfoParams {
     pub path: String,
 }
 
 /// Params of `transfer/trash/entry`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TransferTrashEntryParams {
     pub op_id: OpId,
     pub path: String,
@@ -4499,9 +4809,10 @@ impl crate::common::HasOpId for TransferTrashEntryParams {
 }
 
 /// Params of `transfer/grant/mint`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TransferGrantMintParams {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4509,7 +4820,8 @@ pub struct TransferGrantMintParams {
 }
 
 /// Params of `lsp/document`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct LspDocumentParams {
     pub project_path: String,
@@ -4518,7 +4830,8 @@ pub struct LspDocumentParams {
 }
 
 /// Params of `lsp/subscribe` and `lsp/unsubscribe`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct LspSubscribeParams {
     /// The project root; the feed is `lsp:<root>`.
@@ -4526,7 +4839,8 @@ pub struct LspSubscribeParams {
 }
 
 /// Params of `lsp/request`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct LspRequestParams {
     pub op_id: OpId,
@@ -4542,9 +4856,10 @@ impl crate::common::HasOpId for LspRequestParams {
 }
 
 /// Params of `document/preview`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct DocumentPreviewParams {
     pub root: String,
     pub rel: String,
@@ -4553,9 +4868,10 @@ pub struct DocumentPreviewParams {
 }
 
 /// Params of `document/previewPages`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct DocumentPreviewPagesParams {
     pub root: String,
     pub rel: String,
@@ -4564,16 +4880,18 @@ pub struct DocumentPreviewPagesParams {
 }
 
 /// Params of `document/libreOfficeStatus`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct DocumentLibreOfficeStatusParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refresh: Option<bool>,
 }
 
 /// Params of `document/installLibreOffice`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentInstallLibreOfficeParams {
     pub op_id: OpId,
@@ -4586,9 +4904,10 @@ impl crate::common::HasOpId for DocumentInstallLibreOfficeParams {
 }
 
 /// Params of `git/status`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitStatusParams {
     pub cwd: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4598,16 +4917,18 @@ pub struct GitStatusParams {
 }
 
 /// Params of `git/branches`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitBranchesParams {
     pub cwd: String,
 }
 
 /// Params of `git/log`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitLogParams {
     pub cwd: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4619,7 +4940,8 @@ pub struct GitLogParams {
 }
 
 /// Params of `git/show`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitShowParams {
     pub cwd: String,
@@ -4627,7 +4949,8 @@ pub struct GitShowParams {
 }
 
 /// Params of `git/showDiff`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitShowDiffParams {
     pub cwd: String,
@@ -4636,7 +4959,8 @@ pub struct GitShowDiffParams {
 }
 
 /// Params of `git/showFile`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitShowFileParams {
     pub cwd: String,
@@ -4645,9 +4969,10 @@ pub struct GitShowFileParams {
 }
 
 /// Params of `git/diff`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitDiffParams {
     pub cwd: String,
     pub path: String,
@@ -4659,14 +4984,16 @@ pub struct GitDiffParams {
 }
 
 /// Params of `git/stashList`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitStashListParams {
     pub cwd: String,
 }
 
 /// Params of `git/requestContext`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitRequestContextParams {
     pub cwd: String,
@@ -4675,9 +5002,10 @@ pub struct GitRequestContextParams {
 
 /// Input of `git/requestContext` (`requiredGitRequestContextInput`): the listed
 /// repository-relative files (0–500, may be empty) and an optional base branch.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitRequestContextInput {
     pub paths: Vec<String>,
     /// Absent or empty: no base branch.
@@ -4686,35 +5014,40 @@ pub struct GitRequestContextInput {
 }
 
 /// Params of `git/cliStatus`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitCliStatusParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refresh: Option<bool>,
 }
 
 /// Params of `git/globalConfig/read`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitGlobalConfigReadParams {}
 
 /// Params of `git/watch`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitWatchParams {
     pub cwd: String,
 }
 
 /// Params of `git/unwatch`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitUnwatchParams {
     pub cwd: String,
 }
 
 /// Params of `git/stage`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitStageParams {
     pub op_id: OpId,
@@ -4729,7 +5062,8 @@ impl crate::common::HasOpId for GitStageParams {
 }
 
 /// Params of `git/unstage`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitUnstageParams {
     pub op_id: OpId,
@@ -4744,7 +5078,8 @@ impl crate::common::HasOpId for GitUnstageParams {
 }
 
 /// Params of `git/commit`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitCommitParams {
     pub op_id: OpId,
@@ -4759,7 +5094,8 @@ impl crate::common::HasOpId for GitCommitParams {
 }
 
 /// Params of `git/commitPaths`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitCommitPathsParams {
     pub op_id: OpId,
@@ -4768,7 +5104,8 @@ pub struct GitCommitPathsParams {
 }
 
 /// Input of `git/commitPaths` (`gitCommitPaths(cwd, message, paths)`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitCommitPathsInput {
     /// 1–20 000 characters.
@@ -4784,9 +5121,10 @@ impl crate::common::HasOpId for GitCommitPathsParams {
 }
 
 /// Params of `git/amend`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitAmendParams {
     pub op_id: OpId,
     pub cwd: String,
@@ -4801,7 +5139,8 @@ impl crate::common::HasOpId for GitAmendParams {
 }
 
 /// Params of `git/undoLastCommit`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitUndoLastCommitParams {
     pub op_id: OpId,
@@ -4815,7 +5154,8 @@ impl crate::common::HasOpId for GitUndoLastCommitParams {
 }
 
 /// Params of `git/push`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitPushParams {
     pub op_id: OpId,
@@ -4829,7 +5169,8 @@ impl crate::common::HasOpId for GitPushParams {
 }
 
 /// Params of `git/pull`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitPullParams {
     pub op_id: OpId,
@@ -4843,7 +5184,8 @@ impl crate::common::HasOpId for GitPullParams {
 }
 
 /// Params of `git/fetch`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitFetchParams {
     pub op_id: OpId,
@@ -4857,7 +5199,8 @@ impl crate::common::HasOpId for GitFetchParams {
 }
 
 /// Params of `git/sync`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitSyncParams {
     pub op_id: OpId,
@@ -4871,9 +5214,10 @@ impl crate::common::HasOpId for GitSyncParams {
 }
 
 /// Params of `git/stash`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitStashParams {
     pub op_id: OpId,
     pub cwd: String,
@@ -4888,7 +5232,8 @@ impl crate::common::HasOpId for GitStashParams {
 }
 
 /// Params of `git/stashPop`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitStashPopParams {
     pub op_id: OpId,
@@ -4902,7 +5247,8 @@ impl crate::common::HasOpId for GitStashPopParams {
 }
 
 /// Params of `git/stashApply`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitStashApplyParams {
     pub op_id: OpId,
@@ -4917,7 +5263,8 @@ impl crate::common::HasOpId for GitStashApplyParams {
 }
 
 /// Params of `git/stashDrop`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitStashDropParams {
     pub op_id: OpId,
@@ -4932,7 +5279,8 @@ impl crate::common::HasOpId for GitStashDropParams {
 }
 
 /// Params of `git/createTag`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitCreateTagParams {
     pub op_id: OpId,
@@ -4948,7 +5296,8 @@ impl crate::common::HasOpId for GitCreateTagParams {
 }
 
 /// Params of `git/deleteTag`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitDeleteTagParams {
     pub op_id: OpId,
@@ -4963,7 +5312,8 @@ impl crate::common::HasOpId for GitDeleteTagParams {
 }
 
 /// Params of `git/deleteBranch`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitDeleteBranchParams {
     pub op_id: OpId,
@@ -4972,7 +5322,8 @@ pub struct GitDeleteBranchParams {
 }
 
 /// Input of `git/deleteBranch` (`gitDeleteBranch(cwd, branch)`): a local branch.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitDeleteBranchInput {
     pub branch: String,
@@ -4985,7 +5336,8 @@ impl crate::common::HasOpId for GitDeleteBranchParams {
 }
 
 /// Params of `git/renameBranch`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitRenameBranchParams {
     pub op_id: OpId,
@@ -4994,7 +5346,8 @@ pub struct GitRenameBranchParams {
 }
 
 /// Input of `git/renameBranch` (`gitRenameBranch(cwd, branch, nextBranch)`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitRenameBranchInput {
     pub branch: String,
@@ -5008,9 +5361,10 @@ impl crate::common::HasOpId for GitRenameBranchParams {
 }
 
 /// Params of `git/resetToCommit`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitResetToCommitParams {
     pub op_id: OpId,
     pub cwd: String,
@@ -5027,7 +5381,8 @@ impl crate::common::HasOpId for GitResetToCommitParams {
 }
 
 /// Params of `git/revertCommit`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitRevertCommitParams {
     pub op_id: OpId,
@@ -5042,9 +5397,10 @@ impl crate::common::HasOpId for GitRevertCommitParams {
 }
 
 /// Params of `git/revertFile`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitRevertFileParams {
     pub op_id: OpId,
     pub cwd: String,
@@ -5061,7 +5417,8 @@ impl crate::common::HasOpId for GitRevertFileParams {
 }
 
 /// Params of `git/cherryPickCommit`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitCherryPickCommitParams {
     pub op_id: OpId,
@@ -5076,9 +5433,10 @@ impl crate::common::HasOpId for GitCherryPickCommitParams {
 }
 
 /// Params of `git/applyPatch`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitApplyPatchParams {
     pub op_id: OpId,
     pub cwd: String,
@@ -5095,9 +5453,10 @@ impl crate::common::HasOpId for GitApplyPatchParams {
 }
 
 /// Params of `git/ignore`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GitIgnoreParams {
     pub op_id: OpId,
     pub cwd: String,
@@ -5113,7 +5472,8 @@ impl crate::common::HasOpId for GitIgnoreParams {
 }
 
 /// Params of `git/continue`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitContinueParams {
     pub op_id: OpId,
@@ -5127,7 +5487,8 @@ impl crate::common::HasOpId for GitContinueParams {
 }
 
 /// Params of `git/abortOperation`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitAbortOperationParams {
     pub op_id: OpId,
@@ -5141,7 +5502,8 @@ impl crate::common::HasOpId for GitAbortOperationParams {
 }
 
 /// Params of `git/globalConfig/write`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct GitGlobalConfigWriteParams {
     pub op_id: OpId,
@@ -5156,7 +5518,8 @@ impl crate::common::HasOpId for GitGlobalConfigWriteParams {
 }
 
 /// Params of `git/cli/install`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GitCliInstallParams {
     pub op_id: OpId,
@@ -5169,23 +5532,26 @@ impl crate::common::HasOpId for GitCliInstallParams {
 }
 
 /// Params of `github/status`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GithubStatusParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refresh: Option<bool>,
 }
 
 /// Params of `github/account`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubAccountParams {}
 
 /// Params of `github/login/start`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct GithubLoginStartParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5199,14 +5565,16 @@ impl crate::common::HasOpId for GithubLoginStartParams {
 }
 
 /// Params of `github/login/status`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubLoginStatusParams {
     pub flow_id: LoginFlowId,
 }
 
 /// Params of `github/login/openBrowser`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubLoginOpenBrowserParams {
     pub op_id: OpId,
@@ -5220,7 +5588,8 @@ impl crate::common::HasOpId for GithubLoginOpenBrowserParams {
 }
 
 /// Params of `github/login/cancel`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubLoginCancelParams {
     pub op_id: OpId,
@@ -5234,7 +5603,8 @@ impl crate::common::HasOpId for GithubLoginCancelParams {
 }
 
 /// Params of `github/logout`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubLogoutParams {
     pub op_id: OpId,
@@ -5247,7 +5617,8 @@ impl crate::common::HasOpId for GithubLogoutParams {
 }
 
 /// Params of `github/install`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubInstallParams {
     pub op_id: OpId,
@@ -5260,7 +5631,8 @@ impl crate::common::HasOpId for GithubInstallParams {
 }
 
 /// Params of `github/request`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubRequestParams {
     pub op_id: OpId,
@@ -5275,12 +5647,14 @@ impl crate::common::HasOpId for GithubRequestParams {
 }
 
 /// Params of `github/starStatus`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubStarStatusParams {}
 
 /// Params of `github/star`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubStarParams {
     pub op_id: OpId,
@@ -5293,14 +5667,16 @@ impl crate::common::HasOpId for GithubStarParams {
 }
 
 /// Params of `github/pr/list`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubPrListParams {
     pub cwd: String,
 }
 
 /// Params of `github/pr/view`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubPrViewParams {
     pub cwd: String,
@@ -5308,7 +5684,8 @@ pub struct GithubPrViewParams {
 }
 
 /// Params of `github/pr/diff`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubPrDiffParams {
     pub cwd: String,
@@ -5316,14 +5693,16 @@ pub struct GithubPrDiffParams {
 }
 
 /// Params of `github/pr/defaultBranch`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubPrDefaultBranchParams {
     pub cwd: String,
 }
 
 /// Params of `github/pr/create`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubPrCreateParams {
     pub op_id: OpId,
@@ -5338,7 +5717,8 @@ impl crate::common::HasOpId for GithubPrCreateParams {
 }
 
 /// Params of `github/pr/checkout`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubPrCheckoutParams {
     pub op_id: OpId,
@@ -5353,7 +5733,8 @@ impl crate::common::HasOpId for GithubPrCheckoutParams {
 }
 
 /// Params of `github/pr/merge`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct GithubPrMergeParams {
     pub op_id: OpId,
@@ -5369,14 +5750,16 @@ impl crate::common::HasOpId for GithubPrMergeParams {
 }
 
 /// Params of `process/kill`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessKillParams {
     pub process_handle: ProcessHandle,
 }
 
 /// Params of `process/resizePty`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProcessResizePtyParams {
     pub process_handle: ProcessHandle,
@@ -5385,9 +5768,10 @@ pub struct ProcessResizePtyParams {
 }
 
 /// Params of `process/writeStdin`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProcessWriteStdinParams {
     pub process_handle: ProcessHandle,
     pub bytes_b64: String,
@@ -5396,9 +5780,10 @@ pub struct ProcessWriteStdinParams {
 }
 
 /// Params of `terminal/ensure`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TerminalEnsureParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5413,9 +5798,10 @@ impl crate::common::HasOpId for TerminalEnsureParams {
 }
 
 /// Params of `terminal/attach`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TerminalAttachParams {
     pub tab_id: TerminalTabId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5423,12 +5809,14 @@ pub struct TerminalAttachParams {
 }
 
 /// Params of `terminal/profiles`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalProfilesParams {}
 
 /// Params of `terminal/focus`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalFocusParams {
     pub tab_id: TerminalTabId,
@@ -5436,21 +5824,24 @@ pub struct TerminalFocusParams {
 }
 
 /// Params of `terminal/pause`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalPauseParams {
     pub tab_id: TerminalTabId,
 }
 
 /// Params of `terminal/resume`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalResumeParams {
     pub tab_id: TerminalTabId,
 }
 
 /// Params of `terminal/dispose`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalDisposeParams {
     pub op_id: OpId,
@@ -5464,17 +5855,20 @@ impl crate::common::HasOpId for TerminalDisposeParams {
 }
 
 /// Params of `system/ports/subscribe`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SystemPortsSubscribeParams {}
 
 /// Params of `system/ports/unsubscribe`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct SystemPortsUnsubscribeParams {}
 
 /// Params of `remoteAccess/setEnabled`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RemoteAccessSetEnabledParams {
     pub op_id: OpId,
@@ -5488,7 +5882,8 @@ impl crate::common::HasOpId for RemoteAccessSetEnabledParams {
 }
 
 /// Params of `remoteAccess/setName`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RemoteAccessSetNameParams {
     pub op_id: OpId,
@@ -5502,7 +5897,8 @@ impl crate::common::HasOpId for RemoteAccessSetNameParams {
 }
 
 /// Params of `remoteAccess/setClientAlias`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RemoteAccessSetClientAliasParams {
     pub op_id: OpId,
@@ -5517,7 +5913,8 @@ impl crate::common::HasOpId for RemoteAccessSetClientAliasParams {
 }
 
 /// Params of `remoteAccess/rotate`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccessRotateParams {
     pub op_id: OpId,
@@ -5530,7 +5927,8 @@ impl crate::common::HasOpId for RemoteAccessRotateParams {
 }
 
 /// Params of `remoteAccess/resolveClaim`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccessResolveClaimParams {
     pub op_id: OpId,
@@ -5545,7 +5943,8 @@ impl crate::common::HasOpId for RemoteAccessResolveClaimParams {
 }
 
 /// Params of `remoteAccess/pairCode`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccessPairCodeParams {
     pub op_id: OpId,
@@ -5559,7 +5958,8 @@ impl crate::common::HasOpId for RemoteAccessPairCodeParams {
 }
 
 /// Params of `remoteAccess/revokeClient`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccessRevokeClientParams {
     pub op_id: OpId,
@@ -5573,7 +5973,8 @@ impl crate::common::HasOpId for RemoteAccessRevokeClientParams {
 }
 
 /// Params of `remoteAccess/settleOwedControllerKeys`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccessSettleOwedControllerKeysParams {
     pub op_id: OpId,
@@ -5587,7 +5988,8 @@ impl crate::common::HasOpId for RemoteAccessSettleOwedControllerKeysParams {
 }
 
 /// Params of `remoteAccess/deliverScreenControllerKey`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccessDeliverScreenControllerKeyParams {
     pub op_id: OpId,
@@ -5601,12 +6003,14 @@ impl crate::common::HasOpId for RemoteAccessDeliverScreenControllerKeyParams {
 }
 
 /// Params of `remoteAccess/pushPublicKey`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccessPushPublicKeyParams {}
 
 /// Params of `remoteAccess/activate`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccessActivateParams {
     pub op_id: OpId,
@@ -5619,11 +6023,13 @@ impl crate::common::HasOpId for RemoteAccessActivateParams {
 }
 
 /// Params of `remoteAccess/state`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccessStateParams {}
 /// Params of `remoteAccess/registerPushSubscription`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccessRegisterPushSubscriptionParams {
     pub op_id: OpId,
@@ -5637,7 +6043,8 @@ impl crate::common::HasOpId for RemoteAccessRegisterPushSubscriptionParams {
 }
 
 /// Params of `remoteAccess/removePushSubscription`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccessRemovePushSubscriptionParams {
     pub op_id: OpId,
@@ -5651,7 +6058,8 @@ impl crate::common::HasOpId for RemoteAccessRemovePushSubscriptionParams {
 }
 
 /// Params of `remoteAccess/registerNativePush`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccessRegisterNativePushParams {
     pub op_id: OpId,
@@ -5665,9 +6073,10 @@ impl crate::common::HasOpId for RemoteAccessRegisterNativePushParams {
 }
 
 /// Params of `remoteAccess/removeNativePush`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct RemoteAccessRemoveNativePushParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5681,9 +6090,10 @@ impl crate::common::HasOpId for RemoteAccessRemoveNativePushParams {
 }
 
 /// Params of `browser/command`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct BrowserCommandParams {
     pub action: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5691,9 +6101,10 @@ pub struct BrowserCommandParams {
 }
 
 /// Params of `visualize/command`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct VisualizeCommandParams {
     pub action: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -5701,9 +6112,10 @@ pub struct VisualizeCommandParams {
 }
 
 /// Params of `notify/test`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct NotifyTestParams {
     pub op_id: OpId,
     #[serde(default, skip_serializing_if = "Option::is_none")]

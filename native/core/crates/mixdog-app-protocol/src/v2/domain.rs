@@ -6,13 +6,12 @@ use mixdog_protocol::JsonValue;
 use mixdog_protocol::OpId;
 use mixdog_protocol::ProcessHandle;
 use mixdog_protocol::ThreadId;
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
 /// What a read transfer opens; the real path is verified after open.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum TransferSource {
     /// A project file (today's `fileDownload*`, `previewProjectFile`).
@@ -46,17 +45,19 @@ pub enum TransferSource {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct TransferBeginReadParams {
     pub source: TransferSource,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TransferBeginReadResponse {
     pub transfer_id: mixdog_protocol::TransferId,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub size: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mime_type: Option<String>,
@@ -65,7 +66,8 @@ pub struct TransferBeginReadResponse {
     pub entry: Option<JsonValue>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ReviewScope {
     /// One turn's change record (`checkpointId`).
@@ -77,9 +79,10 @@ pub enum ReviewScope {
 }
 
 /// One read for every review family (DS §5.3).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ReviewDiffGetParams {
     pub scope: ReviewScope,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -116,7 +119,8 @@ pub struct ReviewDiffGetParams {
 }
 
 /// Channel-bridge tool call (today's channel `POST /call`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ChannelCallParams {
     /// Today's `callId`.
@@ -141,16 +145,18 @@ impl crate::common::HasOpId for ChannelCallParams {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct PtySize {
     pub cols: u16,
     pub rows: u16,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProcessSpawnParams {
     pub op_id: OpId,
     pub process_handle: ProcessHandle,
@@ -170,7 +176,7 @@ pub struct ProcessSpawnParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub timeout_ms: Option<u64>,
 }
 

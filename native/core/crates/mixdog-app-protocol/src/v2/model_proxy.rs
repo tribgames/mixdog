@@ -10,12 +10,11 @@
 use std::collections::BTreeMap;
 
 use mixdog_protocol::JsonValue;
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ProxyRole {
     System,
@@ -25,21 +24,24 @@ pub enum ProxyRole {
     Developer,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ProxyCacheTier {
     Tier3,
     Env,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ProxyPhase {
     Commentary,
     FinalAnswer,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ProxyMessageSource {
     Steering,
@@ -47,7 +49,8 @@ pub enum ProxyMessageSource {
     TailReminder,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ProxyImage {
     Base64 { data: String, mime_type: String },
@@ -58,14 +61,16 @@ pub enum ProxyImage {
 /// A file part's bytes. The sender's attachment-store reference means nothing on the PC, so it
 /// is never carried: the sender inlines the bytes (under its byte budget), and a reference that
 /// stays travels as `unavailable`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ProxyBinary {
     Base64 { data: String },
     Unavailable,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ProxyDocument {
     Base64 { media_type: String, data: String },
@@ -73,7 +78,8 @@ pub enum ProxyDocument {
     Content { content: JsonValue },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ProxyPart {
     Text { text: String },
@@ -82,14 +88,16 @@ pub enum ProxyPart {
     Document { source: ProxyDocument, title: Option<String> },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(untagged)]
 pub enum ProxyContent {
     Text(String),
     Parts(Vec<ProxyPart>),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyToolCall {
     pub id: String,
@@ -98,14 +106,16 @@ pub struct ProxyToolCall {
     pub native_type: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyReplay {
     pub owner: String,
     pub items: JsonValue,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyMessage {
     pub role: ProxyRole,
@@ -123,7 +133,8 @@ pub struct ProxyMessage {
     pub provider_replay: Vec<ProxyReplay>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyTool {
     pub name: String,
@@ -132,7 +143,8 @@ pub struct ProxyTool {
     pub defer_loading: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyLocation {
     pub country: Option<String>,
@@ -141,7 +153,8 @@ pub struct ProxyLocation {
     pub timezone: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ProxyHostedTool {
     WebSearch {
@@ -154,16 +167,18 @@ pub enum ProxyHostedTool {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyThread {
     pub id: String,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub window: u64,
     pub turn: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyEffortProjection {
     pub initial_effort: String,
@@ -173,7 +188,8 @@ pub struct ProxyEffortProjection {
 
 /// `RequestOptions` field for field. The connection scope and the model's output ceiling are the
 /// PC's to derive, so they are not carried.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyOptions {
     pub session_id: Option<String>,
@@ -198,7 +214,8 @@ pub struct ProxyOptions {
     pub provider_state: Option<JsonValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyRequest {
     pub model: String,
@@ -207,7 +224,8 @@ pub struct ProxyRequest {
     pub options: ProxyOptions,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyRouteContext {
     /// An agent/tool session, or a send carrying tools.
@@ -219,7 +237,8 @@ pub struct ProxyRouteContext {
 
 /// What the remote runtime asks of the PC's providers (`ModelProxyProvider`,
 /// `quota-reading.mjs:93`, `loadModelProxyProviderConfig`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "method", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ProxyCall {
     Send { provider: String, request: Box<ProxyRequest> },
@@ -230,27 +249,30 @@ pub enum ProxyCall {
     ProviderConfig,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyBudget {
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub transport_ms: u64,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub semantic_ms: u64,
 }
 
 /// One value of a picker parameter (``ParameterValue``).
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyParameterValue {
     pub value: String,
     pub label: String,
-    #[ts(type = "number | null")]
+    #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
     pub context_window: Option<u64>,
 }
 
 /// A selectable non-effort, non-fast model parameter (``ParameterOption``).
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyParameterOption {
     pub id: String,
@@ -259,7 +281,8 @@ pub struct ProxyParameterOption {
     pub options: Vec<ProxyParameterValue>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyServiceTier {
     pub id: String,
@@ -268,17 +291,19 @@ pub struct ProxyServiceTier {
 }
 
 /// A declared effort ladder (``ReasoningOption``).
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyReasoningOption {
     #[serde(rename = "type")]
-    #[ts(rename = "type")]
+    #[cfg_attr(feature = "codegen", ts(rename = "type"))]
     pub kind: String,
     pub values: Vec<String>,
 }
 
 /// A custom provider's reasoning wire contract (``CustomReasoning``).
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyCustomReasoning {
     pub wire_format: String,
@@ -287,7 +312,8 @@ pub struct ProxyCustomReasoning {
 }
 
 /// What the model picker shows beyond limits and capabilities (``PickerFields``).
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyPicker {
     pub release_date: Option<String>,
@@ -356,7 +382,8 @@ impl<'de> Deserialize<'de> for ProxyWireIds {
 }
 
 /// The schema of [`ProxyWireIds`]' wire form.
-#[derive(JsonSchema)]
+#[cfg(feature = "codegen")]
+#[derive(schemars::JsonSchema)]
 #[serde(untagged)]
 #[allow(dead_code)]
 enum ProxyWireShape {
@@ -364,7 +391,8 @@ enum ProxyWireShape {
     Tiers(BTreeMap<String, String>),
 }
 /// A model the PC's provider lists, with the first-response budget of its catalog entry.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyModel {
     pub id: String,
@@ -378,15 +406,15 @@ pub struct ProxyModel {
     pub supports_reasoning_effort_updates: Option<bool>,
     pub supports_prompt_caching: Option<bool>,
     pub reasoning_content_field: Option<String>,
-    #[ts(type = "number | null")]
+    #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
     pub context_window: Option<u64>,
     /// The largest window the listing states for the model.
-    #[ts(type = "number | null")]
+    #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
     pub max_context_window: Option<u64>,
     /// What a managed local runtime has allocated; bounds a selected window.
-    #[ts(type = "number | null")]
+    #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
     pub runtime_context_window: Option<u64>,
-    #[ts(type = "number | null")]
+    #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
     pub max_output_tokens: Option<u64>,
     /// The row's own prices, USD per million tokens; absent when not finite.
     pub input_cost_per_m: Option<f64>,
@@ -402,19 +430,20 @@ pub struct ProxyModel {
     /// The kind of model the listing states (`chat`, `embedding`, ...).
     pub mode: Option<String>,
     /// When the provider created the model (epoch seconds, as listed).
-    #[ts(type = "number | null")]
+    #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
     pub created: Option<i64>,
     /// The model a routing alias resolves to.
     pub alias_target: Option<String>,
     /// The wire id(s) the picker id is sent under.
-    #[schemars(with = "Option<ProxyWireShape>")]
-    #[ts(type = "string | { [level: string]: string } | null")]
+    #[cfg_attr(feature = "codegen", schemars(with = "Option<ProxyWireShape>"))]
+    #[cfg_attr(feature = "codegen", ts(type = "string | { [level: string]: string } | null"))]
     pub wire: Option<ProxyWireIds>,
     pub picker: ProxyPicker,
     pub first_response_budget: Option<ProxyBudget>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ProxyWire {
     Chat,
@@ -423,7 +452,8 @@ pub enum ProxyWire {
     Gemini,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ProxyRouteSource {
     Pinned,
@@ -436,7 +466,8 @@ pub enum ProxyRouteSource {
     Unknown,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyWireRoute {
     pub wire: ProxyWire,
@@ -446,9 +477,10 @@ pub struct ProxyWireRoute {
 }
 
 /// The adapter traits of a PC provider its stand-in needs.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProxyTraits {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_excludes_cache: Option<bool>,
@@ -463,9 +495,10 @@ pub struct ProxyTraits {
 }
 
 /// What a server learns of one PC provider: usable or not, and its traits.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProxyProviderInfo {
     pub enabled: bool,
     #[serde(default, rename = "type", skip_serializing_if = "Option::is_none")]
@@ -480,7 +513,8 @@ pub struct ProxyProviderInfo {
 }
 
 /// The answer to a [`ProxyCall`].
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "result", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ProxyAnswer {
     /// `Send` finished; its events came ahead of it.
@@ -493,13 +527,13 @@ pub enum ProxyAnswer {
         /// In the order the PC advertised them: a JSON object on the wire, whose key order Node keeps
         /// (the setup lists custom providers in it).
         #[serde(with = "ordered_providers")]
-        #[schemars(with = "BTreeMap<String, ProxyProviderInfo>")]
-        #[ts(as = "BTreeMap<String, ProxyProviderInfo>")]
+        #[cfg_attr(feature = "codegen", schemars(with = "BTreeMap<String, ProxyProviderInfo>"))]
+        #[cfg_attr(feature = "codegen", ts(as = "BTreeMap<String, ProxyProviderInfo>"))]
         providers: Vec<(String, ProxyProviderInfo)>,
         /// Whether the PC's registry is loaded. An older PC omits it, and the server then reads the
         /// answer as loaded only when it names an enabled provider.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         ready: Option<bool>,
     },
     /// `modelProxy/run` reports a failed call as its result: the error vocabulary of the server has
@@ -508,31 +542,33 @@ pub enum ProxyAnswer {
     Failed { failure: ProxyFailure },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyUsage {
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub input_tokens: u64,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub output_tokens: u64,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub cache_read_tokens: u64,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub cache_write_tokens: u64,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub cache_write_1h_tokens: u64,
     /// Absent when the provider reported none; an explicit 0 stays 0.
-    #[ts(type = "number | null")]
+    #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
     pub reasoning_tokens: Option<u64>,
     /// `reasoningTokensComplete === false` on an aggregate.
     #[serde(default)]
     pub reasoning_incomplete: bool,
     pub raw: Option<JsonValue>,
-    #[ts(type = "number | null")]
+    #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
     pub cost_ticks: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ProxyStop {
     EndTurn,
@@ -545,7 +581,8 @@ pub enum ProxyStop {
     Other { value: String },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ProxyItemKind {
     Text,
@@ -553,7 +590,8 @@ pub enum ProxyItemKind {
     Tool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ProxyProgress {
     Semantic,
@@ -563,7 +601,8 @@ pub enum ProxyProgress {
 }
 
 /// One stream event of an attempt (`StreamEvent`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ProxyEvent {
     ItemStart { item: ProxyItemKind, phase: Option<ProxyPhase> },
@@ -594,7 +633,7 @@ pub enum ProxyEvent {
     Completed {
         stop: Option<ProxyStop>,
         pricing_model: Option<String>,
-        #[ts(type = "number | null")]
+        #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
         request_ms: Option<u64>,
     },
     /// The attempt failed and a retry begins: everything its events showed is dropped.
@@ -604,7 +643,8 @@ pub enum ProxyEvent {
 }
 
 /// How the PC's broker ended a failed send.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "outcome", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ProxyOutcome {
     /// The retry verdict surfaced the error.
@@ -617,7 +657,8 @@ pub enum ProxyOutcome {
     Admission,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ProxyErrorKind {
     Overloaded,
@@ -639,7 +680,8 @@ pub enum ProxyErrorKind {
     Unknown,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ProxyDelivery {
     NotSent,
@@ -647,7 +689,8 @@ pub enum ProxyDelivery {
     Accepted,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ProxyQuotaScope {
     Minute,
@@ -655,7 +698,8 @@ pub enum ProxyQuotaScope {
     Plan,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ProxyTransportKind {
     Http1,
@@ -663,7 +707,8 @@ pub enum ProxyTransportKind {
     WebSocket,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "fault", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum ProxyFault {
     Connect { os_code: Option<i32> },
@@ -681,16 +726,17 @@ pub enum ProxyFault {
 
 /// A failed call as the sender's retry and recovery read it (the classified `ProviderError`);
 /// credential-shaped text in the message is redacted and nothing else of the PC leaves it.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ProxyFailure {
     pub outcome: ProxyOutcome,
     pub kind: ProxyErrorKind,
     pub code: Option<String>,
     pub status: Option<u16>,
-    #[ts(type = "number | null")]
+    #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
     pub retry_after_ms: Option<u64>,
-    #[ts(type = "number | null")]
+    #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
     pub reset_at_ms: Option<u64>,
     pub quota_scope: Option<ProxyQuotaScope>,
     pub reauth_required: bool,

@@ -1,19 +1,18 @@
 //! The method tables (P §2.2 `common`, SPEC R19): one row per method with
 //! `name, params, result, scope (P §7.1), class (RL §4.1), mutation (P §9),
 //! origins (DS §4.2)`. The macros below generate the typed message enums,
-//! the static spec tables and the type visitors used by `export`.
+//! the static spec tables and, with the `codegen` feature, the type visitors used by `export`.
 
 use std::fmt;
 
 use mixdog_protocol::OpId;
 use mixdog_protocol::ThreadId;
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
 /// Request class (RL §4.1, SPEC §4.3): static per method, never derived at runtime.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub enum RequestClass {
     /// Control: RT-C only, no serialization key.
     C0,
@@ -29,7 +28,8 @@ pub use mixdog_protocol::Origin;
 
 /// Owner scope of a mutation's op record (P §9.2). For a method whose
 /// serialization scope resolves to a thread, the op scope is that thread.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum OpDomain {
     Core,
@@ -108,7 +108,8 @@ impl OpDomain {
 }
 
 /// Mutation column of a method row.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "kind", content = "domain", rename_all = "camelCase")]
 pub enum Mutation {
     /// Reads, subscriptions, paging and C0 controls: no `opId`.
@@ -338,7 +339,8 @@ impl MethodSpec {
 }
 
 /// Feed a server notification travels on (P §6, DS §2.1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum Delivery {
     /// A thread feed (`feed.id = threadId`).
@@ -373,21 +375,6 @@ pub struct ServerRequestSpec {
     /// Delivered to connections that declared this initialize capability
     /// (`host`, `modelProxy`) or to every eligible connection (`None`).
     pub requires: Option<&'static str>,
-}
-
-/// Visits the params and result types of every row (schema and TS export).
-pub trait MethodTypeVisitor {
-    fn visit<P, R>(&mut self, method: &'static str)
-    where
-        P: JsonSchema + TS + 'static,
-        R: JsonSchema + TS + 'static;
-}
-
-/// Visits the params type of every notification row.
-pub trait NotificationTypeVisitor {
-    fn visit<P>(&mut self, method: &'static str)
-    where
-        P: JsonSchema + TS + 'static;
 }
 
 /// Why a JSON-RPC request did not decode into a typed request.
@@ -642,14 +629,15 @@ macro_rules! client_request_definitions {
         }
     ),* $(,)?) => {
         /// Request from a client to the core.
-        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema, ts_rs::TS)]
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
         #[allow(clippy::large_enum_variant)]
         #[serde(tag = "method")]
         pub enum ClientRequest {
             $(
                 $(#[doc = $doc])*
                 #[serde(rename = $wire)]
-                #[ts(rename = $wire)]
+                #[cfg_attr(feature = "codegen", ts(rename = $wire))]
                 $variant {
                     #[serde(rename = "id")]
                     request_id: $crate::rpc::RequestId,
@@ -743,7 +731,8 @@ macro_rules! client_request_definitions {
         }
 
         /// Visits params and result types of every client method.
-        pub fn visit_client_methods(visitor: &mut impl $crate::common::MethodTypeVisitor) {
+        #[cfg(feature = "codegen")]
+        pub fn visit_client_methods(visitor: &mut impl $crate::export::MethodTypeVisitor) {
             $( visitor.visit::<$params, $result>($wire); )*
         }
     };
@@ -761,14 +750,15 @@ macro_rules! notification_definitions {
             $variant:ident => $wire:literal ($params:ty) $(@ $delivery:ident $( ( $kind:ident ) )?)?
         ),* $(,)?
     ) => {
-        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema, ts_rs::TS)]
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
         #[allow(clippy::large_enum_variant)]
         #[serde(tag = "method", content = "params")]
         pub enum $enum_name {
             $(
                 $(#[doc = $doc])*
                 #[serde(rename = $wire)]
-                #[ts(rename = $wire)]
+                #[cfg_attr(feature = "codegen", ts(rename = $wire))]
                 $variant($params),
             )*
         }
@@ -789,7 +779,8 @@ macro_rules! notification_definitions {
             }
         }
 
-        pub fn $visit_fn(visitor: &mut impl $crate::common::NotificationTypeVisitor) {
+        #[cfg(feature = "codegen")]
+        pub fn $visit_fn(visitor: &mut impl $crate::export::NotificationTypeVisitor) {
             $( visitor.visit::<$params>($wire); )*
         }
     };
@@ -832,14 +823,15 @@ macro_rules! server_request_definitions {
         }
     ),* $(,)?) => {
         /// Request from the core to a client.
-        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema, ts_rs::TS)]
+        #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+        #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
         #[allow(clippy::large_enum_variant)]
         #[serde(tag = "method")]
         pub enum ServerRequest {
             $(
                 $(#[doc = $doc])*
                 #[serde(rename = $wire)]
-                #[ts(rename = $wire)]
+                #[cfg_attr(feature = "codegen", ts(rename = $wire))]
                 $variant {
                     #[serde(rename = "id")]
                     request_id: $crate::rpc::RequestId,
@@ -869,7 +861,8 @@ macro_rules! server_request_definitions {
             }
         }
 
-        pub fn visit_server_requests(visitor: &mut impl $crate::common::MethodTypeVisitor) {
+        #[cfg(feature = "codegen")]
+        pub fn visit_server_requests(visitor: &mut impl $crate::export::MethodTypeVisitor) {
             $( visitor.visit::<$params, $result>($wire); )*
         }
     };

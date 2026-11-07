@@ -3,10 +3,8 @@
 //! the remaining attributes of today's transcript row that the client fold
 //! needs for field-for-field parity (P §14.12).
 
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
 use crate::ItemId;
 use crate::JsonObject;
@@ -15,7 +13,8 @@ use crate::MaybeBlob;
 use crate::ThreadId;
 use crate::TurnId;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ItemStatus {
     InProgress,
@@ -26,14 +25,15 @@ pub enum ItemStatus {
 }
 
 /// Attributes shared by every item (today's `DesktopTranscriptItem` common fields).
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ItemMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_id: Option<TurnId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<ItemStatus>,
@@ -63,7 +63,8 @@ pub struct ItemMeta {
     pub ext: JsonObject,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum AttachmentKind {
     Image,
@@ -72,7 +73,8 @@ pub enum AttachmentKind {
 }
 
 /// The picked file behind a resized image: its blob is kept while the record exists.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct AttachmentOriginal {
     pub attachment_ref: String,
@@ -80,9 +82,10 @@ pub struct AttachmentOriginal {
 }
 
 /// One attachment of a user message (`meta.transcript.attachments`, `normalizeMessageAttachments`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MessageAttachment {
     /// The content hash (64 lowercase hex, no `sha256:` prefix) the attachment store keeps the bytes under.
     pub id: String,
@@ -91,14 +94,15 @@ pub struct MessageAttachment {
     pub kind: AttachmentKind,
     pub name: String,
     pub mime_type: String,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub size: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub original: Option<AttachmentOriginal>,
 }
 
 /// `id` of an image chip: the paste number or a string id.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(untagged)]
 pub enum ImageChipId {
     Number(i64),
@@ -106,15 +110,16 @@ pub enum ImageChipId {
 }
 
 /// Byte-free image metadata of a user row (`images`): its chip.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ImageChip {
     #[serde(default)]
     pub id: Option<ImageChipId>,
     pub name: String,
     pub mime_type: String,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub bytes: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attachment_ref: Option<String>,
@@ -122,9 +127,10 @@ pub struct ImageChip {
 
 /// The stored original of one restored `[Image: …]` line (`imageRefs`); an
 /// image without a stored original has no `ref`, so later images keep their slot.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ImageRef {
     pub line: String,
     #[serde(default, rename = "ref", skip_serializing_if = "Option::is_none")]
@@ -132,19 +138,21 @@ pub struct ImageRef {
 }
 
 /// A bot's emoji reaction on a user message, one per bot, in the order left.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct MessageReaction {
     pub agent_id: String,
     pub emoji: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub at: Option<i64>,
 }
 
 /// One tool of an imported run: its name and how many times it ran.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct ImportedTool {
     pub name: String,
     pub count: u32,
@@ -155,7 +163,8 @@ pub struct ImportedTool {
 /// offsets, Node's string indices; the client keeps a run only where the text still holds
 /// that line, and draws the text around the runs as assistant rows. The calls' results were
 /// never imported.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct ImportedToolRun {
     pub start: u32,
     pub end: u32,
@@ -163,7 +172,8 @@ pub struct ImportedToolRun {
 }
 
 /// How a turn ended (`turndone.status`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum TurnEndStatus {
     Done,
@@ -176,7 +186,8 @@ pub enum TurnEndStatus {
 /// a typed prompt. Everything but a typed prompt, `Import`, `RoutineTrigger` and `Steering`
 /// is runtime-written text: a client shows it as the notice or card it stands for and never
 /// as the user's own words, and the core never sends such text as a plain prompt.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub enum MessageSource {
     /// Prose imported from another tool; plain text whatever it looks like.
     #[serde(rename = "import")]
@@ -224,7 +235,8 @@ pub enum MessageSource {
     TurnLimit,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum RoutineKind {
     Schedule,
@@ -232,9 +244,10 @@ pub enum RoutineKind {
 }
 
 /// The routine fire a turn delivered (`routineTrigger`): painted as its marker row.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct RoutineTrigger {
     pub kind: RoutineKind,
     pub name: String,
@@ -242,7 +255,8 @@ pub struct RoutineTrigger {
     pub event: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum HeldRequestStatus {
     Pending,
@@ -251,7 +265,8 @@ pub enum HeldRequestStatus {
     Expired,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum HeldRunKind {
     Schedule,
@@ -260,9 +275,10 @@ pub enum HeldRunKind {
 }
 
 /// The run that was held.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct HeldRun {
     pub kind: HeldRunKind,
     pub name: String,
@@ -273,9 +289,10 @@ pub struct HeldRun {
 /// A held request of an unattended run (Node `meta.heldRequest`, `normalizeHeldRequest`). The
 /// desktop paints a pending one as an approval card and answers it with `id` through the
 /// ordinary approval call; `status` and `device` show how it settled.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct HeldRequest {
     pub id: String,
     pub status: HeldRequestStatus,
@@ -301,16 +318,17 @@ pub struct HeldRequest {
     pub remember: Option<Vec<String>>,
     pub run: HeldRun,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub expires_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device: Option<String>,
 }
 
 /// Who and what a user row came from, beyond its content.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct UserRowDetails {
     /// What the message is; absent for a typed prompt.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -355,7 +373,8 @@ pub struct UserRowDetails {
 }
 
 /// One category entry of an aggregate tool card header (`categories` / `doneCategories`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct AggregateCategory {
     pub key: String,
@@ -369,7 +388,8 @@ pub struct AggregateCategory {
 }
 
 /// What an aggregate tool card (`aggregate: true`, name `__aggregate__`) adds.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct ToolAggregate {
     /// The calls the card folds, in order.
@@ -383,15 +403,16 @@ pub struct ToolAggregate {
     #[serde(default)]
     pub done_categories: std::collections::BTreeMap<String, AggregateCategory>,
     #[serde(default)]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub completed_count: u32,
 }
 
 /// A result's side channel: a stable code, the missing capability names and, for a
 /// `visualize` call run for another session's work, that owner session.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ToolMeta {
     pub code: String,
     #[serde(default)]
@@ -403,9 +424,10 @@ pub struct ToolMeta {
 /// The facts of a tool row shared by every tool-backed item variant
 /// (today's `kind: 'tool'` row). `args`, `result` and `rawResult` are the
 /// row's display values; the variant's own fields stay the typed call.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ToolRun {
     /// The call id tying the row to its call and result messages.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -417,10 +439,10 @@ pub struct ToolRun {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub started_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub completed_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ui_diff: Option<MaybeBlob<String>>,
@@ -440,7 +462,8 @@ pub struct ToolRun {
 }
 
 /// How a compaction ended (the `status` of its divider row).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub enum CompactionStatus {
     #[serde(rename = "compacted")]
     Compacted,
@@ -450,7 +473,8 @@ pub enum CompactionStatus {
     NoChange,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum RoomRowKind {
     User,
@@ -461,7 +485,8 @@ pub enum RoomRowKind {
     Interrupted,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum RoomLimit {
     Rounds,
@@ -470,30 +495,33 @@ pub enum RoomLimit {
 }
 
 /// The usage limit a `cap` line stopped at.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct RoomUsage {
     pub kind: String,
     pub provider: String,
     pub model: String,
-    #[ts(type = "number | null")]
+    #[cfg_attr(feature = "codegen", ts(type = "number | null"))]
     pub reset_at: Option<i64>,
 }
 
 /// A tool a member used in its turn, as the speech line summarises it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 pub struct RoomTool {
     pub name: String,
     pub summary: String,
 }
 
 /// A stored file reference of a room line (`parts`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct RoomPart {
     #[serde(rename = "type")]
-    #[ts(rename = "type")]
+    #[cfg_attr(feature = "codegen", ts(rename = "type"))]
     pub kind: AttachmentKind,
     pub attachment_ref: String,
     /// `paste` | `file`, for a text part.
@@ -504,18 +532,19 @@ pub struct RoomPart {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub size_bytes: Option<u64>,
 }
 
 /// The payload of a group-room line (`normalizeRoomRow`, the row's `room`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct RoomLine {
     pub kind: RoomRowKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub at: Option<i64>,
     /// The member id of a speech or pass.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -557,7 +586,8 @@ pub struct RoomLine {
 }
 
 /// One input element of a user message.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum UserInput {
     Text {
@@ -568,10 +598,10 @@ pub enum UserInput {
     Attachment {
         blob: crate::BlobDescriptor,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         filename: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         original: Option<crate::BlobDescriptor>,
     },
     /// Pasted text kept out of line (today's `pastedTexts`).
@@ -579,13 +609,14 @@ pub enum UserInput {
     PastedText {
         text: MaybeBlob<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         filename: Option<String>,
     },
 }
 
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ThreadItem {
     #[serde(rename_all = "camelCase")]
@@ -594,18 +625,18 @@ pub enum ThreadItem {
         content: Vec<UserInput>,
         /// Device that submitted the prompt (host-stamped).
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         device: Option<String>,
         /// The client correlation id of the submit.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         client_submission_id: Option<String>,
         /// The turn's change-record key (what review reads and reverts address).
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         checkpoint_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         applied_skills: Option<Vec<String>>,
         /// The row text Node shows, chips included; the client's `user` row `text`.
         /// Computed at commit (migration: for 1.4.5 history).
@@ -644,12 +675,12 @@ pub enum ThreadItem {
     ContextCompaction {
         id: ItemId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         summary: Option<MaybeBlob<String>>,
         /// How it ended; the divider's label (`Conversation compacted`, `Compact failed`, …) and
         /// stats are `meta.label` and `meta.detail`.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         status: Option<CompactionStatus>,
         #[serde(default)]
         meta: ItemMeta,
@@ -659,7 +690,7 @@ pub enum ThreadItem {
         id: ItemId,
         agent: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         thread_id: Option<ThreadId>,
         #[serde(default)]
         meta: ItemMeta,
@@ -671,7 +702,7 @@ pub enum ThreadItem {
         name: String,
         input: JsonValue,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         output: Option<MaybeBlob<JsonValue>>,
         /// The tool row's shared facts (call id, display args/result, timing, aggregate).
         #[serde(default, skip_serializing_if = "ToolRun::is_empty_boxed")]
@@ -685,30 +716,30 @@ pub enum ThreadItem {
     TurnEnd {
         id: ItemId,
         status: TurnEndStatus,
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         elapsed_ms: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         verb: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         checkpoint_id: Option<String>,
         /// The turn's last assistant row, on a `done` end.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         final_assistant_id: Option<ItemId>,
         /// A `failed` end's reason, details, error kind and quota stop.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         detail: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         error_details: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         error_kind: Option<JsonObject>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         quota: Option<JsonObject>,
         #[serde(default)]
         meta: ItemMeta,
@@ -744,10 +775,10 @@ pub enum ThreadItem {
     AgentJob {
         id: ItemId,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         tag: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         task_id: Option<String>,
         #[serde(default)]
         meta: ItemMeta,

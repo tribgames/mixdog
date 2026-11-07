@@ -3,17 +3,16 @@
 
 use std::collections::BTreeMap;
 
-use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
-use ts_rs::TS;
 
 use crate::JsonValue;
 use crate::ThreadId;
 use crate::TurnId;
 
 /// Active-state flags of a loaded thread (Codex flags plus Mixdog's).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum ThreadActiveFlag {
     WaitingOnApproval,
@@ -23,7 +22,8 @@ pub enum ThreadActiveFlag {
     BackgroundJobs,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum ThreadStatus {
     NotLoaded,
@@ -35,7 +35,8 @@ pub enum ThreadStatus {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum TurnStatus {
     InProgress,
@@ -46,9 +47,10 @@ pub enum TurnStatus {
 
 /// Why a turn failed: an error reason object (`{reason, …}`, P §10) and,
 /// for provider failures, the typed upstream detail.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct TurnError {
     pub message: String,
     /// `{reason, …typed fields}` exactly as in JSON-RPC error `data` (P §10).
@@ -57,9 +59,10 @@ pub struct TurnError {
     pub provider_error: Option<ProviderErrorDetail>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ProviderErrorDetail {
     pub provider: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -70,7 +73,8 @@ pub struct ProviderErrorDetail {
     pub delivery: Option<DeliveryState>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum DeliveryState {
     NotSent,
@@ -78,17 +82,18 @@ pub enum DeliveryState {
     Accepted,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct Turn {
     pub id: TurnId,
     pub status: TurnStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub started_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub completed_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<TurnError>,
@@ -107,16 +112,17 @@ pub struct Turn {
 
 /// One list row (today's `DesktopSessionSummary`), live on the app feed as
 /// `thread/summary/updated`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ThreadSummary {
     pub id: ThreadId,
     pub preview: String,
     pub title: String,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub updated_at: i64,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub message_count: i64,
     pub cwd: String,
     /// Today's `DesktopSessionClassification`.
@@ -132,19 +138,19 @@ pub struct ThreadSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_session: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub activity_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number[]")]
+    #[cfg_attr(feature = "codegen", ts(type = "number[]"))]
     pub incoming_tail: Option<Vec<i64>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub compact_count: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub read_message_count: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub read_revision: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working: Option<bool>,
@@ -191,7 +197,7 @@ pub struct ThreadSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub created_at: Option<i64>,
     /// Today's `DesktopSessionWorkspace`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -199,9 +205,10 @@ pub struct ThreadSummary {
 }
 
 /// Today's `DesktopModelSelection`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct ModelSelection {
     pub provider: String,
     pub model: String,
@@ -216,7 +223,7 @@ pub struct ModelSelection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_percent: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub context_tokens: Option<i64>,
     /// The Lead's ordered fallback models; `[]` clears, absent keeps.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -227,7 +234,8 @@ pub struct ModelSelection {
 }
 
 /// One part of a prompt (today's `DesktopPromptContent` array form).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum PromptPart {
     /// A text, or a stored text attachment: an `attachmentRef` part has no `text` and names its
@@ -235,68 +243,70 @@ pub enum PromptPart {
     #[serde(rename_all = "camelCase")]
     Text {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         text: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         text_kind: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         attachment_ref: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         size_bytes: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         mime_type: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         filename: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
     Image {
         /// Base64 bytes; a part that names a stored `attachment_ref` instead has none.
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         data: Option<String>,
         mime_type: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         attachment_ref: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         size_bytes: Option<u32>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         filename: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
     File {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         data: Option<String>,
         mime_type: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         filename: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         attachment_ref: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         size_bytes: Option<u32>,
     },
 }
 
 /// Today's `DesktopPromptContent`: a string or an array of parts.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(untagged)]
 pub enum PromptContent {
     Text(String),
     Parts(Vec<PromptPart>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum PromptPriority {
     Now,
@@ -305,11 +315,12 @@ pub enum PromptPriority {
 }
 
 /// Today's `DesktopPromptAttachment`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct PromptAttachment {
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub id: i64,
     /// Always `image` today.
     #[serde(rename = "type")]
@@ -319,7 +330,7 @@ pub struct PromptAttachment {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attachment_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub size_bytes: Option<i64>,
     pub media_type: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -335,21 +346,22 @@ pub struct PromptAttachment {
 }
 
 /// Today's `DesktopPastedText`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct PastedText {
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub id: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attachment_ref: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub size_bytes: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub chars: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
@@ -362,15 +374,16 @@ pub struct PastedText {
 /// Caller options of `turn/start` (today's `DesktopSubmitOptions` without the
 /// host-only fields `device`, `hop`, `roomRow`, `origin`; a request carrying
 /// any of them is `invalidParams`, P §4.3).
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct SubmitOptions {
     /// Today's submit `id`: the client's correlation id reused by queue and transcript.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_submission_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub submitted_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_text: Option<String>,
@@ -404,7 +417,8 @@ pub struct SubmitOptions {
 }
 
 /// Today's `DesktopQuotaResume`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub struct QuotaResume {
     /// Always `waiting`.
@@ -412,14 +426,15 @@ pub struct QuotaResume {
     pub turn_key: String,
     pub provider: String,
     pub model: String,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub reset_at: i64,
-    #[ts(type = "number")]
+    #[cfg_attr(feature = "codegen", ts(type = "number"))]
     pub attempts: i64,
 }
 
 /// Why the core is winding down (LR §5, SPEC R22). Shared by core-api and the wire.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum DrainReason {
     Update,
@@ -430,7 +445,8 @@ pub enum DrainReason {
 
 /// Who issued a call: the connection origin (P §4.1, DS §4.2). Shared by
 /// core-api (`PermissionDenied.origin`) and the method table.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum Origin {
     /// Loopback WebSocket (desktop, TUI, CLI on this machine).
@@ -446,7 +462,8 @@ pub enum Origin {
 /// and their optionality are the union over every producer of that code.
 /// Shared by core-api and the wire. The error's text is never here: it is the error's own
 /// `message`, as Node's `error.message`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum DomainErrorDetail {
     /// `WORKTREE_BUSY_JOBS`; `reason` picks the refusal text.
@@ -454,89 +471,89 @@ pub enum DomainErrorDetail {
     WorktreeBusyJobs {
         reason: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         outcome: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         admission: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         sessions: Option<Vec<String>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         entry_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         kept: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, type = "number")]
+        #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
         workers: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, type = "number")]
+        #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
         jobs: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, type = "number")]
+        #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
         shell_jobs: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, type = "number")]
+        #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
         starting: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         session_id: Option<String>,
     },
     /// `WORKTREE_DIRTY`: project-dirty, worktree removal and carry refusals; `reason` picks the refusal text.
     #[serde(rename_all = "camelCase")]
     WorktreeDirty {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         reason: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         operation: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, type = "number")]
+        #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
         count: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         files: Option<DirtyFiles>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         paths: Option<Vec<String>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, type = "number")]
+        #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
         max_files: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, type = "number")]
+        #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
         max_bytes: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         head: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         base_commit: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         recovery_ref: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         restored: Option<bool>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         cause: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         restore_error: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         entry_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         ignored: Option<Vec<String>>,
     },
     /// `WORKTREE_DIRTY_CHOICE`: the pending changes to carry or leave.
     #[serde(rename_all = "camelCase")]
     WorktreeDirtyChoice {
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         count: u64,
         paths: Vec<String>,
     },
@@ -544,67 +561,67 @@ pub enum DomainErrorDetail {
     #[serde(rename_all = "camelCase")]
     WorktreeTargetMismatch {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         target: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         current: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         expected: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         actual: Option<String>,
     },
     /// `WORKTREE_UNMERGED`.
     #[serde(rename_all = "camelCase")]
     WorktreeUnmerged {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         commit: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         entry_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         branch: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         merge_target: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, type = "number")]
+        #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
         commits: Option<u64>,
     },
     /// `WORKTREE_PROJECT_UNKNOWN`.
     #[serde(rename_all = "camelCase")]
     WorktreeProjectUnknown {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         project_path: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         reason: Option<String>,
     },
     /// `WORKTREE_UNSUPPORTED_REPO`.
     #[serde(rename_all = "camelCase")]
     WorktreeUnsupportedRepo {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         project_path: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         file: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, type = "number")]
+        #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
         line: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         rel: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         base_branch: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         branch: Option<String>,
     },
     /// `WORKTREE_PATH_UNSAFE`.
@@ -613,35 +630,35 @@ pub enum DomainErrorDetail {
         entry_id: String,
         path: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         reason: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         links: Option<Vec<String>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, type = "number")]
+        #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
         count: Option<u64>,
     },
     /// `WORKTREE_REVISION_CONFLICT`.
     #[serde(rename_all = "camelCase")]
     WorktreeRevisionConflict {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         entry_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         remaining: Option<Vec<RemovalRemnant>>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         branch: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         tx_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, type = "number")]
+        #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
         expected_revision: Option<u64>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, type = "number")]
+        #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
         revision: Option<u64>,
     },
     /// `WORKTREE_BRANCH_OCCUPIED`; `path` names the holder in the refusal text.
@@ -649,27 +666,27 @@ pub enum DomainErrorDetail {
     WorktreeBranchOccupied {
         branch: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         path: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         /// `session` or `external` (today's `kind`).
         kind: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         session_id: Option<String>,
     },
     /// `WORKTREE_MISSING`.
     #[serde(rename_all = "camelCase")]
     WorktreeMissing {
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         entry_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         worktree_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         path: Option<String>,
     },
     /// `WORKTREE_FILE_RECOVERY`.
@@ -685,22 +702,22 @@ pub enum DomainErrorDetail {
     /// `WORKTREE_DISK_INSUFFICIENT`; the byte counts fill the refusal text.
     #[serde(rename_all = "camelCase")]
     WorktreeDiskInsufficient {
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         required_bytes: u64,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, type = "number")]
+        #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
         free_bytes: Option<u64>,
         path: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         reason: Option<String>,
     },
     /// `WORKTREE_LARGE_REPO_CONFIRM`; `estimateBytes` fills the prompt.
     #[serde(rename_all = "camelCase")]
     WorktreeLargeRepoConfirm {
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         estimate_bytes: u64,
-        #[ts(type = "number")]
+        #[cfg_attr(feature = "codegen", ts(type = "number"))]
         threshold_bytes: u64,
     },
     /// `WORKTREE_PROJECT_MISMATCH`.
@@ -708,13 +725,13 @@ pub enum DomainErrorDetail {
     WorktreeProjectMismatch {
         project_path: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         worktree_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         worktree_project: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         repo_common_dir: Option<String>,
     },
     /// `WORKTREE_REMOVAL_INCOMPLETE`.
@@ -725,10 +742,10 @@ pub enum DomainErrorDetail {
         retryable: bool,
         remaining: Vec<RemovalRemnant>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         reason: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, type = "number")]
+        #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
         revision: Option<u64>,
     },
     /// `MERGE_FAILED`.
@@ -736,10 +753,10 @@ pub enum DomainErrorDetail {
     MergeFailed {
         reason: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         source: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional)]
+        #[cfg_attr(feature = "codegen", ts(optional))]
         aborted: Option<bool>,
     },
     /// `MERGE_TARGET_DIRTY`.
@@ -748,7 +765,7 @@ pub enum DomainErrorDetail {
         operation: String,
         files: Vec<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        #[ts(optional, type = "number")]
+        #[cfg_attr(feature = "codegen", ts(optional, type = "number"))]
         count: Option<u64>,
     },
     /// `ROOM_MEMBER_SWITCHED_OFF`: a message names a room member whose bot is switched off
@@ -771,17 +788,19 @@ pub enum DomainErrorDetail {
 }
 
 /// `files` of `WORKTREE_DIRTY`: a path preview, or a count (carry `too-large`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(untagged)]
 pub enum DirtyFiles {
-    Count(#[ts(type = "number")] u64),
+    Count(#[cfg_attr(feature = "codegen", ts(type = "number"))] u64),
     Paths(Vec<String>),
 }
 
 /// One thing a worktree removal left behind.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
-#[ts(optional_fields)]
+#[cfg_attr(feature = "codegen", ts(optional_fields))]
 pub struct RemovalRemnant {
     /// `link`, `registry`, `cleanup` or `error`.
     pub kind: String,
@@ -793,7 +812,8 @@ pub struct RemovalRemnant {
     pub error: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
 pub enum OrchestrationMode {
     None,
