@@ -19,6 +19,7 @@ use mixdog_tools::orch::util::PortError;
 use serde_json::{Value, json};
 
 use super::chain::{RouteFacts, resolve_chain_entry};
+use super::model_list::ModelListService;
 use mixdog_core_config::config::Config;
 use mixdog_core_ports::ports::route::FollowOptions;
 use mixdog_core_ports::ports::route::Followed;
@@ -103,6 +104,8 @@ pub struct RouteService {
     pub facts: Arc<dyn RouteFacts>,
     pub writer: Arc<dyn RouteWriter>,
     pub session: Arc<dyn SessionFollow>,
+    /// `collectProviderModels`: the rows `model/list` answers, availability applied.
+    pub models: Arc<ModelListService>,
 }
 
 impl RouteService {
@@ -344,13 +347,15 @@ impl RouteService {
     /// to, with the effort and Fast facts of its model (`prepareRoute`'s `refreshRouteEffort`). A
     /// route without a model is refused before anything is created, with the text Node's
     /// `resolveMissingRouteModelForFirstTurn` throws (`route-resolution.mjs:28-35`; no code, a
-    /// plain `Error`): no provider lists a model, or the user has not chosen one (never auto-picked).
+    /// plain `Error`): `collectProviderModels()` answers no row (providers that are not available
+    /// list nothing, `row-hydration.mjs:107`), or it does and the user has not chosen one (never
+    /// auto-picked).
     pub async fn ready_default(&self, thread: &ThreadId) -> Result<(), String> {
         if clean(self.writer.route(thread).get("model")).is_empty() {
-            return Err(if self.facts.provider_models_listed() {
-                "No model selected. Choose a model with /model first.".to_owned()
-            } else {
+            return Err(if self.models.rows(false, false).await.is_empty() {
                 "No provider models available. Open /providers to sign in, then /model to choose a model.".to_owned()
+            } else {
+                "No model selected. Choose a model with /model first.".to_owned()
             });
         }
         self.writer.refresh_route_effort(thread, None, true, None).await.map_err(port)?;
