@@ -701,6 +701,15 @@ async fn drive(parts: Arc<dyn RunParts>, liveness: Arc<mixdog_services::task_rep
     let Assembled {
         provider, tools, tool_env, gate, worktree, mut config, clock, decider, guards, compactor, route, skills, hooks, reuse, reactions, reaction_scope: _reaction_scope, rows, tail, side, step_judge, artifacts, images, blobs, carry,
     } = assembled;
+    // `backfillFallbackSessionTitle` (`precommitUserTurn`, `ask-turn-execute.mjs`): a titleless session is named
+    // from the earliest human turn of its history, else this turn's prompt (an injected turn never names it),
+    // before the first save.
+    let prompt = (!injected).then(|| json!({ "role": "user", "content": input_body.get("content").cloned().unwrap_or(Value::Null) }));
+    if let Some(change) = mixdog_core_session::session::session_title::fallback_title_change(&header, &prior, prompt.as_ref(), clock.now_ms())
+        && port.save_header(change).await.is_err()
+    {
+        return failed("the session's title could not be saved", Value::Null);
+    }
     // The turn's workspace is final: take the baseline in the background; no tool runs before it.
     review.start(&worktree);
 

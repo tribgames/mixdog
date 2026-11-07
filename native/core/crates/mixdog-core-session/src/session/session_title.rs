@@ -51,14 +51,14 @@ static UNTITLED_PLACEHOLDER: LazyLock<regex::Regex> = LazyLock::new(|| regex::Re
 static REFERENCE_FILES: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(?i)^\s*reference files:").expect("reference files pattern"));
 
 /// `isUsableTitle` (`session-fallback-title.mjs`).
-pub(super) fn is_usable_title(title: &str) -> bool {
+fn is_usable_title(title: &str) -> bool {
     let text = js_trim(title);
     !text.is_empty() && !UNTITLED_PLACEHOLDER.is_match(text)
 }
 
 /// `fallbackTitleFromText(content)`: a bounded single-line title from user-authored text; empty when
 /// nothing is usable.
-pub(super) fn fallback_title_from_text(content: &Value) -> String {
+fn fallback_title_from_text(content: &Value) -> String {
     let raw = session_message_text(content);
     if raw.is_empty() || REFERENCE_FILES.is_match(&raw) {
         return String::new();
@@ -72,6 +72,47 @@ pub(super) fn fallback_title_from_text(content: &Value) -> String {
     }
     let title = compact_session_title(&clean_session_preview(&prose, 4_000));
     if is_usable_title(&title) && !MEDIA_PLACEHOLDER.is_match(&title) { title } else { String::new() }
+}
+
+/// `isHumanAuthoredTurn`: a turn the human typed. Provenance lives in `meta` (`source` of an injected goal,
+/// notification or compaction turn, `synthetic`), never on the message root.
+fn is_human_authored_turn(message: &Value) -> bool {
+    if message.get("role").and_then(Value::as_str) != Some("user") || message.get("internal") == Some(&Value::Bool(true)) || message.get("synthetic") == Some(&Value::Bool(true)) {
+        return false;
+    }
+    if let Some(meta @ (Value::Object(_) | Value::Array(_))) = message.get("meta") {
+        if meta.get("synthetic") == Some(&Value::Bool(true)) {
+            return false;
+        }
+        // `IMPORTED_MESSAGE_SOURCE`: an imported turn was typed by a human elsewhere.
+        if meta.get("source").is_some_and(|source| !matches!(source, Value::Null | Value::Bool(false)) && source.as_str() != Some("") && source.as_str() != Some("import")) {
+            return false;
+        }
+    }
+    mixdog_store::user_message_kind::is_actual_user_instruction_message(message)
+}
+
+/// `backfillFallbackSessionTitle(session, [...history, this prompt])` (`precommitUserTurn`): the header change
+/// that names a titleless session from the earliest human turn in its history, else from this turn's prompt
+/// (`prompt` is `None` for a runtime-injected turn, which never names it). `None` when the session already has a
+/// usable title, a locked or generated one, or nothing in the transcript is usable.
+pub fn fallback_title_change(header: &Map<String, Value>, history: &[Value], prompt: Option<&Value>, now: i64) -> Option<mixdog_store::schema::record::HeaderChange> {
+    if header.get("title").and_then(Value::as_str).is_some_and(is_usable_title) {
+        return None;
+    }
+    if header.get("titleLocked") == Some(&Value::Bool(true)) || header.get("generatedTitleStage").is_some_and(|stage| !matches!(stage, Value::Null | Value::Bool(false)) && stage.as_str() != Some("")) {
+        return None;
+    }
+    let title = history
+        .iter()
+        .chain(prompt)
+        .filter(|message| is_human_authored_turn(message))
+        .map(|message| fallback_title_from_text(message.get("content").unwrap_or(&Value::Null)))
+        .find(|title| !title.is_empty())?;
+    let mut set = Map::new();
+    set.insert("title".to_owned(), json!(title));
+    set.insert("titleUpdatedAt".to_owned(), json!(now));
+    Some(mixdog_store::schema::record::HeaderChange { set, unset: Vec::new() })
 }
 
 /// Why a title could not be made.
@@ -728,5 +769,46 @@ mod tests {
             "disposing ends later titles" => vec![t("Never")],
             _ => Vec::new(),
         }
+    }
+
+    /// Titles Node's `backfillFallbackSessionTitle` (`session-fallback-title.mjs`) gave these histories, run on
+    /// the `src/` of the same commit: the earliest usable human turn wins over the turn's own prompt.
+    #[test]
+    fn a_titleless_session_is_named_from_the_earliest_human_turn_like_node() {
+        let user = |content: &str| json!({ "role": "user", "content": content });
+        let with = |content: &str, extra: Value| {
+            let mut row = user(content);
+            row.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            row
+        };
+        let header = |value: Value| value.as_object().unwrap().clone();
+        let titled = |header: Map<String, Value>, history: Vec<Value>, prompt: Option<Value>| {
+            fallback_title_change(&header, &history, prompt.as_ref(), 7).map(|change| {
+                assert_eq!(change.set.get("titleUpdatedAt"), Some(&json!(7)));
+                change.set["title"].as_str().unwrap().to_owned()
+            })
+        };
+        let some = |title: &str| Some(title.to_owned());
+        let none = || header(json!({}));
+
+        assert_eq!(titled(none(), vec![user("Reference files: a"), user("Fix the parser bug please"), user("Second ask")], None), some("Fix the parser bug please"));
+        assert_eq!(titled(none(), vec![user("Earlier human turn")], Some(user("This prompt"))), some("Earlier human turn"), "history before the prompt");
+        assert_eq!(titled(none(), vec![], Some(user("This prompt"))), some("This prompt"), "the prompt when the history has none");
+        assert_eq!(
+            titled(none(), vec![with("goal text", json!({ "meta": { "source": "goal" } })), user("Typed by the human")], None),
+            some("Typed by the human"),
+            "an injected turn never names the session"
+        );
+        assert_eq!(
+            titled(none(), vec![with("x", json!({ "meta": { "synthetic": true } })), with("y", json!({ "internal": true })), user("Real one")], None),
+            some("Real one")
+        );
+        assert_eq!(titled(none(), vec![with("Imported prompt text", json!({ "meta": { "source": "import" } }))], None), some("Imported prompt text"));
+        assert_eq!(titled(none(), vec![user("<system-reminder>x</system-reminder>"), user("After reminder")], None), some("After reminder"));
+        assert_eq!(titled(none(), vec![user("")], None), None, "nothing usable");
+        assert_eq!(titled(header(json!({ "title": "Kept" })), vec![user("Other")], None), None);
+        assert_eq!(titled(header(json!({ "title": "Untitled session" })), vec![user("Replaces untitled")], None), some("Replaces untitled"));
+        assert_eq!(titled(header(json!({ "titleLocked": true })), vec![user("Nope")], None), None);
+        assert_eq!(titled(header(json!({ "generatedTitleStage": "first" })), vec![user("Nope")], None), None);
     }
 }

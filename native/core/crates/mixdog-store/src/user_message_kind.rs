@@ -214,7 +214,8 @@ fn user_message_text(m: &Value) -> String {
     }
 }
 
-fn is_actual_user_instruction_message(m: &Value) -> bool {
+/// `isActualUserInstructionMessage`: the human's own instruction, not a summary or a runtime-injected turn.
+pub fn is_actual_user_instruction_message(m: &Value) -> bool {
     if !is_user(m) || is_summary_message(m) || is_protected_context_user_message(m) || is_injected_skill_body_message(m) {
         return false;
     }
