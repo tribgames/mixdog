@@ -260,12 +260,8 @@ impl Run {
         }
         let env = self.call_env();
         let id = call.id.clone();
-        let (observer, early_id) = (Arc::clone(&self.env.observer), id.clone());
         let handle = mixdog_rt::spawn("agent.eager", TaskClass::Work, async move {
-            let executed = execute_call(exec, env).await;
-            // The instant this streamed call settles, whatever consumes it later (call order) or nothing does.
-            observer.event(RunEvent::EarlyResult(early_result(&early_id, &executed)));
-            executed
+            execute_call(exec, env).await
         });
         self.eager.insert(id, handle);
     }
@@ -276,14 +272,6 @@ impl Run {
         for (_, handle) in self.eager.drain() {
             handle.abort();
         }
-        self.eager_sigs.clear();
-    }
-
-    /// The batch is over. A streamed call no listed call consumed (the provider ran a text-recovered call and then
-    /// returned the native call that repeats it) is left to finish: Node does not stop it, and its result is
-    /// never stored.
-    fn release_eager(&mut self) {
-        self.eager.clear();
         self.eager_sigs.clear();
     }
 
@@ -457,8 +445,6 @@ impl Run {
         let mut follow_ups: Vec<AgentMessage> = Vec::new();
         let env = self.call_env();
         let mut running: FuturesUnordered<CallFuture> = FuturesUnordered::new();
-        // The calls whose streamed run already told the host (`EarlyResult`); the rest tell it as they settle.
-        let mut streamed: HashSet<usize> = HashSet::new();
         let mut aborted = false;
 
         loop {
@@ -553,7 +539,6 @@ impl Run {
                 let eager = self.eager.remove(&call.id);
                 let eager = eager.filter(|_| (0..j).all(|i| specs[i].as_ref().is_none_or(|s| s.parallel_safe)));
                 if let Some(handle) = eager {
-                    streamed.insert(j);
                     let id = call.id.clone();
                     running.push(Box::pin(async move {
                         let result = handle.await.unwrap_or_else(|_| {
@@ -581,25 +566,27 @@ impl Run {
                 }
                 Some(None) => break,
                 Some(Some((idx, result))) => {
-                    // Node starts every executable call through the eager dispatcher, which tells the host the instant
-                    // it settles (`notifyEarlyResult`), a failed run included; one early-result path feeds the UI's
-                    // live row and the interrupted-turn finalizer. A call decided without a run (stub, cache hit,
-                    // refusal) never reaches this arm.
-                    if !streamed.contains(&idx) {
-                        self.emit(RunEvent::EarlyResult(early_result(&calls[idx].id, &result)));
-                    }
                     executed[idx] = Some(result);
                     finished[idx] = true;
                 }
             }
         }
         drop(running);
-        if aborted {
-            self.drop_eager();
-        } else {
-            self.release_eager();
-        }
+        self.drop_eager();
 
+        if aborted {
+            // What settled before the stop is not committed in call order: the interruption keeps it as the early
+            // notice Node recorded (`notifyEarlyResult`: the model-visible text, `error` only for a failed call),
+            // and closes the rest as cancelled.
+            for i in 0..n {
+                if let Some(result) = executed[i].take()
+                    && was_executed[i]
+                    && let Some(id) = result.message.tool_call_id()
+                {
+                    self.emit(RunEvent::EarlyResult(early_result(id, &result)));
+                }
+            }
+        }
         if !aborted {
             self.finalize_results(&calls, &mut staged, &was_executed, &cacheable, &outputs).await;
         }
@@ -703,10 +690,10 @@ impl Run {
 /// `notifyEarlyResult` (`eager-dispatch/entry.mjs`): what a call that settled before the stop tells the host. The
 /// model-visible text; `error` only when the call threw (`isError: !settled.ok`, the executor's `Err`). A thrown
 /// call's text is its `message_for_model`, which already reads `Error: <message>` (Node's `execute-call.mjs` and
-/// its early notice both write that form), so nothing is prefixed here. A tool that returned an error outcome, or a
-/// gate denial the executor returns as text (`Executed.returned`), is not a thrown call.
-pub(crate) fn early_result(call_id: &str, result: &Executed) -> AgentMessage {
-    if result.failed && !result.returned {
+/// its early notice both write that form), so nothing is prefixed here. A tool that returned an error outcome is not
+/// a thrown call.
+fn early_result(call_id: &str, result: &Executed) -> AgentMessage {
+    if result.failed {
         return AgentMessage::tool_text(call_id, result.message.text(), ToolKind::Error);
     }
     let mut early = AgentMessage::tool_text(call_id, result.message.text(), ToolKind::Normal);

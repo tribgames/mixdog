@@ -30,8 +30,6 @@ use super::effort::EffortProjection;
 use super::decoder::Framing;
 use super::decoder::ResponsesDecoder;
 use super::error::classify_http;
-use crate::providers::leak::ToolNames;
-use crate::providers::leak::body_tool_names;
 
 pub struct OpenAiCodec {
     config: OpenAiConfig,
@@ -112,7 +110,7 @@ impl WireCodec for OpenAiCodec {
 
     /// Reports no provider-state slot: Node's first-party routes keep none,
     /// and the ordered replay already carries the reasoning forward.
-    fn decoder(&self, request: &ModelRequest) -> Box<dyn WireDecoder> {
+    fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
         let framing = if self.transport == TransportKind::WebSocket {
             Framing::WebSocket
         } else {
@@ -126,9 +124,7 @@ impl WireCodec for OpenAiCodec {
             (_, Framing::Sse) => "OpenAI OAuth HTTP fallback",
         };
         Box::new(
-            ResponsesDecoder::new(framing, self.config.context.clone(), ProviderId::from(REPLAY_OWNER))
-                .with_label(label)
-                .with_known_tools(body_tool_names(self, request, ToolNames::Named)),
+            ResponsesDecoder::new(framing, self.config.context.clone(), ProviderId::from(REPLAY_OWNER)).with_label(label),
         )
     }
 

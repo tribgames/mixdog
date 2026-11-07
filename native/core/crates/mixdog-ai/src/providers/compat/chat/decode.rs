@@ -6,7 +6,6 @@
 //! is emitted at `[DONE]` or the end of the body, after `Usage`; a partial
 //! frame left at the end is dropped.
 
-use std::collections::HashSet;
 use std::time::SystemTime;
 
 use mixdog_core_api::domain::provider::{
@@ -17,10 +16,6 @@ use mixdog_protocol::{JsonValue, ProviderId};
 use serde_json::json;
 
 use super::super::error::classify_parts;
-use crate::providers::leak;
-use crate::providers::leak::Dedupe;
-use crate::providers::leak::LeakGuard;
-use crate::providers::leak::Recovered;
 use super::super::profile::{CompatProfile, CostField, ReasoningShape};
 use super::super::sse::{SseDecoder, SseItem};
 use super::reasoning::{self, ContentPiece, Source};
@@ -172,18 +167,6 @@ pub struct ChatDecoder {
     failure: Option<ProviderError>,
     /// Some output was reported (`semanticIdleDeadlineAt > 0`): from then on a role-only delta is progress.
     progressed: bool,
-    /// The leaked tool-call guard over the text deltas (`stream-state.mjs` `leakGuard`, harmony syntax on).
-    leak: LeakGuard,
-    /// Every call recovered from text (`leakedCalls`); dispatched at the end of a normally finished turn only.
-    leaked: Vec<ToolCall>,
-    /// The streamed calls of a normally finished turn, whether or not they were dispatched.
-    natives: Vec<ToolCall>,
-    /// A normal `finish_reason` arrived.
-    normal_finish: bool,
-    /// A normal or a cut/filtered `finish_reason` arrived: the turn returns its list.
-    listed_finish: bool,
-    /// One dispatch per call across the recovered and the streamed path.
-    dedupe: Dedupe,
 }
 
 impl ChatDecoder {
@@ -207,43 +190,6 @@ impl ChatDecoder {
             terminal: false,
             failure: None,
             progressed: false,
-            leak: LeakGuard::new(HashSet::new(), true),
-            leaked: Vec::new(),
-            natives: Vec::new(),
-            normal_finish: false,
-            listed_finish: false,
-            dedupe: Dedupe::default(),
-        }
-    }
-
-    /// Recover tool calls leaked into the text, naming only these tools (the request body's).
-    pub fn with_known_tools(mut self, names: HashSet<String>) -> Self {
-        self.leak = LeakGuard::new(names, true);
-        self
-    }
-
-    /// What the guard let through and recovered: visible text first, then the calls (each reports `tool`).
-    fn relay_leak(&mut self, (text, calls): (String, Vec<Recovered>), out: &mut Vec<StreamEvent>) {
-        self.emit_text(&text, out);
-        for recovered in calls {
-            let call = leak::openai_call(recovered);
-            self.leaked.push(call.clone());
-            self.progressed = true;
-            out.push(StreamEvent::Progress(ProgressKind::Tool));
-            // Held until a normal finish confirms the turn ended (`drainLeakedCalls`).
-            if self.normal_finish {
-                self.dispatch(call, out);
-            }
-        }
-    }
-
-    /// Text the model exposed: through the guard when tools were offered.
-    fn append_text(&mut self, text: &str, out: &mut Vec<StreamEvent>) {
-        if self.leak.enabled() {
-            let scanned = self.leak.push(text, false);
-            self.relay_leak(scanned, out);
-        } else {
-            self.emit_text(text, out);
         }
     }
 
@@ -273,7 +219,7 @@ impl ChatDecoder {
         self.error(err)
     }
 
-    fn emit_text(&mut self, text: &str, out: &mut Vec<StreamEvent>) {
+    fn append_text(&mut self, text: &str, out: &mut Vec<StreamEvent>) {
         if text.is_empty() {
             return;
         }
@@ -430,54 +376,22 @@ impl ChatDecoder {
         if failing_finish(reason).is_some() {
             return;
         }
-        // A cut or filtered turn dispatches nothing live, but the list it returns still holds the streamed calls and
-        // the recovered ones (`settleCompatStream`), and the loop runs what the list holds.
-        let incomplete = is_incomplete_finish(reason);
-        if incomplete {
+        if is_incomplete_finish(reason) {
             self.tool_input_cut = !self.tools.is_empty();
-        } else {
-            // The turn ended normally: the recovered calls run first (`drainLeakedCalls`), then the streamed ones.
-            self.normal_finish = true;
-            for call in self.leaked.clone() {
-                self.dispatch(call, out);
-            }
+            return;
         }
-        self.listed_finish = true;
-        let natives: Vec<ToolCall> = self
-            .tools
-            .iter()
-            .filter(|entry| !(entry.id.is_empty() && entry.name.is_empty()) && entry.kind == "function")
-            .map(|entry| ToolCall {
+        for entry in &self.tools {
+            if (entry.id.is_empty() && entry.name.is_empty()) || entry.kind != "function" {
+                continue;
+            }
+            out.push(StreamEvent::ToolCallDone(ToolCall {
                 id: entry.id.clone(),
                 name: entry.name.clone(),
                 arguments: parse_arguments(&entry.arguments),
                 native_type: None,
-            })
-            .collect();
-        for call in natives {
-            self.natives.push(call.clone());
-            if !incomplete {
-                self.dispatch(call, out);
-            }
-        }
-    }
-
-    /// One dispatch per call across the recovered and the streamed path (`emitCompatToolCallOnce`).
-    fn dispatch(&mut self, call: ToolCall, out: &mut Vec<StreamEvent>) {
-        if self.dedupe.should_dispatch(&call.name, &call.arguments, &call.id) {
+            }));
             self.tool_dispatched = true;
-            out.push(StreamEvent::ToolCallDone(call));
         }
-    }
-
-    /// The list the turn returns, `dedupeToolCallList([...native, ...leaked])`: a recovered call that already ran
-    /// gives way to the streamed call that repeats it.
-    fn return_calls(&mut self, out: &mut Vec<StreamEvent>) {
-        if !self.listed_finish || self.leaked.is_empty() {
-            return;
-        }
-        let all = self.natives.iter().chain(&self.leaked).cloned().collect();
-        out.push(StreamEvent::ReturnedCalls(leak::dedupe_list(all)));
     }
 
     fn in_band_error(&self, chunk: &JsonValue) -> ProviderError {
@@ -523,10 +437,6 @@ impl ChatDecoder {
             }
             None => {}
         }
-        // The stream ended: nothing is held back any more.
-        let tail = self.leak.flush();
-        self.relay_leak(tail, out);
-        self.return_calls(out);
         let saw_reasoning = self.reasoning_source.is_some();
         // An empty completion is a normal `Completed`; the retry policy's
         // `empty_response_reasks` decides whether it is asked again.

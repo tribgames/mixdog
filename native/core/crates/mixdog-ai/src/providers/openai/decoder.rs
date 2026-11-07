@@ -40,10 +40,6 @@ use super::continuation::with_slot;
 use super::error::Failure;
 use super::error::classify;
 use super::tool_flight::Collector;
-use crate::providers::leak;
-use crate::providers::leak::Dedupe;
-use crate::providers::leak::LeakGuard;
-use crate::providers::leak::Recovered;
 use super::tool_flight::ToolFlight;
 
 /// How transport units become events.
@@ -62,19 +58,10 @@ enum ToolFlavor {
     Search,
 }
 
-/// A call in the turn's returned list.
-struct Listed {
-    call: ToolCall,
-    /// Recovered from text rather than streamed by the provider.
-    leaked: bool,
-}
-
 struct ToolItem {
     flavor: ToolFlavor,
     call_id: String,
     name: String,
-    /// The `namespace` of a tool loaded from a declared namespace (`toolCallNamespace`); empty: top level.
-    namespace: String,
     /// `function_call_arguments.done` arrived before the ids were known.
     deferred_args: Option<Value>,
     done: bool,
@@ -165,14 +152,6 @@ pub struct ResponsesDecoder {
     /// The runtime label Node prefixes to a stream error (`errLabel`, `httpLabel`, the compatible route's
     /// `<provider>:responses`); empty: no prefix.
     label: String,
-    /// Some visible text was relayed (`content` is not empty).
-    visible: bool,
-    /// The calls the turn collected, in occurrence order (`toolCalls`), dispatched or not.
-    listed: Vec<Listed>,
-    /// The leaked tool-call guard over the output text (`createLeakGuard`, harmony syntax on).
-    leak: LeakGuard,
-    /// One dispatch per call across the leaked and the native path.
-    dedupe: Dedupe,
 }
 
 fn str_of<'a>(value: &'a Value, key: &str) -> &'a str {
@@ -305,24 +284,6 @@ fn incomplete_reason(event: &Value) -> String {
         .to_owned()
 }
 
-/// `responseOutputText`: `output_text` when the response has it, else the message items' output text parts joined.
-fn response_output_text(response: &Value) -> String {
-    if let Some(text) = response.get("output_text").and_then(Value::as_str) {
-        return text.to_owned();
-    }
-    response
-        .get("output")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter(|item| str_of(item, "type") == "message")
-        .filter_map(|item| item.get("content").and_then(Value::as_array))
-        .flatten()
-        .filter(|part| str_of(part, "type") == "output_text")
-        .filter_map(|part| part.get("text").and_then(Value::as_str))
-        .collect()
-}
-
 fn is_incomplete_tool_item(item: &Value) -> bool {
     str_of(item, "status") == "incomplete"
         && matches!(
@@ -354,41 +315,6 @@ impl ResponsesDecoder {
             compat: false,
             model: None,
             label: String::new(),
-            visible: false,
-            listed: Vec::new(),
-            leak: LeakGuard::new(HashSet::new(), true),
-            dedupe: Dedupe::default(),
-        }
-    }
-
-    /// Recover tool calls leaked into the output text, naming only these tools (the request body's).
-    pub fn with_known_tools(mut self, names: HashSet<String>) -> Self {
-        self.leak = LeakGuard::new(names, true);
-        self
-    }
-
-    /// What the guard let through and recovered: visible text first, then the calls.
-    fn relay_leak(&mut self, (text, calls): (String, Vec<Recovered>), out: &mut Vec<StreamEvent>) {
-        if !text.is_empty() {
-            self.exposure.text_emitted = true;
-            self.visible = true;
-            out.push(StreamEvent::TextDelta(text));
-        }
-        for recovered in calls {
-            let call = leak::openai_call(recovered);
-            let fresh = self.dedupe.should_dispatch(&call.name, &call.arguments, &call.id);
-            // The WebSocket collector lists a recovered call only when it dispatched it; the others list every one.
-            if fresh || self.collector() != Collector::WebSocket {
-                self.listed.push(Listed { call: call.clone(), leaked: true });
-            }
-            if fresh {
-                self.exposure.tool_dispatched = true;
-                out.push(StreamEvent::ToolCallDone(call));
-            }
-            // The WebSocket collector reports only a call it dispatched; the other two report every recovery.
-            if fresh || self.collector() != Collector::WebSocket {
-                out.push(StreamEvent::Progress(ProgressKind::Tool));
-            }
         }
     }
 
@@ -526,14 +452,8 @@ impl ResponsesDecoder {
                         .entry(str_of(event, "item_id").to_owned())
                         .or_default()
                         .push_str(delta);
-                    if self.leak.enabled() {
-                        let scanned = self.leak.push(delta, false);
-                        self.relay_leak(scanned, out);
-                    } else {
-                        self.exposure.text_emitted = true;
-                        self.visible = true;
-                        out.push(StreamEvent::TextDelta(delta.to_owned()));
-                    }
+                    self.exposure.text_emitted = true;
+                    out.push(StreamEvent::TextDelta(delta.to_owned()));
                 }
             }
             "response.reasoning_text.delta" | "response.reasoning_summary_text.delta" => {
@@ -698,9 +618,7 @@ impl ResponsesDecoder {
             }
             self.item_done(item, out);
         }
-        let mut reported = out[start..]
-            .iter()
-            .any(|event| matches!(event, StreamEvent::TextDelta(_) | StreamEvent::Progress(ProgressKind::Tool)));
+        let mut reported = out[start..].iter().any(|event| matches!(event, StreamEvent::TextDelta(_)));
         for item in output.iter().filter(|item| str_of(item, "type") != "message") {
             self.item_done(item, out);
             match str_of(item, "type") {
@@ -740,9 +658,7 @@ impl ResponsesDecoder {
         }
         match kind {
             "message" => {
-                let mut reported = out[start..]
-                    .iter()
-                    .any(|event| matches!(event, StreamEvent::TextDelta(_) | StreamEvent::Progress(ProgressKind::Tool)));
+                let mut reported = out[start..].iter().any(|event| matches!(event, StreamEvent::TextDelta(_)));
                 let refusal = item.get("content").and_then(Value::as_array).is_some_and(|parts| {
                     parts.iter().any(|part| str_of(part, "type") == "refusal" && part.get("refusal").is_some_and(Value::is_string))
                 });
@@ -798,7 +714,6 @@ impl ResponsesDecoder {
                         flavor,
                         call_id,
                         name,
-                        namespace: str_of(item, "namespace").to_owned(),
                         deferred_args: None,
                         done: false,
                     },
@@ -824,32 +739,23 @@ impl ResponsesDecoder {
         }
     }
 
-    fn emit_call(&mut self, id: &str, name: &str, namespace: &str, arguments: Value, out: &mut Vec<StreamEvent>) {
+    fn emit_call(&mut self, id: &str, name: &str, arguments: Value, out: &mut Vec<StreamEvent>) {
         if id.is_empty() || name.is_empty() || !self.calls_emitted.insert(id.to_owned()) {
             return;
         }
-        // A text-leaked call of the same name and arguments already ran: this one is skipped. The WebSocket
-        // collector's identity is the namespace-qualified name (`qualifiedToolCallName`), so a tool of a declared
-        // namespace is never conflated with a same-named top-level one.
-        let qualified = if self.collector() == Collector::WebSocket && !namespace.is_empty() {
-            format!("{namespace}.{name}")
-        } else {
-            name.to_owned()
-        };
-        let call = ToolCall { id: id.to_owned(), name: name.to_owned(), arguments, native_type: None };
-        // The call is in the returned list whether or not it is dispatched.
-        self.listed.push(Listed { call: call.clone(), leaked: false });
-        if !self.dedupe.should_dispatch(&qualified, &call.arguments, id) {
-            return;
-        }
         self.exposure.tool_dispatched = true;
-        out.push(StreamEvent::ToolCallDone(call));
+        out.push(StreamEvent::ToolCallDone(ToolCall {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            arguments,
+            native_type: None,
+        }));
     }
 
     fn arguments_done(&mut self, event: &Value, out: &mut Vec<StreamEvent>) {
         let item_id = str_of(event, "item_id").to_owned();
         let arguments = parse_call_arguments(str_of(event, "arguments"));
-        let (call_id, name, namespace) = match self.tools.get_mut(&item_id) {
+        let (call_id, name) = match self.tools.get_mut(&item_id) {
             Some(tool) if tool.flavor == ToolFlavor::Search => return,
             Some(tool) => {
                 if tool.call_id.is_empty() {
@@ -859,11 +765,11 @@ impl ResponsesDecoder {
                     tool.name = str_of(event, "name").to_owned();
                 }
                 tool.deferred_args = Some(arguments.clone());
-                (tool.call_id.clone(), tool.name.clone(), tool.namespace.clone())
+                (tool.call_id.clone(), tool.name.clone())
             }
-            None => (str_of(event, "call_id").to_owned(), str_of(event, "name").to_owned(), String::new()),
+            None => (str_of(event, "call_id").to_owned(), str_of(event, "name").to_owned()),
         };
-        self.emit_call(&call_id, &name, &namespace, arguments, out);
+        self.emit_call(&call_id, &name, arguments, out);
     }
 
     /// The refusal parts of a finished message (`refusals.absorbMessage`).
@@ -884,9 +790,8 @@ impl ResponsesDecoder {
     }
 
     /// Whether no text has streamed yet (`!content`).
-    /// Node's `content` is the visible text: what a leak guard suppressed does not count.
     fn nothing_streamed(&self) -> bool {
-        !self.visible
+        self.texts.values().all(String::is_empty)
     }
 
     /// The text of a message of the terminal bundle, relayed whole (`relayFinalText`, `absorbCompletedText`). The caller
@@ -902,15 +807,8 @@ impl ResponsesDecoder {
             .collect();
         if !text.is_empty() {
             self.texts.entry(str_of(item, "id").to_owned()).or_default().push_str(&text);
-            if self.leak.enabled() {
-                // The bundle's text goes through the guard whole (`relayFinal`, `absorbCompletedText`).
-                let scanned = self.leak.push(&text, true);
-                self.relay_leak(scanned, out);
-            } else {
-                self.exposure.text_emitted = true;
-                self.visible = true;
-                out.push(StreamEvent::TextDelta(text));
-            }
+            self.exposure.text_emitted = true;
+            out.push(StreamEvent::TextDelta(text));
         }
     }
     fn item_done(&mut self, item: &Value, out: &mut Vec<StreamEvent>) {
@@ -972,9 +870,7 @@ impl ResponsesDecoder {
             }
             ToolFlavor::Search => parse_search_arguments(item.get("arguments")),
         };
-        let own = self.tools.get(item_id).map(|tool| tool.namespace.clone()).unwrap_or_default();
-        let namespace = if str_of(item, "namespace").is_empty() { own } else { str_of(item, "namespace").to_owned() };
-        self.emit_call(&call_id, &name, &namespace, arguments, out);
+        self.emit_call(&call_id, &name, arguments, out);
         if let Some(tool) = self.tools.get_mut(item_id) {
             tool.done = true;
         }
@@ -1021,26 +917,6 @@ impl ResponsesDecoder {
     /// (Node `stopReason: null`), `MaxTokens` for `incomplete`; a refusal
     /// overrides either.
     fn finish_turn(&mut self, response: &Value, stop: Option<StopReason>, out: &mut Vec<StreamEvent>) {
-        // The turn is over: nothing is held back any more.
-        let tail = self.leak.flush();
-        self.relay_leak(tail, out);
-        // The compatible collector returns `state.content || responseOutputText(response)`: a turn whose text the
-        // guard suppressed whole is returned with the response's own output text.
-        // A recovered call ran live; the list the turn returns is `dedupeToolCallList` over what was collected, in
-        // occurrence order, the compatible collector's native calls ahead of the recovered ones.
-        if self.listed.iter().any(|entry| entry.leaked) {
-            let mut listed = std::mem::take(&mut self.listed);
-            if self.collector() == Collector::Compat {
-                listed.sort_by_key(|entry| entry.leaked);
-            }
-            out.push(StreamEvent::ReturnedCalls(leak::dedupe_list(listed.into_iter().map(|e| e.call).collect())));
-        }
-        if self.collector() == Collector::Compat && !self.visible {
-            let output_text = response_output_text(response);
-            if !output_text.is_empty() {
-                out.push(StreamEvent::FinalContent(output_text));
-            }
-        }
         let service_tier = response.get("service_tier").and_then(Value::as_str);
         // The response's own items in arrival order, reasoning included
         // verbatim (ids, summaries, encrypted content): the one envelope the

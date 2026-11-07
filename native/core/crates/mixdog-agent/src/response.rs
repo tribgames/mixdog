@@ -22,9 +22,6 @@ pub struct ModelResponse {
     pub stop: Option<StopReason>,
     pub usage: Usage,
     pub replay: Vec<ProviderReplay>,
-    /// Extended-thinking blocks of a turn without a block replay (Node `thinkingBlocks`); the committed message
-    /// echoes them only when no replay or ordered block list stands for them (`assistantEchoFields`).
-    pub thinking_blocks: Option<JsonValue>,
     /// Provider-native blocks (server tool use) kept verbatim.
     pub server_blocks: Vec<JsonValue>,
     pub truncated: bool,
@@ -63,8 +60,6 @@ impl ModelResponse {
 pub struct ResponseBuilder {
     response: ModelResponse,
     ids: ToolCallIds,
-    /// The id each live call was resolved to, by the id the provider gave it.
-    resolved: std::collections::HashMap<String, String>,
     completed: bool,
 }
 
@@ -76,7 +71,6 @@ impl ResponseBuilder {
                 ..ModelResponse::default()
             },
             ids,
-            resolved: std::collections::HashMap::new(),
             completed: false,
         }
     }
@@ -87,25 +81,8 @@ impl ResponseBuilder {
             StreamEvent::TextDelta(text) => response.content.push_str(&text),
             StreamEvent::ReasoningDelta(text) => response.reasoning.push_str(&text),
             StreamEvent::ReasoningReplay(replay) => response.replay.push(replay),
-            StreamEvent::FinalContent(text) => response.content = text,
-            StreamEvent::ReturnedCalls(calls) => {
-                // A call that also ran live keeps the id it was resolved to then.
-                response.tool_calls = calls
-                    .into_iter()
-                    .map(|mut call| {
-                        match self.resolved.get(&call.id) {
-                            Some(id) => call.id = id.clone(),
-                            None => self.ids.resolve(&mut call),
-                        }
-                        call
-                    })
-                    .collect();
-            }
-            StreamEvent::ThinkingBlocks(blocks) => response.thinking_blocks = Some(blocks),
             StreamEvent::ToolCallDone(mut call) => {
-                let original = call.id.clone();
                 self.ids.resolve(&mut call);
-                self.resolved.insert(original, call.id.clone());
                 response.tool_calls.push(call);
             }
             StreamEvent::Usage(usage) => response.usage = usage,
@@ -236,9 +213,6 @@ fn echo(message: &mut AgentMessage, response: &ModelResponse, keep_blocks: bool)
     if keep_blocks && response.replay.is_empty() && !response.server_blocks.is_empty() {
         message.message.assistant_blocks = Some(JsonValue::Array(response.server_blocks.clone()));
     }
-    if response.replay.is_empty() && message.message.assistant_blocks.is_none() {
-        message.message.thinking_blocks = response.thinking_blocks.clone();
-    }
     if !response.reasoning.is_empty() {
         message.reasoning = Some(response.reasoning.clone());
     }
@@ -253,7 +227,6 @@ pub fn intermediate_message(response: &ModelResponse) -> Option<AgentMessage> {
     if response.content.is_empty()
         && response.reasoning.is_empty()
         && response.replay.is_empty()
-        && response.thinking_blocks.is_none()
         && !blocks
     {
         return None;
@@ -299,38 +272,6 @@ mod tests {
         assert_eq!(fold(None), None);
     }
 
-    #[test]
-    fn thinking_blocks_and_a_final_content_reach_the_committed_message() {
-        // Both outcomes are what Node recorded (`fixtures/agent/leaked-toolcall/record.mjs`): the thinking blocks of
-        // an Anthropic turn whose call leaked as stored on its assistant message, and the content the compatible
-        // Responses collector returns when the guard hid all of the text.
-        let golden: serde_json::Value =
-            serde_json::from_str(include_str!("../../../fixtures/agent/leaked-toolcall/golden/leaked_toolcall.json")).unwrap();
-        let scenario = |route: &str, name: &str| {
-            golden["scenarios"].as_array().unwrap().iter().find(|s| s["route"] == route && s["name"] == name).unwrap().clone()
-        };
-        let anthropic = scenario("anthropic", "an invoke tag in the answer");
-        let stored = &anthropic["stored"]["messages"][0];
-        let blocks = stored["thinkingBlocks"].clone();
-        let node_call = &stored["toolCalls"][0];
-        let compat = scenario("responses-compat", "only leaked calls, nothing else visible");
-        let node_content = compat["result"]["content"].as_str().unwrap();
-
-        let mut builder = ResponseBuilder::new("m", ToolCallIds::new(&[]));
-        builder.push(StreamEvent::TextDelta(String::new()));
-        builder.push(StreamEvent::FinalContent(node_content.to_owned()));
-        builder.push(StreamEvent::ThinkingBlocks(blocks.clone()));
-        let response = builder.finish();
-        assert_eq!(response.content, node_content);
-        let call = ToolCall {
-            id: "toolu_leaked_0123456789abcdef".into(),
-            name: node_call["name"].as_str().unwrap().into(),
-            arguments: node_call["arguments"].clone(),
-            native_type: None,
-        };
-        let message = tool_call_message(&ModelResponse { tool_calls: vec![call], ..response });
-        assert_eq!(message.message.thinking_blocks.as_ref(), Some(&blocks));
-    }
     #[test]
     fn termination_follows_content_and_stop() {
         let empty = ModelResponse::default();

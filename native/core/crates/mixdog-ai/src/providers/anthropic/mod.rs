@@ -25,8 +25,6 @@ mod effort_tests;
 #[cfg(test)]
 mod fast_mode_tests;
 #[cfg(test)]
-mod leak_tests;
-#[cfg(test)]
 mod models_tests;
 #[cfg(test)]
 mod schema_tests;
