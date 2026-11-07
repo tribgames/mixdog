@@ -98,6 +98,44 @@ export interface CapabilityLane {
   read(requests: ReadonlyArray<DesktopCapabilityReadRequest>): Promise<DesktopCapabilityReadResult[]>;
   /** `SessionHostLifecycle.renameSession` on a core connection: the host's own checks, then `thread/name/set`. */
   renameSession(sessionId: string, title: string): Promise<void>;
+  /** The request of a capability alone (no state read for a reply): what the host's own actions need. */
+  perform(capability: string, args: readonly unknown[], sessionId: string | undefined): Promise<unknown>;
+}
+
+/** The actions `SessionHost` composes itself (`invokeSession`/`invokeControl`) that a core connection serves through the
+ *  lane: the same action names and positional arguments as the renderer's capabilities, whose Rust op exists and whose
+ *  reply no host caller reads (`session-host-lifecycle.ts`: `setCwd`, `setWorkflow`, `setOrchestrationMode`,
+ *  `setArchivedSessionWorktrees`, `purgeAgentDefinition`). The others stay on the Node transport, with the reply their callers read. */
+export const CORE_HOST_ACTIONS: ReadonlySet<string> = new Set([
+  'setCwd',
+  'setWorkflow',
+  'setOrchestrationMode',
+  'setArchivedSessionWorktrees',
+  'purgeAgentDefinition',
+]);
+
+/** `SessionHost`'s `invokeSession` on a connection with a lane: a converted action goes to the core and answers as the Node
+ *  transport does (`value`, `snapshot` of the session); anything else is `node()`. */
+export async function hostSessionAction<R extends { value: unknown; snapshot: SessionSnapshot; result: Record<string, unknown> }>(
+  lane: CapabilityLane | undefined,
+  sessionId: string,
+  method: string,
+  args: unknown[],
+  node: () => Promise<R>
+): Promise<R | { value: unknown; snapshot: SessionSnapshot; result: Record<string, unknown> }> {
+  if (!lane || !CORE_HOST_ACTIONS.has(method)) return node();
+  const { value, snapshot } = await lane.invoke(method as DesktopCapability, args, sessionId);
+  return { value, snapshot, result: {} };
+}
+
+/** `SessionHost`'s `invokeControl` on a connection with a lane: a converted action goes to the core and answers its value. */
+export function hostControlAction(
+  lane: CapabilityLane | undefined,
+  method: string,
+  args: unknown[],
+  node: () => Promise<unknown>
+): Promise<unknown> {
+  return lane && CORE_HOST_ACTIONS.has(method) ? lane.perform(method, args, undefined) : node();
 }
 
 /** The converted capabilities whose op needs a `threadId`. Node serves them from its control session when the call has
@@ -210,6 +248,7 @@ export function createCapabilityLane({
       const value = (await send(capability, args, sessionId)) as T;
       return { value, snapshot: await stateOf(sessionId ?? (await controlThread())) };
     },
+    perform: (capability, args, sessionId) => send(capability, args, sessionId),
     // Node's host throws `TypeError('Session title is invalid.')` for a title that is empty once normalized, before the
     // runtime is reached; the core cannot tell that case from a refusal ("Session is not available.", the runtime's `false`,
     // which it sends as a code-less `domainError`), so the host check stays here. `setName` and `publishCatalogs` are the
