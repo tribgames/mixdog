@@ -313,6 +313,11 @@ pub struct SessionDeps {
     pub warm: Arc<dyn turn_warm::TurnWarmth>,
     /// The built-in skills a live turn hides the loads of (`builtinSkillNamesFor`).
     pub builtin_skills: Arc<dyn BuiltinSkills>,
+    /// `surfaceGeneration`: a delete moves it (`session-delete.mjs` `invalidatePreSessionToolSurface()`).
+    /// A `thread/resume` attaches to a live thread and retargets no runtime, so it does not (Node's
+    /// `resume.mjs` bumps because it swaps the runtime's current session); a thread loaded from disk is
+    /// checked once anyway, having no applied key in this process.
+    pub surface: mixdog_core_base::surface::SurfaceGeneration,
 }
 
 /// A turn of any origin started on a thread (`session-activity-signal.mjs`

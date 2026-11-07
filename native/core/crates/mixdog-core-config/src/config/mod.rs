@@ -16,6 +16,7 @@ pub mod agent_routes;
 mod agent_store;
 mod canonical;
 mod separation;
+mod storage;
 mod browser_permissions;
 mod network_proxy_store;
 pub mod patch;

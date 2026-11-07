@@ -515,6 +515,7 @@ pub struct ConfigHostsIn {
     pub facts: Arc<CatalogFacts>,
     pub refresh: Arc<dyn AuthRefresh>,
     pub env: Env,
+    pub surface: mixdog_core_base::surface::SurfaceGeneration,
 }
 
 /// The one `ConfigHosts`: assign it to `DomainSeams.compaction_host` and `.workflow_host`.
@@ -529,6 +530,7 @@ pub fn config_hosts(input: ConfigHostsIn) -> Arc<ConfigHosts> {
         ready: input.facts,
         refresh: input.refresh,
         env: input.env,
+        surface: input.surface,
     })
 }
 

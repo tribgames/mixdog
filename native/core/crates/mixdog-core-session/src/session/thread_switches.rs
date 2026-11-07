@@ -957,8 +957,7 @@ impl SessionSwitches for SessionSwitchAdapter {
 // ---- the context switch -------------------------------------------------------------------------
 
 /// What a desktop context switch does to the thread it leaves, beyond closing it:
-/// `invalidateContextStatusCache()` (and `invalidatePreSessionToolSurface()`, which has no object
-/// here: tool surfaces are read from each thread's header).
+/// `invalidateContextStatusCache()` and `invalidatePreSessionToolSurface()` (the surface generation).
 ///
 /// Divergence (decisions.md, "wp-run-host: thread/switchContext retargets no global"): Node also
 /// clears its route-preparation gate and retargets its single runtime for the NEXT session
@@ -971,11 +970,13 @@ pub trait ContextTarget: Send + Sync {
 }
 /// The production [`ContextTarget`]: the thread left has its context gauge re-measured at the next
 /// read. The same `Arc` goes to `ConfigHosts.gauge`, the route adapter and the domain seams.
-pub struct GaugeTarget(pub Arc<dyn ContextStatusCache>);
+pub struct GaugeTarget(pub Arc<dyn ContextStatusCache>, pub mixdog_core_base::surface::SurfaceGeneration);
 
 impl ContextTarget for GaugeTarget {
     fn invalidate(&self, thread: &ThreadId) {
         self.0.invalidate(thread);
+        // `invalidatePreSessionToolSurface()`, right after the cache (`context-switch.mjs`).
+        self.1.bump();
     }
 }
 

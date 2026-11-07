@@ -130,6 +130,7 @@ async fn rig(dir: &Path, agent: Value, header: Option<Header>, catalog: Map<Stri
         ready: Arc::new(Ready),
         refresh: refresh.clone(),
         env: Arc::new(move |name| env.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_owned())),
+        surface: mixdog_core_base::surface::SurfaceGeneration::default(),
     };
     Rig { hosts, gauge, refresh }
 }
@@ -153,6 +154,17 @@ async fn web_search_capability_is_nodes_for_every_form_of_the_model() {
         let got = rig.hosts.web_search_capable(case["provider"].as_str().unwrap(), model);
         assert_eq!(got, case["expected"].as_bool().unwrap(), "{case}");
     }
+}
+
+/// Onboarding's save of a Lead route rebuilds the surface of an empty session (`onboarding.mjs:122`
+/// `invalidatePreSessionToolSurface`): the surface generation moves.
+#[tokio::test]
+async fn a_saved_lead_route_moves_the_surface_generation() {
+    let dir = tempfile::tempdir().unwrap();
+    let rig = rig(dir.path(), json!({}), None, none(), &[]).await;
+    let before = rig.hosts.surface.get();
+    rig.hosts.adopt_lead_route(json!({ "provider": "openai", "model": "gpt-x" })).await;
+    assert_eq!(rig.hosts.surface.get(), before + 1);
 }
 
 /// An unread record is not a missing thread: `ThreadNotFound` is for a record that was read.

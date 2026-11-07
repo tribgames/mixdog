@@ -389,6 +389,18 @@ impl ContextTarget for Target {
     }
 }
 
+/// A context switch moves the surface generation with the context cache (`context-switch.mjs:56-57`).
+#[test]
+fn the_gauge_target_moves_the_surface_generation() {
+    struct Cache;
+    impl ContextStatusCache for Cache {
+        fn invalidate(&self, _: &ThreadId) {}
+    }
+    let generation = mixdog_core_base::surface::SurfaceGeneration::default();
+    GaugeTarget(Arc::new(Cache), generation.clone()).invalidate(&ThreadId::from("t"));
+    assert_eq!(generation.get(), 1);
+}
+
 struct NoShells;
 
 impl crate::session::shell_jobs::OwnedShells for NoShells {

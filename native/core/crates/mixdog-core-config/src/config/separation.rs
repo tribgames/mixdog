@@ -254,6 +254,42 @@ fn canonical_modules(value: Option<&Value>) -> Option<Value> {
     non_empty(modules)
 }
 
+/// `canonicalizeShellStorage`.
+fn canonical_shell(value: Option<&Value>) -> Option<Value> {
+    let raw = config_object(value);
+    let mut next = raw.clone();
+    let command = ["command", "path", "executable", "shell"].iter().find_map(|key| raw.get(*key).filter(|v| !v.is_null())).map(|v| js_trim(&mixdog_js::value_to_string(v)).to_owned()).unwrap_or_default();
+    for key in ["path", "executable", "shell"] {
+        next.shift_remove(key);
+    }
+    if command.is_empty() {
+        next.shift_remove("command");
+    } else {
+        next.insert("command".into(), Value::String(command));
+    }
+    non_empty(next)
+}
+
+/// The sections of `canonicalizeAgentStorage` that `separateStoredAgent` also reads: `autoClear`,
+/// `compaction`, `shell` and `modules`, each kept only when it still carries something.
+pub(super) fn canonicalize_sections(next: &mut Doc) {
+    for (key, canonical) in [
+        ("autoClear", canonical_auto_clear(next.get("autoClear"))),
+        ("compaction", canonical_compaction(next.get("compaction"))),
+        ("shell", canonical_shell(next.get("shell"))),
+        ("modules", canonical_modules(next.get("modules"))),
+    ] {
+        match canonical {
+            Some(value) => {
+                next.insert(key.into(), value);
+            }
+            None => {
+                next.shift_remove(key);
+            }
+        }
+    }
+}
+
 /// `presetKey`: a stored preset's id, else its name.
 fn preset_key(preset: &Value) -> String {
     ["id", "name"].iter().find_map(|key| preset.get(*key).filter(|v| truthy(Some(*v))).and_then(Value::as_str)).unwrap_or_default().to_owned()
@@ -261,7 +297,7 @@ fn preset_key(preset: &Value) -> String {
 
 /// `resolveNumericDefault`: a numeric `default` is a preset index; store the preset id it points at
 /// (an index into the effective list).
-fn resolve_numeric_default(agent: &Doc) -> Doc {
+pub(super) fn resolve_numeric_default(agent: &Doc) -> Doc {
     let value = agent.get("default");
     let index = match value {
         Some(Value::Number(number)) => number.as_f64(),
@@ -286,7 +322,7 @@ fn resolve_numeric_default(agent: &Doc) -> Doc {
 
 /// `stripStoredRouteDefaults`: the shipped presets and maintenance routes that equal their default
 /// are not stored; the loader restores them.
-fn strip_stored_route_defaults(agent: &Doc) -> Doc {
+pub(super) fn strip_stored_route_defaults(agent: &Doc) -> Doc {
     let mut next = agent.clone();
     if next.contains_key("presets") {
         let shipped = default_presets();
@@ -388,13 +424,26 @@ pub(super) fn separate_defaults_in_config(root: &Doc, data_dir: &Path) -> Doc {
 
 // ---- the file -------------------------------------------------------------------------------
 
+/// `statSync(path).mode & 0o777`.
+#[cfg(unix)]
+fn source_mode(meta: &std::fs::Metadata) -> u32 {
+    use std::os::unix::fs::PermissionsExt;
+    meta.permissions().mode() & 0o777
+}
+
+/// Where a file has no Unix mode, the new-file default of the publisher.
+#[cfg(not(unix))]
+fn source_mode(_: &std::fs::Metadata) -> u32 {
+    mixdog_statefile::Opts::default().mode
+}
+
 /// `backupConfigBeforeDefaultsSeparation`: the file as it is now, copied to
 /// `<data>/backups/defaults-separation-<timestamp>[-n]/mixdog-config.json`, in a folder claimed
 /// for it alone. Nothing when there is no file.
 fn backup(lane: &InLane<DurabilityIo>, source: &Path, data_dir: &Path, now_ms: i64) -> Result<(), ConfigError> {
     let Some(bytes) = mixdog_statefile::read_content(source)? else { return Ok(()) };
     let parent = data_dir.join("backups");
-    mixdog_statefile::create_private_dir_all(lane, &parent)?;
+    mixdog_statefile::create_dir_all(lane, &parent)?;
     let stamp = chrono::DateTime::from_timestamp_millis(now_ms).map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_default();
     let stem = format!("defaults-separation-{}", stamp.replace([':', '.'], "-"));
     for n in 0_u32.. {
@@ -402,28 +451,38 @@ fn backup(lane: &InLane<DurabilityIo>, source: &Path, data_dir: &Path, now_ms: i
         if mixdog_statefile::metadata(lane, &dir).is_ok() {
             continue;
         }
-        mixdog_statefile::create_private_dir_all(lane, &dir)?;
-        let written = mixdog_statefile::write_file_stepped(lane, &dir.join("mixdog-config.json"), &bytes, &mixdog_statefile::Opts::default());
+        mixdog_statefile::create_dir_all(lane, &dir)?;
+        // `writeFileAtomicSync(target, bytes, { mode: statSync(source).mode & 0o777 })`: the copy keeps the file's own mode.
+        let opts = mixdog_statefile::Opts { mode: source_mode(&mixdog_statefile::metadata(lane, source)?), ..mixdog_statefile::Opts::default() };
+        let written = mixdog_statefile::write_file_stepped(lane, &dir.join("mixdog-config.json"), &bytes, &opts);
         return written.map(|_| ()).map_err(ConfigError::Publish);
     }
     Ok(())
 }
 
 impl Shared {
-    /// `ensureDefaultsSeparated` under the config transaction: a file that needs it is backed up when
-    /// the pass changes anything, rewritten, and takes the marker.
+    /// `ensureDefaultsSeparated` and then the canonical storage of the agent section, as `loadConfig` runs
+    /// them, under the config transaction. A file that needs the separation is backed up when the pass
+    /// changes anything, rewritten, and takes the marker; a stored section that is not canonical is
+    /// rewritten once (`storage.rs`).
     pub(super) fn separate_on(&self, lane: &InLane<DurabilityIo>, now_ms: i64) -> Result<Applied, ConfigError> {
         let mut raised = super::lock(&self.writer);
         let current = self.doc.load_full();
-        if !needs_separation(&current) {
-            return Ok(Applied::default());
-        }
         let data_dir = self.path.parent().unwrap_or_else(|| Path::new(""));
-        let mut next = separate_defaults_in_config(&current, data_dir);
-        if !js_deep_equal(&Value::Object(next.clone()), &Value::Object((*current).clone())) {
-            backup(lane, &self.path, data_dir, now_ms)?;
+        let separating = needs_separation(&current);
+        let mut next = if separating { separate_defaults_in_config(&current, data_dir) } else { (*current).clone() };
+        if separating {
+            if !js_deep_equal(&Value::Object(next.clone()), &Value::Object((*current).clone())) {
+                backup(lane, &self.path, data_dir, now_ms)?;
+            }
+            next.insert(DEFAULTS_VERSION_KEY.into(), Value::from(2));
         }
-        next.insert(DEFAULTS_VERSION_KEY.into(), Value::from(2));
+        if let Some(Value::Object(agent)) = next.get("agent") {
+            let catalog = super::storage::saved_catalog(data_dir).unwrap_or_default();
+            if let Some(canonical) = super::storage::migrated_agent(agent, &catalog, now_ms) {
+                next.insert("agent".into(), Value::Object(canonical));
+            }
+        }
         let next = super::canonical::canonicalize(next);
         if next == *current {
             return Ok(Applied::default());

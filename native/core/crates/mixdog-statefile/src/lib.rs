@@ -28,6 +28,7 @@ mod tests;
 
 pub use access::Access;
 pub use access::create_new;
+pub use access::create_dir_all;
 pub use access::create_private_dir_all;
 pub use access::is_owner_only;
 pub use access::sync_dir;

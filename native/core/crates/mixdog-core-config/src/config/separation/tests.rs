@@ -1,4 +1,4 @@
-//! The boot pass against Node's recording (`fixtures/defaults-separation/twin.json`, recorded by
+//! The boot pass and the canonical storage of the agent section against Node's recording (`fixtures/defaults-separation/twin.json`, recorded by
 //! `benchmarks/rust-core/recorders/record-defaults-separation.mjs`): the file the pass leaves, the
 //! copy it backs up, the roster of switched-off agents the config holds afterwards, and the marker a
 //! first write into an empty config stamps.
@@ -34,7 +34,7 @@ fn same(got: &Doc, want: &Value) -> bool {
 async fn the_boot_pass_leaves_the_file_node_left() {
     let twin = twin();
     let cases = twin["cases"].as_array().expect("cases");
-    assert_eq!(cases.len(), 10);
+    assert_eq!(cases.len(), 12);
     for case in cases {
         let name = case["name"].as_str().expect("name");
         let dir = tempfile::tempdir().expect("dir");
@@ -48,10 +48,10 @@ async fn the_boot_pass_leaves_the_file_node_left() {
         let config = open(dir.path()).await;
         config.separate_defaults(NOW_MS).await.expect(name);
 
-        // What the file holds afterwards, in memory and on disk.
-        assert!(same(&config.full(), &case["output"]), "{name}: {:?}", config.full());
+        // What the file holds afterwards (the pass, then the canonical agent section), in memory and on disk.
+        assert!(same(&config.full(), &case["final"]), "{name}: {:?}", config.full());
         let stored: Value = serde_json::from_slice(&std::fs::read(dir.path().join("mixdog-config.json")).expect("file")).expect("json");
-        assert!(js_deep_equal(&stored, &case["output"]), "{name}: on disk {stored}");
+        assert!(js_deep_equal(&stored, &case["final"]), "{name}: on disk {stored}");
 
         // The copy taken before the rewrite: the file as it was, in a folder named for the moment.
         let backups: Vec<_> = match std::fs::read_dir(dir.path().join("backups")) {
@@ -73,6 +73,29 @@ async fn the_boot_pass_leaves_the_file_node_left() {
         for id in ["worker", "heavy-worker", "reviewer", "advisor", "security", "front-worker", "writer", "maintainer", "explore", "custom", "mine"] {
             assert_eq!(routes.is_disabled(id), off.contains(&id), "{name}: {id}");
         }
+    }
+}
+
+/// The pass alone (what Node's `ensureDefaultsSeparated` published, before the agent section was made canonical).
+#[test]
+fn the_pass_alone_writes_what_node_published() {
+    for case in twin()["cases"].as_array().expect("cases") {
+        let name = case["name"].as_str().expect("name");
+        let dir = tempfile::tempdir().expect("dir");
+        for (rel, text) in case["files"].as_object().expect("files") {
+            let path = dir.path().join(rel);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("folder");
+            std::fs::write(path, text.as_str().expect("text")).expect("file");
+        }
+        let input = case["input"].as_object().expect("input");
+        if !needs_separation(input) {
+            assert!(js_deep_equal(&Value::Object(input.clone()), &case["output"]), "{name}");
+            continue;
+        }
+        let mut separated = separate_defaults_in_config(input, dir.path());
+        separated.insert(DEFAULTS_VERSION_KEY.into(), Value::from(2));
+        let written = super::super::canonical::canonicalize(separated);
+        assert!(same(&written, &case["output"]), "{name}: {written:?}");
     }
 }
 

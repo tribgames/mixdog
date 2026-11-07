@@ -55,6 +55,42 @@
         },
         "defaultsVersion": 2
       },
+      "final": {
+        "agent": {
+          "providers": {
+            "custom-harness": {
+              "type": "custom",
+              "schemaVersion": 2,
+              "name": "harness",
+              "protocol": "openai-chat",
+              "baseURL": "http://127.0.0.1:1/v1",
+              "auth": "none",
+              "enabled": true
+            }
+          },
+          "enabledAgents": [
+            "front-worker",
+            "heavy-worker",
+            "maintainer",
+            "reviewer",
+            "security",
+            "worker",
+            "writer"
+          ],
+          "builtins": {
+            "git": {
+              "installed": true
+            },
+            "memory": {
+              "installed": true
+            },
+            "office": {
+              "installed": true
+            }
+          }
+        },
+        "defaultsVersion": 2
+      },
       "backups": [
         {
           "name": "defaults-separation-<iso>",
@@ -246,6 +282,71 @@
         },
         "defaultsVersion": 2
       },
+      "final": {
+        "agent": {
+          "presets": [
+            {
+              "id": "mine",
+              "name": "Mine",
+              "type": "agent",
+              "provider": "openai",
+              "model": "gpt-x",
+              "effort": "high",
+              "tools": "full"
+            }
+          ],
+          "default": "mine",
+          "autoClear": {
+            "idleMs": 120000,
+            "providerIdleMs": {
+              "openai": 0,
+              "slow": 60000
+            }
+          },
+          "compaction": {
+            "summaryModel": "m",
+            "auto": false
+          },
+          "modules": {
+            "webSearch": {
+              "enabled": false
+            }
+          },
+          "agents": {
+            "worker": {
+              "provider": "openai",
+              "model": "gpt-x"
+            },
+            "mine": {
+              "provider": "openai",
+              "model": "gpt-x"
+            }
+          },
+          "builtins": {
+            "git": {
+              "installed": true
+            },
+            "memory": "odd"
+          },
+          "disabledAgents": [
+            "custom"
+          ],
+          "enabledAgents": [
+            "front-worker",
+            "heavy-worker",
+            "maintainer",
+            "security",
+            "writer"
+          ],
+          "providers": {},
+          "modelSettings": {},
+          "webSearchRoute": null
+        },
+        "desktop": {
+          "zoom": 1
+        },
+        "defaultsVersion": 2
+      },
       "backups": [
         {
           "name": "defaults-separation-<iso>",
@@ -285,6 +386,45 @@
       },
       "inputText": "{\n  \"agent\": {\n    \"workflow\": {\n      \"active\": \"review\"\n    },\n    \"orchestrationMode\": \"none\",\n    \"providers\": {\n      \"openai\": {\n        \"enabled\": true\n      }\n    }\n  },\n  \"channels\": {\n    \"webhook\": {\n      \"enabled\": false,\n      \"port\": 3333\n    },\n    \"other\": 1\n  }\n}",
       "output": {
+        "agent": {
+          "workflow": {
+            "active": "review"
+          },
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          },
+          "enabledAgents": [
+            "front-worker",
+            "heavy-worker",
+            "maintainer",
+            "reviewer",
+            "security",
+            "worker",
+            "writer"
+          ],
+          "builtins": {
+            "git": {
+              "installed": true
+            },
+            "memory": {
+              "installed": true
+            },
+            "office": {
+              "installed": true
+            }
+          }
+        },
+        "channels": {
+          "webhook": {
+            "enabled": false
+          },
+          "other": 1
+        },
+        "defaultsVersion": 2
+      },
+      "final": {
         "agent": {
           "workflow": {
             "active": "review"
@@ -391,6 +531,43 @@
         },
         "defaultsVersion": 2
       },
+      "final": {
+        "agent": {
+          "default": "mine",
+          "presets": [
+            {
+              "id": "mine",
+              "name": "Mine",
+              "type": "agent",
+              "provider": "openai",
+              "model": "gpt-x",
+              "effort": "high",
+              "tools": "full"
+            }
+          ],
+          "enabledAgents": [
+            "front-worker",
+            "heavy-worker",
+            "maintainer",
+            "reviewer",
+            "security",
+            "worker",
+            "writer"
+          ],
+          "builtins": {
+            "git": {
+              "installed": true
+            },
+            "memory": {
+              "installed": true
+            },
+            "office": {
+              "installed": true
+            }
+          }
+        },
+        "defaultsVersion": 2
+      },
       "backups": [
         {
           "name": "defaults-separation-<iso>",
@@ -423,6 +600,43 @@
       },
       "inputText": "{\n  \"agent\": {\n    \"default\": 99,\n    \"presets\": [\n      {\n        \"id\": \"mine\",\n        \"name\": \"Mine\",\n        \"type\": \"agent\",\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\",\n        \"effort\": \"high\",\n        \"tools\": \"full\"\n      }\n    ]\n  }\n}",
       "output": {
+        "agent": {
+          "default": 99,
+          "presets": [
+            {
+              "id": "mine",
+              "name": "Mine",
+              "type": "agent",
+              "provider": "openai",
+              "model": "gpt-x",
+              "effort": "high",
+              "tools": "full"
+            }
+          ],
+          "enabledAgents": [
+            "front-worker",
+            "heavy-worker",
+            "maintainer",
+            "reviewer",
+            "security",
+            "worker",
+            "writer"
+          ],
+          "builtins": {
+            "git": {
+              "installed": true
+            },
+            "memory": {
+              "installed": true
+            },
+            "office": {
+              "installed": true
+            }
+          }
+        },
+        "defaultsVersion": 2
+      },
+      "final": {
         "agent": {
           "default": 99,
           "presets": [
@@ -539,6 +753,28 @@
           }
         }
       },
+      "final": {
+        "defaultsVersion": 2,
+        "agent": {
+          "enabledAgents": [
+            "worker"
+          ],
+          "disabledAgents": [
+            "custom"
+          ],
+          "builtins": {
+            "git": {
+              "installed": true
+            }
+          },
+          "agents": {
+            "mine": {
+              "provider": "openai",
+              "model": "gpt-x"
+            }
+          }
+        }
+      },
       "backups": [
         {
           "name": "defaults-separation-<iso>",
@@ -579,6 +815,17 @@
       },
       "inputText": "{\n  \"defaultsVersion\": 1,\n  \"agent\": {\n    \"agents\": {\n      \"explore\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      },\n      \"web-researcher\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    }\n  }\n}",
       "output": {
+        "defaultsVersion": 2,
+        "agent": {
+          "agents": {
+            "explore": {
+              "provider": "openai",
+              "model": "gpt-x"
+            }
+          }
+        }
+      },
+      "final": {
         "defaultsVersion": 2,
         "agent": {
           "agents": {
@@ -631,6 +878,386 @@
           }
         }
       },
+      "final": {
+        "defaultsVersion": 2,
+        "agent": {
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          }
+        }
+      },
+      "backups": [],
+      "disabledAgents": [
+        "advisor",
+        "explore",
+        "front-worker",
+        "heavy-worker",
+        "maintainer",
+        "reviewer",
+        "security",
+        "worker",
+        "writer"
+      ]
+    },
+    {
+      "name": "canonical-storage",
+      "files": {},
+      "input": {
+        "defaultsVersion": 2,
+        "agent": {
+          "providers": {
+            "ollama": {
+              "enabled": true
+            },
+            "lmstudio": {},
+            "openai": {
+              "enabled": true
+            }
+          },
+          "presets": [
+            {
+              "id": "local",
+              "name": "Local",
+              "provider": "ollama",
+              "model": "m"
+            },
+            {
+              "id": "workflow-agent-x",
+              "name": "x",
+              "provider": "openai",
+              "model": "gpt-x"
+            },
+            {
+              "id": "mine",
+              "name": "Mine",
+              "provider": "openai",
+              "model": "gpt-x",
+              "fast": true
+            },
+            {
+              "name": ""
+            }
+          ],
+          "default": "local",
+          "agents": {
+            "worker": {
+              "provider": "openai",
+              "model": "gpt-x"
+            },
+            "partial": {
+              "provider": "openai"
+            },
+            "maintenance": {
+              "provider": "openai",
+              "model": "gpt-x"
+            },
+            "local": {
+              "provider": "lmstudio",
+              "model": "z"
+            }
+          },
+          "maintenance": {
+            "memory": {
+              "provider": "openai",
+              "model": "gpt-x"
+            },
+            "other": {
+              "provider": "ollama",
+              "model": "q"
+            }
+          },
+          "modelSettings": {
+            "ollama/x": {
+              "a": 1
+            },
+            "openai/gpt-x": {
+              "effort": "high"
+            }
+          },
+          "workflowRoutes": {
+            "lead": {
+              "provider": "openai",
+              "model": "gpt-x"
+            }
+          },
+          "shell": {
+            "path": " /bin/zsh ",
+            "other": 1
+          },
+          "profile": {
+            "language": "ko",
+            "stray": 1
+          },
+          "skills": {
+            "disabled": [
+              "b",
+              "a",
+              " a ",
+              ""
+            ]
+          },
+          "extensionScopes": {
+            "skills": {
+              "s": []
+            },
+            "mcp": {},
+            "plugins": {}
+          },
+          "webSearchRoute": {
+            "provider": "openai-api",
+            "model": " gpt-x ",
+            "fast": false
+          },
+          "guide": {
+            "x": 1
+          },
+          "runtime": {
+            "y": 2
+          },
+          "disabledAgents": [
+            "Custom_One",
+            "custom-one"
+          ]
+        }
+      },
+      "inputText": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"providers\": {\n      \"ollama\": {\n        \"enabled\": true\n      },\n      \"lmstudio\": {},\n      \"openai\": {\n        \"enabled\": true\n      }\n    },\n    \"presets\": [\n      {\n        \"id\": \"local\",\n        \"name\": \"Local\",\n        \"provider\": \"ollama\",\n        \"model\": \"m\"\n      },\n      {\n        \"id\": \"workflow-agent-x\",\n        \"name\": \"x\",\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      },\n      {\n        \"id\": \"mine\",\n        \"name\": \"Mine\",\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\",\n        \"fast\": true\n      },\n      {\n        \"name\": \"\"\n      }\n    ],\n    \"default\": \"local\",\n    \"agents\": {\n      \"worker\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      },\n      \"partial\": {\n        \"provider\": \"openai\"\n      },\n      \"maintenance\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      },\n      \"local\": {\n        \"provider\": \"lmstudio\",\n        \"model\": \"z\"\n      }\n    },\n    \"maintenance\": {\n      \"memory\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      },\n      \"other\": {\n        \"provider\": \"ollama\",\n        \"model\": \"q\"\n      }\n    },\n    \"modelSettings\": {\n      \"ollama/x\": {\n        \"a\": 1\n      },\n      \"openai/gpt-x\": {\n        \"effort\": \"high\"\n      }\n    },\n    \"workflowRoutes\": {\n      \"lead\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-x\"\n      }\n    },\n    \"shell\": {\n      \"path\": \" /bin/zsh \",\n      \"other\": 1\n    },\n    \"profile\": {\n      \"language\": \"ko\",\n      \"stray\": 1\n    },\n    \"skills\": {\n      \"disabled\": [\n        \"b\",\n        \"a\",\n        \" a \",\n        \"\"\n      ]\n    },\n    \"extensionScopes\": {\n      \"skills\": {\n        \"s\": []\n      },\n      \"mcp\": {},\n      \"plugins\": {}\n    },\n    \"webSearchRoute\": {\n      \"provider\": \"openai-api\",\n      \"model\": \" gpt-x \",\n      \"fast\": false\n    },\n    \"guide\": {\n      \"x\": 1\n    },\n    \"runtime\": {\n      \"y\": 2\n    },\n    \"disabledAgents\": [\n      \"Custom_One\",\n      \"custom-one\"\n    ]\n  }\n}",
+      "output": {
+        "defaultsVersion": 2,
+        "agent": {
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          },
+          "presets": [
+            {
+              "id": "mine",
+              "name": "Mine",
+              "type": "agent",
+              "provider": "openai",
+              "model": "gpt-x",
+              "fast": true,
+              "tools": "full"
+            }
+          ],
+          "default": null,
+          "agents": {
+            "worker": {
+              "provider": "openai",
+              "model": "gpt-x"
+            }
+          },
+          "modelSettings": {
+            "openai/gpt-x": {
+              "effort": "high"
+            }
+          },
+          "shell": {
+            "other": 1,
+            "command": "/bin/zsh"
+          },
+          "profile": {
+            "title": "",
+            "language": "ko",
+            "experienceLevel": ""
+          },
+          "skills": {
+            "disabled": [
+              "a",
+              "b"
+            ]
+          },
+          "webSearchRoute": {
+            "provider": "openai",
+            "model": "gpt-x"
+          },
+          "disabledAgents": [
+            "custom-one"
+          ]
+        }
+      },
+      "final": {
+        "defaultsVersion": 2,
+        "agent": {
+          "providers": {
+            "openai": {
+              "enabled": true
+            }
+          },
+          "presets": [
+            {
+              "id": "mine",
+              "name": "Mine",
+              "type": "agent",
+              "provider": "openai",
+              "model": "gpt-x",
+              "fast": true,
+              "tools": "full"
+            }
+          ],
+          "default": null,
+          "agents": {
+            "worker": {
+              "provider": "openai",
+              "model": "gpt-x"
+            }
+          },
+          "modelSettings": {
+            "openai/gpt-x": {
+              "effort": "high"
+            }
+          },
+          "shell": {
+            "other": 1,
+            "command": "/bin/zsh"
+          },
+          "profile": {
+            "title": "",
+            "language": "ko",
+            "experienceLevel": ""
+          },
+          "skills": {
+            "disabled": [
+              "a",
+              "b"
+            ]
+          },
+          "webSearchRoute": {
+            "provider": "openai",
+            "model": "gpt-x"
+          },
+          "disabledAgents": [
+            "custom-one"
+          ]
+        }
+      },
+      "backups": [],
+      "disabledAgents": [
+        "advisor",
+        "custom-one",
+        "explore",
+        "front-worker",
+        "heavy-worker",
+        "maintainer",
+        "reviewer",
+        "security",
+        "worker",
+        "writer"
+      ]
+    },
+    {
+      "name": "superseded-codex-routes",
+      "files": {
+        "openai-oauth-models.json": "{\"version\":7,\"fetchedAt\":1,\"models\":[{\"id\":\"gpt-old\",\"upgrade\":{\"model\":\"gpt-new\",\"retirementAt\":\"2020-01-01T00:00:00.000Z\"}},{\"id\":\"gpt-later\",\"upgrade\":{\"model\":\"gpt-new\",\"retirementAt\":\"2999-01-01T00:00:00.000Z\"}},{\"id\":\"gpt-new\",\"priority\":2},{\"id\":\"gpt-blue\",\"accessPrograms\":[\"daybreak_blue\"]},{\"id\":\"gpt-5\",\"accessPrograms\":[\"standard\",\"daybreak_blue\"],\"priority\":1},{\"id\":\"gpt-hidden\",\"hidden\":true,\"accessPrograms\":[\"standard\",\"daybreak_blue\"],\"priority\":0}]}"
+      },
+      "input": {
+        "defaultsVersion": 2,
+        "agent": {
+          "agents": {
+            "a": {
+              "provider": "openai-oauth",
+              "model": "gpt-old",
+              "effort": "low"
+            },
+            "b": {
+              "provider": "openai-oauth",
+              "model": "gpt-blue",
+              "modelParameters": {
+                "k": 1
+              }
+            },
+            "c": {
+              "provider": "openai-oauth",
+              "model": "gpt-later"
+            },
+            "d": {
+              "provider": "openai",
+              "model": "gpt-old"
+            }
+          },
+          "modelSettings": {
+            "openai-oauth/gpt-old": {
+              "x": 1
+            },
+            "openai-oauth/gpt-new": {
+              "x": 2
+            }
+          }
+        }
+      },
+      "inputText": "{\n  \"defaultsVersion\": 2,\n  \"agent\": {\n    \"agents\": {\n      \"a\": {\n        \"provider\": \"openai-oauth\",\n        \"model\": \"gpt-old\",\n        \"effort\": \"low\"\n      },\n      \"b\": {\n        \"provider\": \"openai-oauth\",\n        \"model\": \"gpt-blue\",\n        \"modelParameters\": {\n          \"k\": 1\n        }\n      },\n      \"c\": {\n        \"provider\": \"openai-oauth\",\n        \"model\": \"gpt-later\"\n      },\n      \"d\": {\n        \"provider\": \"openai\",\n        \"model\": \"gpt-old\"\n      }\n    },\n    \"modelSettings\": {\n      \"openai-oauth/gpt-old\": {\n        \"x\": 1\n      },\n      \"openai-oauth/gpt-new\": {\n        \"x\": 2\n      }\n    }\n  }\n}",
+      "output": {
+        "defaultsVersion": 2,
+        "agent": {
+          "agents": {
+            "a": {
+              "provider": "openai-oauth",
+              "model": "gpt-new",
+              "effort": "low"
+            },
+            "b": {
+              "provider": "openai-oauth",
+              "model": "gpt-5",
+              "modelParameters": {
+                "k": 1,
+                "daybreak": "on"
+              }
+            },
+            "c": {
+              "provider": "openai-oauth",
+              "model": "gpt-later"
+            },
+            "d": {
+              "provider": "openai",
+              "model": "gpt-old"
+            }
+          },
+          "modelSettings": {
+            "openai-oauth/gpt-new": {
+              "x": 2
+            }
+          },
+          "providers": {},
+          "webSearchRoute": null
+        }
+      },
+      "final": {
+        "defaultsVersion": 2,
+        "agent": {
+          "agents": {
+            "a": {
+              "provider": "openai-oauth",
+              "model": "gpt-new",
+              "effort": "low"
+            },
+            "b": {
+              "provider": "openai-oauth",
+              "model": "gpt-5",
+              "modelParameters": {
+                "k": 1,
+                "daybreak": "on"
+              }
+            },
+            "c": {
+              "provider": "openai-oauth",
+              "model": "gpt-later"
+            },
+            "d": {
+              "provider": "openai",
+              "model": "gpt-old"
+            }
+          },
+          "modelSettings": {
+            "openai-oauth/gpt-new": {
+              "x": 2
+            }
+          },
+          "providers": {},
+          "webSearchRoute": null
+        }
+      },
       "backups": [],
       "disabledAgents": [
         "advisor",
@@ -670,6 +1297,17 @@
           }
         }
       },
+      "final": {
+        "defaultsVersion": 2,
+        "agent": {
+          "enabledAgents": [
+            "worker"
+          ],
+          "autoClear": {
+            "enabled": true
+          }
+        }
+      },
       "backups": [],
       "disabledAgents": [
         "advisor",
@@ -688,6 +1326,7 @@
       "input": {},
       "inputText": "{}",
       "output": {},
+      "final": {},
       "backups": [],
       "disabledAgents": [
         "worker",
