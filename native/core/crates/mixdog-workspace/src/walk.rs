@@ -22,13 +22,14 @@ const TEXT_MAX_DEPTH: usize = 24;
 pub const INDEX_MAX_ENTRIES: usize = 100_000;
 const INDEX_PRUNED: &[&str] = &[".git", "node_modules"];
 
-fn sorted_entries(dir: &Path) -> Option<Vec<(String, fs::FileType)>> {
-    let mut entries: Vec<(String, fs::FileType)> = fs::read_dir(dir)
+/// A folder's entries in the order the filesystem lists them, as Node's `readdir` and `opendir` give them (neither sorts):
+/// the order of the walk is the order of the search results and of what a scan cap leaves out.
+fn listed_entries(dir: &Path) -> Option<Vec<(String, fs::FileType)>> {
+    let entries = fs::read_dir(dir)
         .ok()?
         .filter_map(Result::ok)
         .filter_map(|e| Some((e.file_name().to_string_lossy().into_owned(), e.file_type().ok()?)))
         .collect();
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
     Some(entries)
 }
 
@@ -59,7 +60,7 @@ pub fn text_files(root: &Path, stop: &dyn Fn() -> bool) -> Vec<String> {
             break;
         }
         let rules = nested_rules(root, &relative, &parent);
-        let Some(entries) = sorted_entries(&root.join(&relative)) else { continue };
+        let Some(entries) = listed_entries(&root.join(&relative)) else { continue };
         for (name, kind) in entries {
             if files.len() >= TEXT_MAX_FILES {
                 break;
@@ -131,7 +132,7 @@ pub fn walk_directories(
             break;
         }
         let rules = if include_ignored { Vec::new() } else { nested_rules(root, &current.relative, &current.rules) };
-        let Some(entries) = sorted_entries(&root.join(&current.relative)) else { continue };
+        let Some(entries) = listed_entries(&root.join(&current.relative)) else { continue };
         let children_from = queue.len();
         let mut interrupted = false;
         for (name, kind) in entries {
@@ -231,5 +232,16 @@ mod tests {
         });
         assert_eq!(partial.len(), 1, "{partial:?}");
         assert!(!finished);
+    }
+
+    #[test]
+    fn a_text_walk_lists_files_in_the_order_the_filesystem_does() {
+        // The harness found `README.md` before `hello.txt` here (a byte sort) where Node's `readdir` gave `hello.txt` first (NTFS order).
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["README.md", "hello.txt", "Zed.txt", "alpha.txt"] {
+            fs::write(dir.path().join(name), "x").unwrap();
+        }
+        let expected: Vec<String> = fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(text_files(dir.path(), &|| false), expected);
     }
 }
