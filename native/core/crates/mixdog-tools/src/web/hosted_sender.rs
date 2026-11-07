@@ -14,6 +14,7 @@ use mixdog_ai::admission::process_lane_settings;
 use mixdog_ai::broker::ModelBroker;
 use mixdog_ai::broker::SendError;
 use mixdog_ai::broker::SendRequest;
+use mixdog_ai::registry::accounted::AccountOf;
 use mixdog_ai::registry::accounted::input_excludes_cache;
 use mixdog_ai::registry::accounting::Completed;
 use mixdog_ai::registry::accounting::Facts;
@@ -64,10 +65,11 @@ pub struct SenderDeps {
     pub sinks: Arc<NativeSearchUsageSinks>,
     /// The admission lane of a provider, shared with the main sends.
     pub lane: Arc<dyn Fn(&str) -> Arc<Lane> + Send + Sync>,
-    /// The account a provider's next send is bound to (`currentProviderAccountId`);
-    /// empty for a provider with no accounts. An error is the lookup's failure, which fails the
-    /// recording of the send's rows (`usageAccountingError`), never the send.
-    pub account: Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>,
+    /// The account each row of the send is recorded under (`currentProviderAccountId`, read where
+    /// the row is written, as the main sends' accounting reads it); empty for a provider with no
+    /// accounts. An error is the lookup's failure, which fails the recording of the send's rows
+    /// (`usageAccountingError`), never the send.
+    pub account: Arc<dyn AccountOf>,
     /// Epoch ms (`Date.now()`).
     pub now: Arc<dyn Fn() -> i64 + Send + Sync>,
 }
@@ -79,13 +81,6 @@ impl SenderDeps {
         Arc::new(move |provider| {
             let key = LaneKey::new(provider.into(), "default");
             broker.admission().lane(&key, process_lane_settings()(&key))
-        })
-    }
-
-    /// An account provider is bound to its default account until the pool says otherwise.
-    pub fn default_account() -> Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync> {
-        Arc::new(|provider| {
-            Ok(if mixdog_ai::accounts::ACCOUNT_PROVIDERS.contains(&provider) { "default".to_owned() } else { String::new() })
         })
     }
 
@@ -244,7 +239,7 @@ impl HostedSearchSender for ProviderSearchSender {
             None => return Err(plain(format!("provider \"{provider}\" is not ready"))),
         };
         let started_at = (self.deps.now)();
-        let owner = self.host.session_id();
+        let owner = self.host.session_id(&call.thread);
         let base = owner.as_deref().filter(|id| !id.is_empty()).unwrap_or("web_search");
         let session_id = format!("{base}:{SOURCE_TYPE}:{}", base36((self.deps.now)().max(0) as u64));
         let excludes_cache = input_excludes_cache(provider);
@@ -259,12 +254,14 @@ impl HostedSearchSender for ProviderSearchSender {
             source_type: SOURCE_TYPE.to_owned(),
             input_tokens_inclusive: !excludes_cache,
             request_service_tier: String::new(),
-            account: if mixdog_ai::accounts::ACCOUNT_PROVIDERS.contains(&provider) { (self.deps.account)(provider) } else { Ok(String::new()) },
+            // Read for every row by the roster below, never once here.
+            account: Ok(String::new()),
             request_id: random_uuid(),
             started_at,
         };
         let accounting = SendAccounting::new(identity, Arc::clone(&self.deps.pricing), self.deps.ledger.clone())
-            .with_sources(Arc::clone(&self.deps.now), Arc::new(random_uuid));
+            .with_sources(Arc::clone(&self.deps.now), Arc::new(random_uuid))
+            .with_account(Arc::clone(&self.deps.account));
         let mut sink = RecordingSink::collecting().with_accounting(accounting);
         let request = SendRequest {
             request: Arc::new(request_of(&call, &session_id)),

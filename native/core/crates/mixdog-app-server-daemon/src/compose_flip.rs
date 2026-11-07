@@ -1410,6 +1410,29 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let mut web_config = mixdog_tools::web::WebConfig::new(build_version.clone(), web_lanes);
     web_config.renderer = Some(page_renderer);
     web_config.cache_file = Some(mixdog_tools::web::CacheFile { path: b.data_dir.join("cache.local.json"), lane: b.tokens.maintenance_io });
+    // The hosted web search (`createNativeWebSearch`, `boot/providers.mjs:201-222`): one host for every thread; the asking thread picks the route cell and the session.
+    let search_host = Arc::new(mixdog_core_domains::domains::ai_admin::web_search_host::RegistrySearchHost {
+        cells: routes.clone() as Arc<dyn mixdog_core_ports::ports::route::LiveRoute>, // the route cell of every conversation (the one `routes`)
+        config: config.clone(),
+        catalog: b.catalog.clone(),
+        readiness: readiness.clone(),
+        registry: registry.clone(),
+    });
+    let search_sender = mixdog_tools::web::ProviderSearchSender::new(
+        search_host.clone(),
+        mixdog_tools::web::SenderDeps {
+            broker: broker.clone(), // the one broker (`broker.admission()` lanes, shared with the main sends)
+            pricing: Arc::new(mixdog_ai::catalog::CatalogPricing(b.catalog.clone())),
+            ledger: Some(usage_sink.clone()), // the one ledger source, asked per row
+            sinks: mixdog_tools::web::NativeSearchUsageSinks::new(),
+            lane: mixdog_tools::web::SenderDeps::default_lane(&broker),
+            account: Arc::new(account_store.clone()), // the roster each row's account is read from
+            now: mixdog_tools::web::SenderDeps::system_clock(),
+        },
+    );
+    let hosted_search: Arc<dyn mixdog_tools::web::NativeWebSearch> =
+        mixdog_tools::web::HostedWebSearch::new(mixdog_tools::web::ConfiguredSearchRoutes::new(search_host), search_sender);
+    web_config.search = Some(hosted_search);
     let web = mixdog_tools::web::WebService::new(web_config).map_err(|e| ComposeError::Config(format!("the web tools could not be built: {e}")))?;
     tool_pool.extend(web.tools());
     // After `tools(..)` (the pool holds `explore`, which holds the host) and after the last read-only tool is registered: `bind` keeps one snapshot, and Node's

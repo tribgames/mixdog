@@ -13,6 +13,7 @@ pub mod route_actions;
 pub mod route_service;
 pub mod route_set_service;
 pub mod thread_route_service;
+pub mod web_search_host;
 pub mod web_search_models;
 
 #[cfg(test)]
@@ -37,3 +38,5 @@ mod route_set_service_tests;
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "test setup")]
 mod thread_route_service_tests;
+#[cfg(test)]
+mod web_search_host_tests;
