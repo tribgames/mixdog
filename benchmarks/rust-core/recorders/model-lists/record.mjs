@@ -29,7 +29,10 @@ const stub = http.createServer((request, response) => {
   response.setHeader('content-type', 'application/json');
   const path = new URL(request.url, 'http://127.0.0.1').pathname;
   hits.push(path);
-  response.end(JSON.stringify(routes[path] ?? { object: 'list', data: [] }));
+  const answer = routes[path] ?? { object: 'list', data: [] };
+  // `{ "__status": n }` answers that HTTP status with an empty object.
+  response.statusCode = answer.__status ?? 200;
+  response.end(JSON.stringify(answer.__status ? {} : answer));
 });
 await new Promise((done) => stub.listen(0, '127.0.0.1', done));
 const baseURL = `http://127.0.0.1:${stub.address().port}`;

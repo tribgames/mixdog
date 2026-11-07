@@ -1,0 +1,43 @@
+{
+  "source": {
+    "anthropic": "src/runtime/agent/orchestrator/providers/lib/anthropic-models.mjs MODELS",
+    "gemini": "src/runtime/agent/orchestrator/providers/lib/gemini-model-catalog.mjs GEMINI_MODELS"
+  },
+  "anthropic": [
+    {
+      "id": "claude-opus-5-5",
+      "name": "Claude Opus 5.5",
+      "family": "opus",
+      "contextWindow": 1000000
+    },
+    {
+      "id": "claude-fable-5-1",
+      "name": "Claude Fable 5.1",
+      "family": "fable",
+      "contextWindow": 1000000
+    },
+    {
+      "id": "claude-sonnet-5-5",
+      "name": "Claude Sonnet 5.5",
+      "family": "sonnet",
+      "contextWindow": 1000000
+    }
+  ],
+  "gemini": [
+    {
+      "id": "gemini-3.8-flash",
+      "name": "Gemini 3.8 Flash",
+      "contextWindow": 1048576
+    },
+    {
+      "id": "gemini-3.1-pro-preview",
+      "name": "Gemini 3.1 Pro Preview",
+      "contextWindow": 1048576
+    },
+    {
+      "id": "gemini-3.5-flash-lite",
+      "name": "Gemini 3.5 Flash Lite",
+      "contextWindow": 1048576
+    }
+  ]
+}

@@ -268,13 +268,13 @@
             "id": "claude-sonnet-4-6",
             "type": "model",
             "display_name": "Claude Sonnet 4.6",
-            "created_at": "2025-08-01T00:00:00Z"
+            "created_at": "2090-06-01T00:00:00Z"
           },
           {
             "id": "claude-haiku-4-5-20251001",
             "type": "model",
             "display_name": "Claude Haiku 4.5",
-            "created_at": "2025-10-01T00:00:00Z"
+            "created_at": "2091-06-01T00:00:00Z"
           }
         ],
         "has_more": false
@@ -369,5 +369,150 @@
       ],
       "default": "d1"
     }
+  },
+  {
+    "name": "anthropic-floor-error",
+    "calls": [
+      {
+        "action": "listProviderModels",
+        "args": [
+          {
+            "quick": true
+          }
+        ]
+      },
+      {
+        "action": "listProviderModels",
+        "args": [
+          {}
+        ]
+      },
+      {
+        "action": "listWebSearchModels",
+        "args": [
+          {}
+        ]
+      }
+    ],
+    "env": {
+      "ANTHROPIC_API_KEY": "fixture-key-not-a-credential"
+    },
+    "stub": {
+      "/a/v1/models": {
+        "__status": 500
+      }
+    },
+    "agent": {
+      "providers": {
+        "anthropic": {
+          "baseURL": "__BASE_URL__/a"
+        }
+      }
+    }
+  },
+  {
+    "name": "anthropic-floor-empty",
+    "calls": [
+      {
+        "action": "listProviderModels",
+        "args": [
+          {
+            "quick": true
+          }
+        ]
+      },
+      {
+        "action": "listProviderModels",
+        "args": [
+          {}
+        ]
+      },
+      {
+        "action": "listWebSearchModels",
+        "args": [
+          {}
+        ]
+      }
+    ],
+    "env": {
+      "ANTHROPIC_API_KEY": "fixture-key-not-a-credential"
+    },
+    "stub": {
+      "/a/v1/models": {
+        "data": [],
+        "has_more": false
+      }
+    },
+    "agent": {
+      "providers": {
+        "anthropic": {
+          "baseURL": "__BASE_URL__/a"
+        }
+      }
+    }
+  },
+  {
+    "name": "anthropic-floor-nokey",
+    "calls": [
+      {
+        "action": "listProviderModels",
+        "args": [
+          {
+            "quick": true
+          }
+        ]
+      },
+      {
+        "action": "listProviderModels",
+        "args": [
+          {}
+        ]
+      },
+      {
+        "action": "listWebSearchModels",
+        "args": [
+          {}
+        ]
+      }
+    ],
+    "stub": {},
+    "agent": {
+      "providers": {
+        "anthropic": {
+          "enabled": true,
+          "baseURL": "__BASE_URL__/a"
+        }
+      }
+    }
+  },
+  {
+    "name": "gemini-floor",
+    "calls": [
+      {
+        "action": "listProviderModels",
+        "args": [
+          {
+            "quick": true
+          }
+        ]
+      },
+      {
+        "action": "listProviderModels",
+        "args": [
+          {}
+        ]
+      },
+      {
+        "action": "listWebSearchModels",
+        "args": [
+          {}
+        ]
+      }
+    ],
+    "env": {
+      "GEMINI_API_KEY": "fixture-key-not-a-credential"
+    },
+    "stub": {},
+    "agent": {}
   }
 ]

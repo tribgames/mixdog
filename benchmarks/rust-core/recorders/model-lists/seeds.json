@@ -15,7 +15,7 @@
           "tool_call": true,
           "attachment": true,
           "temperature": true,
-          "release_date": "2025-08-01",
+          "release_date": "2090-01-01",
           "knowledge": "2025-03",
           "modalities": {
             "input": [
@@ -45,7 +45,7 @@
           "tool_call": true,
           "attachment": true,
           "temperature": true,
-          "release_date": "2025-10-01",
+          "release_date": "2091-01-01",
           "knowledge": "2025-03",
           "modalities": {
             "input": [
@@ -75,7 +75,7 @@
           "tool_call": true,
           "attachment": true,
           "temperature": true,
-          "release_date": "2026-02-01",
+          "release_date": "2092-01-01",
           "knowledge": "2025-03",
           "modalities": {
             "input": [
