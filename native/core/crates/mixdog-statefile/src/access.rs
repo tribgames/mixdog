@@ -62,6 +62,12 @@ pub fn create_dir_all<L: WriteLane>(_lane: &InLane<L>, path: &Path) -> io::Resul
     std::fs::create_dir_all(path)
 }
 
+/// Creates `path` alone, failing with `AlreadyExists` when anything is there already (Node's
+/// `mkdirSync(path)` without `recursive`, which throws `EEXIST`): the claim of a name no one else holds.
+pub fn create_dir<L: WriteLane>(_lane: &InLane<L>, path: &Path) -> io::Result<()> {
+    std::fs::create_dir(path)
+}
+
 /// Creates `path` and every missing ancestor as a private directory: Unix mode 0700 (Node's
 /// `mkdirSync(path, { recursive: true, mode: 0o700 })`, subject to the umask); Windows a
 /// protected DACL with one full-access entry for the current user, inherited by what the

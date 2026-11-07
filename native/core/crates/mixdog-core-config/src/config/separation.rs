@@ -446,18 +446,27 @@ fn backup(lane: &InLane<DurabilityIo>, source: &Path, data_dir: &Path, now_ms: i
     mixdog_statefile::create_dir_all(lane, &parent)?;
     let stamp = chrono::DateTime::from_timestamp_millis(now_ms).map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_default();
     let stem = format!("defaults-separation-{}", stamp.replace([':', '.'], "-"));
-    for n in 0_u32.. {
-        let dir = parent.join(if n == 0 { stem.clone() } else { format!("{stem}-{n}") });
-        if mixdog_statefile::metadata(lane, &dir).is_ok() {
-            continue;
+    let dir = claim_dir(lane, &parent, &stem)?;
+    // `writeFileAtomicSync(target, bytes, { mode: statSync(source).mode & 0o777 })`: the copy keeps the file's own mode.
+    let opts = mixdog_statefile::Opts { mode: source_mode(&mixdog_statefile::metadata(lane, source)?), ..mixdog_statefile::Opts::default() };
+    let written = mixdog_statefile::write_file_stepped(lane, &dir.join("mixdog-config.json"), &bytes, &opts);
+    written.map(|_| ()).map_err(ConfigError::Publish)
+}
+
+/// The folder named `stem`, or `stem-1`, `stem-2`, ... when that name is taken: each name is tried by creating
+/// the folder alone, and a name that exists already (`EEXIST`) moves on to the next, so two claims never get the
+/// same folder and an existing backup is never written into (`for (let n = 0; ; n += 1) { try { mkdirSync(dir) }
+/// catch (err) { if (err.code === 'EEXIST') continue; throw err } ... }`).
+fn claim_dir(lane: &InLane<DurabilityIo>, parent: &Path, stem: &str) -> Result<std::path::PathBuf, ConfigError> {
+    let mut n = 0_u32;
+    loop {
+        let dir = parent.join(if n == 0 { stem.to_owned() } else { format!("{stem}-{n}") });
+        match mixdog_statefile::create_dir(lane, &dir) {
+            Ok(()) => return Ok(dir),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => n += 1,
+            Err(error) => return Err(error.into()),
         }
-        mixdog_statefile::create_dir_all(lane, &dir)?;
-        // `writeFileAtomicSync(target, bytes, { mode: statSync(source).mode & 0o777 })`: the copy keeps the file's own mode.
-        let opts = mixdog_statefile::Opts { mode: source_mode(&mixdog_statefile::metadata(lane, source)?), ..mixdog_statefile::Opts::default() };
-        let written = mixdog_statefile::write_file_stepped(lane, &dir.join("mixdog-config.json"), &bytes, &opts);
-        return written.map(|_| ()).map_err(ConfigError::Publish);
     }
-    Ok(())
 }
 
 impl Shared {
@@ -493,7 +502,6 @@ impl Shared {
 }
 
 #[cfg(test)]
-#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 mod tests;
 
 impl Config {
