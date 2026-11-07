@@ -5692,6 +5692,16 @@
    "output": "stat 'd'"
   },
   {
+   "input": "stat '<WS>\\sub\\.\\..\\\\a.txt'",
+   "withCwd": false,
+   "output": "stat '<WS>/sub/./..//a.txt'"
+  },
+  {
+   "input": "stat '<WS>\\sub\\.\\..\\\\a.txt'",
+   "withCwd": true,
+   "output": "stat 'a.txt'"
+  },
+  {
    "input": "a \"C:\\Users\\nobody\\f\" and 'D:/other/g'",
    "withCwd": false,
    "output": "a \"C:/Users/nobody/f\" and 'D:/other/g'"
@@ -5724,18 +5734,6 @@
    "withCwd": true,
    "windowsOnly": true,
    "output": "stat 'b'"
-  },
-  {
-   "input": "stat '<WS>\\\\sub\\.\\..\\\\a.txt'",
-   "withCwd": false,
-   "windowsOnly": true,
-   "output": "stat '<WS>//sub/./..//a.txt'"
-  },
-  {
-   "input": "stat '<WS>\\\\sub\\.\\..\\\\a.txt'",
-   "withCwd": true,
-   "windowsOnly": true,
-   "output": "stat 'a.txt'"
   }
  ],
  "spellings": [
