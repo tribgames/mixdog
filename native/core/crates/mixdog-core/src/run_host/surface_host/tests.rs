@@ -769,7 +769,7 @@ fn the_exposure_migration_follows_node() {
                 header.insert(key.clone(), value.clone());
             }
             let transcript = step["transcript"].as_array().expect("transcript");
-            let next = host.migrate_exposure(&header, crate::run_host::tool_migration::has_unanswered_tool_calls(transcript)).expect(label);
+            let next = host.migrate_exposure_of(&header, crate::run_host::tool_migration::has_unanswered_tool_calls(transcript)).expect(label);
             assert_eq!(next.is_some(), step["result"] == true, "{label} step {n}");
             migrations += usize::from(next.is_some());
             if let Some(next) = next {
@@ -780,6 +780,41 @@ fn the_exposure_migration_follows_node() {
         }
     }
     assert_eq!((steps, migrations), (8, 4));
+}
+
+/// The request boundary migrates at every boundary (`request-boundary.mjs:67`): the thread's header is written with what
+/// Node leaves (`fixtures/mcp-fold`, the `migrate` cases), once; the same transcript again finds nothing to migrate, and
+/// a tool call that waits for its result is no boundary until it is answered.
+#[tokio::test]
+async fn the_boundary_migrates_the_thread_header_at_every_boundary() {
+    let golden = golden();
+    let fold = fold_golden();
+    let case = |name: &str| fold["cases"].as_array().expect("cases").iter().find(|case| case["name"] == name).expect("case").clone();
+    let thread = ThreadId::from("t1");
+    let rows = |step: &Value| step["transcript"].as_array().expect("transcript").clone();
+    let started = |case: &Value| {
+        let mut header = header_of(&case["before"]);
+        for (key, value) in case["steps"][0]["set"].as_object().into_iter().flatten() {
+            header.insert(key.clone(), value.clone());
+        }
+        header
+    };
+
+    let once = case("a native session whose provider became a bridge one migrates once");
+    let rig_once = rig(&golden, Setup { header: started(&once), ..setup("full") });
+    let migrated = TurnSettings::migrate_exposure(&rig_once.host, &thread, &rows(&once["steps"][0])).await.expect("migrate").expect("migrated");
+    assert_eq!(migrated, header_of(&once["steps"][0]["after"]));
+    assert_eq!(*rig_once.threads.header.lock().unwrap(), migrated);
+    assert_eq!(rig_once.threads.patches.lock().unwrap().len(), 1);
+    assert!(TurnSettings::migrate_exposure(&rig_once.host, &thread, &rows(&once["steps"][1])).await.expect("again").is_none());
+    assert_eq!(rig_once.threads.patches.lock().unwrap().len(), 1, "nothing left to write");
+
+    let waiting = case("an unanswered tool call is not a safe boundary, an answered one is");
+    let rig_waiting = rig(&golden, Setup { header: started(&waiting), ..setup("full") });
+    assert!(TurnSettings::migrate_exposure(&rig_waiting.host, &thread, &rows(&waiting["steps"][0])).await.expect("waiting").is_none());
+    assert!(rig_waiting.threads.patches.lock().unwrap().is_empty());
+    let answered = TurnSettings::migrate_exposure(&rig_waiting.host, &thread, &rows(&waiting["steps"][1])).await.expect("answered").expect("migrated at the next boundary");
+    assert_eq!(answered, header_of(&waiting["steps"][1]["after"]));
 }
 
 /// The loop's refresh (request boundary, tool call, `load_tool`) writes what Node's

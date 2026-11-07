@@ -175,6 +175,12 @@ pub trait RunParts: Send + Sync + 'static {
         Ok(tools)
     }
 
+    /// `migrateToolExposureAtBoundary` over the transcript `rows` the request is built from: the system messages of
+    /// the migrated thread, `None` when nothing migrated. A host with no deferred surface migrates nothing.
+    async fn migrate_exposure(&self, _thread: &ThreadId, _rows: Vec<Value>) -> Result<Option<Vec<AgentMessage>>, TurnError> {
+        Ok(None)
+    }
+
     /// `getHiddenAgent(agent).stallCap.idleSeconds`: an internal agent's own idle budget, which
     /// the progress watchdog honours.
     fn stall_cap_idle_seconds(&self, _agent: Option<&str>) -> Option<i64> {
@@ -654,26 +660,19 @@ impl mixdog_agent::env::McpCatalog for ThreadMcp {
         }
     }
 
-    async fn tools(&self) -> Option<ToolSet> {
+    async fn tools(&self) -> Result<Option<ToolSet>, String> {
         let surface = self.surface.borrow().clone();
-        match self.parts.request_tools(&self.thread, &surface).await {
-            Ok(tools) => tools,
-            Err(error) => {
-                tracing::warn!("[mcp] request tools could not be rebuilt: {error:?}");
-                None
-            }
-        }
+        self.parts.request_tools(&self.thread, &surface).await.map_err(|error| error.message)
     }
 
-    async fn snapshot(&self, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, messages: &[AgentMessage]) -> Vec<mixdog_core_api::domain::provider::ToolDefinition> {
+    async fn snapshot(&self, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, messages: &[AgentMessage]) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, String> {
         let native: Vec<Value> = messages.iter().filter_map(|m| m.message.native_tool_search.clone()).collect();
-        match self.parts.request_snapshot(&self.thread, tools.clone(), native).await {
-            Ok(snapshot) => snapshot,
-            Err(error) => {
-                tracing::warn!("[mcp] request tools could not be snapshotted: {error:?}");
-                tools
-            }
-        }
+        self.parts.request_snapshot(&self.thread, tools, native).await.map_err(|error| error.message)
+    }
+
+    async fn migrate(&self, messages: &[AgentMessage]) -> Result<Option<Vec<AgentMessage>>, String> {
+        let rows = messages.iter().map(super::message_row::row_of).collect();
+        self.parts.migrate_exposure(&self.thread, rows).await.map_err(|error| error.message)
     }
 }
 

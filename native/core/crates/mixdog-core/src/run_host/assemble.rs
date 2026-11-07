@@ -348,6 +348,12 @@ impl RunParts for HostRunParts {
         Ok(Some(ToolSet::with_builtins(tools, builtins).for_agent(agent)))
     }
 
+    async fn migrate_exposure(&self, thread: &ThreadId, rows: Vec<Value>) -> Result<Option<Vec<mixdog_agent::message::AgentMessage>>, TurnError> {
+        use super::turn_settings::TurnSettings;
+        let migrated = self.services.turn_settings.migrate_exposure(thread, &rows).await.map_err(refuse)?;
+        Ok(migrated.map(|header| super::factory::system_messages(&header)))
+    }
+
     async fn request_snapshot(&self, thread: &ThreadId, tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, native: Vec<Value>) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, TurnError> {
         let directory = self.services.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
         let header = directory.live_header(thread).header();

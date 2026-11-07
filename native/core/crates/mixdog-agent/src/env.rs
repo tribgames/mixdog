@@ -687,9 +687,9 @@ pub trait McpCatalog: Send + Sync {
 
     /// The run's tools as the session holds them now, rebuilt after a refresh (Node's `session.tools`, whose
     /// active MCP entries `reconcileDeferredMcpToolCatalog` re-links to the live server tool): the request
-    /// boundary adopts their changed MCP definitions. `None`: the host keeps the run's set.
-    async fn tools(&self) -> Option<crate::tools::ToolSet> {
-        None
+    /// boundary adopts their changed MCP definitions. `None`: the host keeps the run's set. A failure fails the request.
+    async fn tools(&self) -> Result<Option<crate::tools::ToolSet>, String> {
+        Ok(None)
     }
 
     /// `snapshotProviderRequestTools`: the candidate request tools (the session's, in order) as the session's
@@ -699,8 +699,15 @@ pub trait McpCatalog: Send + Sync {
         &self,
         tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
         _messages: &[crate::message::AgentMessage],
-    ) -> Vec<mixdog_core_api::domain::provider::ToolDefinition> {
-        tools
+    ) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, String> {
+        Ok(tools)
+    }
+
+    /// `migrateToolExposureAtBoundary(session, messages)`: a session persisted for another tool exposure than its
+    /// provider's is migrated, unless a tool call of `messages` (the transcript the request is built from) waits for
+    /// its result. The new system messages when it migrated; `None` when it did not.
+    async fn migrate(&self, _messages: &[crate::message::AgentMessage]) -> Result<Option<Vec<crate::message::AgentMessage>>, String> {
+        Ok(None)
     }
 }
 

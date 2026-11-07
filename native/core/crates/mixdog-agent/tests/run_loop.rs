@@ -2376,8 +2376,8 @@ struct SwapMcp(std::sync::Mutex<std::collections::VecDeque<mixdog_agent::tools::
 impl mixdog_agent::env::McpCatalog for SwapMcp {
     async fn refresh(&self) {}
 
-    async fn tools(&self) -> Option<mixdog_agent::tools::ToolSet> {
-        self.0.lock().unwrap().pop_front()
+    async fn tools(&self) -> Result<Option<mixdog_agent::tools::ToolSet>, String> {
+        Ok(self.0.lock().unwrap().pop_front())
     }
 }
 
@@ -2407,10 +2407,10 @@ struct SnapshotMcp;
 impl mixdog_agent::env::McpCatalog for SnapshotMcp {
     async fn refresh(&self) {}
 
-    async fn snapshot(&self, mut tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, messages: &[AgentMessage]) -> Vec<mixdog_core_api::domain::provider::ToolDefinition> {
+    async fn snapshot(&self, mut tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, messages: &[AgentMessage]) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, String> {
         assert!(!messages.is_empty(), "the snapshot reads the transcript the request is built from");
         tools.push(mixdog_core_api::domain::provider::ToolDefinition { name: "office".into(), description: "Create a document.".into(), input_schema: json!({"type": "object"}), defer_loading: true, freeform: None });
-        tools
+        Ok(tools)
     }
 }
 
@@ -2423,6 +2423,64 @@ async fn the_request_carries_the_deferred_snapshot() {
     finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
     let sent: Vec<(String, bool)> = h.provider.requests()[0].tools.iter().map(|t| (t.name.clone(), t.defer_loading)).collect();
     assert_eq!(sent, [("echo".to_owned(), false), ("office".to_owned(), true)]);
+}
+
+/// What throws inside Node's `prepareProviderRequest` fails the request, with the error's own text.
+struct FailingMcp;
+
+#[async_trait::async_trait]
+impl mixdog_agent::env::McpCatalog for FailingMcp {
+    async fn refresh(&self) {}
+
+    async fn snapshot(&self, _: Vec<mixdog_core_api::domain::provider::ToolDefinition>, _: &[AgentMessage]) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, String> {
+        Err("provider tool snapshot: selected tool identity mismatch".into())
+    }
+}
+
+#[tokio::test]
+async fn a_failed_tool_snapshot_fails_the_request() {
+    let mut h = Harness::new(vec![turn(vec![text("done"), done(StopReason::EndTurn)])]);
+    h.mcp = Some(Arc::new(FailingMcp));
+    let failure = h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await.expect_err("the snapshot threw");
+    assert!(matches!(&failure.error, AgentError::RequestTools(text) if text == "provider tool snapshot: selected tool identity mismatch"), "{:?}", failure.error);
+    assert!(h.provider.requests().is_empty(), "nothing was sent");
+}
+
+fn system_message(text: &str) -> AgentMessage {
+    use mixdog_core_api::domain::provider::{Content, Message, Role};
+    AgentMessage::new(Message::new(Role::System, Content::Text(text.to_owned())))
+}
+
+/// Migrates at the second boundary only (a tool call waited for its result at the first).
+struct MigrateMcp(AtomicU64);
+
+#[async_trait::async_trait]
+impl mixdog_agent::env::McpCatalog for MigrateMcp {
+    async fn refresh(&self) {}
+
+    async fn migrate(&self, messages: &[AgentMessage]) -> Result<Option<Vec<AgentMessage>>, String> {
+        let boundary = self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        assert!(messages.iter().any(|m| m.role() == mixdog_core_api::domain::provider::Role::System), "the transcript the request is built from carries its system prompt");
+        Ok((boundary == 1).then(|| vec![system_message("migrated rules")]))
+    }
+}
+
+/// `migrateToolExposureAtBoundary` runs at every request boundary (`request-boundary.mjs:67`); a migration replaces the
+/// working transcript's system prompt, and the provider state of the old surface is not sent again.
+#[tokio::test]
+async fn the_exposure_migration_runs_at_every_request_boundary() {
+    let mut h = Harness::new(vec![
+        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![text("done"), done(StopReason::EndTurn)]),
+    ]);
+    let boundaries = Arc::new(MigrateMcp(AtomicU64::new(0)));
+    h.mcp = Some(boundaries.clone());
+    finish(h.run(config(), vec![Echo::tool()], vec![system_message("old rules"), AgentMessage::user("go")])).await;
+    assert_eq!(boundaries.0.load(std::sync::atomic::Ordering::SeqCst), 2);
+    let sent = h.provider.requests();
+    let first_system = |request: &mixdog_core_api::domain::provider::ModelRequest| request.messages.iter().find(|m| m.role == mixdog_core_api::domain::provider::Role::System).map(|m| format!("{:?}", m.content));
+    assert!(first_system(&sent[0]).unwrap().contains("old rules"));
+    assert!(first_system(&sent[1]).unwrap().contains("migrated rules"));
 }
 
 /// Node refreshes the session's MCP catalog once per request (`request-boundary.mjs:77`), at the start of

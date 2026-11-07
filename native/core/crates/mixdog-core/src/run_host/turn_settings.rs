@@ -28,6 +28,13 @@ pub trait TurnSettings: Send + Sync + 'static {
     async fn refresh_mcp(&self, _thread: &ThreadId) -> Result<(), String> {
         Ok(())
     }
+
+    /// `migrateToolExposureAtBoundary(session, messages)` at a request boundary: `rows` is the transcript the request is
+    /// built from. The thread's header once migrated, `None` when there was nothing to migrate or a tool call waits for
+    /// its result. A host with no deferred surface migrates nothing.
+    async fn migrate_exposure(&self, _thread: &ThreadId, _rows: &[serde_json::Value]) -> Result<Option<Header>, String> {
+        Ok(None)
+    }
 }
 
 /// The MCP catalog of one thread, refreshed through the turn settings.
@@ -69,6 +76,13 @@ impl TurnSettings for LateTurnSettings {
     async fn refresh_mcp(&self, thread: &ThreadId) -> Result<(), String> {
         match self.0.get() {
             Some(host) => host.refresh_mcp(thread).await,
+            None => Err("the turn settings are not bound yet".to_owned()),
+        }
+    }
+
+    async fn migrate_exposure(&self, thread: &ThreadId, rows: &[serde_json::Value]) -> Result<Option<Header>, String> {
+        match self.0.get() {
+            Some(host) => host.migrate_exposure(thread, rows).await,
             None => Err("the turn settings are not bound yet".to_owned()),
         }
     }
