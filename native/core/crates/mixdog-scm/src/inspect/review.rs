@@ -296,7 +296,23 @@ pub async fn work_tree_tree(
         } else {
             git.text(cancel, root, &["read-tree", "--empty"], &options).await?;
         }
-        git.text(cancel, root, &["add", "-A"], &options).await?;
+        // `git add -A` refuses the whole add over a nested repository with no commit ("does not have a commit checked out"), while Node's
+        // review (a status scan) lists it as an untracked folder; such a folder is left out of the tree, and the caller adds its row.
+        let others = git
+            .text(cancel, root, &["--no-optional-locks", "ls-files", "--others", "--exclude-standard", "-z"], &RunOptions::read())
+            .await?;
+        let mut pathspec: Vec<String> = Vec::new();
+        for folder in others.split('\0').filter_map(|record| record.strip_suffix('/')) {
+            let head = git
+                .outcome(cancel, &root.join(folder), &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], &RunOptions::default())
+                .await?;
+            if !head.success() {
+                pathspec.push(format!(":(exclude,literal){folder}"));
+            }
+        }
+        let mut add = vec!["add", "-A", "--", "."];
+        add.extend(pathspec.iter().map(String::as_str));
+        git.text(cancel, root, &add, &options).await?;
         Ok::<_, ScmFailure>(git.text(cancel, root, &["write-tree"], &options).await?.trim().to_owned())
     }
     .await;
