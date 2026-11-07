@@ -22,6 +22,9 @@ pub fn listing_value(record: &ModelRecord) -> Value {
     let mut put = |key: &str, value: Value| {
         m.insert(key.to_owned(), value);
     };
+    // A custom provider lists only effective rows (`effectiveCustomModelRows`), and those always state
+    // `contextWindow` (0 when nothing names a window), `hidden` and `manual`, false included.
+    let custom = record.effective;
     put("id", json!(record.id));
     if let Some(display) = &record.display_name {
         put("display", json!(display));
@@ -34,6 +37,8 @@ pub fn listing_value(record: &ModelRecord) -> Value {
     }
     if let Some(window) = record.context_window {
         put("contextWindow", json!(window));
+    } else if custom {
+        put("contextWindow", json!(0));
     }
     if let Some(window) = record.max_context_window {
         put("maxContextWindow", json!(window));
@@ -50,8 +55,8 @@ pub fn listing_value(record: &ModelRecord) -> Value {
     if let Some(mode) = &record.mode {
         put("mode", json!(mode));
     }
-    if record.hidden {
-        put("hidden", json!(true));
+    if record.hidden || custom {
+        put("hidden", json!(record.hidden));
     }
     for (key, on) in [
         ("supportsVision", yes(record.vision)),
@@ -127,8 +132,8 @@ pub fn listing_value(record: &ModelRecord) -> Value {
     if let Some(name) = &record.provider_name {
         put("providerName", json!(name));
     }
-    if record.manual {
-        put("manual", json!(true));
+    if record.manual || custom {
+        put("manual", json!(record.manual));
     }
     if let Some(updates) = record.supports_reasoning_effort_updates {
         put("supportsReasoningEffortUpdates", json!(updates));

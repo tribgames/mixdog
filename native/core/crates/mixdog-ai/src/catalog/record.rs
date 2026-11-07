@@ -100,6 +100,10 @@ pub struct ModelRecord {
     /// A custom model the user added by hand.
     #[serde(default)]
     pub manual: bool,
+    /// A custom provider's effective row (`effectiveCustomModelRows`), which always states `contextWindow`,
+    /// `hidden` and `manual`, false included.
+    #[serde(default)]
+    pub effective: bool,
     /// The provider catalog's word on a mid-conversation effort change.
     #[serde(default)]
     pub supports_reasoning_effort_updates: Option<bool>,
@@ -167,6 +171,7 @@ impl ModelRecord {
             name: None,
             provider_name: None,
             manual: false,
+            effective: false,
             supports_reasoning_effort_updates: None,
             supports_reasoning_summaries: None,
             thinking_adaptive: None,

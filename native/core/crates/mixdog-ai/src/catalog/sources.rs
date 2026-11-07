@@ -278,6 +278,17 @@ fn catalog_record(provider: &ProviderId, listed: mixdog_core_api::domain::provid
     record.alias_target = listed.alias_target;
     record.wire = listed.wire;
     record.picker = listed.picker;
+    record.family = listed.family;
+    record.effective = listed.raw.as_ref().is_some_and(|raw| raw.get("inherited").is_some());
+    // `enrichModels` writes the lookup's capability flags over the row's own (`GUESSED_FLAGS`), so the listed row states them.
+    let flag = |key: &str| listed.enriched.0.as_ref().and_then(|row| row.get(key)).and_then(|v| v.as_bool());
+    record.function_calling = tri(flag("supportsFunctionCalling"));
+    if let Some(on) = flag("supportsVision") {
+        record.vision = tri(Some(on));
+    }
+    if let Some(on) = flag("supportsReasoning") {
+        record.reasoning = tri(Some(on));
+    }
     record.source = MetadataSource::Native;
     record
 }

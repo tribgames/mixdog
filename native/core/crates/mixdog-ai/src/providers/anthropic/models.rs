@@ -132,6 +132,7 @@ impl AnthropicModel {
         record.supports_reasoning = Some(self.supports_reasoning);
         record.reasoning_levels = self.effort_levels.clone();
         record.raw = Some(self.raw.clone());
+        record.family = Some(self.family.clone());
         record
     }
 }

@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import http from 'node:http';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const treeAt = process.argv.indexOf('--tree');
@@ -79,6 +79,9 @@ for (const scenario of scenarios) {
     TMP: paths.tmp,
     TMPDIR: paths.tmp,
     NO_PROXY: '127.0.0.1,localhost',
+    // offline.mjs in every Node process the daemon starts: without it the daemon replaces the seeded catalogs with the live
+    // models.dev / LiteLLM ones and the recording depends on the day it was made.
+    NODE_OPTIONS: `--import ${pathToFileURL(join(HERE, 'offline.mjs')).href}`,
     ...(scenario.env ?? {}),
   });
   const child = spawn(process.execPath, ['--experimental-transform-types', '--no-warnings', join(HERE, 'child.mjs'), NODE_TREE, paths.workspace, file], { env, cwd: paths.workspace, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });

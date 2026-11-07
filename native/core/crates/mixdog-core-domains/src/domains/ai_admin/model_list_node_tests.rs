@@ -284,6 +284,11 @@ async fn the_quick_rows_are_nodes_for_every_profile() {
     for scenario in recording["scenarios"].as_array().unwrap() {
         let name = scenario["name"].as_str().unwrap();
         let rig = rig(scenario, &recording["seeds"], false).await;
+        // A row marked `catalogComplete` means Node's daemon had finished its boot load before this first read
+        // (a provider with no key fails its listing at once and answers its floor): the catalog is loaded here too.
+        if node_calls(scenario)[0].get(0).is_some_and(|row| row["catalogComplete"] == true) {
+            rig.service.rows(false, false).await.unwrap();
+        }
         let rows = rig.service.rows(false, true).await.unwrap();
         assert_rows(&format!("{name}: quick"), &rows, node_calls(scenario)[0]);
         rig.host.settle_warm().await;

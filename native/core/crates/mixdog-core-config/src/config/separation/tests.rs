@@ -102,7 +102,12 @@ async fn the_pass_alone_writes_what_node_published() {
         }
         let input = case["input"].as_object().expect("input");
         if !needs_separation(input) {
-            assert!(js_deep_equal(&Value::Object(input.clone()), &case["output"]), "{name}");
+            // No separation to publish: Node's first write is then `loadConfig`'s save of the canonical agent
+            // section, which the boot pass makes here (and which is the file's last write too, so `output` is `final`).
+            put(dir.path().join("mixdog-config.json"), case["inputText"].as_str().expect("input").to_owned()).await;
+            let config = open(dir.path()).await;
+            config.separate_defaults(NOW_MS).await.expect(name);
+            assert!(same(&config.full(), &case["output"]), "{name}: {:?}", config.full());
             continue;
         }
         let mut separated = separate_defaults_in_config(input, dir.path());
