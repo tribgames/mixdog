@@ -209,7 +209,7 @@ const QUOTA_TARGET: &str = "quotaAutoResume";
 /// is on unless it is the boolean `false` (`quotaAutoResumeEnabled`), so only `false` is carried; any other value is the
 /// default and is just dropped. A `quotaAutoResume` the document already has wins. The rest of `quotaResume` stays, and an
 /// emptied `quotaResume` goes.
-fn moved_quota_config(doc: &Value) -> Option<Value> {
+pub fn moved_quota_config(doc: &Value) -> Option<Value> {
     let section = doc.get("quotaResume")?.as_object()?;
     let legacy = section.get("autoResume")?;
     let mut next = doc.clone();
