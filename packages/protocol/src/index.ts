@@ -3859,7 +3859,7 @@ export type ThreadSnapshotParams = { thread: ThreadSummary, state: ThreadState, 
  */
 export type ThreadStageAttachmentOriginalParams = { opId: OpId, threadId?: ThreadId, input: JsonValue, };
 
-export type ThreadStartKind = "project" | "projectTask" | "task";
+export type ThreadStartKind = "project" | "projectTask" | "task" | "control";
 
 export type ThreadStartParams = { opId: OpId, kind: ThreadStartKind, projectPath?: string, draft?: NewTaskDraft, 
 /**

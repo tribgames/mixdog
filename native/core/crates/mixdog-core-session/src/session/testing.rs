@@ -865,6 +865,31 @@ impl super::TaskWorkspace for FixedTaskWorkspace {
     }
 }
 
+/// A new-thread place with fixed Projects that records the worktree steps it is asked for (thread, worktree, input).
+#[derive(Default)]
+pub struct RecordingPlace {
+    pub projects: Vec<String>,
+    pub entered: std::sync::Mutex<Vec<(String, Value, Option<Value>)>>,
+}
+
+#[async_trait::async_trait]
+impl super::NewThreadPlace for RecordingPlace {
+    async fn projects(&self) -> Result<Vec<String>, String> {
+        Ok(self.projects.clone())
+    }
+
+    async fn enter_worktree(
+        &self,
+        thread: &ThreadId,
+        worktree: &Value,
+        input: Option<&Value>,
+        _: &mixdog_rt::CancellationToken,
+    ) -> Result<(), mixdog_core_api::CoreError> {
+        self.entered.lock().expect("entered").push((thread.as_str().to_owned(), worktree.clone(), input.cloned()));
+        Ok(())
+    }
+}
+
 /// The rooms whose members' handed-off questions moved, and the member approvals resolved
 /// (`room:approval`), in order.
 #[derive(Default)]
@@ -1374,6 +1399,7 @@ impl Rig {
             surface: mixdog_core_base::surface::SurfaceGeneration::default(),
             new_route: Arc::new(NoRoute),
             task_workspace: Arc::new(FixedTaskWorkspace("/tasks")),
+            new_place: Arc::new(RecordingPlace::default()),
             resumed_tools: self.resumed.clone(),
             room_members: self.room_members.clone(),
             wakes: self.wakes.clone(),

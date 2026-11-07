@@ -462,11 +462,16 @@ impl SessionHandle {
             .await
             .map_err(|_| self.closing())?;
         let (base, mut header) = rx.await.map_err(|_| self.closing())??;
+        let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
+        // The desktop's `inheritSession` creates the heir where the source's Project is (or in the task workspace) with a
+        // fresh classification, never in the source's worktree; an inherit into an existing thread keeps that thread's place.
+        if params.into_thread_id.is_none() {
+            heir_place(&directory.deps, &mut header).await?;
+        }
         header.insert(
             "inheritedFromSessionId".into(),
             Value::String(self.id.as_str().to_owned()),
         );
-        let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
         let created = directory
             .create(CreateSpec {
                 id: params.into_thread_id,
@@ -480,6 +485,37 @@ impl SessionHandle {
         let summary = created.cell.view.load_full().summary.clone();
         Ok(Reply::Value(json!({ "thread": summary })))
     }
+}
+
+/// `inheritSession` (`session-host-lifecycle.ts:968-978`): `resolveSessionWorkspace(sessionProjectPath(source))`. The source's
+/// Project is the deepest registered one holding its stored Project, folder or workspace (`sessionProjectKey`); the heir takes
+/// that Project as `cwd` and `{project, projectPath}`, or the task workspace and `{task, null}`, and no `workspace` record.
+/// Only a source the desktop classified is moved: a thread of another client keeps its header.
+async fn heir_place(deps: &SessionDeps, header: &mut mixdog_store::schema::record::Header) -> Result<(), CoreError> {
+    use super::thread_settings::project_identity;
+    use super::thread_settings::session_project_key;
+    let source = Value::Object(header.clone());
+    if !source.get("desktopSession").is_some_and(Value::is_object) {
+        return Ok(());
+    }
+    let registered = deps.new_place.projects().await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
+    let keys: Vec<String> = registered.iter().map(|path| project_identity(Some(path))).collect();
+    let stored = (source.pointer("/desktopSession/classification") == Some(&json!("project"))).then(|| source.pointer("/desktopSession/projectPath").cloned()).flatten();
+    let key = session_project_key(&json!({ "projectPath": stored, "cwd": source.get("cwd"), "workspace": source.get("workspace") }), &keys);
+    let project = registered.iter().find(|path| !key.is_empty() && project_identity(Some(path)) == key);
+    match project {
+        Some(path) => {
+            header.insert("cwd".into(), json!(path));
+            header.insert("desktopSession".into(), json!({ "classification": "project", "projectPath": path }));
+        }
+        None => {
+            let folder = deps.task_workspace.path().await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
+            header.insert("cwd".into(), json!(folder));
+            header.insert("desktopSession".into(), json!({ "classification": "task", "projectPath": null }));
+        }
+    }
+    header.shift_remove("workspace");
+    Ok(())
 }
 
 impl FeedSource for SessionHandle {

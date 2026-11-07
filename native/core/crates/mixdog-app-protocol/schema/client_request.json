@@ -10182,6 +10182,13 @@
             "task"
           ],
           "type": "string"
+        },
+        {
+          "description": "The desktop's control session (Node's `ensureControlSession`, created with `desktopSession: null`): it runs in\nthe task workspace, carries no classification and, while empty, is not listed. Rust name: `ThreadStartKind::Control`.",
+          "enum": [
+            "control"
+          ],
+          "type": "string"
         }
       ]
     },

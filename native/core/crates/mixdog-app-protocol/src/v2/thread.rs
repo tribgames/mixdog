@@ -51,6 +51,9 @@ pub enum ThreadStartKind {
     ProjectTask,
     /// Today's `startTask` / `submitNewTask` / `session.create`.
     Task,
+    /// The desktop's control session (Node's `ensureControlSession`, created with `desktopSession: null`): it runs in
+    /// the task workspace, carries no classification and, while empty, is not listed. Rust name: `ThreadStartKind::Control`.
+    Control,
 }
 
 /// Today's `DesktopNewTaskDraft`.

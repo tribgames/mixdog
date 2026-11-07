@@ -33,6 +33,7 @@ import { createReattachReport } from './reattach-report';
 import type { ServerPortForwards } from './server-port-forwards';
 import { createServiceTerminalHost } from './terminal-host';
 import { createCapabilityLane } from '../protocol/capability-route';
+import { createOperationLane } from '../protocol/desktop-operation-route';
 import type { ProtocolConnection } from '../protocol/connection';
 
 /** How long a server's tunnel may take to accept its first connection. */
@@ -307,7 +308,9 @@ function createServiceClient({
 }): DesktopServiceClient {
   const client = new DesktopServiceClient({
     // A connection with a core endpoint sends its session capabilities there (capability-route.ts).
-    ...(protocol ? { capabilityLane: createCapabilityLane({ protocol }) } : {}),
+    ...(protocol
+      ? { capabilityLane: createCapabilityLane({ protocol }), operationLane: createOperationLane({ protocol }) }
+      : {}),
     connect: () => {
       live.transport = new SessionTransport(
         deps.moduleUrl(),

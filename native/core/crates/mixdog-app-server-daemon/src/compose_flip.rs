@@ -1548,6 +1548,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let late_route_session = Arc::new(crate::late_session::LateRouteSession::default());
     // The route service is built after the directory and reads it: the route a `thread/start` thread begins on and the pick held for a turn start are late cells, bound where it is built.
     let late_new_route = Arc::new(mixdog_core::run_host::route_start::LateNewRoute::default());
+    let late_new_place = Arc::new(crate::late_session::LateNewPlace::default());
     let late_pending_route = Arc::new(mixdog_core::run_host::route_start::LatePendingRoute::default());
     // flip-surface: the one production `SurfaceHost`. It is built BEFORE the directory (it goes into `SessionDeps.new_tools` and the compaction world), so the
     // directory-side reads are the late forms (`LateThreads`: `ThreadState` + `ThreadMessages`; `LateLiveSessions`), not `directory`/`SessionThreads` as the wiring row writes.
@@ -1788,6 +1789,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             };
             let session_surface = surface_generation.clone();
             let task_workspace: Arc<dyn mixdog_core_session::session::TaskWorkspace> = agents.clone();
+            let new_place = late_new_place.clone();
             let (data_dir, tokens, clock, features, route_change, quota, session_search, catalog_index) = (b.data_dir.clone(), b.tokens.clone(), clock.clone(), (b.server_requests.clone(), built_remote.registry.clone()), route_change.clone(), quota, session_search.clone(), catalog_index.clone());
             move |runs| mixdog_core_session::session::SessionDeps {
                 store: store_threads,
@@ -1849,6 +1851,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 resumed_tools: route_facts_ai.clone(), // `AiRouteFacts` is the `ResumedTools` too
                 room_members: late_room_members.clone(),
                 new_tools: surface_host.clone(), // `thread/start` composes its tools and prompt through it (flip-surface-2, -6)
+                new_place, // the registered Projects (`thread/fork`) and the draft's worktree step (`thread/start`); bound with the workspaces
                 task_workspace, // `thread/start` of `kind: task` begins in it (Node `taskWorkspace()`, `AgentDefinitions::task_workspace`)
                 new_route: late_new_route.clone(), // `thread/start` settles its route first (the draft's pick, else the default) and seats it once created
         snapshots: { let worktree_snapshots: Arc<dyn mixdog_core_session::session::turn_snapshots::TurnSnapshots> = Arc::new(mixdog_core_session::session::turn_snapshots::WorktreeTurnSnapshots::new(snapshot_cleanups.clone(), worktrees.clone())); match &computer_pool { Some(pool) => Arc::new(mixdog_core::run_host::native_tools::SettlingSnapshots::new(worktree_snapshots, pool.clone())), None => worktree_snapshots } }, // wp-session-30; `directory.shutdown()` ends with `snapshots.dispose()`
@@ -2383,11 +2386,15 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         project_connectors,
         domain_inputs.scopes.scopes("project").map_err(ComposeError::ComposeDomains)?,
     )))?;
-    builder.register(Arc::new(mixdog_core_session::session::worktree::worktree_service::ThreadScmService::new(
+    let thread_scm = Arc::new(mixdog_core_session::session::worktree::worktree_service::ThreadScmService::new(
         workspaces.clone(),
         turn_review.clone(),
         domain_inputs.scopes.scopes("git").map_err(ComposeError::ComposeDomains)?,
-    )))?;
+    ));
+    // The directory's `thread/start` (draft worktree) and `thread/fork` (heir's Project) reach the workspace service and the Projects through this cell.
+    let new_place_folders: Arc<dyn mixdog_core_session::session::thread_settings::ProjectFolders> = Arc::new(mixdog_core_session::session::thread_settings::WorkspaceFolders::new(workspace.clone(), b.user_data_dir.clone(), session_lanes()));
+    late_new_place.bind(Arc::new(mixdog_core_session::session::worktree::worktree_service::ScmNewThreadPlace::new(thread_scm.clone(), new_place_folders))).map_err(ComposeError::AlreadyBound)?;
+    builder.register(thread_scm)?;
     // `thread/list`: the room rows overlay the stored list (wp-session-32).
     // (`thread_list` itself is built above, before the room republish that reads it.)
     builder.register(thread_list.clone())?;
@@ -2582,7 +2589,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     connection_owners
         .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone()))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
-    crate::compose::verify_bound(&[&connection_owners, &*late_agent_status, &*late_turn_admission, &*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_skills, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
+    crate::compose::verify_bound(&[&*late_new_place, &connection_owners, &*late_agent_status, &*late_turn_admission, &*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_skills, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
     Ok(Real { late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), directory, agent_dispatch, agent_host, code_graph_cache, maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default() })
 }
 

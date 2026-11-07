@@ -1102,9 +1102,89 @@ async fn a_started_thread_is_classified_as_the_desktop_host_classifies_a_session
     assert_eq!(project["desktopSession"], json!({ "classification": "project", "projectPath": "/repo" }));
     let blank = header_of(start("op-blank", json!({ "opId": "op-blank", "kind": "task", "draft": { "projectPath": "  " } })).await);
     assert_eq!(blank["desktopSession"], json!({ "classification": "task", "projectPath": null }));
-    let control = header_of(start("op-control", json!({ "opId": "op-control", "kind": "task" })).await);
+    // The control session is its own kind (`ensureControlSession`): the task workspace and no classification, whatever else the
+    // request names.
+    let control = header_of(start("op-control", json!({ "opId": "op-control", "kind": "control" })).await);
     assert!(control.get("desktopSession").is_none());
     assert_eq!(control["cwd"], "/tasks");
+    let named = header_of(start("op-named", json!({ "opId": "op-named", "kind": "control", "draft": { "projectPath": "/repo" } })).await);
+    assert!(named.get("desktopSession").is_none());
+    assert_eq!(named["cwd"], "/tasks");
+    // A task start with no draft and no project is not the control session by inference: it takes no classification either (a
+    // client without a host, as Node's TUI), but it is not marked.
+    let bare = header_of(start("op-bare-task", json!({ "opId": "op-bare-task", "kind": "task" })).await);
+    assert!(bare.get("desktopSession").is_none());
+}
+
+/// The draft's worktree is entered after the thread exists and before the first prompt, through the workspace seam, with the
+/// worktree choice and the start's input; a draft without one, and a control start, enter nothing (`createNewTask`).
+#[tokio::test(start_paused = true)]
+async fn a_drafts_worktree_is_entered_once_the_thread_exists() {
+    let rig = Rig::new();
+    let place = Arc::new(super::testing::RecordingPlace::default());
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_place = place.clone();
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let draft = json!({ "projectPath": "/repo", "worktree": { "branch": "feat", "create": true } });
+    let reply = directory.request(request("thread/start", json!({ "opId": "op-wt", "kind": "task", "draft": draft }), "op-wt")).await.expect("thread/start");
+    let Reply::Subscribe(started) = reply else { panic!("thread/start subscribes") };
+    let id = started.result["thread"]["id"].as_str().expect("thread id").to_owned();
+    let header = directory.handle(&ThreadId::from(id.as_str())).expect("loaded").cell.header.load_full();
+    // The project stays the project; the workspace service moves the folder.
+    assert_eq!(header["desktopSession"], json!({ "classification": "project", "projectPath": "/repo" }));
+    assert_eq!(*lock(&place.entered), vec![(id, json!({ "branch": "feat", "create": true }), None)]);
+    directory.request(request("thread/start", json!({ "opId": "op-plain", "kind": "task", "draft": { "projectPath": "/repo" } }), "op-plain")).await.expect("thread/start");
+    directory.request(request("thread/start", json!({ "opId": "op-ctl", "kind": "control", "draft": { "worktree": { "fromDefault": true } } }), "op-ctl")).await.expect("thread/start");
+    assert_eq!(lock(&place.entered).len(), 1);
+}
+
+/// A fork the desktop makes is placed as `inheritSession` places its heir (`resolveSessionWorkspace(sessionProjectPath(source))`):
+/// in the source's Project, or in the task workspace, with a fresh classification and no worktree record; a source of another
+/// client keeps its header, and an inherit into an existing thread keeps that thread's place.
+#[tokio::test(start_paused = true)]
+async fn a_fork_is_placed_where_the_desktop_places_an_heir() {
+    use mixdog_store::schema::record::Header;
+    let rig = Rig::new();
+    let place = Arc::new(super::testing::RecordingPlace { projects: vec!["/repo".to_owned()], ..Default::default() });
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_place = place;
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let source = |cwd: &str, desktop: Value| {
+        let mut header = Header::new();
+        header.insert("createdAt".into(), json!(1));
+        header.insert("updatedAt".into(), json!(1));
+        header.insert("cwd".into(), json!(cwd));
+        if !desktop.is_null() {
+            header.insert("desktopSession".into(), desktop);
+            header.insert("workspace".into(), json!({ "worktreeId": "w1", "cwd": cwd, "projectPath": "/repo" }));
+        }
+        header
+    };
+    let fork = |id: &'static str, header: Header, extra: Value| {
+        let directory = &directory;
+        async move {
+            let thread = ThreadId::from(id.to_owned());
+            directory.create_with_id(thread.clone(), header, json!({})).await.expect("source");
+            let mut params = json!({ "threadId": id, "opId": format!("op-{id}") });
+            params.as_object_mut().expect("object").extend(extra.as_object().expect("object").clone());
+            let reply = directory.handle(&thread).expect("loaded").request(request("thread/fork", params, &format!("op-{id}"))).await.expect("thread/fork");
+            let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
+            let heir = ThreadId::from(value["thread"]["id"].as_str().expect("heir id"));
+            directory.handle(&heir).expect("loaded").cell.header.load_full()
+        }
+    };
+    let in_worktree = fork("src_wt", source("/repo/.wt/feat", json!({ "classification": "project", "projectPath": "/repo" })), json!({})).await;
+    assert_eq!(in_worktree["cwd"], "/repo");
+    assert_eq!(in_worktree["desktopSession"], json!({ "classification": "project", "projectPath": "/repo" }));
+    assert!(in_worktree.get("workspace").is_none());
+    let in_tasks = fork("src_task", source("/tasks", json!({ "classification": "task", "projectPath": null })), json!({})).await;
+    assert_eq!(in_tasks["cwd"], "/tasks");
+    assert_eq!(in_tasks["desktopSession"], json!({ "classification": "task", "projectPath": null }));
+    let foreign = fork("src_tui", source("/elsewhere", Value::Null), json!({})).await;
+    assert_eq!(foreign["cwd"], "/elsewhere");
+    assert!(foreign.get("desktopSession").is_none());
+    let into = fork("src_into", source("/repo/.wt/feat", json!({ "classification": "project", "projectPath": "/repo" })), json!({ "intoThreadId": "heir_existing" })).await;
+    assert_eq!(into["cwd"], "/repo/.wt/feat");
 }
 
 /// `notification-bus.test.mjs` "a queued completion wakes its owner session" and

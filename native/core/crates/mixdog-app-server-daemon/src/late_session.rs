@@ -610,6 +610,44 @@ impl Bound for LateWorkspaces {
     }
 }
 
+/// `SessionDeps.new_place`: the registered Projects and the draft's worktree step, which need the workspace service built after the
+/// directory. Bound with it; `verify_bound` makes an unbound start unreachable.
+#[derive(Default)]
+pub struct LateNewPlace(OnceLock<Arc<dyn mixdog_core_session::session::NewThreadPlace>>);
+
+impl LateNewPlace {
+    pub fn bind(&self, place: Arc<dyn mixdog_core_session::session::NewThreadPlace>) -> Result<(), &'static str> {
+        self.0.set(place).map_err(|_| "new thread place")
+    }
+}
+
+#[async_trait]
+impl mixdog_core_session::session::NewThreadPlace for LateNewPlace {
+    async fn projects(&self) -> Result<Vec<String>, String> {
+        self.0.get().expect("new thread place bound (compose::verify_bound)").projects().await
+    }
+
+    async fn enter_worktree(
+        &self,
+        thread: &ThreadId,
+        worktree: &Value,
+        input: Option<&Value>,
+        cancel: &mixdog_rt::CancellationToken,
+    ) -> Result<(), mixdog_core_api::CoreError> {
+        self.0.get().expect("new thread place bound (compose::verify_bound)").enter_worktree(thread, worktree, input, cancel).await
+    }
+}
+
+impl Bound for LateNewPlace {
+    fn cell(&self) -> &'static str {
+        "new thread place"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.0.get().is_some()
+    }
+}
+
 /// `SessionDeps.agent_status`: the agent tool's status rows (`AgentToolStatus`), which need the session directory the deps build. Bound once the directory, the agent registry and the
 /// shell jobs exist; `verify_bound` makes an unbound read unreachable.
 #[derive(Default)]

@@ -1218,14 +1218,21 @@ impl ThreadDirectory for SessionDirectory {
                 header.insert("createdAt".into(), json!(now));
                 header.insert("updatedAt".into(), json!(now));
                 // The project the request names: its own path, else the new task's draft (`submitNewTask(prompt, options, draft)`).
-                let project = params
-                    .project_path
-                    .clone()
-                    .or_else(|| params.draft.as_ref().and_then(|draft| draft.project_path.clone()))
-                    .filter(|path| !path.trim().is_empty());
+                // The desktop's control session is its own kind, not inferred (Node: `ensureControlSession`): the task
+                // workspace, no project, no classification.
+                let control = params.kind == ThreadStartKind::Control;
+                let project = if control {
+                    None
+                } else {
+                    params
+                        .project_path
+                        .clone()
+                        .or_else(|| params.draft.as_ref().and_then(|draft| draft.project_path.clone()))
+                        .filter(|path| !path.trim().is_empty())
+                };
                 if let Some(path) = &project {
                     header.insert("cwd".into(), json!(path));
-                } else if params.kind == ThreadStartKind::Task {
+                } else if matches!(params.kind, ThreadStartKind::Task | ThreadStartKind::Control) {
                     // A task runs in the task workspace, resolved by the core as Node's host resolves it (`TaskWorkspace`);
                     // the tools below are composed for that folder.
                     let folder = self.inner.deps.task_workspace.path().await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
@@ -1234,9 +1241,8 @@ impl ThreadDirectory for SessionDirectory {
                 // A session the desktop creates for a new task or a project is classified by the project it names, as the host
                 // writes it (`resolveSessionWorkspace`, session-host.ts:535-553, passed to `session.create`, stored by
                 // `lifecycle.mjs:61`): `{classification:'project', projectPath}` or `{classification:'task', projectPath:null}`.
-                // A start with no draft and no project is the control session, which Node creates with `desktopSession: null`
-                // (`ensureControlSession`): no classification is written.
-                if project.is_some() || params.draft.is_some() {
+                // The control session is created with `desktopSession: null` (`ensureControlSession`): none is written.
+                if !control && (project.is_some() || params.draft.is_some()) {
                     let classified = match &project {
                         Some(path) => json!({ "classification": "project", "projectPath": path }),
                         None => json!({ "classification": "task", "projectPath": null }),
@@ -1282,6 +1288,12 @@ impl ThreadDirectory for SessionDirectory {
                             ctx: CallContext::internal("route"),
                         })
                         .await?;
+                }
+                // The draft's worktree, entered before the first prompt (Node: after the draft's route, workflow and mode).
+                // `cwd` becomes the managed worktree; the classification keeps the project.
+                if let Some(worktree) = params.draft.as_ref().and_then(|draft| draft.worktree.as_ref()) {
+                    let input = params.initial_input.as_ref().and_then(|input| serde_json::to_value(input).ok());
+                    self.inner.deps.new_place.enter_worktree(&handle.id, worktree, input.as_ref(), &req.ctx.cancel).await?;
                 }
                 let mut result = json!({ "thread": handle.cell.view.load_full().summary });
                 if let Some(input) = params.initial_input {

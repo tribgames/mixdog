@@ -238,14 +238,14 @@ test('retryFailedTurn keeps the session it names, and takes the addressed thread
   ]);
 });
 
-test('the control thread is a task thread started once and kept', async () => {
+test('the control thread is a control-kind thread started once and kept', async () => {
   const { all, lane } = recordingLane();
   await lane.invoke('getAutoClear', [], undefined);
   await lane.invoke('getAutoClear', [], undefined);
   await lane.invoke('mcpStatus', [], 'pane-1');
   assert.deepEqual(
     all.filter((call) => call.method === 'thread/start'),
-    [{ method: 'thread/start', params: { kind: 'task' } }]
+    [{ method: 'thread/start', params: { kind: 'control' } }]
   );
 });
 
@@ -380,7 +380,7 @@ test('reads are answered together, in order, from the control session whatever s
   // to the control thread (as Node's MCP carrier does), which it starts.
   assert.deepEqual(
     all.filter((call) => call.method === 'thread/start'),
-    [{ method: 'thread/start', params: { kind: 'task' } }]
+    [{ method: 'thread/start', params: { kind: 'control' } }]
   );
   assert.deepEqual(all.filter((call) => call.method !== 'thread/start'), calls);
 });
@@ -456,6 +456,7 @@ test("a connection with a core endpoint routes its client's capabilities through
     }
   );
   try {
+    assert.equal(typeof connection.client.options.operationLane?.invoke, 'function');
     const result = await connection.client.invokeCapability('mcpStatus', [], 'pane-7');
     assert.deepEqual(result.value, { servers: [] });
     assert.deepEqual(calls, [
