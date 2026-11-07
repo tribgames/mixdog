@@ -391,8 +391,8 @@ pub(crate) enum Init {
         value: Value,
         /// What the tool seed opened; kept once the `session` record is durable, abandoned if it fails.
         seed: Option<super::seams::SeededThread>,
-        /// The settings counter as it stood when the creation began (`CreateSpec::settings`).
-        settings: Option<watch::Receiver<u64>>,
+        /// The settings counter followed from when the creation began (`CreateSpec::settings`).
+        settings: Option<SettingsFollow>,
     },
     /// An opened log: interrupted runs and their approvals are recovered (P §5.2, §8.2); the
     /// ops its scope fenced are refused from the start (P §9.4).
@@ -915,7 +915,7 @@ impl SessionActor {
         // There is no periodic pass: Node dropped the 2 s pulse for change marks (858b0b2d2), and
         // the marks that move agent status are the status listener's signals.
         self.read_agent_status(false);
-        let mut settings = created_at.or_else(|| self.deps.compaction.settings_changes());
+        let mut settings = created_at.or_else(|| self.deps.compaction.settings_changes().map(SettingsFollow::begin));
         loop {
             let deadline = self.book.next_deadline();
             let producers_open = self.outbox.producer_room();
@@ -930,7 +930,7 @@ impl SessionActor {
                 _ = sleep_until(self.idle_evict_at), if self.idle_evict_at.is_some() => self.on_idle_evict(),
                 Some(msg) = self.ch.prod_rx.recv(), if producers_open => self.on_producer(msg),
                 Some(msg) = self.ch.inbox_rx.recv() => self.on_inbox(msg),
-                Some(()) = settings_changed(&mut settings) => self.on_settings_changed(),
+                Some(announced) = settings_changed(&mut settings) => self.on_settings_changed(announced),
                 else => break,
             }
             self.pump();
@@ -2954,10 +2954,13 @@ impl SessionActor {
 
     /// A settings change this runtime applied (`announceSettingsChange`): the surfaces re-read, and `setupChanged` counts it
     /// (notification-router.mjs: `{ action, seq, at }`); the route section follows the saved configuration.
-    fn on_settings_changed(&mut self) {
-        self.setup_changes += 1;
-        let change = json!({ "action": "settings_changed", "seq": self.setup_changes, "at": self.deps.clock.now_ms() });
-        self.accept_view(Change::Section(Section::SetupChanged(change)), Vec::new());
+    fn on_settings_changed(&mut self, announced: u64) {
+        // Node's router counts every delivery (setupChangeSeq += 1): announcements that reached this thread together count one each.
+        for _ in 0..announced {
+            self.setup_changes += 1;
+            let change = json!({ "action": "settings_changed", "seq": self.setup_changes, "at": self.deps.clock.now_ms() });
+            self.accept_view(Change::Section(Section::SetupChanged(change)), Vec::new());
+        }
         self.sync_route_config();
     }
 
@@ -5098,10 +5101,34 @@ async fn sleep_until(deadline: Option<tokio::time::Instant>) {
     }
 }
 
-/// The next change of the saved configuration's counter; never ready for a thread without one (or once the configuration is gone).
-async fn settings_changed(changes: &mut Option<tokio::sync::watch::Receiver<u64>>) -> Option<()> {
-    match changes {
-        Some(changes) => changes.changed().await.ok(),
+/// A thread's follow of the settings counter (`SettingsChanges`): the count already behind the thread when it began is not its
+/// own (a Node session's router counts the announcements delivered after it exists).
+pub(crate) struct SettingsFollow {
+    changes: watch::Receiver<u64>,
+    seen: u64,
+}
+
+impl SettingsFollow {
+    /// Follows `changes` from now: what the counter holds is behind the thread.
+    pub(crate) fn begin(mut changes: watch::Receiver<u64>) -> Self {
+        let seen = *changes.borrow_and_update();
+        Self { changes, seen }
+    }
+
+    /// The announcements since the last one read, however many the counter moved while the thread was busy; None once the configuration is gone.
+    async fn announced(&mut self) -> Option<u64> {
+        self.changes.changed().await.ok()?;
+        let count = *self.changes.borrow_and_update();
+        let announced = count - self.seen;
+        self.seen = count;
+        Some(announced)
+    }
+}
+
+/// The announcements the thread's counter holds beyond what it has read; never ready for a thread without one (or once the configuration is gone).
+async fn settings_changed(follow: &mut Option<SettingsFollow>) -> Option<u64> {
+    match follow {
+        Some(follow) => follow.announced().await,
         None => std::future::pending().await,
     }
 }

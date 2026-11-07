@@ -1,0 +1,47 @@
+{
+  "recording": "real-turn-harness out/edit/node-repeat/events.jsonl, line 5, untouched: the Node daemon's session-state patch for a thread started with a draft route (one settings announcement, delivered to the new session)",
+  "frame": {
+    "type": "session-state",
+    "key": "session-state:sess_daemon_1794060166714_43196667bc3e46269ba5bdcb0eebf2d5",
+    "sessionId": "sess_daemon_1794060166714_43196667bc3e46269ba5bdcb0eebf2d5",
+    "revision": 1794060165963005,
+    "baseRevision": 1794060165963004,
+    "patch": {
+      "set": {
+        "stats": {
+          "inputTokens": 0,
+          "outputTokens": 0,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0,
+          "promptTokens": 0,
+          "latestInputTokens": 0,
+          "latestOutputTokens": 0,
+          "latestCachedTokens": 0,
+          "latestCacheWriteTokens": 0,
+          "latestPromptTokens": 0,
+          "costUsd": 0,
+          "turns": 0,
+          "currentContextTokens": null,
+          "currentEstimatedContextTokens": 0,
+          "currentContextSource": "pending",
+          "currentContextUpdatedAt": null,
+          "usageReadout": null
+        },
+        "setupChanged": {
+          "action": "settings_changed",
+          "seq": 1,
+          "at": 1794060167276
+        }
+      },
+      "remove": [],
+      "itemsAppend": null
+    }
+  },
+  "router": {
+    "source": "src/tui/session/agent-job-feed.test.mjs:171-181 (Node's own test of the router the recording was made with): two deliveries of setup-changed, each counted",
+    "seqs": [
+      1,
+      2
+    ]
+  }
+}

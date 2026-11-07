@@ -24,6 +24,27 @@ fn newest(rig: &Rig, thread: &str, method: &str) -> Option<Value> {
     rig.feeds.frames(thread).into_iter().rev().find(|(_, name, _)| name == method).map(|(_, _, params)| params["value"].clone())
 }
 
+/// The Node daemon's recorded `setupChanged` for a thread started with a draft route (`testdata/node-setup-changed.json`): what the
+/// session's one settings announcement published, and how Node's router counts successive deliveries.
+fn node_setup_changed() -> (Value, Vec<u64>) {
+    let recorded: Value = serde_json::from_str(include_str!("../../testdata/node-setup-changed.json")).expect("the recording parses");
+    let seqs = recorded["router"]["seqs"].as_array().expect("seqs").iter().map(|seq| seq.as_u64().expect("a seq")).collect();
+    (recorded["frame"]["patch"]["set"]["setupChanged"].clone(), seqs)
+}
+
+/// The `seq` of each `setupChanged` the thread's feed published, in order, each once (later runtime frames carry the held value again).
+fn published_setup_seqs(rig: &Rig, thread: &str) -> Vec<u64> {
+    let mut seqs: Vec<u64> = rig
+        .feeds
+        .frames(thread)
+        .into_iter()
+        .filter(|(_, method, _)| method == "thread/runtime/updated")
+        .filter_map(|(_, _, params)| params["value"]["setupChanged"]["seq"].as_u64())
+        .collect();
+    seqs.dedup();
+    seqs
+}
+
 /// An installed session holds the configured route values in its state, and publishes no route frame to say so; the next route
 /// frame carries them.
 #[tokio::test(start_paused = true)]
@@ -128,20 +149,27 @@ async fn each_announced_settings_change_moves_setup_changed() {
     let handle = start_thread(&directory).await;
     let seq_of = |value: Option<Value>| value.and_then(|runtime| runtime["setupChanged"]["seq"].as_u64());
     assert_eq!(seq_of(newest(&rig, handle.id.as_str(), "thread/runtime/updated")), None, "nothing is announced before a change");
+    let (recorded, seqs) = node_setup_changed();
     announce.send_modify(|count| *count += 1);
-    let first = eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == json!(1))).await;
-    assert_eq!(first["setupChanged"]["action"], json!("settings_changed"));
+    let first = eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == recorded["seq"])).await;
+    assert_eq!(first["setupChanged"]["action"], recorded["action"]);
     announce.send_modify(|count| *count += 1);
-    eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == json!(2))).await;
+    eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == json!(seqs[1]))).await;
 }
 
-/// A route that saves the configuration while the new thread is being created, as the draft's route does (`adopt_draft` saves it).
-struct SavingRoute(tokio::sync::watch::Sender<u64>);
+/// A route that saves the configuration `saves` times while the new thread is being created, as the draft's route does (`adopt_draft`
+/// saves it): each save moves the settings counter once, as an announced change.
+struct SavingRoute {
+    counter: tokio::sync::watch::Sender<u64>,
+    saves: u64,
+}
 
 #[async_trait::async_trait]
 impl super::NewThreadRoute for SavingRoute {
     async fn adopt(&self, _: &mixdog_core_api::ids::ThreadId, _: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
-        self.0.send_modify(|count| *count += 1);
+        for _ in 0..self.saves {
+            self.counter.send_modify(|count| *count += 1);
+        }
         Ok(serde_json::Map::new())
     }
 
@@ -162,11 +190,41 @@ async fn a_settings_change_the_creation_makes_reaches_the_new_threads_setup_chan
     let (announce, changes) = tokio::sync::watch::channel(0_u64);
     *lock(&rig.compaction.settings) = Some(changes);
     let mut deps = rig.deps_parts(rig.store.clone());
-    deps.new_route = Arc::new(SavingRoute(announce));
+    deps.new_route = Arc::new(SavingRoute { counter: announce, saves: 1 });
     let directory = SessionDirectory::new(Arc::new(deps));
     let handle = start_thread(&directory).await;
-    let first = eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == json!(1))).await;
-    assert_eq!(first["setupChanged"]["action"], json!("settings_changed"));
+    let (recorded, _) = node_setup_changed();
+    let first = eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == recorded["seq"])).await;
+    assert_eq!(first["setupChanged"]["action"], recorded["action"]);
+}
+
+/// Two announcements made before the thread's actor runs (the counter moves twice while it is created) are two deliveries to a Node session:
+/// the thread publishes setupChanged once for each, counted as Node's router counts them, and holds the second.
+#[tokio::test(start_paused = true)]
+async fn announcements_made_before_install_each_count() {
+    let rig = Rig::new();
+    let (announce, changes) = tokio::sync::watch::channel(0_u64);
+    *lock(&rig.compaction.settings) = Some(changes);
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_route = Arc::new(SavingRoute { counter: announce, saves: 2 });
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let handle = start_thread(&directory).await;
+    let (_, seqs) = node_setup_changed();
+    eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == json!(seqs[1]))).await;
+    assert_eq!(published_setup_seqs(&rig, handle.id.as_str()), seqs);
+}
+
+/// The count behind a thread when it begins is not its own: a counter already at 5 is no delivery to a thread that follows it from now on.
+#[tokio::test(start_paused = true)]
+async fn announcements_before_the_thread_begins_do_not_count() {
+    let rig = Rig::new();
+    let (announce, changes) = tokio::sync::watch::channel(5_u64);
+    *lock(&rig.compaction.settings) = Some(changes);
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    announce.send_modify(|count| *count += 1);
+    let (recorded, _) = node_setup_changed();
+    eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == recorded["seq"])).await;
 }
 
 /// A turn's close does not take `setupChanged`: the settings announcement is the session's, not the run's, and a client reads it after the turn.
@@ -177,8 +235,9 @@ async fn a_turn_end_leaves_setup_changed_in_the_state() {
     *lock(&rig.compaction.settings) = Some(changes);
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
+    let (recorded, _) = node_setup_changed();
     announce.send_modify(|count| *count += 1);
-    eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == json!(1))).await;
+    eventually_on(&[&handle.cell.stepped], || newest(&rig, handle.id.as_str(), "thread/runtime/updated").filter(|runtime| runtime["setupChanged"]["seq"] == recorded["seq"])).await;
     turn(&handle, "go", "op-1").await;
     eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     eventually_on(&[&handle.cell.stepped], || {
@@ -186,6 +245,6 @@ async fn a_turn_end_leaves_setup_changed_in_the_state() {
     })
     .await;
     let after = newest(&rig, handle.id.as_str(), "thread/runtime/updated").expect("a runtime frame");
-    assert_eq!(after["setupChanged"]["seq"], json!(1), "the frame after the turn still carries it");
+    assert_eq!(after["setupChanged"]["seq"], recorded["seq"], "the frame after the turn still carries it");
     assert!(handle.cell.view.load_full().state.runtime.clone().expect("runtime").setup_changed.is_some());
 }

@@ -1,8 +1,7 @@
-// The live turn's transcript, replayed from a recorded Rust turn against the Node product's own rows. `live-turn-items.json` is the
-// item notifications the Rust core sent for the real-turn harness's `edit` scenario (a read, an edit and a reply), with the live-form
-// carriers the core now puts on its live items (`live_form`: `run.live` on a tool call; `attemptId`, `completionVerb` and
-// `streaming: false` on an assistant row; no `checkpointId` on the input row). `live-turn-rows.node.json` is what the Node daemon's
-// session held for the same turn, ids and times normalized (ids by first appearance, as the harness does).
+// The live turn's transcript, replayed from the notifications the Rust core sent for the real-turn harness's `edit` scenario (a read, an
+// edit and a reply), as recorded and untouched (`live-turn-items.json`: every notification the client received, in order, from
+// `out/edit/rust/events.jsonl`), against the rows the Node daemon's session held for the same turn (`live-turn-rows.node.json`, the
+// recording's `session-items.node.json`), ids and times normalized (ids by first appearance, as the harness does).import assert from 'node:assert/strict';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
@@ -26,34 +25,18 @@ function normalize(value: unknown): unknown {
   return walk(value);
 }
 
-// The diff the edit tool's result carries comes from the turn review (`patch_review`), which the harness run does not enable.
-const withoutUiDiff = (rows: Obj[]): Obj[] =>
-  JSON.parse(JSON.stringify(rows, (k, v) => (k === 'uiDiff' ? undefined : v)));
-
 function rowsOf(notifications: { method: string; params: Obj }[]): Obj[] {
   let fold = sessionReducer.initial({ thread: { id: 'thread' }, state: {}, items: [] });
   for (const n of notifications) fold = sessionReducer.apply(fold, { jsonrpc: '2.0', method: n.method, params: n.params } as never);
   return desktopSessionState(fold, []).items as Obj[];
 }
 
-test("a live turn's rows equal the Node daemon's: aggregates for single calls, live stamps on assistant rows", () => {
-  const rows = rowsOf(frames);
-  assert.deepEqual(normalize(withoutUiDiff(JSON.parse(JSON.stringify(rows)))), normalize(withoutUiDiff(node)));
-});
-
-// The result message's diff arrives in the call's `run.uiDiff` (the stored tool message's `uiDiff`): it is the card's, the member's and the aggregate's.
-test("a tool result's diff is on its card, the aggregate's member and the aggregate, as in the Node daemon's rows", () => {
-  const diff = (node.flatMap((row) => (typeof row.uiDiff === 'string' ? [row.uiDiff] : [])) as string[])[0]!;
-  const withDiff = frames.map((f) => {
-    const item = JSON.parse(JSON.stringify(f.params.item));
-    if (item.type === 'toolCall' && item.run?.callId === 'call_harness_edit') item.run.uiDiff = diff;
-    return { ...f, params: { ...f.params, item } };
-  });
-  assert.deepEqual(normalize(JSON.parse(JSON.stringify(rowsOf(withDiff)))), normalize(node));
+test("a live turn's rows equal the Node daemon's: aggregates for single calls, live stamps on assistant rows, the edit's diff", () => {
+  assert.deepEqual(normalize(JSON.parse(JSON.stringify(rowsOf(frames)))), normalize(node));
 });
 
 test('a restored single tool call stays the per-call card; a live one is an aggregate', () => {
-  const restored = frames.map((f) => ({ ...f, params: { item: JSON.parse(JSON.stringify(f.params.item, (k, v) => (k === 'live' ? undefined : v))) } }));
+  const restored = frames.map((f) => (f.params.item ? { ...f, params: { ...f.params, item: JSON.parse(JSON.stringify(f.params.item, (k, v) => (k === 'live' ? undefined : v))) } } : f));
   const names = (rows: Obj[]): unknown[] => rows.filter((r) => r.kind === 'tool').map((r) => r.name);
   assert.deepEqual(names(rowsOf(restored)), ['read', 'edit']);
   assert.deepEqual(names(rowsOf(frames)), ['__aggregate__', '__aggregate__']);

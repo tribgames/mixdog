@@ -60,6 +60,7 @@ mod tests {
     use mixdog_core_api::ids::OpId;
     use mixdog_core_api::ids::ThreadId;
     use mixdog_core_config::config::ConfigLanes;
+    use mixdog_core_session::session::NewThreadRoute;
     use mixdog_core_session::session::SessionDirectory;
     use mixdog_core_session::session::testing::Rig;
     use mixdog_core_session::session::testing::lock;
@@ -67,10 +68,37 @@ mod tests {
 
     use super::*;
 
-    /// The chain a route save travels: the write `route/set` makes (`save_agent_config`, here `Config::update` of the same `agent`
-    /// section) -> the config's change tick -> [`SettingsChanges`] (the stored settings differ from the boot baseline) -> the counter a
-    /// thread's actor follows -> `setupChanged` in the runtime state the thread publishes. The config, the secret tokens and the counter
-    /// are the daemon's own types (`compose_flip`); the thread is the session actor on the session test doubles.
+    /// The route a draft carries, adopted: the save `route/set` makes (`save_agent_config`, here `Config::update` of the same `agent`
+    /// section, the preset the real-turn harness's `route-set.json` records) while the thread is being created.
+    struct ConfigSavingRoute(Config);
+
+    #[async_trait::async_trait]
+    impl NewThreadRoute for ConfigSavingRoute {
+        async fn adopt(&self, _: &ThreadId, _: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
+            self.0
+                .update(|doc| {
+                    doc.insert("agent".into(), serde_json::json!({ "default": "workflow-lead", "presets": [{ "id": "workflow-lead", "provider": "custom-harness", "model": "harness-model" }] }));
+                    Ok(())
+                })
+                .await
+                .map_err(|error| format!("{error:?}"))?;
+            Ok(serde_json::Map::new())
+        }
+
+        async fn adopt_control(&self, _: &ThreadId) -> Result<serde_json::Map<String, Value>, String> {
+            Ok(serde_json::Map::new())
+        }
+
+        async fn seat(&self, _: &ThreadId) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    /// The chain a draft route's save travels, in the order the real-turn harness runs it (`thread/start` with `draft.route`): the session
+    /// exists, the route's write reaches the config -> the config's change tick -> [`SettingsChanges`] (the stored settings differ from the
+    /// boot baseline) -> the counter the thread's actor follows -> `setupChanged` in the runtime state the thread publishes, equal to what the
+    /// Node daemon recorded for that flow. The config, the secret tokens and the counter are the daemon's own types (`compose_flip`); the
+    /// thread is the session actor on the session test doubles.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_saved_route_reaches_the_threads_state_as_setup_changed() {
         let dir = tempfile::tempdir().expect("dir");
@@ -82,7 +110,9 @@ mod tests {
 
         let rig = Rig::new();
         *lock(&rig.compaction.settings) = Some(changes.subscribe());
-        let directory = SessionDirectory::new(Arc::new(rig.deps_parts(rig.store.clone())));
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.new_route = Arc::new(ConfigSavingRoute(config.clone()));
+        let directory = SessionDirectory::new(Arc::new(deps));
         let request = |method: &'static str, params: Value, op: &str| CoreRequest {
             method: Method(method),
             params,
@@ -93,15 +123,6 @@ mod tests {
         let Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let id = ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"));
         let handle = directory.handle(&id).expect("loaded");
-
-        // The write `route/set` makes: the chosen route becomes the default preset.
-        config
-            .update(|doc| {
-                doc.insert("agent".into(), serde_json::json!({ "default": "workflow-lead", "presets": [{ "id": "workflow-lead", "provider": "custom-test", "model": "test-model" }] }));
-                Ok(())
-            })
-            .await
-            .expect("saved");
 
         let setup = || {
             rig.feeds
@@ -120,6 +141,8 @@ mod tests {
             }
             stepped.await;
         };
-        assert_eq!((found["action"].as_str(), found["seq"].as_u64()), (Some("settings_changed"), Some(1)));
+        let recorded: Value = serde_json::from_str(include_str!("../../../mixdog-core-session/testdata/node-setup-changed.json")).expect("the recording parses");
+        let node = &recorded["frame"]["patch"]["set"]["setupChanged"];
+        assert_eq!((&found["action"], &found["seq"]), (&node["action"], &node["seq"]));
     }
 }
