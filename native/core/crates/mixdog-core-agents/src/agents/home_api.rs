@@ -13,6 +13,7 @@
 //! an open finds the session the first created). The dependency calls of the second differ only
 //! in that it reads instead of creating.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -25,6 +26,8 @@ use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_core_base::rooms::ids::agent_home_session_id;
+use mixdog_core_base::rooms::ids::agent_id_of_home_session;
+use mixdog_core_rooms::rooms::home::Presence;
 use mixdog_core_base::support::failed;
 use mixdog_core_base::support::invalid;
 use mixdog_core_base::support::wrong_method;
@@ -94,6 +97,19 @@ pub trait HomeDeps: Send + Sync {
     async fn clear_session(&self, session_id: &str, archive_as: &str) -> Result<(), DepError>;
     /// A fresh, unused session id for the archived copy.
     fn mint_archive_id(&self) -> String;
+    /// The persisted record that a home was archived for its agent's deletion.
+    async fn is_retired(&self, session_id: &str) -> Result<bool, DepError>;
+    /// Title a retired home with its bot's last known name, so the archived chat lists under that
+    /// name (a user's own name for it still wins).
+    async fn name_retired(&self, session_id: &str, name: &str) -> Result<(), DepError>;
+    /// The name a deleted (archived) agent left; empty when none.
+    async fn archived_agent_name(&self, agent_id: &str) -> Result<String, DepError>;
+    /// Every session id this host knows, blank and untitled ones included.
+    async fn known_session_ids(&self) -> Result<Vec<String>, DepError>;
+    /// Per-id definition presence from the files themselves; anything but `Deleted` keeps a thread.
+    async fn agent_presence(&self, agent_ids: &[String]) -> Result<HashMap<String, Presence>, DepError>;
+    /// An agent proven deleted leaves every room's members.
+    async fn forget_room_member(&self, agent_id: &str) -> Result<(), DepError>;
 }
 
 /// The memory runtime as the host reaches it (`control('memoryControl', [args])`): the text it
@@ -138,15 +154,18 @@ fn route_changed(definition: &Map<String, Value>, snapshot: &Value) -> bool {
         || (definition.contains_key("effort") && definition.get("effort") != snapshot.get("effort"))
 }
 
-/// The catalog row of a contact agent: `custom`, not switched off, `kind: bot`.
-fn contact_row<'a>(agents: &'a Value, agent_id: &str) -> Option<&'a Value> {
-    agents.as_array()?.iter().find(|row| {
+/// `contactAgentRows(agents)`: the catalog rows of the contacts, `custom`, not switched off, `kind: bot`.
+pub(super) fn contact_rows(agents: &Value) -> impl Iterator<Item = &Value> {
+    agents.as_array().into_iter().flatten().filter(|row| {
         let Some(row) = row.as_object() else { return false };
         row.get("custom") == Some(&Value::Bool(true))
             && row.get("disabled") != Some(&Value::Bool(true))
             && row.get("id").and_then(Value::as_str).is_some_and(|id| is_contact(id, row.get("kind").and_then(Value::as_str)))
-            && row.get("id").and_then(Value::as_str) == Some(agent_id)
     })
+}
+
+fn contact_row<'a>(agents: &'a Value, agent_id: &str) -> Option<&'a Value> {
+    contact_rows(agents).find(|row| row.get("id").and_then(Value::as_str) == Some(agent_id))
 }
 
 fn type_error(message: &str) -> CoreError {
@@ -157,7 +176,8 @@ fn dep(error: DepError) -> CoreError {
     failed(DOMAIN, error.message)
 }
 
-/// The home threads: open and reset, one agent at a time.
+/// The home threads: open, reset, retire and restore, one agent at a time.
+#[derive(Clone)]
 pub struct AgentHomeSessions {
     deps: Arc<dyn HomeDeps>,
     serial: Arc<KeyedChains>,
@@ -239,6 +259,80 @@ impl AgentHomeSessions {
             Err(error) => return Err(dep(error)),
         };
         Ok(json!({ "sessionId": session_id, "archivedSessionId": archived }))
+    }
+
+    /// `archiveDeleted`: archive the home thread of each agent whose definition is proven deleted
+    /// on disk. The thread is addressed by its fixed id, so a blank home that no summary lists is
+    /// archived too; the conversation stays restorable. Absence from a list read never counts:
+    /// only a per-id `Deleted` answer does. `on_transition` archives only a home not yet retired
+    /// for this deletion, so an archived one is never rewritten and a hand-restored one stays
+    /// restored; an agent that exists again clears the record for its next deletion.
+    async fn archive_deleted(&self, agent_ids: &[String], on_transition: bool) -> Result<(), CoreError> {
+        let mut ids: Vec<String> = Vec::new();
+        for id in agent_ids {
+            if id != MIXY_AGENT_ID && agent_home_session_id(id).is_some() && !ids.contains(id) {
+                ids.push(id.clone());
+            }
+        }
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let presence = self.deps.agent_presence(&ids).await.map_err(dep)?;
+        for id in &ids {
+            let session_id = agent_home_session_id(id).ok_or_else(|| type_error("agent id is invalid."))?;
+            match presence.get(id).copied() {
+                Some(Presence::Present) => {
+                    if on_transition {
+                        self.deps.set_retired(&session_id, false).await.map_err(dep)?;
+                    }
+                }
+                Some(Presence::Deleted) => {
+                    if !(on_transition && self.deps.is_retired(&session_id).await.map_err(dep)?) {
+                        let name = self.deps.archived_agent_name(id).await.map_err(dep)?;
+                        if !name.is_empty() {
+                            self.deps.name_retired(&session_id, &name).await.map_err(dep)?;
+                        }
+                        self.deps.set_archived(&session_id, true).await.map_err(dep)?;
+                        self.deps.set_retired(&session_id, true).await.map_err(dep)?;
+                    }
+                    // Its schedules and webhooks are left as they are: they wait, hidden, for a restore. Its
+                    // membership goes with it: the one place a deletion is proven here, whether the delete came
+                    // through the editor or a chat's setup tool.
+                    self.deps.forget_room_member(id).await.map_err(dep)?;
+                }
+                Some(Presence::Unknown) | None => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// An explicit delete event: always archives the deleted agent's home.
+    pub async fn retire(&self, agent_ids: &[String]) -> Result<(), CoreError> {
+        self.archive_deleted(agent_ids, false).await
+    }
+
+    /// Deletions that did not pass through the editor (a chat's setup tool, files removed on disk): every
+    /// known home thread's agent is checked, and only a newly observed deletion archives.
+    pub async fn reconcile(&self) -> Result<(), CoreError> {
+        let known = self.deps.known_session_ids().await.map_err(dep)?;
+        let ids: Vec<String> = known.iter().filter_map(|id| agent_id_of_home_session(id)).collect();
+        self.archive_deleted(&ids, true).await
+    }
+
+    /// A restored bot: its home is no longer a deleted bot's chat and leaves the archive.
+    pub async fn restore(&self, agent_id: &str) -> Result<(), CoreError> {
+        let Some(session_id) = agent_home_session_id(agent_id) else { return Ok(()) };
+        if agent_id == MIXY_AGENT_ID {
+            return Ok(());
+        }
+        self.deps.set_retired(&session_id, false).await.map_err(dep)?;
+        self.deps.set_archived(&session_id, false).await.map_err(dep)
+    }
+
+    /// Whether the agent's home thread is among the sessions this host knows.
+    pub async fn has_home(&self, agent_id: &str) -> Result<bool, CoreError> {
+        let Some(session_id) = agent_home_session_id(agent_id) else { return Ok(false) };
+        Ok(self.deps.known_session_ids().await.map_err(dep)?.contains(&session_id))
     }
 }
 

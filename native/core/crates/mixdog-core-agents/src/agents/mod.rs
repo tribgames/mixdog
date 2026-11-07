@@ -14,6 +14,7 @@ mod connectors;
 mod contact_ids;
 mod edit;
 mod files;
+mod greetings;
 mod lead;
 mod lead_service;
 pub mod home_agent;
@@ -29,6 +30,8 @@ mod lead_twin_tests;
 #[cfg(test)]
 mod home_api_tests;
 #[cfg(test)]
+mod lifecycle_twin_tests;
+#[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 pub(crate) mod tests;
 
@@ -38,10 +41,13 @@ pub use connector_api::McpConnectors;
 pub use contact_ids::ContactIds;
 pub use lead::LeadAppearance;
 pub use lead_service::LEAD_METHODS;
+pub use lead_service::DesktopLeadStatus;
 pub use lead_service::LeadService;
 pub use home_api::{AgentHomeService, AgentHomeSessions, AgentMemoryHost, DepError, HOME_METHODS, HomeDeps, MemoryRuntime};
 pub use permissions::AgentPermissions;
 pub use pool_list::{AgentPool, HEADER_FIELDS, PoolError, PoolLive, PoolStore, RuntimeEntry, todo_progress};
+pub use greetings::{AgentGreetings, GreetAgent, GreetingDeps, agent_greeting_kickoff};
+pub use service::AgentLifecycle;
 pub use service::AgentService;
 pub use service::METHODS as AGENT_METHODS;
 
@@ -706,10 +712,15 @@ impl AgentDefinitions {
     /// message the user wrote in her thread is yes; otherwise a routine she owns.
     pub async fn mixy_exists(&self) -> Result<bool, AgentsError> {
         let status = self.lead_status().await?;
-        if status.created == Some(false) {
+        self.mixy_exists_of(status.created, &status.name, status.home_chatted).await
+    }
+
+    /// [`Self::mixy_exists`] over a status already read (`created`, `name`, `homeChatted`).
+    pub async fn mixy_exists_of(&self, created: Option<bool>, name: &str, home_chatted: bool) -> Result<bool, AgentsError> {
+        if created == Some(false) {
             return Ok(false);
         }
-        if !mixdog_js::js_trim(&status.name).is_empty() || status.home_chatted {
+        if !mixdog_js::js_trim(name).is_empty() || home_chatted {
             return Ok(true);
         }
         self.evidence.mixy_owns_routines().await.map_err(AgentsError::Evidence)

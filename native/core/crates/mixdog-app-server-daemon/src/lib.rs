@@ -4,6 +4,7 @@
 use mixdog_core_api::CoreState;
 
 pub mod acquired;
+pub mod agent_lifecycle;
 pub mod barrier;
 pub mod boot;
 pub mod catalog;

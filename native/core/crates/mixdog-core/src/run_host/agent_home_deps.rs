@@ -8,6 +8,7 @@
 //! home thread in place with `thread/clear`. A conversation without a user turn keeps no copy; a
 //! thread running a turn is refused.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -23,9 +24,12 @@ use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::OpId;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_rooms::rooms::RoomError;
+use mixdog_core_rooms::rooms::home::HomePorts;
+use mixdog_core_rooms::rooms::home::Presence;
 use mixdog_core_rooms::rooms::sessions::AgentCatalog;
 use mixdog_core_rooms::rooms::sessions::SessionOps;
 use mixdog_core_session::session::SessionDirectory;
+use mixdog_services::memory::session_search::ingest::StoredSessions;
 use serde_json::Value;
 use serde_json::json;
 
@@ -44,16 +48,32 @@ fn core(error: &CoreError) -> DepError {
     }
 }
 
-/// [`HomeDeps`] over the agent catalog, the sessions' marks and the session directory.
+/// What a deleted agent's home leaves behind in the rooms: its membership (`forgetRoomMember`).
+#[async_trait]
+pub trait RoomMembers: Send + Sync {
+    /// A bot proven deleted leaves every room, saved, and its room conversations are deleted as a room's are on removal.
+    async fn forget_room_member(&self, agent_id: &str) -> Result<(), RoomError>;
+}
+
+#[async_trait]
+impl<P: HomePorts> RoomMembers for P {
+    async fn forget_room_member(&self, agent_id: &str) -> Result<(), RoomError> {
+        HomePorts::forget_room_member(self, agent_id).await
+    }
+}
+
+/// [`HomeDeps`] over the agent catalog, the sessions' marks, the session directory, the stored sessions and the rooms.
 pub struct SessionHomeDeps {
     catalog: Arc<dyn AgentCatalog>,
     sessions: Arc<dyn SessionOps>,
     directory: Arc<SessionDirectory>,
+    stored: Arc<dyn StoredSessions>,
+    rooms: Arc<dyn RoomMembers>,
 }
 
 impl SessionHomeDeps {
-    pub fn new(catalog: Arc<dyn AgentCatalog>, sessions: Arc<dyn SessionOps>, directory: Arc<SessionDirectory>) -> Self {
-        Self { catalog, sessions, directory }
+    pub fn new(catalog: Arc<dyn AgentCatalog>, sessions: Arc<dyn SessionOps>, directory: Arc<SessionDirectory>, stored: Arc<dyn StoredSessions>, rooms: Arc<dyn RoomMembers>) -> Self {
+        Self { catalog, sessions, directory, stored, rooms }
     }
 
     async fn request(&self, thread: &ThreadId, method: &'static str, extra: Value) -> Result<Value, CoreError> {
@@ -150,6 +170,30 @@ impl HomeDeps for SessionHomeDeps {
     /// `sess_<pid>_<ms>_<uuid>`: unused by any other session.
     fn mint_archive_id(&self) -> String {
         format!("sess_{}_{}_{}", std::process::id(), chrono::Utc::now().timestamp_millis(), uuid::Uuid::new_v4().simple())
+    }
+
+    async fn is_retired(&self, session_id: &str) -> Result<bool, DepError> {
+        self.sessions.is_retired(session_id).await.map_err(room)
+    }
+
+    async fn name_retired(&self, session_id: &str, name: &str) -> Result<(), DepError> {
+        self.sessions.rename(session_id, name).await.map_err(room)
+    }
+
+    async fn archived_agent_name(&self, agent_id: &str) -> Result<String, DepError> {
+        Ok(self.catalog.archived_name(agent_id).await)
+    }
+
+    async fn known_session_ids(&self) -> Result<Vec<String>, DepError> {
+        self.stored.session_ids().await.map_err(|error| DepError::new(error.to_string()))
+    }
+
+    async fn agent_presence(&self, agent_ids: &[String]) -> Result<HashMap<String, Presence>, DepError> {
+        self.catalog.presence(agent_ids).await.map_err(room)
+    }
+
+    async fn forget_room_member(&self, agent_id: &str) -> Result<(), DepError> {
+        self.rooms.forget_room_member(agent_id).await.map_err(room)
     }
 }
 

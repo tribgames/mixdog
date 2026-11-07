@@ -2278,8 +2278,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let room_host_registration = room_hosts.register(Arc::new(mixdog_core_rooms::rooms::room_relay::MemberRelay::new(rooms.clone(), room_calls.clone())));
     builder.register(Arc::new(mixdog_core_rooms::rooms::service::RoomService::new(
         rooms.clone(),
-        room_host,
-        room_runner,
+        room_host.clone(),
+        room_runner.clone(),
         domain_inputs.scopes.scopes("room").map_err(ComposeError::ComposeDomains)?,
     )))?;
     // A room member's tool approval (wp-session-36): `directory.member_approval(&member)` / `directory.answer_member_approval(..)` and `RoomSummaries::publish_room` exist, but no
@@ -2503,18 +2503,34 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         ),
     )))?;
     // agent/*, lead, home: definitions with the connector and permission stores the tool gate holds, the Lead's appearance, and the bots' homes.
+    // The home threads, one value for the home methods, the lifecycle of the definition calls and Mixy's status: the stored
+    // sessions the retire pass reads, and the room ports a deleted agent leaves.
+    let home_rooms = Arc::new(mixdog_core_rooms::rooms::sessions::SessionHomePorts::new(mcp.agents.clone(), room_sessions.clone(), rooms.clone(), room_host.clone(), room_runner.clone()));
+    let agent_homes = mixdog_core_agents::agents::AgentHomeSessions::new(Arc::new(mixdog_core::run_host::agent_home_deps::SessionHomeDeps::new(
+        mcp.agents.clone(),
+        room_sessions.clone(),
+        directory.clone(),
+        stored_sessions.clone(),
+        home_rooms,
+    )));
+    let agent_greetings = mixdog_core_agents::agents::AgentGreetings::new(Arc::new(crate::agent_lifecycle::SessionGreetingDeps::new(config.clone(), mcp.agents.clone(), agent_homes.clone(), directory.clone())));
     builder.register(Arc::new(mixdog_core_agents::agents::AgentService::new(
         mcp.agents.clone(),
         mixdog_core_agents::agents::AgentConnectors::new(mcp.agents.clone(), connector_catalog.clone()),
         mixdog_core_agents::agents::AgentPermissions::new(grants.clone()),
+        mixdog_core_agents::agents::AgentLifecycle::new(agent_homes.clone(), agent_greetings),
     )))?;
-    builder.register(Arc::new(mixdog_core_agents::agents::LeadService::new(
+    builder.register(Arc::new(mixdog_core_agents::agents::DesktopLeadStatus::new(
+        mixdog_core_agents::agents::LeadService::new(
+            mcp.agents.clone(),
+            mixdog_core_agents::agents::LeadAppearance::new(config.clone()),
+            domain_inputs.scopes.scopes("agent").map_err(ComposeError::ComposeDomains)?,
+        ),
         mcp.agents.clone(),
-        mixdog_core_agents::agents::LeadAppearance::new(config.clone()),
-        domain_inputs.scopes.scopes("agent").map_err(ComposeError::ComposeDomains)?,
+        agent_homes.clone(),
     )))?;
     builder.register(Arc::new(mixdog_core_agents::agents::AgentHomeService::new(
-        mixdog_core_agents::agents::AgentHomeSessions::new(Arc::new(mixdog_core::run_host::agent_home_deps::SessionHomeDeps::new(mcp.agents.clone(), room_sessions.clone(), directory.clone()))),
+        agent_homes,
         mixdog_core_agents::agents::AgentMemoryHost::new(Arc::new(mixdog_core_rooms::rooms::memory_control::RuntimeMemoryControl::new(
             memory.db(),
             memory.data_dir(),
