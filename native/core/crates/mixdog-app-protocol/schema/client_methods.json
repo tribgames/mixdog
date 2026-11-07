@@ -11679,6 +11679,18 @@
       ],
       "type": "object"
     },
+    "RemoteAccessActivateParams": {
+      "description": "Params of `remoteAccess/activate`.",
+      "properties": {
+        "opId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "opId"
+      ],
+      "type": "object"
+    },
     "RemoteAccessDeliverScreenControllerKeyParams": {
       "description": "Params of `remoteAccess/deliverScreenControllerKey`.",
       "properties": {
@@ -11890,6 +11902,10 @@
         "input",
         "opId"
       ],
+      "type": "object"
+    },
+    "RemoteAccessStateParams": {
+      "description": "Params of `remoteAccess/state`.",
       "type": "object"
     },
     "RequestId": {
@@ -19739,6 +19755,12 @@
       },
       "result": true
     },
+    "remoteAccess/activate": {
+      "params": {
+        "$ref": "#/definitions/RemoteAccessActivateParams"
+      },
+      "result": true
+    },
     "remoteAccess/deliverScreenControllerKey": {
       "params": {
         "$ref": "#/definitions/RemoteAccessDeliverScreenControllerKeyParams"
@@ -19820,6 +19842,12 @@
     "remoteAccess/settleOwedControllerKeys": {
       "params": {
         "$ref": "#/definitions/RemoteAccessSettleOwedControllerKeysParams"
+      },
+      "result": true
+    },
+    "remoteAccess/state": {
+      "params": {
+        "$ref": "#/definitions/RemoteAccessStateParams"
       },
       "result": true
     },

@@ -186,6 +186,8 @@ struct Live {
 struct State {
     live: Option<Arc<Live>>,
     connected: bool,
+    /// The relay answered a client listing on this leg (Node's descriptor was null until relay.listClients() succeeded): what the section's `info.connected` means. Reset with the leg.
+    listed: bool,
     caps: RelayCaps,
     table: ClientTable,
     claims: ClaimBindings,
@@ -283,7 +285,7 @@ impl Inner {
             let now = now_ms();
             let claims: Vec<Value> =
                 state.pending_claims.values().filter(|p| p.request.expires_at > now).map(|p| claim_value(&p.request)).collect();
-            (state.live.is_some(), state.connected, claims, state.live.clone())
+            (state.live.is_some(), state.connected && state.listed, claims, state.live.clone())
         };
         let settings = self.cfg.settings.read();
         let (clients, controller_keys, owed_keys) = match self.roster.get() {
@@ -295,6 +297,7 @@ impl Inner {
         };
         let info = self.info(&settings, running, connected, live.as_deref(), &clients);
         let settings_value = serde_json::to_value(&settings).unwrap_or(Value::Null);
+        let disabled = self.cfg.settings.disabled();
         let push_registered = self.native_push_clients();
         self.cfg.section.update(|value| {
             value.push_registered = push_registered;
@@ -304,6 +307,7 @@ impl Inner {
             value.clients = clients;
             value.controller_keys = controller_keys;
             value.owed_keys = owed_keys;
+            value.disabled = disabled;
         });
     }
 
@@ -388,6 +392,7 @@ impl RemoteRuntime {
                 state: Mutex::new(State {
                     live: None,
                     connected: false,
+                    listed: false,
                     caps: RelayCaps::default(),
                     table: ClientTable::default(),
                     claims: ClaimBindings::default(),
@@ -430,6 +435,23 @@ impl RemoteRuntime {
 
     pub fn settings(&self) -> SettingsView {
         self.inner.cfg.settings.read()
+    }
+
+    /// Asks the relay for the client list when the leg is open and has not answered one yet: Node listed whenever a window asked
+    /// for the descriptor (`remoteAccessDescriptor`, `desktop-service.ts:580`, polled by the Connection card), and a failed
+    /// listing was retried by the next ask, never by a timer or a relay event. A failure is the answer "not connected yet".
+    pub async fn list_if_unanswered(&self) {
+        let due = {
+            let state = self.inner.state();
+            state.live.is_some() && state.connected && !state.listed
+        };
+        if due {
+            let _ = self.list_clients().await;
+        }
+    }
+    /// The whole value of the `remote` section as last published (`remoteAccess/state`).
+    pub fn section_value(&self) -> crate::section::RemoteSectionValue {
+        self.inner.cfg.section.snapshot()
     }
 
     /// Loads the roster and publishes the section (the first publish of real state).
@@ -615,6 +637,7 @@ impl RemoteRuntime {
             let mut state = self.inner.state();
             let live = state.live.take();
             state.connected = false;
+            state.listed = false;
             state.native = None;
             (live, state.table.close_all())
         };
@@ -691,6 +714,17 @@ impl RemoteRuntime {
     /// The relay's paired-device list; remembered with pending removals marked.
     pub async fn list_clients(&self) -> Result<Vec<Value>, RemoteError> {
         let rows = self.control("list-clients", Map::new()).await?;
+        let first = {
+            let mut state = self.inner.state();
+            let first = state.live.is_some() && state.connected && !state.listed;
+            if first {
+                state.listed = true;
+            }
+            first
+        };
+        if first {
+            self.inner.refresh();
+        }
         let listed = parse_client_list(&rows);
         let remembered = listed.clone();
         self.inner.with_roster(move |roster, lane| roster.remember(lane, &remembered)).await??;
@@ -718,7 +752,11 @@ impl RemoteRuntime {
         }
         let Ok(clients) = self.list_clients().await else { return Ok(Value::Null) };
         let live = self.inner.live()?;
-        let info = self.inner.info(&settings, true, self.inner.state().connected, Some(&live), &clients);
+        let answering = {
+            let state = self.inner.state();
+            state.connected && state.listed
+        };
+        let info = self.inner.info(&settings, true, answering, Some(&live), &clients);
         Ok(info)
     }
 
@@ -1211,6 +1249,7 @@ impl RemoteRuntime {
             // Nothing the previous leg declared survives into this one.
             state.caps.reset();
             state.connected = true;
+            state.listed = false;
             if let Some(web) = state.web.as_mut() {
                 web.reset();
             }
@@ -1231,6 +1270,7 @@ impl RemoteRuntime {
         let peers = {
             let mut state = self.inner.state();
             state.connected = false;
+            state.listed = false;
             state.table.close_all()
         };
         self.inner.link_up.send_replace(false);

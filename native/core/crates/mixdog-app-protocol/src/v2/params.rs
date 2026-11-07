@@ -5605,6 +5605,23 @@ impl crate::common::HasOpId for RemoteAccessDeliverScreenControllerKeyParams {
 #[serde(rename_all = "camelCase")]
 pub struct RemoteAccessPushPublicKeyParams {}
 
+/// Params of `remoteAccess/activate`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteAccessActivateParams {
+    pub op_id: OpId,
+}
+
+impl crate::common::HasOpId for RemoteAccessActivateParams {
+    fn op_id(&self) -> &OpId {
+        &self.op_id
+    }
+}
+
+/// Params of `remoteAccess/state`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteAccessStateParams {}
 /// Params of `remoteAccess/registerPushSubscription`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(rename_all = "camelCase")]

@@ -1190,6 +1190,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         pre.state.publisher.clone(),
         mixdog_spawn::service::TerminalServiceConfig { shell_integration_dir: Some(b.user_data_dir.join("shell-integration")) }, // `join(userDataPath, 'shell-integration')`, desktop-operations.ts:625
     );
+    // The one "a folder is going away" hook set: `project/delete` (workspace) and worktree removal run it; the terminals register here (`termDisposeUnder`), the language servers where they are built.
+    let folder_releases = mixdog_workspace::release::FolderReleases::new();
+    folder_releases.add(Arc::new(crate::terminal_folder_release::TerminalFolderRelease::new(terminal.tabs().clone())));
     // Browser/handoff host: the desktop channel, its replies redacted, and the runtime-only secret actions served by the fill (compose-seams.md 'secret redaction in tool replies').
     let pool_host: Arc<dyn mixdog_tools::desktop::host::HostCommands> = Arc::new(mixdog_core_session::session::secret_input::SecretHostCommands::new(
         Arc::new(mixdog_core_session::session::secret_input::RedactingHostCommands::new(mixdog_tools::desktop::host::ChannelHostCommands::new(b.host.clone()), fill.clone())),
@@ -1404,9 +1407,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             .map_err(|e| ComposeError::StateDir(std::io::Error::other(e)))?
             .map_err(|e| ComposeError::StateDir(std::io::Error::other(format!("{e:?}"))))?;
     }
-    // The one "a folder is going away" hook set: `project/delete` (workspace) and worktree removal run it; the language servers
-    // and the terminals (`TerminalService`) register in it.
-    let folder_releases = mixdog_workspace::release::FolderReleases::new();
     let worktrees = Arc::new(
         mixdog_scm::worktree::manager::Worktrees::new(scm.clone(), b.data_dir.clone())
             .with_root_cleanup(Arc::new(mixdog_scm::worktree::release::FolderReleaseCleanup::new(folder_releases.clone())))

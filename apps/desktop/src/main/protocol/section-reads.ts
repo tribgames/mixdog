@@ -160,19 +160,26 @@ export function visualizeRemoteViewing(snapshot: DesktopSectionsSnapshot, args: 
   return Array.isArray(shown) && shown.includes(String(args[0] || ''));
 }
 
-/** A member of the core's `remote` section, as Node's remote-access handler returned it (`remoteAccessInfo` is the
- *  section's `info`, ...). Activation, which Node's `activate` argument did as a side effect of reading, is the user's
- *  explicit `remoteAccess/setEnabled` / `pairCode`. A section the core has not pushed is an error, never an empty answer. */
-export function remoteAccessMember(snapshot: DesktopSectionsSnapshot, member: string): unknown {
+/** The core's `remote` section as the connection holds it. A section the core has not pushed is an error, never an empty
+ *  answer; `null` is a section the core published as a stub (over the inline limit), whose detail is paged. */
+export function remoteSection(snapshot: DesktopSectionsSnapshot): unknown {
   const entry = snapshot.entries.find((candidate) => candidate.section === 'remote' && candidate.key === null);
   if (!entry) {
     throw Object.assign(new Error('The core has not pushed section remote.'), { code: 'sectionUnavailable' });
   }
-  const members = record(entry.value);
+  return entry.value;
+}
+
+/** A member of the `remote` section's value, as Node's remote-access handler returned it (`remoteAccessInfo` is the
+ *  section's `info`, ...). */
+export function remoteMember(section: unknown, member: string): unknown {
+  const members = record(section);
   if (!(member in members)) throw new TypeError(`The remote section has no ${member}.`);
   return members[member];
 }
 
+export const remoteAccessMember = (snapshot: DesktopSectionsSnapshot, member: string): unknown =>
+  remoteMember(remoteSection(snapshot), member);
 /** `termActivity`: Node answered `[{id, state}]` of the tabs with a known state; the section is `{<tabId>: state}`. */
 export function termActivity(snapshot: DesktopSectionsSnapshot): { id: string; state: unknown }[] {
   const entry = snapshot.entries.find((candidate) => candidate.section === 'terminalActivity' && candidate.key === null);

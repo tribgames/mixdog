@@ -132,20 +132,23 @@ test('ignored deletions answer undefined and send nothing; refused ones are unkn
   }
   assert.deepEqual([calls, notified], [[], []]);
   // one table: the six of desktop-ops-new-a, visualizeRemoteViewing (desktop-ops-gaps-5r), and the five remote-access
-  // members and termActivity (desktop-ops-new-b-1)
+  // members and termActivity (desktop-ops-new-b)
   assert.equal(SECTION_READ_DESKTOP_OPERATIONS.length, 13);
 });
 
 test('the remote-access and terminal-activity reads come from the held sections, as Node returned them', async () => {
   const remote = entry('remote', null, {
-    info: { enabled: true },
+    info: { relay: { clientUrl: 'u', token: 't', clients: [] }, enabled: true, connected: true },
     settings: { name: 'Desk' },
     claims: [{ id: 'c1' }],
     controllerKeys: [{ key: 'k' }],
     owedKeys: [],
+    disabled: false,
   });
   const { lane: l, calls } = lane([remote, entry('terminalActivity', null, { t1: 'working', t2: 'idle' })]);
-  assert.deepEqual(await l.invoke('remoteAccessInfo', []), { enabled: true });
+  // Without the activation (the argument false) the descriptor is the section's info as Node's descriptor() returned it:
+  // no connected. The activating read, the stale states and the stubbed section are in desktop-operation-route.test.mjs.
+  assert.deepEqual(await l.invoke('remoteAccessInfo', [false]), { relay: { clientUrl: 'u', token: 't', clients: [] }, enabled: true });
   assert.deepEqual(await l.invoke('remoteAccessSettings', []), { name: 'Desk' });
   assert.deepEqual(await l.invoke('remoteAccessListClaims', []), [{ id: 'c1' }]);
   assert.deepEqual(await l.invoke('remoteAccessControllerKeys', []), [{ key: 'k' }]);
@@ -155,7 +158,7 @@ test('the remote-access and terminal-activity reads come from the held sections,
   // A section the core has not pushed is an error, never an empty answer.
   await assert.rejects(lane([]).lane.invoke('remoteAccessInfo', []), { code: 'sectionUnavailable' });
   await assert.rejects(lane([]).lane.invoke('termActivity', []), { code: 'sectionUnavailable' });
-  await assert.rejects(lane([entry('remote', null, {})]).lane.invoke('remoteAccessInfo', []), /no info/);
+  await assert.rejects(lane([entry('remote', null, {})]).lane.invoke('remoteAccessInfo', [false]), /no info/);
 });
 
 test('browserRemoteOpen is the notification host/browser/surface', async () => {

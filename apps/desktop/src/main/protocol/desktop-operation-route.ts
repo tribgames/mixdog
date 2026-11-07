@@ -11,6 +11,7 @@ import { pairedDeviceInfo } from '../notification-center';
 import { desktopSettingsFromConfig, storedPinsState } from '../settings-store';
 import type { ProtocolConnection } from './connection';
 import { coreErrorForWindow } from './core-error';
+import { remoteAccessInfo, remotePagedMember } from './remote-reads';
 import {
   visualizeRemoteViewing,
   DEFAULT_OPERATION_HOST,
@@ -22,7 +23,6 @@ import {
   readMarkdownDefaultView,
   readSettings,
   readZoom,
-  remoteAccessMember,
   termActivity,
 } from './section-reads';
 
@@ -390,6 +390,22 @@ const PREPARERS: Readonly<Record<string, Prepare>> = {
 const record = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 
+/** Operations the spec removes from the wire, with what replaces each. A call is an error here (never an empty
+ *  answer): the caller is a Node-path call site that the core connection does not make (desktop-ops-new-b-r.md). */
+const RETIRED_OPERATIONS: Readonly<Record<string, string>> = {
+  remoteAccessStart: 'the relay starts at core boot from config (DS 7.2); the explicit activation is remoteAccess/activate',
+  remoteTransportPeerAttach: 'the carrier peer connection runs in mixdog-remote (SPEC R36); there is no peer window',
+  remoteTransportPeerDetach: 'the carrier peer connection runs in mixdog-remote (SPEC R36); there is no peer window',
+  remoteTransportPeerReport: 'the carrier peer connection runs in mixdog-remote (SPEC R36); there is no peer window',
+  systemProxyAttach: 'the host claim with capabilities.host.systemProxy attaches the resolver (host/claim)',
+  systemProxyResolved: 'the host answers the server request host/systemProxy/resolve (host/system-proxy.ts)',
+  termDisposeUnder: 'the shared FolderRelease hook disposes the terminals under a removed folder (DS 4.1)',
+  termSessionTabs: 'the terminal tool reads the tabs in-process (TabsTerminalPort, DS 6.3)',
+  termSnapshot: 'the terminal tool reads the tabs in-process (TabsTerminalPort, DS 6.3)',
+  terminalRemoteOpen: 'the core sends ui/openRequested{kind: terminal} itself (protocol/open-requested.ts)',
+};
+
+export const RETIRED_DESKTOP_OPERATIONS: readonly string[] = Object.keys(RETIRED_OPERATIONS);
 /** The value a `config/value/write` stored (`ConfigWriteResponse.values[0]`). */
 function written(reply: unknown): unknown {
   const values = record(reply).values;
@@ -489,7 +505,12 @@ const REPLIES: Readonly<Record<string, Reply>> = {
 
 export const REPLY_DESKTOP_OPERATIONS: readonly string[] = Object.keys(REPLIES);
 
-type SectionRead = (snapshot: ReturnType<ProtocolConnection['snapshot']>, args: readonly unknown[], host: Partial<OperationHost>) => unknown;
+type SectionRead = (
+  snapshot: ReturnType<ProtocolConnection['snapshot']>,
+  args: readonly unknown[],
+  host: Partial<OperationHost>,
+  call: (method: string, params: unknown) => Promise<unknown>
+) => unknown;
 
 /** Operations answered from the sections the connection holds (desktop-services.md §2.4, §3). */
 const SECTION_READS: Readonly<Record<string, SectionRead>> = {
@@ -500,11 +521,11 @@ const SECTION_READS: Readonly<Record<string, SectionRead>> = {
   listConversationNotifications: (snapshot) => listConversationNotifications(snapshot, Date.now()),
   notificationPreferencesState: (snapshot, args, host) => notificationPreferencesState(snapshot, args, host),
   visualizeRemoteViewing: (snapshot, args) => visualizeRemoteViewing(snapshot, args),
-  remoteAccessInfo: (snapshot) => remoteAccessMember(snapshot, 'info'),
-  remoteAccessSettings: (snapshot) => remoteAccessMember(snapshot, 'settings'),
-  remoteAccessListClaims: (snapshot) => remoteAccessMember(snapshot, 'claims'),
-  remoteAccessControllerKeys: (snapshot) => remoteAccessMember(snapshot, 'controllerKeys'),
-  remoteAccessOwedControllerKeys: (snapshot) => remoteAccessMember(snapshot, 'owedKeys'),
+  remoteAccessInfo: (snapshot, args, _host, call) => remoteAccessInfo(snapshot, args, call),
+  remoteAccessSettings: (snapshot, _args, _host, call) => remotePagedMember(snapshot, 'settings', call),
+  remoteAccessListClaims: (snapshot, _args, _host, call) => remotePagedMember(snapshot, 'claims', call),
+  remoteAccessControllerKeys: (snapshot, _args, _host, call) => remotePagedMember(snapshot, 'controllerKeys', call),
+  remoteAccessOwedControllerKeys: (snapshot, _args, _host, call) => remotePagedMember(snapshot, 'owedKeys', call),
   termActivity: (snapshot) => termActivity(snapshot),
 };
 export const SECTION_READ_DESKTOP_OPERATIONS: readonly string[] = Object.keys(SECTION_READS);
@@ -574,7 +595,7 @@ export function createOperationLane({
       };
       if (Object.hasOwn(SECTION_READS, name)) {
         const snapshot = await heldSections();
-        return SECTION_READS[name](snapshot(), args, host);
+        return SECTION_READS[name](snapshot(), args, host, call);
       }
       if (name === 'notifySettingsChanged') {
         const change = readSettingsChange({ scope: args[0] });
@@ -595,6 +616,11 @@ export function createOperationLane({
         return undefined;
       }
       if (IGNORED_DESKTOP_OPERATIONS.includes(name)) return undefined;
+      if (Object.hasOwn(RETIRED_OPERATIONS, name)) {
+        throw Object.assign(new Error(`desktop operation ${name} is retired: ${RETIRED_OPERATIONS[name]}`), {
+          code: 'operationRetired',
+        });
+      }
       const prepare = Object.hasOwn(PREPARERS, name) ? PREPARERS[name] : undefined;
       const held = prepare ? await heldSections() : null;
       const routed = prepare ? await prepare(args, { entries: () => held!().entries }) : args;

@@ -8129,6 +8129,18 @@
       ],
       "type": "object"
     },
+    "RemoteAccessActivateParams": {
+      "description": "Params of `remoteAccess/activate`.",
+      "properties": {
+        "opId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "opId"
+      ],
+      "type": "object"
+    },
     "RemoteAccessDeliverScreenControllerKeyParams": {
       "description": "Params of `remoteAccess/deliverScreenControllerKey`.",
       "properties": {
@@ -8340,6 +8352,10 @@
         "input",
         "opId"
       ],
+      "type": "object"
+    },
+    "RemoteAccessStateParams": {
+      "description": "Params of `remoteAccess/state`.",
       "type": "object"
     },
     "RequestId": {
@@ -22200,6 +22216,52 @@
         },
         "params": {
           "$ref": "#/definitions/RemoteAccessRemoveNativePushParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "Activate remote access, an explicit user action (Node `remote.start(true)`), and answer the full `remote` section value as it stands afterwards.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "remoteAccess/activate"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/RemoteAccessActivateParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The full `remote` section value: the list method of the section when it is published as a stub.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "remoteAccess/state"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/RemoteAccessStateParams"
         }
       },
       "required": [

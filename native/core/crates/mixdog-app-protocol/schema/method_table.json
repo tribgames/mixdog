@@ -10150,6 +10150,48 @@
     },
     {
       "class": "C2",
+      "method": "remoteAccess/activate",
+      "mutation": {
+        "domain": "remoteAccess",
+        "kind": "op"
+      },
+      "opScope": {
+        "domain": "remoteAccess",
+        "kind": "domain"
+      },
+      "origins": [
+        "local",
+        "ssh"
+      ],
+      "params": "RemoteAccessActivateParams",
+      "result": "JsonValue",
+      "scope": {
+        "key": "remoteAccess",
+        "kind": "global"
+      }
+    },
+    {
+      "class": "C1",
+      "method": "remoteAccess/state",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "local",
+        "ssh",
+        "relay"
+      ],
+      "params": "RemoteAccessStateParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
       "method": "browser/command",
       "mutation": {
         "kind": "none"
