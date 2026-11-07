@@ -377,15 +377,30 @@ async fn only_a_coding_session_with_a_prompt_switches() {
 
 // ---- the context switch ---------------------------------------------------------------------------
 
+/// The context cache, recording its call in the order Node's recording lists it.
+struct Cache(Arc<Mutex<Vec<Value>>>);
+
+impl ContextStatusCache for Cache {
+    fn invalidate(&self, _: &ThreadId) {
+        lock(&self.0).push(json!(["invalidateContextStatusCache"]));
+    }
+}
+
+/// The production target (`GaugeTarget`) over a recording cache; the surface generation it moves is
+/// `invalidatePreSessionToolSurface`.
 #[derive(Default)]
 struct Target {
-    calls: Mutex<Vec<Value>>,
+    calls: Arc<Mutex<Vec<Value>>>,
+    generation: mixdog_core_base::surface::SurfaceGeneration,
 }
 
 impl ContextTarget for Target {
-    fn invalidate(&self, _: &ThreadId) {
-        lock(&self.calls).push(json!(["invalidateContextStatusCache"]));
-        lock(&self.calls).push(json!(["invalidatePreSessionToolSurface"]));
+    fn invalidate(&self, thread: &ThreadId) {
+        let before = self.generation.get();
+        GaugeTarget(Arc::new(Cache(self.calls.clone())), self.generation.clone()).invalidate(thread);
+        if self.generation.get() != before {
+            lock(&self.calls).push(json!(["invalidatePreSessionToolSurface"]));
+        }
     }
 }
 

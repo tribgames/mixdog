@@ -11,7 +11,7 @@ use sha2::Digest;
 use sha2::Sha256;
 
 /// `PROMPT_SETTING_SECTIONS`, in prompt order.
-const SECTIONS: [&str; 7] = ["meta", "workflow", "orchestration", "skills", "instructionFiles", "coreMemory", "language"];
+pub(crate) const SECTIONS: [&str; 7] = ["meta", "workflow", "orchestration", "skills", "instructionFiles", "coreMemory", "language"];
 
 static SKILL_NAME: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^- ([^:[]+?)(?::|\s\[|$)", ""));
 
@@ -30,13 +30,13 @@ pub struct Sections<'a> {
 }
 
 /// `hashOf`: the first 16 hex digits of the SHA-256 of the trimmed text.
-fn hash_of(text: &str) -> String {
+pub(crate) fn hash_of(text: &str) -> String {
     let digest = Sha256::digest(js_trim(text).as_bytes());
     digest.iter().take(8).map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// `skillNames`: the names of a skill manifest's bullet lines.
-fn skill_names(manifest: &str) -> Vec<String> {
+pub(crate) fn skill_names(manifest: &str) -> Vec<String> {
     manifest
         .split('\n')
         .map(js_trim)

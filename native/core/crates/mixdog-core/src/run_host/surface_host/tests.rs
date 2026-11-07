@@ -126,6 +126,7 @@ impl PromptRebuild for FakePrompt {
             environment_tail: "tail".into(),
             prompt_identity: identity,
             prompt_settings: json!({ "revision": "r1" }),
+            sections: Default::default(),
             response_language: Value::Null,
         })
     }
@@ -819,15 +820,40 @@ async fn the_first_turn_of_an_empty_thread_rebuilds_it_and_other_threads_are_lef
 
     let later = with(Some(&identity));
     let kept = TurnSettings::reconcile(&later.host, &thread, true).await.expect("later turn");
-    assert!(later.prompts.0.lock().unwrap().is_empty(), "a conversation keeps its prefix");
-    // Untouched: the thread's own header has no prompt settings, and its denials are still the ones it began with (`stale_header` writes `[]`, as `thread/start` does), not the rebuilt `["shell"]`.
-    assert!(kept.get("promptSettings").is_none());
+    // The prompt is composed only to read its sections (the settings comparison); its blocks and denials are not taken.
+    assert_eq!(later.prompts.0.lock().unwrap().len(), 1, "a conversation compares its settings with the sections as they stand");
+    // A prompt from before settings were recorded presents what the sections give; the thread's own denials are still the ones it began with (`stale_header` writes `[]`, as `thread/start` does), not the rebuilt `["shell"]`.
+    assert!(kept.get("promptSettings").is_some());
+    assert!(kept.get("promptSettingsNotice").is_none());
     assert_eq!(kept["disallowedTools"], json!([]));
 
     let legacy = with(None);
     TurnSettings::reconcile(&legacy.host, &thread, false).await.expect("no identity");
     assert!(legacy.prompts.0.lock().unwrap().is_empty(), "a session without an identity is never rebuilt");
     assert!(legacy.threads.patches.lock().unwrap().iter().all(|(set, _)| !set.contains_key("promptSettings") && !set.contains_key("disallowedTools")));
+}
+
+/// A conversation's prompt settings are compared with the sections as they stand at each turn start
+/// (`reconcileSession`): what differs from its prompt is told once by a staged notice and folds in at the next
+/// cold point; a turn start that finds the same gates and sections stages nothing again.
+#[tokio::test]
+async fn a_conversation_is_told_the_settings_that_moved_since_its_prompt() {
+    let g = golden();
+    let mut header = stale_header(&g).await;
+    header.insert("promptIdentity".into(), json!({ "systemPrompt": "", "skipAgentRules": false, "profileSkip": {}, "agent": null }));
+    let presented = OwnedSections { core_memory: "# Core Memory\nOld".into(), ..OwnedSections::default() };
+    header.insert("promptSettings".into(), presented.record());
+    let rig = rig(&g, Setup { header, messages: vec![json!({ "role": "user", "content": "hello" })], ..setup("full") });
+    let thread = ThreadId::from("t1");
+    let after = TurnSettings::reconcile(&rig.host, &thread, true).await.expect("turn settings");
+    let notice = after["promptSettingsNotice"]["content"].as_str().expect("a staged notice");
+    assert!(notice.contains("# Core Memory\nCore memory was updated"), "{notice}");
+    assert_eq!(after["promptFoldPending"], true);
+    assert_eq!(after["promptSettingsNotice"]["revision"], 1);
+    let written = rig.threads.patches.lock().unwrap().len();
+    let again = TurnSettings::reconcile(&rig.host, &thread, true).await.expect("same gates, same sections");
+    assert_eq!(again["promptSettingsNotice"], after["promptSettingsNotice"], "the same notice is not staged again");
+    assert_eq!(rig.threads.patches.lock().unwrap().len(), written, "nothing left to write");
 }
 
 /// A connector switched off between two turn starts reaches the second one: the first records the

@@ -166,6 +166,11 @@ impl PromptRebuild for ComposedPrompt {
         let skill_manifest = if tool_free_role || request.allow.as_ref().is_some_and(Vec::is_empty) { String::new() } else { self.skills.manifest(&cwd).await? };
         let mut omit = request.denied.clone();
         omit.push(unused_model_edit_tool_name(&request.model).to_owned());
+        // `summary?.name || summary?.id || null`: the workflow the notice names.
+        let workflow_name = ["name", "id"]
+            .iter()
+            .find_map(|key| request.target.summary.get(*key).and_then(Value::as_str).filter(|name| !name.is_empty()))
+            .map(str::to_owned);
         let owned = Arc::new(Owned {
             session_id: text("id"),
             system_prompt: identity.get("systemPrompt").and_then(Value::as_str).unwrap_or_default().to_owned(),
@@ -188,7 +193,9 @@ impl PromptRebuild for ComposedPrompt {
             let sources = RealSources::new(lane, host, observed);
             compose_session_prompt(&owned.input(), &paths, &sources)
         });
-        compose(&self.io, &self.probes, &self.observed, self.facts.clone(), job).await
+        let mut composed = compose(&self.io, &self.probes, &self.observed, self.facts.clone(), job).await?;
+        composed.sections.workflow_name = workflow_name;
+        Ok(composed)
     }
 }
 
