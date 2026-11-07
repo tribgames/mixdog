@@ -143,7 +143,12 @@ fn time_limit_ms(args: &Value) -> Result<Option<u64>, String> {
     if !minutes.is_finite() || minutes <= 0.0 {
         return Err("goal time_limit_minutes must be a positive number".to_owned());
     }
-    let ms = (minutes * 60_000.0 + 0.5).floor();
+    // `parseGoalDuration` (`goal-state.mjs`) of the product: finite minutes can overflow to infinity here.
+    let product = minutes * 60_000.0;
+    if !product.is_finite() || product <= 0.0 {
+        return Err("goal duration must be positive".to_owned());
+    }
+    let ms = product.round();
     if ms > MAX_GOAL_TIME_LIMIT_MS as f64 {
         return Err("goal duration exceeds 7 days".to_owned());
     }
@@ -252,6 +257,21 @@ mod tests {
             validate(&json!({"action":"create","extend_minutes":5})).unwrap_err(),
             "goal arguments contain unknown fields: extend_minutes. Allowed for create: action, objective, time_limit_minutes"
         );
+    }
+
+    /// Node's own `executeGoalTool` create over every case of the recorder (`record-goal-time-limit.mjs`), overflow included.
+    #[test]
+    fn the_time_limit_equals_nodes_for_every_recorded_case() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/goal-time-limit/golden.json")).expect("golden");
+        let cases = golden["cases"].as_array().expect("cases");
+        assert!(cases.iter().any(|c| c["error"] == "goal duration must be positive" && c["args"]["time_limit_minutes"].as_f64().is_some_and(f64::is_finite)));
+        for case in cases {
+            let got = time_limit_ms(&case["args"]);
+            match case.get("error") {
+                Some(error) => assert_eq!(got, Err(error.as_str().expect("error").to_owned()), "{}", case["args"]),
+                None => assert_eq!(got.map(|ms| ms.map(|ms| json!(ms))), Ok(case.get("timeLimitMs").cloned()), "{}", case["args"]),
+            }
+        }
     }
 
     #[test]
