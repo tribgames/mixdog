@@ -198,10 +198,12 @@ impl TurnGuards for TodoGuards {
                 check.stale_mutations = Some(0);
                 continue;
             }
-            let landed = results
+            // `mutatingCall`: `result?.toolKind` is neither `error` nor `skipped`, so a call with no result
+            // message counts too.
+            let landed = !results
                 .iter()
                 .find(|m| m.tool_call_id() == Some(call.id.as_str()))
-                .is_some_and(|m| !matches!(m.tool_kind, Some(ToolKind::Error | ToolKind::Skipped)));
+                .is_some_and(|m| matches!(m.tool_kind, Some(ToolKind::Error | ToolKind::Skipped)));
             if landed && self.view.is_mutation(call) {
                 check.stale_mutations = Some(check.stale_mutations.unwrap_or(0) + 1);
             }
@@ -375,6 +377,22 @@ mod tests {
 
         let restored = TodoGuards::new(open(), false).with_saved(Some(&with(0)));
         assert_eq!(restored.saved(), Some(with(0)), "a stored 0 survives the record round trip");
+    }
+
+    /// `todo-check.mjs` `mutatingCall`: only a result whose `toolKind` is `error` or `skipped` keeps a mutating
+    /// call out of the count; a call with no result message in the batch counts.
+    #[tokio::test]
+    async fn a_mutating_call_without_a_result_counts_unless_its_result_failed_or_was_skipped() {
+        let with = |count: u64| serde_json::json!({ "reminders": 0, "awaitingProgress": false, "auditAsked": false, "staleMutations": count });
+        let guards = TodoGuards::new(Arc::new(View { phases: open_list(), goal: false }), false);
+        let (calls, _) = batch(&["edit", "edit", "edit", "edit"]);
+        let results = vec![
+            AgentMessage::tool_text("c0", "boom", ToolKind::Error),
+            AgentMessage::tool_text("c1", "skipped", ToolKind::Skipped),
+            AgentMessage::tool_text("c2", "ok", ToolKind::Normal),
+        ];
+        assert!(guards.stale_reminder(&calls, &results).await.is_none());
+        assert_eq!(guards.saved(), Some(with(2)), "c2 has a normal result and c3 has none: both count; c0 and c1 do not");
     }
 
     fn open_list() -> Vec<TodoPhase> {
