@@ -197,7 +197,7 @@ fn chat_streams_decode_to_the_recorded_results() {
             let events = decode(&codec, &sse, split);
             assert_eq!(text_of(&events), result["ok"]["content"].as_str().unwrap(), "{case}");
             assert_eq!(usage_of(&events), Some((20, 8)), "{case}");
-            assert_eq!(stop_of(&events), StopReason::EndTurn, "{case}");
+            assert_eq!(stop_of(&events), StopReason::Other("stop".to_owned()), "{case}");
             let raw = events.iter().find_map(|e| match e {
                 StreamEvent::Usage(u) => u.raw.clone(),
                 _ => None,
@@ -251,7 +251,7 @@ fn a_clean_end_after_finish_reason_completes_without_done() {
     let sse = String::from_utf8(read("providers/openai-compat-chat/text/response.sse")).unwrap();
     let without_done = sse.replace("data: [DONE]\n\n", "");
     let events = decode(&codec, without_done.as_bytes(), 10);
-    assert_eq!(stop_of(&events), StopReason::EndTurn);
+    assert_eq!(stop_of(&events), StopReason::Other("stop".to_owned()));
     assert_eq!(text_of(&events), "The result is 42.");
 }
 
@@ -563,7 +563,7 @@ fn an_unanswered_tool_call_is_stubbed_and_a_bad_id_is_projected() {
 fn an_empty_completion_completes_and_the_policy_bounds_the_re_asks() {
     let sse = "data: {\"choices\":[{\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
     let events = decode(&plain_codec(), sse.as_bytes(), 5);
-    assert_eq!(stop_of(&events), StopReason::EndTurn);
+    assert_eq!(stop_of(&events), StopReason::Other("stop".to_owned()));
     // Muse asks at most twice; xai and deepseek are bounded by their request row.
     let reasks = |p: CompatProfile| p.retry_policy().empty_response_reasks;
     assert_eq!(reasks(CompatProfile::muse_code_oauth()), Some(2));

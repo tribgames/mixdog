@@ -228,6 +228,47 @@ struct PortSink {
     blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>,
     /// A worker's turn hook (`onToolResult`): called with each tool result the turn gains.
     on_tool_result: Option<Arc<dyn Fn(&mixdog_agent::agent_tool::flow::seams::ToolResultMessage) + Send + Sync>>,
+    /// What the turn's input row says of the turn, which its assistant rows repeat; `None` for an input row
+    /// without transcript metadata.
+    stamp: Option<TurnStamp>,
+    /// The loop's counters, set by the host just before the turn's terminal reply commits
+    /// (`appendAssistantTurnMessage` writes them on that message).
+    terminal: Mutex<Option<(u32, u64)>>,
+}
+
+/// `TURN_DONE_VERBS` (`tui/session/labels.mjs`).
+const DONE_VERBS: [&str; 8] = ["Thought", "Reasoned", "Mapped", "Checked", "Solved", "Composed", "Synthesized", "Wrapped"];
+
+/// What `beginTurn` (`tui/session/turn.mjs`) gave the turn, as its assistant rows and its completion take it.
+struct TurnStamp {
+    /// `attemptId` and the route fields of the input row's `meta.transcript`
+    /// (`persistedAssistantTranscriptMetadata`: the attempt and `transcriptRouteMetadataFields`).
+    carried: serde_json::Map<String, Value>,
+    /// `rawTranscriptMeta.at`, else the ask's start.
+    started_at: i64,
+    /// The turn's change-record key, which its completion names.
+    checkpoint_id: Option<String>,
+    /// `pickDoneVerb(stats.turns)`.
+    verb: &'static str,
+}
+
+impl TurnStamp {
+    fn of(input_body: &Value, prior: &[Value], asked_at: i64) -> Option<Self> {
+        let transcript = input_body.pointer("/meta/transcript")?.as_object()?;
+        let text = |key: &str| transcript.get(key).and_then(Value::as_str).filter(|value| !value.is_empty());
+        let carried = ["attemptId", "modelId", "model", "provider", "agent"]
+            .into_iter()
+            .filter_map(|key| text(key).map(|value| (key.to_owned(), json!(value))))
+            .collect();
+        // `stats.turns`: the turns this thread finished before, each recorded as a completion on its last reply.
+        let finished = prior.iter().filter(|row| row.pointer("/meta/transcript/completion").is_some()).count();
+        Some(Self {
+            carried,
+            started_at: transcript.get("at").and_then(Value::as_i64).filter(|at| *at != 0).unwrap_or(asked_at),
+            checkpoint_id: text("checkpointId").map(str::to_owned),
+            verb: DONE_VERBS[(finished * 5 + 2) % DONE_VERBS.len()],
+        })
+    }
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -243,6 +284,7 @@ impl PortSink {
         clock: Arc<dyn Clock>,
         blobs: Arc<dyn mixdog_agent::compact::blob_reads::BlobReads>,
         on_tool_result: Option<Arc<dyn Fn(&mixdog_agent::agent_tool::flow::seams::ToolResultMessage) + Send + Sync>>,
+        stamp: Option<TurnStamp>,
     ) -> Arc<Self> {
         let (jobs, mut queue) = mpsc::unbounded_channel::<Job>();
         let (done_tx, done) = watch::channel(0u64);
@@ -267,7 +309,45 @@ impl PortSink {
                 done_tx.send_replace(n);
             }
         }));
-        Arc::new(Self { jobs, done, seq: AtomicU64::new(0), port, rows, live, turn: Mutex::new(Vec::new()), streaming, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result })
+        Arc::new(Self { jobs, done, seq: AtomicU64::new(0), port, rows, live, turn: Mutex::new(Vec::new()), streaming, iids: Mutex::new(HashMap::new()), clock, blobs, on_tool_result, stamp, terminal: Mutex::new(None) })
+    }
+
+    /// What Node's loop and turn commit write on an assistant row besides its content: its id, time and
+    /// route (`attachAssistantTranscriptMetadata`, `persistedAssistantTranscriptMetadata`), the tool-call
+    /// message's `createdAt`, and on the terminal reply the loop's counters and the turn's completion
+    /// (`appendAssistantTurnMessage`, `attachAssistantTranscriptCompletion`).
+    fn stamp_assistant(&self, row: &mut Value, message: &AgentMessage, terminal: Option<(u32, u64)>) {
+        let Some(stamp) = &self.stamp else { return };
+        let Some(object) = row.as_object_mut() else { return };
+        let now = self.clock.now_ms();
+        if !message.tool_calls().is_empty() {
+            object.insert("createdAt".into(), json!(now));
+        }
+        if let Some((iterations, tool_calls_total)) = terminal {
+            object.insert("iterations".into(), json!(iterations));
+            object.insert("toolCallsTotal".into(), json!(tool_calls_total));
+        }
+        let meta = object.entry("meta").or_insert_with(|| json!({}));
+        if !meta.is_object() {
+            *meta = json!({});
+        }
+        let transcript = meta.as_object_mut().expect("meta is an object").entry("transcript").or_insert_with(|| json!({}));
+        if !transcript.is_object() {
+            *transcript = json!({});
+        }
+        let transcript = transcript.as_object_mut().expect("transcript is an object");
+        transcript.entry("messageId").or_insert_with(|| json!(self.message_id()));
+        transcript.entry("at").or_insert_with(|| json!(now));
+        for (key, value) in &stamp.carried {
+            transcript.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+        if terminal.is_some() && !mixdog_js::js_trim(&message.text()).is_empty() {
+            let mut completion = json!({ "status": "done", "verb": stamp.verb, "elapsedMs": (now - stamp.started_at).max(0) });
+            if let Some(checkpoint) = &stamp.checkpoint_id {
+                completion["checkpointId"] = json!(checkpoint);
+            }
+            transcript.entry("completion").or_insert(completion);
+        }
     }
 
     /// The input row and the context before it: known ids, and the turn's first live message.
@@ -300,7 +380,11 @@ fn dropped_of(dropped: &mixdog_agent::env::Dropped) -> mixdog_core_session::sess
 #[async_trait]
 impl TranscriptSink for PortSink {
     async fn commit(&self, message: &AgentMessage) -> Result<Ticket, CommitError> {
-        let row = row_of(message);
+        let mut row = row_of(message);
+        if message.role() == Role::Assistant {
+            let terminal = lock(&self.terminal).take();
+            self.stamp_assistant(&mut row, message, terminal);
+        }
         // Node hides a row by what it is: a user row the transcript shows nothing for (a hook or
         // skill note, internal text) is not visible; a card or cancel line is written into its meta.
         // and the row that counts for prompt history carries its display text.
@@ -575,7 +659,8 @@ async fn drive(parts: Arc<dyn RunParts>, liveness: Arc<mixdog_services::task_rep
     };
     let live = LiveTurnPublisher::new(turn_messages);
     let streaming = Arc::new(Mutex::new(None));
-    let sink = PortSink::spawn(port.clone(), rows.clone(), live, streaming.clone(), clock.clone(), blobs, on_tool_result);
+    let stamp = TurnStamp::of(&input_body, &prior, clock.now_ms());
+    let sink = PortSink::spawn(port.clone(), rows.clone(), live, streaming.clone(), clock.clone(), blobs, on_tool_result, stamp);
     // The system messages are the header's prompt fields, in Node's order and tiers (WP-PROMPT).
     let mut messages = system_messages(&header);
     for (iid, body) in stored {
@@ -688,6 +773,7 @@ async fn drive(parts: Arc<dyn RunParts>, liveness: Arc<mixdog_services::task_rep
             }
             if let Some(mut message) = mixdog_agent::response::intermediate_message(&terminal) {
                 message.message_id = Some(sink.message_id());
+                *lock(&sink.terminal) = Some((output.iterations, output.tool_calls_total));
                 if let Err(error) = sink.commit(&message).await {
                     sink.flush().await;
                     sink.live.clear();

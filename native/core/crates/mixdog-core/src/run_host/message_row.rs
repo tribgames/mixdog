@@ -9,7 +9,7 @@
 //! stored row is written in Node's key order for its role.
 //!
 //! The typed fields: role, text/file/image-reference content (and a tool result's `{content}`
-//! envelope), `toolCalls`, `toolCallId`, `isError`, `toolKind`, `stopReason`, `turnReminder`,
+//! envelope), `toolCalls`, `toolCallId`, `isError`, `toolKind`, `toolTiming` (all five marks), `stopReason`, `turnReminder`,
 //! `cacheTier`, `providerReplay`, `providerMetadata`, `nativeToolSearch`, `thinkingBlocks`,
 //! `assistantBlocks`, `uiDiff`, and from `meta`: `source` (a string `meta` is a bare source),
 //! `attempt`, `submissionIds`, `transcript.messageId`, `effortConfiguration`.
@@ -18,7 +18,7 @@ use mixdog_core_run::run_host::route_wiring::effort_value;
 use std::sync::Arc;
 
 use mixdog_agent::effort::EffortSnapshot;
-use mixdog_agent::message::{AgentMessage, Source, ToolKind};
+use mixdog_agent::message::{AgentMessage, Source, ToolKind, ToolTiming};
 use mixdog_core_api::domain::provider::{
     BinarySource, CacheTier, Content, ContentPart, ImageSource, ProviderReplay, Role, StopReason, TextAttachment, ToolCall,
 };
@@ -129,6 +129,28 @@ fn kind_of(name: &str) -> Option<ToolKind> {
         "error" => ToolKind::Error,
         "skipped" => ToolKind::Skipped,
         _ => return None,
+    })
+}
+
+/// A row's `toolTiming` when it holds all five marks (a partial one stays as stored).
+fn timing_of(value: Option<&Value>) -> Option<ToolTiming> {
+    let mark = |key: &str| -> Option<i64> { value?.get(key)?.as_i64() };
+    Some(ToolTiming {
+        dispatch_started_at: mark("dispatchStartedAt")?,
+        execution_started_at: mark("executionStartedAt")?,
+        execution_completed_at: mark("executionCompletedAt")?,
+        postprocess_started_at: mark("postprocessStartedAt")?,
+        result_completed_at: mark("resultCompletedAt")?,
+    })
+}
+
+fn timing_row(timing: &ToolTiming) -> Value {
+    json!({
+        "dispatchStartedAt": timing.dispatch_started_at,
+        "executionStartedAt": timing.execution_started_at,
+        "executionCompletedAt": timing.execution_completed_at,
+        "postprocessStartedAt": timing.postprocess_started_at,
+        "resultCompletedAt": timing.result_completed_at,
     })
 }
 
@@ -310,6 +332,7 @@ fn typed_of(row: &Value) -> Result<AgentMessage, String> {
     message.turn_reminder = message.message.turn_reminder.clone();
     message.stop_reason = str_of(row, "stopReason").map(stop_of);
     message.tool_kind = str_of(row, "toolKind").and_then(kind_of);
+    message.tool_timing = timing_of(row.get("toolTiming"));
     message.provider_metadata = row.get("providerMetadata").cloned();
     message.ui_diff = str_of(row, "uiDiff").map(str::to_owned);
     match row.get("meta") {
@@ -424,6 +447,7 @@ fn fresh_row(m: &AgentMessage) -> Row {
     set_or_remove(&mut row, "turnReminder", m.message.turn_reminder.as_ref().filter(|t| !t.is_empty()).map(|v| json!(v)));
     set_or_remove(&mut row, "stopReason", m.stop_reason.as_ref().map(|s| json!(stop_name(s))));
     set_or_remove(&mut row, "toolKind", m.tool_kind.map(|k| json!(kind_name(k))));
+    set_or_remove(&mut row, "toolTiming", m.tool_timing.as_ref().map(timing_row));
     set_or_remove(&mut row, "uiDiff", m.ui_diff.as_ref().map(|v| json!(v)));
     set_or_remove(&mut row, "meta", meta_row(m, None, None));
     row
@@ -484,6 +508,9 @@ pub fn row_of(message: &AgentMessage) -> Value {
     }
     if message.tool_kind != was.tool_kind {
         set_or_remove(&mut row, "toolKind", message.tool_kind.map(|k| json!(kind_name(k))));
+    }
+    if message.tool_timing != was.tool_timing {
+        set_or_remove(&mut row, "toolTiming", message.tool_timing.as_ref().map(timing_row));
     }
     if message.provider_metadata != was.provider_metadata {
         set_or_remove(&mut row, "providerMetadata", message.provider_metadata.clone());

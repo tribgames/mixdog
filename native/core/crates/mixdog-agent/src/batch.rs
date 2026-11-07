@@ -217,6 +217,7 @@ impl Run {
             guards: Arc::clone(&self.env.guards),
             tool_env: self.tool_env.clone(),
             cancel: self.cancel.clone(),
+            clock: Arc::clone(&self.env.clock),
         })
     }
 

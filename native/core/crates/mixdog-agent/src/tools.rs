@@ -60,6 +60,7 @@ use crate::limits;
 use crate::message::AgentMessage;
 use crate::message::Source;
 use crate::message::ToolKind;
+use crate::message::ToolTiming;
 use crate::response::ModelResponse;
 use crate::response::tool_call_message;
 use crate::run::AgentError;
@@ -459,6 +460,8 @@ pub(crate) struct CallEnv {
     pub(crate) guards: Arc<dyn TurnGuards>,
     pub(crate) tool_env: ToolEnv,
     pub(crate) cancel: CancellationToken,
+    /// The run's clock, for a call's `toolTiming`.
+    pub(crate) clock: Arc<dyn crate::env::Clock>,
 }
 
 fn render_output(parts: Vec<ToolPart>) -> Content {
@@ -712,6 +715,7 @@ impl Drop for AbortOnDrop {
 }
 
 async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
+    let dispatch_started_at = env.clock.now_ms();
     let call = call.clone();
     let name = call.name.clone();
     let target = match authorize(
@@ -758,6 +762,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
     crate::coerce::coerce_args_to_schema(&mut args, &spec.input_schema);
     let target_args_for_hook = args.clone();
     let (tool_cancel, deadline) = (ctx.cancel.clone(), ctx.deadline);
+    let execution_started_at = env.clock.now_ms();
     let mut handle = mixdog_rt::spawn("agent.tool", TaskClass::Work, async move {
         tool.call(&ctx, args).await
     });
@@ -769,6 +774,14 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
         .deadline(deadline)
         .run_with_grace(&mut handle, TOOL_GRACE, || tool_cancel.cancel())
         .await;
+    let execution_completed_at = env.clock.now_ms();
+    let timing = |postprocess_started_at: i64| ToolTiming {
+        dispatch_started_at,
+        execution_started_at,
+        execution_completed_at,
+        postprocess_started_at,
+        result_completed_at: env.clock.now_ms(),
+    };
     let outcome: ToolOutcome = match waited {
         Scoped::Done(Ok(outcome)) => outcome,
         Scoped::Done(Err(_)) => Err(ToolError::new(
@@ -783,6 +796,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
         Ok(mut output) => {
             let parts = std::mem::take(&mut output.parts);
             let follow_up_messages = std::mem::take(&mut output.follow_up_messages);
+            let postprocess_started_at = env.clock.now_ms();
             let mut content = render_output(parts);
             // PostToolUse may override the model-visible text, never the
             // follow-up message channel.
@@ -803,6 +817,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
                 content = Content::Text(updated);
             }
             let mut message = AgentMessage::tool_result(&call.id, content, ToolKind::Normal);
+            message.tool_timing = Some(timing(postprocess_started_at));
             message.ui_diff = output.meta.as_ref().and_then(|m| m.get("uiDiff")).and_then(|d| d.as_str()).map(str::to_owned);
             Executed {
                 message,
@@ -819,6 +834,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>) -> Executed {
         }
         Err(error) => {
             let mut executed = Executed::error(&call.id, error.message_for_model);
+            executed.message.tool_timing = Some(timing(execution_completed_at));
             executed.arg_failure = matches!(error.code, ToolErrorCode::InvalidArgs { .. });
             executed.conflict = matches!(error.code, ToolErrorCode::Conflict { .. });
             executed
@@ -1004,6 +1020,13 @@ mod tests {
         assert_eq!(set.for_agent(true).spec_of(&git).description, "same");
     }
 
+    struct NoClock;
+    impl crate::env::Clock for NoClock {
+        fn now_ms(&self) -> i64 {
+            0
+        }
+    }
+
     struct OnDrop(Option<tokio::sync::oneshot::Sender<()>>);
     impl Drop for OnDrop {
         fn drop(&mut self) {
@@ -1060,6 +1083,7 @@ mod tests {
             hooks: None,
             observer: Arc::new(crate::env::NullObserver),
             guards: Arc::new(crate::env::NoGuards),
+            clock: Arc::new(NoClock),
             tool_env: ToolEnv {
                 thread_id: ThreadId::from("t"),
                 turn_id: TurnId::from("r"),
