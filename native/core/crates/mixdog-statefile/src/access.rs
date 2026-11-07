@@ -56,6 +56,12 @@ pub mod unlaned {
     }
 }
 
+/// Creates `path` and every missing ancestor with the process defaults (Node's
+/// `mkdirSync(path, { recursive: true })`: the umask on Unix, the parent's ACL on Windows).
+pub fn create_dir_all<L: WriteLane>(_lane: &InLane<L>, path: &Path) -> io::Result<()> {
+    std::fs::create_dir_all(path)
+}
+
 /// Creates `path` and every missing ancestor as a private directory: Unix mode 0700 (Node's
 /// `mkdirSync(path, { recursive: true, mode: 0o700 })`, subject to the umask); Windows a
 /// protected DACL with one full-access entry for the current user, inherited by what the

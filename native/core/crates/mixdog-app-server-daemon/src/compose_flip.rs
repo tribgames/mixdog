@@ -468,7 +468,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         // `displayConfig: () => getConfig()` (config-lifecycle.mjs:399): the live config the daemon holds, never a re-read from disk.
         config: {
             let config = config.clone();
-            Arc::new(move || serde_json::Value::Object((*config.full()).clone()))
+            Arc::new(move || serde_json::Value::Object(config.agent()))
         },
         developer: {
             let config = config.clone();
@@ -656,6 +656,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         facts: facts.clone(),
         refresh: refresh.clone(),
         env: b.env.clone(),
+        surface: surface_generation.clone(),
     });
 
     // The remote runtime (relay off until the user turns it on). `state` exists since step 1, so the
@@ -1832,7 +1833,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
                 agent_signals: activity.clone(),
                 warm: Arc::new(mixdog_core::run_host::warm_ports::WarmedTurns::new(warmer.clone())), // flip-channel-router-2: the turn-start warmer note (`ask-session.mjs:198-201,313`); the one `Arc<Warmer>`
                 notices: Arc::new(mixdog_core::run_host::desktop_notices::SessionDesktopNotices(desktop_notices.clone())), // flip-gaps-ai-3
-                builtin_skills: Arc::new(CatalogBuiltinSkills(mcp_catalog.clone())), // turn-failure-4: the built-in skill names of the catalog the pool's Skill tool reads
+                surface: surface_generation.clone(),
+        builtin_skills: Arc::new(CatalogBuiltinSkills(mcp_catalog.clone())), // turn-failure-4: the built-in skill names of the catalog the pool's Skill tool reads
                 code_graph_prewarm: session_prewarm.clone(), // batch i: the sessions' busy-state, first-visible and cwd events reach the one timer
                 agent_status: late_agent_status.clone(),
                 turn_admission: late_turn_admission.clone(),
@@ -2040,7 +2042,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let route_positions_impl = Arc::new(mixdog_core_session::session::route_setup::SessionRoutePositions::new(
         directory.clone(),
         route_bots.clone(),
-        Arc::new({ let config = config.clone(); move || (*config.full()).clone() }),
+        config_snapshot.clone(), // the one the run's hops read (`HopDeps.config`): the agent config
     ));
     route_positions.bind(route_positions_impl.clone()).map_err(|_| ComposeError::AlreadyBound("route positions"))?;
     live_route
@@ -2404,7 +2406,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         readiness: readiness.clone(),
         usage: usage_sources.clone(),
     });
-    let route_follow = Arc::new(mixdog_core_ports::ports::route::SessionRoutes::new(threads.clone(), threads.clone(), late_route_session.clone(), routes.clone()));
+    let route_follow = Arc::new(mixdog_core_ports::ports::route::SessionRoutes::new(threads.clone(), threads.clone(), late_route_session.clone(), routes.clone()).with_surface(surface_generation.clone()));
     let route_service = Arc::new(mixdog_core_domains::domains::ai_admin::route_service::RouteService { config: config.clone(), facts: facts.clone(), writer: route_writer, session: route_follow.clone(), models: model_list.clone() });
     // The route a `thread/start` thread begins on is the route service's; the pick a turn start applies is the follow's (`SessionRoutes::apply_pending`).
     late_new_route.bind(route_service.clone()).map_err(|_| ComposeError::AlreadyBound("new thread route"))?;

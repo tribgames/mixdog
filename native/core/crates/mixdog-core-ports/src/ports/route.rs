@@ -206,6 +206,8 @@ pub struct SessionRoutes {
     live: Arc<dyn LiveRoute>,
     /// A deferred pick and the generation it was made under (`pending`).
     pending: Mutex<HashMap<String, Option<u64>>>,
+    /// `surfaceGeneration`, moved when a route lands on an empty session (`set-route.mjs:109`).
+    surface: mixdog_core_base::surface::SurfaceGeneration,
 }
 
 /// The thread's live route as the session holds it.
@@ -225,7 +227,14 @@ impl SessionRoutes {
         session: Arc<dyn RouteSession>,
         live: Arc<dyn LiveRoute>,
     ) -> Self {
-        Self { threads, messages, session, live, pending: Mutex::new(HashMap::new()) }
+        Self { threads, messages, session, live, pending: Mutex::new(HashMap::new()), surface: mixdog_core_base::surface::SurfaceGeneration::default() }
+    }
+
+    /// The surface generation this follow moves.
+    #[must_use]
+    pub fn with_surface(mut self, surface: mixdog_core_base::surface::SurfaceGeneration) -> Self {
+        self.surface = surface;
+        self
     }
 
     /// The generation a selection addressed to this thread is opened under: its origin when
@@ -414,6 +423,8 @@ impl SessionRoutes {
         // never closed and replaced by a freshly minted one (`set-route.mjs:433-448`).
         self.update_in_place(thread, &header, false).await?;
         self.session.invalidate_context_status(thread);
+        // The empty session is replaced under the new route: `invalidatePreSessionToolSurface()` (`set-route.mjs:109`).
+        self.surface.bump();
         Ok(Followed::default())
     }
 
@@ -666,6 +677,25 @@ mod tests {
 
     fn established() -> Vec<Value> {
         vec![json!({"role": "user", "content": "hi"}), json!({"role": "assistant", "content": "yo"})]
+    }
+
+    /// A route that lands on an empty session replaces its surface (`set-route.mjs:109`
+    /// `invalidatePreSessionToolSurface`); an established one keeps it.
+    #[tokio::test]
+    async fn a_route_on_an_empty_session_moves_the_surface_generation() {
+        let generation = mixdog_core_base::surface::SurfaceGeneration::default();
+        let (routes, _) = routes(json!({"provider": "openai", "model": "gpt-a"}), Vec::new(), json!({"provider": "anthropic", "model": "claude-x"}));
+        let routes = routes.with_surface(generation.clone());
+        routes.follow(&thread(), &FollowOptions::default()).await.unwrap();
+        assert_eq!(generation.get(), 1);
+        let (kept, _) = routes_of_established();
+        let kept = kept.with_surface(generation.clone());
+        kept.follow(&thread(), &FollowOptions::default()).await.unwrap();
+        assert_eq!(generation.get(), 1, "an established session keeps its surface");
+    }
+
+    fn routes_of_established() -> (SessionRoutes, Arc<Calls>) {
+        routes(json!({"provider": "openai", "model": "gpt-a"}), established(), json!({"provider": "anthropic", "model": "claude-x"}))
     }
 
     #[tokio::test]

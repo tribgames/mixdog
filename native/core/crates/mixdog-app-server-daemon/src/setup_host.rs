@@ -38,7 +38,7 @@ impl mixdog_core_domains::domains::ai_account::SetupSource for SetupSourceOf {
     }
 
     fn display_config(&self) -> serde_json::Value {
-        serde_json::Value::Object((*self.config.full()).clone())
+        serde_json::Value::Object(self.config.agent())
     }
 }
 /// `MIXDOG_PROVIDER_SETUP_WARMUP_DELAY_MS` and its default (`runtime-tunables.mjs:14`).

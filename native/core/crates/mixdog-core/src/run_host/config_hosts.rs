@@ -94,6 +94,8 @@ pub struct ConfigHosts {
     pub ready: Arc<dyn ProvidersReady>,
     pub refresh: Arc<dyn AuthRefresh>,
     pub env: Env,
+    /// `surfaceGeneration`, moved when onboarding saves a Lead route (`onboarding.mjs:122`).
+    pub surface: mixdog_core_base::surface::SurfaceGeneration,
 }
 
 impl ConfigHosts {
@@ -151,8 +153,11 @@ impl WorkflowHost for ConfigHosts {
     }
 
     /// The saved config is what every new run and route adoption reads; the daemon has no live
-    /// Main route object to move.
-    async fn adopt_lead_route(&self, _selection: Value) {}
+    /// Main route object to move. The tool surface of an empty session is rebuilt: the surface
+    /// generation moves (`deps.invalidatePreSessionToolSurface?.()`, `onboarding.mjs:122`).
+    async fn adopt_lead_route(&self, _selection: Value) {
+        self.surface.bump();
+    }
 
     async fn custom_agent_ids(&self) -> Vec<String> {
         self.agents.ids().await

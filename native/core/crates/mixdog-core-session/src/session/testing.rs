@@ -1344,6 +1344,7 @@ impl Rig {
             runs: self.runs.clone(),
             surfaces: Arc::new(HeaderSurfaces),
             new_tools: Arc::new(KeepHeader),
+            surface: mixdog_core_base::surface::SurfaceGeneration::default(),
             new_route: Arc::new(NoRoute),
             resumed_tools: self.resumed.clone(),
             room_members: self.room_members.clone(),

@@ -210,7 +210,7 @@ impl AgentRoutes {
     }
 }
 
-fn is_complete(route: &Value) -> bool {
+pub(super) fn is_complete(route: &Value) -> bool {
     let text = |key: &str| {
         route.get(key).and_then(Value::as_str).is_some_and(|s| !mixdog_js::js_trim(s).is_empty())
     };

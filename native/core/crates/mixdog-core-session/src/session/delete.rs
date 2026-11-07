@@ -252,6 +252,8 @@ async fn remove(
 /// `supersedeQuotaResume(id)`: the deleted session's resume and Goal note go (its actor, and
 /// with it its settlement, is gone).
 fn after_delete(deps: &super::SessionDeps, id: &str) {
+    // `invalidatePreSessionToolSurface()` after the session is gone (`session-delete.mjs`).
+    deps.surface.bump();
     deps.deletion.forget_session_search(id);
     let deletion = deps.deletion.clone();
     let owned = id.to_owned();

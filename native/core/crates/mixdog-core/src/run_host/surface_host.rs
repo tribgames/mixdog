@@ -195,21 +195,7 @@ pub struct SurfaceSources {
     pub surface_generation: SurfaceGeneration,
 }
 
-/// Node's `surfaceGeneration` counter of `session-runtime/tool-surface.mjs`: the owners of the extension and feature seams
-/// move it, and an empty thread's surface that was brought to an older one is rebuilt at its next turn.
-#[derive(Clone, Default)]
-pub struct SurfaceGeneration(Arc<std::sync::atomic::AtomicU64>);
-
-impl SurfaceGeneration {
-    /// `surfaceGeneration += 1`.
-    pub fn bump(&self) {
-        self.0.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-    }
-
-    pub fn get(&self) -> u64 {
-        self.0.load(std::sync::atomic::Ordering::Acquire)
-    }
-}
+pub use mixdog_core_base::surface::SurfaceGeneration;
 
 /// What an empty thread's surface was last brought to (`appliedKeys` of `tool-policy-refresh.mjs`): the
 /// gates it was built from and the revision of the prompt settings it presents.

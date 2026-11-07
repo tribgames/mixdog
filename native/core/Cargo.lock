@@ -4128,6 +4128,7 @@ dependencies = [
  "mixdog-core-api",
  "mixdog-core-base",
  "mixdog-js",
+ "mixdog-mcp",
  "mixdog-protocol",
  "mixdog-rt",
  "mixdog-scm",

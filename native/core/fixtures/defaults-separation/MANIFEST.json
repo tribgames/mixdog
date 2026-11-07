@@ -3,18 +3,18 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 25566,
+      "bytes": 43781,
       "path": "twin.json",
-      "sha256": "a58cfd02f68b06a0822ed0441086523f872115d862b05a30585ab197b95a50bd"
+      "sha256": "3ecab2c5dc4635d405a228b25987f27e8944e85282be1025bf5f614d51942e22"
     }
   ],
   "product": {
     "appsSha256": "9bd8fb856b7e00e551f02099c8aa5ad3f6450f5e03419b97b2dc9be008094ac1",
-    "commit": "888fa6b7d6e50682773eb87f2177f9e27621af9d",
+    "commit": "52df84f24ec5701a8c3bb62e3cd356a8a116b07f",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9249,
     "refComparison": {
-      "closestCommit": "888fa6b7d6e50682773eb87f2177f9e27621af9d",
+      "closestCommit": "52df84f24ec5701a8c3bb62e3cd356a8a116b07f",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-defaults-separation.mjs",
   "set": "defaults-separation",
-  "totalBytes": 25566
+  "totalBytes": 43781
 }

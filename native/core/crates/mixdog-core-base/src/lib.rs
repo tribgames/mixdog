@@ -14,3 +14,4 @@ mod quota_resume_tests;
 pub mod rooms;
 pub mod state;
 pub mod support;
+pub mod surface;
