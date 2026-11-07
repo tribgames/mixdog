@@ -154,6 +154,10 @@ pub(crate) struct CreateSpec {
     pub params: Value,
     /// What the thread's tool seed opened; the thread's actor owns it once the thread is published.
     pub seed: Option<super::seams::SeededThread>,
+    /// The saved configuration's change counter as it stood when the creation began: a settings change the creation itself makes (the draft's
+    /// route saved) reaches the new thread's `setupChanged`, as the change a Node session sees after `client.create`. `None`: it follows the
+    /// counter from its install.
+    pub settings: Option<tokio::sync::watch::Receiver<u64>>,
 }
 
 pub struct SessionDirectory {
@@ -513,6 +517,7 @@ impl SessionDirectory {
                 method: Method("thread/start"),
                 params,
                 seed: None,
+                settings: None,
             })
             .await
             .map(|_| ())
@@ -521,7 +526,7 @@ impl SessionDirectory {
     /// Creates a thread under a minted id with `header` as its first durable write (an internal
     /// `createSession`: nobody subscribes to it).
     pub async fn create_session(&self, header: Header, params: Value) -> Result<ThreadId, CoreError> {
-        let spec = CreateSpec { id: None, header, base: None, op: None, method: Method("thread/start"), params, seed: None };
+        let spec = CreateSpec { id: None, header, base: None, op: None, method: Method("thread/start"), params, seed: None, settings: None };
         self.inner.create(spec).await.map(|handle| handle.id.clone())
     }
 
@@ -1148,6 +1153,7 @@ impl DirInner {
                     tx: Some(tx),
                     value: json!({}),
                     seed: spec.seed,
+                    settings: spec.settings,
                 },
             );
             shard.insert(id.clone(), Slot_::Loaded(handle));
@@ -1306,6 +1312,8 @@ impl ThreadDirectory for SessionDirectory {
                 // The route the thread begins on is settled first: the tools and the prompt below are
                 // composed for it, as Node composes the session from `rt.route`.
                 let pick = params.draft.as_ref().and_then(|draft| draft.route.as_ref()).map(super::new_route::draft_pick);
+                // Node's session exists before the draft's `setRoute` saves the route: the thread follows the settings counter from here.
+                let settings = self.inner.deps.compaction.settings_changes();
                 // The control session is created before any model is chosen (`ensureControlSession`): its route is not refused for lacking one.
                 let route = if control {
                     self.inner.deps.new_route.adopt_control(&id).await
@@ -1339,6 +1347,7 @@ impl ThreadDirectory for SessionDirectory {
                         method: req.method,
                         params: req.params.clone(),
                         seed: Some(seeded),
+                        settings,
                     })
                     .await?;
                 self.inner.deps.new_route.seat(&handle.id).await.map_err(|message| mixdog_core_base::support::failed("route", message))?;

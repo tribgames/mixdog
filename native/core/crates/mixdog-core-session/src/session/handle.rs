@@ -486,6 +486,7 @@ impl SessionHandle {
                 method: req.method,
                 params: req.params.clone(),
                 seed: None,
+                settings: None,
             })
             .await?;
         let summary = created.cell.view.load_full().summary.clone();

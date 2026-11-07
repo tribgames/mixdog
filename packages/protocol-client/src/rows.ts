@@ -126,6 +126,8 @@ function toolRow(item: Obj, m: Obj, name: string, args: Json | undefined, output
   if (!finished) return row;
   const result = output ?? '';
   row.result = result;
+  // `attachRestoredToolResult` -> `assignUiDiffFromMessage`: the result message's diff is the card's.
+  Object.assign(row, node.stringUiDiffPatch(asObj(item.run).uiDiff));
   // A cancel/crash body is not a red failure (restore.mjs): it shows the Cancelled tone.
   const cancelled = node.toolResultTerminalStatus(result) === 'cancelled';
   const { isCallError, isExitError } = cancelled

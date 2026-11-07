@@ -308,8 +308,9 @@ impl SessionState {
                 RunPhase::Completed | RunPhase::Failed | RunPhase::Interrupted => {
                     self.runs.remove(run.rid.as_str());
                     self.live.retain(|live| live.turn.as_str() != run.rid.as_str());
-                    // Runtime hints belong to the run that set them.
-                    self.sections.runtime = None;
+                    // Runtime hints belong to the run that set them; the toast queue and `setupChanged` are the session's own (a toast
+                    // expires on its own timer, `pushToast`; the settings announcement is not a run's).
+                    self.sections.runtime = self.sections.runtime.take().map(|held| ThreadRuntime { toasts: held.toasts, setup_changed: held.setup_changed, ..Default::default() });
                 }
             },
             Record::Approval(approval) => match approval.phase {

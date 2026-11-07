@@ -391,6 +391,8 @@ pub(crate) enum Init {
         value: Value,
         /// What the tool seed opened; kept once the `session` record is durable, abandoned if it fails.
         seed: Option<super::seams::SeededThread>,
+        /// The settings counter as it stood when the creation began (`CreateSpec::settings`).
+        settings: Option<watch::Receiver<u64>>,
     },
     /// An opened log: interrupted runs and their approvals are recovered (P §5.2, §8.2); the
     /// ops its scope fenced are refused from the start (P §9.4).
@@ -873,9 +875,11 @@ impl SessionActor {
     }
 
     pub async fn run(mut self, init: Init) {
+        let mut created_at = None;
         match init {
-            Init::Create { session, tx, value, seed } => {
+            Init::Create { session, tx, value, seed, settings } => {
                 self.seed = seed;
+                created_at = settings;
                 self.accept_record(
                     session,
                     Class::Normal,
@@ -911,7 +915,7 @@ impl SessionActor {
         // There is no periodic pass: Node dropped the 2 s pulse for change marks (858b0b2d2), and
         // the marks that move agent status are the status listener's signals.
         self.read_agent_status(false);
-        let mut settings = self.deps.compaction.settings_changes();
+        let mut settings = created_at.or_else(|| self.deps.compaction.settings_changes());
         loop {
             let deadline = self.book.next_deadline();
             let producers_open = self.outbox.producer_room();
