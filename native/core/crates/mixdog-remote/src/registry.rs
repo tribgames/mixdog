@@ -154,6 +154,20 @@ impl DeviceRegistry {
         self.shown_by(|described, _| !credential.is_empty() && described.credential == credential, thread_id)
     }
 
+    /// Every session an attached paired device shows (the union of their reported sets).
+    pub fn shown_sessions(&self) -> std::collections::BTreeSet<String> {
+        let inner = self.inner();
+        inner
+            .connections
+            .values()
+            .filter_map(|link| match link {
+                Link::Relay { peer_id, screen } if inner.peers.contains_key(peer_id) => Some(screen.sessions.iter().cloned()),
+                _ => None,
+            })
+            .flatten()
+            .collect()
+    }
+
     /// Whether any attached paired device shows `thread_id`: Node's `viewsSessionLane` (the
     /// desktop asks it before it opens a visualize tab for a session phones are watching).
     pub fn any_device_shows(&self, thread_id: &str) -> bool {

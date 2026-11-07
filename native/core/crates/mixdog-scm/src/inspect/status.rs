@@ -314,38 +314,94 @@ fn untracked_lines(root: &Path, path: &str) -> u64 {
     newlines + u64::from(data.last() != Some(&b'\n'))
 }
 
-/// The identity of a work-tree file in a review row (`worktreeRevision`): `size:mtimeNs:ctimeNs:ino`,
-/// or `deleted` when it is gone. Any write moves the change time even when a tool restores the
-/// modify time. Where the platform exposes no change time or file id (Windows `std`), those two
-/// parts are `0`; the value is only ever compared with an earlier one of the same host.
+/// The identity of a work-tree file in a review row (`worktreeRevision`): the parts of Node's
+/// `stat(path, { bigint: true })` that libuv fills, `size:mtimeNs:ctimeNs:ino`, or `deleted` when
+/// the file is gone. Any write moves the change time even when a tool restores the modify time,
+/// and a replacing rename moves the file id.
 pub fn worktree_revision(root: &Path, path: &str) -> String {
-    match std::fs::metadata(root.join(path)) {
-        Ok(meta) => revision_of(&meta),
-        Err(_) => "deleted".to_owned(),
-    }
+    revision_of(&root.join(path)).unwrap_or_else(|| "deleted".to_owned())
+}
+
+fn revision_text(size: u64, mtime_ns: i128, ctime_ns: i128, ino: u64) -> String {
+    format!("{size}:{mtime_ns}:{ctime_ns}:{ino}")
 }
 
 #[cfg(unix)]
-fn revision_of(meta: &std::fs::Metadata) -> String {
+fn revision_of(path: &Path) -> Option<String> {
     use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::metadata(path).ok()?;
     let nanos = |seconds: i64, nsec: i64| i128::from(seconds) * 1_000_000_000 + i128::from(nsec);
-    format!(
-        "{}:{}:{}:{}",
+    Some(revision_text(
         meta.size(),
         nanos(meta.mtime(), meta.mtime_nsec()),
         nanos(meta.ctime(), meta.ctime_nsec()),
-        meta.ino()
-    )
+        meta.ino(),
+    ))
 }
 
-#[cfg(not(unix))]
-fn revision_of(meta: &std::fs::Metadata) -> String {
-    let modified = meta
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0, |elapsed| elapsed.as_nanos());
-    format!("{}:{}:0:0", meta.len(), modified)
+/// libuv's `FILETIME_TO_TIMESPEC`: 100 ns ticks since 1601 as nanoseconds since the Unix epoch.
+#[cfg(any(windows, test))]
+fn filetime_ns(ticks: i64) -> i128 {
+    (i128::from(ticks) - 116_444_736_000_000_000) * 100
+}
+
+/// libuv's `fs__stat_handle` field sources on Windows: the handle is opened for attributes only
+/// with backup semantics (a directory opens too), `st_size` is the standard info's `EndOfFile`,
+/// `st_mtim` the basic info's `LastWriteTime`, `st_ctim` its `ChangeTime`, and `st_ino` the
+/// 64-bit file index (`FILE_INTERNAL_INFORMATION.IndexNumber`, the same value as
+/// `nFileIndexHigh`/`nFileIndexLow`).
+#[cfg(windows)]
+fn revision_of(path: &Path) -> Option<String> {
+    use std::ffi::c_void;
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::BY_HANDLE_FILE_INFORMATION;
+    use windows_sys::Win32::Storage::FileSystem::FILE_BASIC_INFO;
+    use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
+    use windows_sys::Win32::Storage::FileSystem::FILE_READ_ATTRIBUTES;
+    use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_DELETE;
+    use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
+    use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE;
+    use windows_sys::Win32::Storage::FileSystem::FILE_STANDARD_INFO;
+    use windows_sys::Win32::Storage::FileSystem::FileBasicInfo;
+    use windows_sys::Win32::Storage::FileSystem::FileStandardInfo;
+    use windows_sys::Win32::Storage::FileSystem::GetFileInformationByHandle;
+    use windows_sys::Win32::Storage::FileSystem::GetFileInformationByHandleEx;
+    let file = std::fs::OpenOptions::new()
+        .access_mode(FILE_READ_ATTRIBUTES)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)
+        .ok()?;
+    let handle = file.as_raw_handle();
+    // SAFETY: `handle` is open for the whole block; each call fills a zeroed out-struct of the
+    // exact size it is told.
+    unsafe {
+        let mut basic: FILE_BASIC_INFO = std::mem::zeroed();
+        let mut standard: FILE_STANDARD_INFO = std::mem::zeroed();
+        let mut index: BY_HANDLE_FILE_INFORMATION = std::mem::zeroed();
+        let basic_read = GetFileInformationByHandleEx(
+            handle,
+            FileBasicInfo,
+            std::ptr::from_mut(&mut basic).cast::<c_void>(),
+            std::mem::size_of::<FILE_BASIC_INFO>() as u32,
+        );
+        let standard_read = GetFileInformationByHandleEx(
+            handle,
+            FileStandardInfo,
+            std::ptr::from_mut(&mut standard).cast::<c_void>(),
+            std::mem::size_of::<FILE_STANDARD_INFO>() as u32,
+        );
+        if basic_read == 0 || standard_read == 0 || GetFileInformationByHandle(handle, &mut index) == 0 {
+            return None;
+        }
+        Some(revision_text(
+            standard.EndOfFile as u64,
+            filetime_ns(basic.LastWriteTime),
+            filetime_ns(basic.ChangeTime),
+            (u64::from(index.nFileIndexHigh) << 32) | u64::from(index.nFileIndexLow),
+        ))
+    }
 }
 /// A folder outside any repository.
 pub fn not_a_repository() -> GitStatusJson {
@@ -513,6 +569,43 @@ pub fn operation_text(operation: Option<RepoOperation>) -> &'static str {
 mod tests {
     use super::*;
 
+    /// Node's `worktreeRevision` strings, recorded by `fixtures/desktop/revision/record.mjs`: the
+    /// tick counts libuv reads are the recorded nanoseconds back at 100 ns resolution.
+    #[test]
+    fn a_revision_is_node_s_string_for_the_recorded_stat() {
+        let recorded: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/desktop/revision/corpus.json"
+        )))
+        .unwrap();
+        for case in recorded["cases"].as_array().unwrap() {
+            let number = |key: &str| case[key].as_str().unwrap().parse::<i128>().unwrap();
+            let ticks = |key: &str| (number(key) / 100 + 116_444_736_000_000_000) as i64;
+            assert_eq!(filetime_ns(ticks("mtimeNs")), number("mtimeNs"), "{}", case["name"]);
+            assert_eq!(filetime_ns(ticks("ctimeNs")), number("ctimeNs"), "{}", case["name"]);
+            let text = revision_text(number("size") as u64, number("mtimeNs"), number("ctimeNs"), number("ino") as u64);
+            assert_eq!(text, case["revision"].as_str().unwrap(), "{}", case["name"]);
+        }
+    }
+
+    /// The live read on this host agrees with `std` where `std` exposes the field.
+    #[test]
+    fn a_revision_read_matches_std_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("f.txt"), "hello").unwrap();
+        let revision = worktree_revision(dir.path(), "f.txt");
+        let parts: Vec<&str> = revision.split(':').collect();
+        assert_eq!(parts.len(), 4, "{revision}");
+        assert_eq!(parts[0], "5");
+        let modified = std::fs::metadata(dir.path().join("f.txt")).unwrap().modified().unwrap();
+        let nanos = modified.duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        assert_eq!(parts[1].parse::<u128>().unwrap(), nanos);
+        assert!(parts[2].parse::<u128>().unwrap() > 0 && parts[3].parse::<u64>().unwrap() > 0);
+        // A directory opens too (libuv's backup semantics); a missing file is `deleted`.
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        assert_eq!(worktree_revision(dir.path(), "sub").split(':').count(), 4);
+        assert_eq!(worktree_revision(dir.path(), "missing"), "deleted");
+    }
     #[test]
     fn porcelain_v2_rows_become_file_entries() {
         let text = "# branch.oid 0123456789abcdef\0# branch.head main\0# branch.upstream origin/main\0# branch.ab +2 -1\0\

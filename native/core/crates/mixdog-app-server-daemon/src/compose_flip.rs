@@ -677,6 +677,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The notify domain (WP-NOTIFY-ROOMS), built right after the remote runtime it reads: the phone audience (`RuntimePresence` over the roster and the
     // UI screen sessions), the engine, and the sink every push goes through. The held-request push and `notify/*` share them (flip-home-2).
     let screen = Arc::new(mixdog_core_domains::notify::screen::ScreenSessions::new(built_remote.registry.clone()));
+    // `hostState` key `remoteViewing`: what paired devices show, for the desktop's `visualizeRemoteViewing`.
+    drop(mixdog_rt::spawn(
+        "remote-viewing",
+        mixdog_rt::TaskClass::Work,
+        mixdog_core_domains::domains::host::publish_remote_viewing(Arc::downgrade(&built_remote.registry), state.publisher.clone()),
+    ));
     let notify_engine = Arc::new(mixdog_core_domains::notify::engine::NotificationEngine::new(
         // flip-rooms-1: the volume is read at toast time (`ToastStyleReader`); `sound` follows it (`none` at 0).
         Arc::new({
