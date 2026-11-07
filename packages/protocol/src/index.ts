@@ -814,7 +814,7 @@ export type ConfigValueWriteParams = { opId: OpId, path: ConfigPath, value: Json
 /**
  * How a `config/value/write` edit applies.
  */
-export type ConfigWriteMode = "replace" | "initializeIfMissing";
+export type ConfigWriteMode = "replace" | "initializeIfMissing" | "mergePatch" | "mergePatchBots" | "setConversation";
 
 /**
  * The stored value after the write (`initializeIfMissing` returns the kept value).
@@ -1952,12 +1952,12 @@ state: JsonValue, };
 /**
  * Params of `lsp/document`.
  */
-export type LspDocumentParams = { root: string, document: JsonValue, };
+export type LspDocumentParams = { projectPath: string, root: string, document: JsonValue, };
 
 /**
  * Params of `lsp/request`.
  */
-export type LspRequestParams = { opId: OpId, root: string, request: JsonValue, };
+export type LspRequestParams = { opId: OpId, projectPath: string, root: string, request: JsonValue, };
 
 /**
  * Params of `lsp/subscribe` and `lsp/unsubscribe`.
@@ -4096,7 +4096,7 @@ entry?: JsonValue, };
 /**
  * Params of `transfer/beginWrite`.
  */
-export type TransferBeginWriteParams = { opId: OpId, root: string, rel: string, size: number, };
+export type TransferBeginWriteParams = { opId: OpId, root?: string, rel?: string, size: number, name?: string, scope?: string, };
 
 /**
  * Params of `transfer/beginZip`.
@@ -4121,7 +4121,7 @@ export type TransferId = string;
 /**
  * Params of `transfer/readRange`.
  */
-export type TransferReadRangeParams = { transferId: TransferId, offset: number, length: number, };
+export type TransferReadRangeParams = { transferId?: TransferId, root?: string, rel?: string, offset: number, length: number, };
 
 /**
  * What a read transfer opens; the real path is verified after open.
@@ -4131,7 +4131,7 @@ export type TransferSource = { "kind": "file", root: string, rel: string, } | { 
 /**
  * Params of `transfer/trash/entry`.
  */
-export type TransferTrashEntryParams = { opId: OpId, path: string, };
+export type TransferTrashEntryParams = { opId: OpId, path: string, rel: string, permanent?: boolean, };
 
 /**
  * Params of `transfer/trash/info`.

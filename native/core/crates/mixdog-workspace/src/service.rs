@@ -231,6 +231,10 @@ fn s<'a>(params: &'a Value, key: &str) -> WsResult<&'a str> {
     params.get(key).and_then(Value::as_str).ok_or_else(|| WsError::invalid(format!("{key} is invalid.")))
 }
 
+/// Largest staged upload and its chunk size (`shared/server-files.ts`).
+const UPLOAD_MAX_BYTES: u64 = 512 * 1024 * 1024;
+const UPLOAD_CHUNK_BYTES: u64 = 2 * 1024 * 1024;
+
 fn opt_bool(params: &Value, key: &str) -> bool {
     params.get(key).and_then(Value::as_bool).unwrap_or(false)
 }
@@ -725,15 +729,44 @@ impl WorkspaceService {
                     "entry": { "name": opened.name, "version": opened.version, "rangeMaxBytes": opened.range_max_bytes } }))
             }
             "transfer/readRange" => {
-                let id = s(params, "transferId")?.to_owned();
                 let offset = params.get("offset").and_then(Value::as_u64).ok_or_else(|| WsError::invalid("offset is invalid."))?;
                 let length = params.get("length").and_then(Value::as_u64).ok_or_else(|| WsError::invalid("length is invalid."))?;
+                // `serverFileReadRange(root, rel, offset, length)` names the file and opens no transfer.
+                if params.get("transferId").is_none() {
+                    if length == 0 {
+                        return Err(WsError::invalid("length is invalid."));
+                    }
+                    let (root, rel) = (self.root(req.ctx.origin, params).await?, s(params, "rel")?.to_owned());
+                    return value(run_fallible(self.lanes.interactive, &cancel, move || crate::transfer::read_path_range(&root, &rel, offset, length)).await?);
+                }
+                let id = s(params, "transferId")?.to_owned();
                 let (owner, t) = (Self::owner(req), self.transfers.clone());
                 let range = run_fallible(self.lanes.interactive, &cancel, move || t.read_range(&owner, &id, offset, length)).await?;
                 value(json!(range))
             }
             "transfer/endRead" => {
                 value(json!({ "ended": self.transfers.end_read(&Self::owner(req), s(params, "transferId")?) }))
+            }
+            "transfer/beginWrite" if params.get("scope").is_some() => {
+                // `serverUploadBegin(name, size, scope)`: staged under the data dir, named at commit.
+                let scope = s(params, "scope")?.trim();
+                if scope.is_empty()
+                    || scope.len() > 128
+                    || scope == "."
+                    || scope == ".."
+                    || !scope.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+                {
+                    return Err(WsError::invalid("The upload scope is invalid."));
+                }
+                let size = params
+                    .get("size")
+                    .and_then(Value::as_u64)
+                    .filter(|size| (1..=UPLOAD_MAX_BYTES).contains(size))
+                    .ok_or_else(|| WsError::invalid("size is invalid."))?;
+                let dir = self.user_data.join("attachments").join(scope);
+                let (owner, name, t) = (Self::owner(req), s(params, "name")?.to_owned(), self.transfers.clone());
+                let id = run_fallible(self.lanes.durability, &cancel, move || t.begin_staged(&owner, &dir, &name, size)).await?;
+                value(json!({ "transferId": id, "uploadId": id, "chunkBytes": UPLOAD_CHUNK_BYTES, "maxBytes": UPLOAD_MAX_BYTES }))
             }
             "transfer/beginWrite" => {
                 let root = self.root(req.ctx.origin, params).await?;
@@ -757,9 +790,10 @@ impl WorkspaceService {
             "transfer/commit" => {
                 let id = s(params, "transferId")?.to_owned();
                 let (owner, t) = (Self::owner(req), self.transfers.clone());
-                let size = run_fallible(self.lanes.durability, &cancel, move || t.commit(&owner, &id)).await?;
+                let (size, path) = run_fallible(self.lanes.durability, &cancel, move || t.commit(&owner, &id)).await?;
                 self.note_anything();
-                value(json!({ "size": size }))
+                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                value(json!({ "size": size, "absolutePath": path.to_string_lossy(), "name": name, "dir": false }))
             }
             "transfer/abort" => value(json!({ "aborted": self.transfers.abort(&Self::owner(req), s(params, "transferId")?) })),
             "transfer/trash/info" => {
@@ -849,14 +883,16 @@ impl WorkspaceService {
             // The subscription itself is the server's; the feed outlives it (servers keep running).
             "lsp/unsubscribe" => value(json!({})),
             "lsp/document" => {
-                let project = s(params, "root")?;
-                let root = self.catalog.resolve(project).await?;
+                // `projectPath` names the project the events carry; `root` is the folder the host
+                // resolved for it (a worktree may differ), as Node's `lspDocument(projectPath, root, input)`.
+                let project = s(params, "projectPath")?;
+                let root = self.root(req.ctx.origin, params).await?;
                 let document = DocumentInput::from_value(params.get("document").unwrap_or(&Value::Null))?;
                 value(self.lsp.document(project, &root, document).await)
             }
             "lsp/request" => {
-                let project = s(params, "root")?;
-                let root = self.catalog.resolve(project).await?;
+                let project = s(params, "projectPath")?;
+                let root = self.root(req.ctx.origin, params).await?;
                 let r = params.get("request").unwrap_or(&Value::Null);
                 value(
                     self.lsp

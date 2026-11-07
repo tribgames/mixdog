@@ -124,6 +124,8 @@ mod tests {
         assert!(screen.shows("desk-thread") && !screen.shows("phone-thread"), "the phone does not touch the host's set");
         assert!(registry.credential_shows("cred-a", "phone-thread"));
         assert!(!registry.credential_shows("cred-b", "phone-thread"));
+        // Any paired device (`visualizeRemoteViewing`), not the desktop's own set.
+        assert!(registry.any_device_shows("phone-thread") && !registry.any_device_shows("desk-thread"));
         // The browser id is its own identity: clipped to 64 units, and no credential answers to it.
         assert!(registry.browser_shows(&"x".repeat(64), "phone-thread"));
         assert!(!registry.browser_shows("cred-a", "phone-thread"));
@@ -134,6 +136,6 @@ mod tests {
         assert!(registry.browser_shows(&"x".repeat(64), "t2"));
         // A phone that left shows nothing, even before its connection record goes.
         registry.detach_peer("peer-a");
-        assert!(!registry.credential_shows("cred-a", "t2"));
+        assert!(!registry.credential_shows("cred-a", "t2") && !registry.any_device_shows("t2"));
     }
 }

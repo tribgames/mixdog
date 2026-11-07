@@ -20,6 +20,12 @@ pub enum ConfigWriteMode {
     Replace,
     /// Write only when the path holds no value; the compare is inside the write transaction.
     InitializeIfMissing,
+    /// `notifications.devices.<id>` only: the value is a partial record merged onto the stored one, `events` and `quietHours` key by key; a device with none stored starts from the default record.
+    MergePatch,
+    /// As `mergePatch`, but a device with none stored starts from the phone-app default (bot chats only).
+    MergePatchBots,
+    /// `notifications.overrides` only: the value is `{target, setting}`; the target's entry is replaced, or removed when the mode is `inherit`, and expired mutes are dropped.
+    SetConversation,
 }
 
 /// Config paths that replace former wire operations and Electron-profile

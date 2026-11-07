@@ -154,6 +154,11 @@ impl DeviceRegistry {
         self.shown_by(|described, _| !credential.is_empty() && described.credential == credential, thread_id)
     }
 
+    /// Whether any attached paired device shows `thread_id`: Node's `viewsSessionLane` (the
+    /// desktop asks it before it opens a visualize tab for a session phones are watching).
+    pub fn any_device_shows(&self, thread_id: &str) -> bool {
+        self.shown_by(|_, _| true, thread_id)
+    }
     /// Whether an attached connection that reported `browser_id` shows `thread_id`: the question
     /// of direct Web Push. Never answers for a credential.
     pub fn browser_shows(&self, browser_id: &str, thread_id: &str) -> bool {

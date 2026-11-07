@@ -142,6 +142,39 @@ fn turning_auto_compact_off_retires_the_legacy_compaction_keys() {
     assert_eq!(on_disk(&dir)["agent"]["compaction"], json!({ "summaryModel": "m1", "memoryTimeoutMs": 900 }));
 }
 #[test]
+fn a_device_patch_merges_onto_its_stored_or_default_record() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, None);
+    let mode = |mode| config.write("notifications.devices.cred1", json!({ "events": { "error": false } }), mode);
+    // A phone app with nothing stored starts from bot chats only, the patch changes just its events.
+    mode(ConfigWriteMode::MergePatchBots).unwrap();
+    let stored = on_disk(&dir)["notifications"]["devices"]["cred1"].clone();
+    assert_eq!(stored["scope"], "bots");
+    assert_eq!(stored["events"]["error"], false);
+    // A stored record keeps what it has: a second patch touches only its own keys.
+    config.write("notifications.devices.cred1", json!({ "quietHours": { "enabled": true } }), ConfigWriteMode::MergePatch).unwrap();
+    let merged = on_disk(&dir)["notifications"]["devices"]["cred1"].clone();
+    assert_eq!((merged["scope"].clone(), merged["events"]["error"].clone(), merged["quietHours"]["enabled"].clone()), (json!("bots"), json!(false), json!(true)));
+    // An invalid patch is refused and nothing changes.
+    assert!(config.write("notifications.devices.cred1", json!({ "scope": "nobody" }), ConfigWriteMode::MergePatch).is_err());
+    assert_eq!(on_disk(&dir)["notifications"]["devices"]["cred1"], merged);
+    assert!(config.write("desktop.keepAwake", json!({}), ConfigWriteMode::MergePatch).is_err());
+}
+
+#[test]
+fn a_conversation_setting_replaces_the_targets_entry_and_inherit_removes_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, None);
+    let set = |setting: Value| {
+        config.write("notifications.overrides", json!({ "target": { "kind": "session", "id": "s1" }, "setting": setting }), ConfigWriteMode::SetConversation)
+    };
+    set(json!({ "mode": "muted", "until": null })).unwrap();
+    set(json!({ "mode": "always" })).unwrap();
+    assert_eq!(on_disk(&dir)["notifications"]["overrides"], json!([{ "target": { "kind": "session", "id": "s1" }, "setting": { "mode": "always" } }]));
+    set(json!({ "mode": "inherit" })).unwrap();
+    assert_eq!(on_disk(&dir)["notifications"]["overrides"], json!([]));
+}
+#[test]
 fn computer_control_off_keeps_the_install_marker() {
     let dir = tempfile::tempdir().unwrap();
     let (config, _) = open(&dir, Some(json!({ "desktop": { "computerControl": true } })));

@@ -111,6 +111,31 @@ async fn a_local_connection_reads_any_absolute_folder_while_a_relay_is_held_to_t
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_staged_upload_is_named_uniquely_and_a_path_range_needs_no_transfer() {
+    let env = env();
+    let mut published = Vec::new();
+    for _ in 0..2 {
+        let began = call(&env, "transfer/beginWrite", json!({ "name": "dir\\b.txt", "size": 2, "scope": "draft1" })).await.unwrap();
+        assert_eq!(began["uploadId"], began["transferId"]);
+        assert_eq!(began["chunkBytes"], 2 * 1024 * 1024);
+        let id = began["transferId"].as_str().unwrap().to_owned();
+        call(&env, "transfer/writeChunk", json!({ "transferId": id, "offset": 0, "bytesB64": "aGk=" })).await.unwrap();
+        let done = call(&env, "transfer/commit", json!({ "transferId": id })).await.unwrap();
+        assert_eq!(std::fs::read(done["absolutePath"].as_str().unwrap()).unwrap(), b"hi");
+        published.push(done["name"].as_str().unwrap().to_owned());
+    }
+    assert_eq!(published, ["b.txt", "b (2).txt"]);
+    let bad = call(&env, "transfer/beginWrite", json!({ "name": "x", "size": 2, "scope": "../up" })).await;
+    assert!(matches!(bad, Err(CoreError::InvalidParams { .. })));
+
+    let root = env.root.to_string_lossy().into_owned();
+    let range = call(&env, "transfer/readRange", json!({ "root": root, "rel": "a.txt", "offset": 0, "length": 3 })).await.unwrap();
+    assert_eq!(range["data"], "b25l");
+    assert_eq!(range["offset"], 0);
+    assert!(range["size"].as_u64().unwrap() >= 3 && range["mtimeMs"].is_number());
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn stat_local_reports_a_failure_per_path() {
     let env = env();
     let present = env.root.join("a.txt");
@@ -874,7 +899,7 @@ async fn lsp_feed_carries_node_keyed_sections_with_a_snapshot_for_late_subscribe
     let attached = subscribe(&sub.feed, SubscriptionId::from("s1"), sub.window, None, &conn).unwrap();
     conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
     // The mock process manager starts no real server: opening a TypeScript file publishes statuses.
-    call(&env, "lsp/document", json!({ "root": root, "document": { "kind": "open", "languageId": "typescript", "relPath": "a.ts", "content": "x", "version": 1 } })).await.unwrap();
+    call(&env, "lsp/document", json!({ "projectPath": root, "root": root, "document": { "kind": "open", "languageId": "typescript", "relPath": "a.ts", "content": "x", "version": 1 } })).await.unwrap();
     let raw = conn.drain_text_until(|texts| texts.iter().any(|f| f.contains("lsp/status/updated"))).await;
     let frames: Vec<Value> = raw.iter().filter_map(|f| serde_json::from_str(f.split_once(':')?.1).ok()).collect();
     assert!(!raw.is_empty(), "no frames at all");
@@ -902,12 +927,12 @@ async fn recorded_lsp_registry_and_unsupported_answers_replay() {
     let fixture = corpus("lsp");
     let find = |op: &str| fixture["entries"].as_array().unwrap().iter().find(|e| e["op"] == op).unwrap().clone();
     let root = env.root.to_string_lossy().into_owned();
-    let doc = call(&env, "lsp/document", json!({ "root": root, "document": { "kind": "open", "languageId": "plaintext", "relPath": "a.xyz", "content": "x", "version": 1 } })).await.unwrap();
+    let doc = call(&env, "lsp/document", json!({ "projectPath": root, "root": root, "document": { "kind": "open", "languageId": "plaintext", "relPath": "a.xyz", "content": "x", "version": 1 } })).await.unwrap();
     assert_eq!(doc, find("lspDocument")["result"]);
     let request = call(
         &env,
         "lsp/request",
-        json!({ "root": root, "request": { "relPath": "a.xyz", "languageId": "plaintext", "method": "textDocument/hover", "params": { "position": { "line": 0, "character": 0 } } } }),
+        json!({ "projectPath": root, "root": root, "request": { "relPath": "a.xyz", "languageId": "plaintext", "method": "textDocument/hover", "params": { "position": { "line": 0, "character": 0 } } } }),
     )
     .await
     .unwrap();

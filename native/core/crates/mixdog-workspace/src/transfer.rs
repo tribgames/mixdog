@@ -94,6 +94,9 @@ struct Upload {
     file: File,
     size: u64,
     written: u64,
+    /// A staged upload: the name is made unique at commit (
+ame (2).ext) instead of refused.
+    unique: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -326,7 +329,21 @@ impl Transfers {
         self.writes
             .lock()
             .expect("transfer writes")
-            .insert(id.clone(), Upload { owner: owner.to_owned(), temp, target, file, size, written: 0 });
+            .insert(id.clone(), Upload { owner: owner.to_owned(), temp, target, file, size, written: 0, unique: false });
+        Ok(id)
+    }
+
+    /// `serverUploadBegin(name, size, scope)`: an upload into the staging folder `dir`, published at
+    /// commit under `name`, or `name (2).ext`... when that is taken.
+    pub fn begin_staged(&self, owner: &str, dir: &Path, name: &str, size: u64) -> WsResult<String> {
+        std::fs::create_dir_all(dir)?;
+        let id = new_id();
+        let temp = dir.join(format!(".{id}.part"));
+        let file = File::options().write(true).create_new(true).open(&temp)?;
+        self.writes.lock().expect("transfer writes").insert(
+            id.clone(),
+            Upload { owner: owner.to_owned(), temp, target: dir.join(upload_file_name(name)), file, size, written: 0, unique: true },
+        );
         Ok(id)
     }
 
@@ -341,7 +358,7 @@ impl Transfers {
         Ok(write.written)
     }
 
-    pub fn commit(&self, owner: &str, id: &str) -> WsResult<u64> {
+    pub fn commit(&self, owner: &str, id: &str) -> WsResult<(u64, PathBuf)> {
         let write = {
             let mut writes = self.writes.lock().expect("transfer writes");
             if !writes.get(id).is_some_and(|w| w.owner == owner) {
@@ -349,23 +366,25 @@ impl Transfers {
             }
             writes.remove(id).expect("checked")
         };
-        let Upload { temp, target, file, size, written, .. } = write;
-        let outcome = (|| -> WsResult<()> {
+        let Upload { temp, target, file, size, written, unique, .. } = write;
+        let outcome = (|| -> WsResult<PathBuf> {
             if written != size {
                 return Err(WsError::invalid("Upload is incomplete."));
             }
             file.sync_all()?;
             drop(file);
+            if unique {
+                return publish_unique(&temp, &target);
+            }
             if target.exists() {
                 return Err(WsError::new(Reason::AlreadyExists, "An entry with that name already exists in the target folder."));
             }
             std::fs::rename(&temp, &target)?;
-            Ok(())
+            Ok(target.clone())
         })();
-        if outcome.is_err() {
-            let _ = std::fs::remove_file(&temp);
-        }
-        outcome.map(|()| size)
+        // A published staged upload keeps its hard link only; the temp name always goes.
+        let _ = std::fs::remove_file(&temp);
+        outcome.map(|path| (size, path))
     }
 
     pub fn abort(&self, owner: &str, id: &str) -> bool {
@@ -401,6 +420,64 @@ impl Transfers {
 
 pub type SharedTransfers = Arc<Transfers>;
 
+/// `serverFileReadRange(root, rel, offset, length)`: one stateless read of up to
+/// [`RANGE_MAX_BYTES`] at `offset`, as `{data, offset, size, mtimeMs}` (`data` base64).
+pub fn read_path_range(root: &Path, rel: &str, offset: u64, length: u64) -> WsResult<serde_json::Value> {
+    let file = File::open(project_entry_path(root, rel)?)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        return Err(WsError::invalid("Not a file."));
+    }
+    let size = meta.len();
+    let wanted = length.min(RANGE_MAX_BYTES).min(size.saturating_sub(offset));
+    let mut data = vec![0u8; wanted as usize];
+    let mut filled = 0usize;
+    while filled < data.len() {
+        let n = read_at(&file, &mut data[filled..], offset + filled as u64)?;
+        if n == 0 {
+            break;
+        }
+        filled += n;
+    }
+    data.truncate(filled);
+    let mtime_ms = meta
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0.0, |elapsed| elapsed.as_secs_f64() * 1000.0);
+    Ok(serde_json::json!({ "data": STANDARD.encode(&data), "offset": offset, "size": size, "mtimeMs": mtime_ms }))
+}
+
+/// One path segment naming an uploaded file: the last segment of a `/`- or `\`-separated name,
+/// control characters and `/` replaced by `_`, at most 200 characters, `attachment` when empty
+/// (`serverUploadFileName`).
+fn upload_file_name(raw: &str) -> String {
+    let last = raw.replace('\\', "/");
+    let last = last.rsplit('/').next().unwrap_or_default();
+    let cleaned: String = last.chars().map(|c| if c.is_control() { '_' } else { c }).collect();
+    let name: String = cleaned.trim().chars().take(200).collect();
+    if name.is_empty() || name == "." || name == ".." { "attachment".to_owned() } else { name }
+}
+
+/// `name`, then `name (2).ext`, `name (3).ext`...: each candidate is reserved with a hard link, so
+/// two uploads of one name never overwrite each other.
+fn publish_unique(temp: &Path, target: &Path) -> WsResult<PathBuf> {
+    let dir = target.parent().ok_or_else(|| WsError::invalid("Path is invalid."))?;
+    let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let (stem, extension) = match Path::new(&name).extension() {
+        Some(ext) => (name[..name.len() - ext.len() - 1].to_owned(), format!(".{}", ext.to_string_lossy())),
+        None => (name.clone(), String::new()),
+    };
+    for attempt in 1..1000 {
+        let candidate = if attempt == 1 { dir.join(&name) } else { dir.join(format!("{stem} ({attempt}){extension}")) };
+        match std::fs::hard_link(temp, &candidate) {
+            Ok(()) => return Ok(candidate),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Err(WsError::new(Reason::AlreadyExists, "Too many files with this name in the upload folder."))
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -468,7 +545,7 @@ mod tests {
         t.write_chunk("o", &id, 0, b"he").unwrap();
         assert!(t.write_chunk("o", &id, 0, b"xx").is_err());
         t.write_chunk("o", &id, 2, b"llo").unwrap();
-        assert_eq!(t.commit("o", &id).unwrap(), 5);
+        assert_eq!(t.commit("o", &id).unwrap().0, 5);
         assert_eq!(std::fs::read(root.join("in/up.txt")).unwrap(), b"hello");
     }
 }

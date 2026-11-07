@@ -314,6 +314,39 @@ fn untracked_lines(root: &Path, path: &str) -> u64 {
     newlines + u64::from(data.last() != Some(&b'\n'))
 }
 
+/// The identity of a work-tree file in a review row (`worktreeRevision`): `size:mtimeNs:ctimeNs:ino`,
+/// or `deleted` when it is gone. Any write moves the change time even when a tool restores the
+/// modify time. Where the platform exposes no change time or file id (Windows `std`), those two
+/// parts are `0`; the value is only ever compared with an earlier one of the same host.
+pub fn worktree_revision(root: &Path, path: &str) -> String {
+    match std::fs::metadata(root.join(path)) {
+        Ok(meta) => revision_of(&meta),
+        Err(_) => "deleted".to_owned(),
+    }
+}
+
+#[cfg(unix)]
+fn revision_of(meta: &std::fs::Metadata) -> String {
+    use std::os::unix::fs::MetadataExt;
+    let nanos = |seconds: i64, nsec: i64| i128::from(seconds) * 1_000_000_000 + i128::from(nsec);
+    format!(
+        "{}:{}:{}:{}",
+        meta.size(),
+        nanos(meta.mtime(), meta.mtime_nsec()),
+        nanos(meta.ctime(), meta.ctime_nsec()),
+        meta.ino()
+    )
+}
+
+#[cfg(not(unix))]
+fn revision_of(meta: &std::fs::Metadata) -> String {
+    let modified = meta
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |elapsed| elapsed.as_nanos());
+    format!("{}:{}:0:0", meta.len(), modified)
+}
 /// A folder outside any repository.
 pub fn not_a_repository() -> GitStatusJson {
     GitStatusJson::default()
