@@ -35,6 +35,17 @@ pub trait TurnSettings: Send + Sync + 'static {
     async fn migrate_exposure(&self, _thread: &ThreadId, _rows: &[serde_json::Value]) -> Result<Option<Header>, String> {
         Ok(None)
     }
+
+    /// `currentAgents()` (`agent-profile-fold.mjs`): the agents `header`'s Lead may delegate to now, as its prompt
+    /// would list them, for the turn's agent list reminder; `None` for a session that gets none.
+    async fn current_agents(&self, _thread: &ThreadId, _header: &Header) -> Result<Option<Vec<super::turn_reminders::AgentEntry>>, String> {
+        Ok(None)
+    }
+
+    /// `orchestrationInstructions(mode)`: the text a carried orchestration mode notice ends with.
+    async fn orchestration_instructions(&self, _mode: &str) -> Result<String, String> {
+        Err("this host has no orchestration instructions".to_owned())
+    }
 }
 
 /// The MCP catalog of one thread, refreshed through the turn settings.
@@ -83,6 +94,20 @@ impl TurnSettings for LateTurnSettings {
     async fn migrate_exposure(&self, thread: &ThreadId, rows: &[serde_json::Value]) -> Result<Option<Header>, String> {
         match self.0.get() {
             Some(host) => host.migrate_exposure(thread, rows).await,
+            None => Err("the turn settings are not bound yet".to_owned()),
+        }
+    }
+
+    async fn current_agents(&self, thread: &ThreadId, header: &Header) -> Result<Option<Vec<super::turn_reminders::AgentEntry>>, String> {
+        match self.0.get() {
+            Some(host) => host.current_agents(thread, header).await,
+            None => Err("the turn settings are not bound yet".to_owned()),
+        }
+    }
+
+    async fn orchestration_instructions(&self, mode: &str) -> Result<String, String> {
+        match self.0.get() {
+            Some(host) => host.orchestration_instructions(mode).await,
             None => Err("the turn settings are not bound yet".to_owned()),
         }
     }

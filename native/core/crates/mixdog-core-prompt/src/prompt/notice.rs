@@ -773,11 +773,16 @@ pub fn acknowledge_change(header: &Header, revision: i64) -> Option<HeaderChange
     Some(HeaderChange { set, unset })
 }
 
-/// The user message that carries the pending notice (`buildUserTurn`, `ask-turn-prepare.mjs:204-246`):
-/// `withRuntimeUserContext(message, { suffix: suffixUserTurnReminders('', notice) })` over the notice's revision in the
-/// message's meta, so a retry resubmits the message as it is. `None` for content that is neither text nor blocks.
-pub fn carry_notice(message: &Value, revision: i64, notice: &str) -> Option<Value> {
-    let suffix = format!("\n\n{notice}");
+/// The user message that carries the turn's reminder block (`buildUserTurn`, `ask-turn-prepare.mjs:205-246`):
+/// `withRuntimeUserContext(message, { suffix: suffixUserTurnReminders('', block) })` over the meta the reminders
+/// leave on the message (`agentListing`: what the agent list reminder told; `promptSettingsNoticeRevision`: the
+/// settings notice it carried, so a retry resubmits the message as it is). A turn with no reminder keeps its
+/// message. `None` for content that is neither text nor blocks.
+pub fn carry_reminders(message: &Value, block: &str, agent_listing: Option<&Value>, settings_revision: Option<i64>) -> Option<Value> {
+    if block.is_empty() {
+        return Some(message.clone());
+    }
+    let suffix = format!("\n\n{block}");
     let mut carried = message.clone();
     match carried.get_mut("content")? {
         Value::String(text) => text.push_str(&suffix),
@@ -786,7 +791,12 @@ pub fn carry_notice(message: &Value, revision: i64, notice: &str) -> Option<Valu
     }
     let object = carried.as_object_mut()?;
     let meta = object.entry("meta").or_insert_with(|| json!({})).as_object_mut()?;
-    meta.insert("promptSettingsNoticeRevision".into(), json!(revision));
+    if let Some(listing) = agent_listing {
+        meta.insert("agentListing".into(), listing.clone());
+    }
+    if let Some(revision) = settings_revision {
+        meta.insert("promptSettingsNoticeRevision".into(), json!(revision));
+    }
     meta.insert("runtimeUserContext".into(), json!({ "prefix": "", "suffix": suffix }));
     Some(carried)
 }

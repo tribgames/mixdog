@@ -163,6 +163,17 @@ pub trait RunParts: Send + Sync + 'static {
         Ok(())
     }
 
+    /// `currentAgents()`: the agents the thread's Lead may delegate to now, for the turn's agent list reminder;
+    /// `None` for a thread that gets none (an agent's own, a bot's).
+    async fn current_agents(&self, _thread: &ThreadId, _header: &mixdog_store::schema::record::Header) -> Result<Option<Vec<super::turn_reminders::AgentEntry>>, TurnError> {
+        Ok(None)
+    }
+
+    /// `orchestrationInstructions(mode)`: the text a carried orchestration mode notice ends with.
+    async fn orchestration_instructions(&self, _mode: &str) -> Result<String, TurnError> {
+        Err(TurnError { message: "this host has no orchestration instructions".to_owned(), data: json!({}), provider_error: None })
+    }
+
     /// The thread's tools as its session holds them now (`session.tools`, after a refresh): the request boundary
     /// adopts their changed MCP definitions. A host with no MCP catalog keeps the run's set.
     async fn request_tools(&self, _thread: &ThreadId, _surface: &SessionSurface) -> Result<Option<ToolSet>, TurnError> {
@@ -845,7 +856,7 @@ async fn drive(
     search_usage: Arc<mixdog_tools::web::NativeSearchUsageSinks>,
     run: RunStart,
 ) -> RunOutcome {
-    let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, unattended, verb, skill_selection: routine_selection, input: submitted, input_item, notice: carried_notice, .. } = run;
+    let RunStart { thread, turn, input_body, header, port, context, surface, progress, turn_messages, cancel, signal, review, agent_turn, unattended, verb, skill_selection: routine_selection, input: submitted, input_item, goal_reminder, notice: carried_notice, .. } = run;
     // whileTurnDispatched and the runtime entry (`runtime-state.mjs`): the run is live from here to the end of the drive.
     let _live = super::turn_liveness::TurnLiveness::begin(&liveness, &thread, Value::Object(header.clone()), progress.subscribe(), cancel.clone());
     let (slot, skill_selection, on_tool_result, notify) = match agent_turn {
@@ -925,21 +936,50 @@ async fn drive(
     // The turn's workspace is final: take the baseline in the background; no tool runs before it.
     review.start(&worktree);
 
-    // `snapshotPendingPromptSettingsNotice` (`buildUserTurn`, `ask-turn-prepare.mjs:204`): what the conversation's
-    // settings moved to since its prompt was built rides this turn once, as the user message's reminder suffix. The
-    // message is kept as it was sent (the context the next turns replay, and a retry resubmits), and the actor
-    // acknowledges the revision when the turn is accepted (`ask-turn-settle.mjs:155-156`); a failed turn leaves it pending.
+    // `buildUserTurn` (`ask-turn-prepare.mjs:147-246`): the reminders staged on the conversation (a workflow or an
+    // orchestration mode switch, moved settings, a changed agent list or working folder, a prepared worktree, a
+    // deferred-tool delta, the Goal) and the ones this prompt earns (the current time, a delegated agent's todo start)
+    // ride this turn once, as the user message's reminder suffix. The message is kept as it was sent (the context the
+    // next turns replay, and a retry resubmits), and the actor acknowledges the revisions when the turn is accepted
+    // (`ask-turn-settle.mjs:148-164`); a failed turn leaves them pending.
     let mut input_body = input_body;
-    if let Some((revision, notice)) = mixdog_core_prompt::prompt::notice::snapshot_pending(&header) {
-        let Some(carried) = mixdog_core_prompt::prompt::notice::carry_notice(&input_body, revision, &notice) else {
-            return failed("the turn's input row cannot carry the settings notice".to_owned(), input_body);
+    let current_agents = match parts.current_agents(&thread, &header).await {
+        Ok(agents) => agents,
+        Err(error) => return RunOutcome::Failed(error),
+    };
+    let mode_instructions = match super::turn_reminders::carried_mode(&header) {
+        Some(mode) => match parts.orchestration_instructions(&mode).await {
+            Ok(text) => Some(text),
+            Err(error) => return RunOutcome::Failed(error),
+        },
+        None => None,
+    };
+    let prompt_content = input_body.get("content").cloned().unwrap_or(Value::Null);
+    let facts = super::turn_reminders::Facts {
+        header: &header,
+        prior: &prior,
+        prompt: &prompt_content,
+        genuine: !injected,
+        current_agents: current_agents.as_deref(),
+        mode_instructions: mode_instructions.as_deref(),
+        goal: goal_reminder.as_ref().map(|reminder| reminder.content.as_str()),
+        hidden_agent: config.hidden_agent,
+        now_ms: clock.now_ms() as f64,
+    };
+    let reminders = match super::turn_reminders::build(&facts) {
+        Ok(reminders) => reminders,
+        Err(text) => return failed(text, input_body),
+    };
+    if !reminders.block.is_empty() {
+        let Some(carried) = reminders.carry(&input_body) else {
+            return failed("the turn's input row cannot carry the turn's reminders".to_owned(), input_body);
         };
         let mut sent = stored.clone();
         sent.push((input_item.clone(), carried.clone()));
         if port.context_rewound(sent).await.is_err() {
-            return failed("the settings notice could not be saved with the turn's input", Value::Null);
+            return failed("the turn's reminders could not be saved with the turn's input", Value::Null);
         }
-        carried_notice.carry(revision);
+        carried_notice.carry(reminders.revisions);
         input_body = carried;
     }
     let input = match message_of(&input_body) {
@@ -1580,10 +1620,20 @@ mod tests {
         // The settings moved: what `stage_prompt_settings_notice` leaves on the header at a turn start.
         let threads = mixdog_core_session::session::thread_state::SessionThreads::new(Arc::new(directory));
         use mixdog_core_ports::ports::threads::ThreadState;
+        // The same turn also carries a workflow switch, a prepared worktree's report and a deferred-tool delta, staged as
+        // Node leaves them (`fixtures/turn-reminders`).
+        let reminders: Value = serde_json::from_str(include_str!("../../../../fixtures/turn-reminders/twin.json")).unwrap();
+        let session_of = |name: &str| reminders["cases"].as_array().unwrap().iter().find(|case| case["name"] == name).unwrap()["session"].clone();
+        let (switched, setup, delta) = (session_of("workflow-carried-by-prompt"), session_of("setup-notice"), session_of("deferred-delta-removals-only"));
         let staged: serde_json::Map<String, Value> = [
             ("promptSettings".to_owned(), case["startRecord"].clone()),
             ("promptSettingsNotice".to_owned(), case["pending"].clone()),
             ("promptSettingsNoticeRevision".to_owned(), case["pending"]["revision"].clone()),
+            ("workflowSwitch".to_owned(), switched["workflowSwitch"].clone()),
+            ("pendingSetupNotice".to_owned(), setup["pendingSetupNotice"].clone()),
+            ("pendingDeferredToolDelta".to_owned(), delta["pendingDeferredToolDelta"].clone()),
+            ("deferredToolDeltaRevision".to_owned(), delta["deferredToolDeltaRevision"].clone()),
+            ("deferredMcpToolNames".to_owned(), delta["deferredMcpToolNames"].clone()),
         ]
         .into_iter()
         .collect();
@@ -1618,11 +1668,17 @@ mod tests {
         assert!(lock(&provider.requests).is_empty(), "the first attempt was refused");
         let after_failure = header().await;
         assert_eq!(after_failure["promptSettingsNotice"], case["failed"]["notice"], "a failed turn acknowledges nothing");
+        for key in ["workflowSwitch", "pendingSetupNotice", "pendingDeferredToolDelta"] {
+            assert!(after_failure.get(key).is_some(), "a failed turn leaves {key} pending");
+        }
 
         turn("two", "op-2", 2).await;
         let settled = header().await;
         let after = &case["after"];
         assert!(settled.get("promptSettingsNotice").is_none(), "the accepted turn acknowledged the notice");
+        for key in ["workflowSwitch", "pendingSetupNotice", "pendingDeferredToolDelta"] {
+            assert!(settled.get(key).is_none(), "the accepted turn acknowledged {key}");
+        }
         assert_eq!(settled["promptSettingsTold"], after["told"]);
         assert_eq!(settled["promptSettingsNoticeRevision"], after["revision"]);
 
@@ -1633,6 +1689,10 @@ mod tests {
         let last = |request: &ModelRequest| format!("{:?}", request.messages.last().expect("a message").content);
         assert!(last(&requests[0]).contains("Core memory was updated"), "the accepted turn's request carries the notice");
         assert!(last(&requests[0]).contains("two"));
+        for marker in ["# Workflow Changed", "# Worktree Prepared", "<deferred_tools_delta>"] {
+            assert!(last(&requests[0]).contains(marker), "the accepted turn's request carries {marker}");
+            assert!(!last(&requests[1]).contains(marker), "the next turn does not carry {marker} again");
+        }
         assert!(!last(&requests[1]).contains("Core memory was updated"), "the next turn carries nothing new");
         assert!(header().await.get("promptSettingsNotice").is_none());
     }

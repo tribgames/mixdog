@@ -89,6 +89,7 @@ pub mod prompt_rebuild;
 pub mod surface_host;
 pub mod tool_availability;
 pub mod skill_session;
+pub mod turn_reminders;
 pub mod turn_settings;
 pub mod route_start;
 pub mod agent_variants;

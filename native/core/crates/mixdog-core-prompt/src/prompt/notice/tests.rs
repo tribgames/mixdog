@@ -108,13 +108,13 @@ fn a_turn_carries_the_notice_as_node_builds_it_and_an_accepted_one_acknowledges_
         let (revision, text) = snapshot_pending(&header).expect(name);
         assert_eq!(json!(revision), case["carriedRevision"], "{name}: revision");
         let plain = &case["next"]["message"];
-        let carried = carry_notice(plain, revision, &text).expect(name);
+        let carried = carry_reminders(plain, &text, None, Some(revision)).expect(name);
         assert_eq!(carried, case["message"], "{name}: the message the model is sent");
 
         // A failed turn settles nothing: the notice is still pending and the next turn carries it again.
         assert_eq!(header.get("promptSettingsNotice"), Some(&case["failed"]["notice"]), "{name}: failed");
         let (again, again_text) = snapshot_pending(&header).expect(name);
-        assert_eq!(carry_notice(plain, again, &again_text).expect(name), case["again"]["message"], "{name}: again");
+        assert_eq!(carry_reminders(plain, &again_text, None, Some(again)).expect(name), case["again"]["message"], "{name}: again");
 
         // An accepted turn acknowledges the revision it carried, once.
         let change = acknowledge_change(&header, revision).expect(name);

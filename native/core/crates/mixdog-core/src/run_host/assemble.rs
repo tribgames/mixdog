@@ -341,6 +341,16 @@ impl RunParts for HostRunParts {
         self.services.turn_settings.refresh_mcp(thread).await.map_err(refuse)
     }
 
+    async fn current_agents(&self, thread: &ThreadId, header: &Header) -> Result<Option<Vec<super::turn_reminders::AgentEntry>>, TurnError> {
+        use super::turn_settings::TurnSettings;
+        self.services.turn_settings.current_agents(thread, header).await.map_err(refuse)
+    }
+
+    async fn orchestration_instructions(&self, mode: &str) -> Result<String, TurnError> {
+        use super::turn_settings::TurnSettings;
+        self.services.turn_settings.orchestration_instructions(mode).await.map_err(refuse)
+    }
+
     async fn request_tools(&self, thread: &ThreadId, surface: &mixdog_tools::policy::SessionSurface) -> Result<Option<ToolSet>, TurnError> {
         let directory = self.services.directory.upgrade().ok_or_else(|| refuse("the session directory is closed"))?;
         let header = directory.live_header(thread).header();

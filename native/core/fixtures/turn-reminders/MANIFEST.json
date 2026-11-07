@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-turn-reminders.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 265113,
+      "path": "twin.json",
+      "sha256": "4e06ab0dd1e22251908a0691c0bc2769b4c015ae63be83d6205f5f1b1d44ef1f"
+    }
+  ],
+  "product": {
+    "appsSha256": "aceede98659c44d00841dcebd6e231994155fbf785a74b44b542e1857c445d21",
+    "commit": "bf52be20e0049ca8d8d1ae9cc3a40c45ada67a33",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9252,
+    "refComparison": {
+      "closestCommit": "bf52be20e0049ca8d8d1ae9cc3a40c45ada67a33",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "4487be07c8f73b301f4522e8f7d66d9ffcb2f3f1b8f0093f64fb4f4553e06852",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-turn-reminders.mjs",
+  "set": "turn-reminders",
+  "totalBytes": 265113
+}
