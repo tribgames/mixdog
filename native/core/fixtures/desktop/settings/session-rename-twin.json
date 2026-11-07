@@ -1,0 +1,1579 @@
+{
+ "domain": "session-rename-twin",
+ "recorder": "benchmarks/rust-core/recorders/record-session-rename.mjs",
+ "cases": [
+  {
+   "state": "fresh",
+   "initial": {},
+   "title": "Valid name",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "Valid name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "Valid name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "fresh",
+   "initial": {},
+   "title": "  Valid   spaced  name ",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "Valid spaced name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "Valid spaced name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "fresh",
+   "initial": {},
+   "title": "",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": null,
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session title is invalid.",
+    "kind": "TypeError",
+    "kept": {
+     "title": null,
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "fresh",
+   "initial": {},
+   "title": "   ",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": null,
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session title is invalid.",
+    "kind": "TypeError",
+    "kept": {
+     "title": null,
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "fresh",
+   "initial": {},
+   "title": "\n\t",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": null,
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session title is invalid.",
+    "kind": "TypeError",
+    "kept": {
+     "title": null,
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "fresh",
+   "initial": {},
+   "title": "Mine",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "Mine",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "Mine",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "fresh",
+   "initial": {},
+   "title": "AI title",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "AI title",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "AI title",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "fresh",
+   "initial": {},
+   "title": "Old",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "Old",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "Old",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "fresh",
+   "initial": {},
+   "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "fresh",
+   "initial": {},
+   "title": "한글 이름",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "한글 이름",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "한글 이름",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "user",
+   "initial": {
+    "title": "Mine",
+    "titleLocked": true,
+    "titleSource": "user"
+   },
+   "title": "Valid name",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "Valid name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "Valid name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "user",
+   "initial": {
+    "title": "Mine",
+    "titleLocked": true,
+    "titleSource": "user"
+   },
+   "title": "  Valid   spaced  name ",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "Valid spaced name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "Valid spaced name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "user",
+   "initial": {
+    "title": "Mine",
+    "titleLocked": true,
+    "titleSource": "user"
+   },
+   "title": "",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Mine",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session title is invalid.",
+    "kind": "TypeError",
+    "kept": {
+     "title": "Mine",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "user",
+   "initial": {
+    "title": "Mine",
+    "titleLocked": true,
+    "titleSource": "user"
+   },
+   "title": "   ",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Mine",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session title is invalid.",
+    "kind": "TypeError",
+    "kept": {
+     "title": "Mine",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "user",
+   "initial": {
+    "title": "Mine",
+    "titleLocked": true,
+    "titleSource": "user"
+   },
+   "title": "\n\t",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Mine",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session title is invalid.",
+    "kind": "TypeError",
+    "kept": {
+     "title": "Mine",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "user",
+   "initial": {
+    "title": "Mine",
+    "titleLocked": true,
+    "titleSource": "user"
+   },
+   "title": "Mine",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Mine",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session is not available.",
+    "kind": "Error",
+    "kept": {
+     "title": "Mine",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "user",
+   "initial": {
+    "title": "Mine",
+    "titleLocked": true,
+    "titleSource": "user"
+   },
+   "title": "AI title",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "AI title",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "AI title",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "user",
+   "initial": {
+    "title": "Mine",
+    "titleLocked": true,
+    "titleSource": "user"
+   },
+   "title": "Old",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "Old",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "Old",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "user",
+   "initial": {
+    "title": "Mine",
+    "titleLocked": true,
+    "titleSource": "user"
+   },
+   "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "user",
+   "initial": {
+    "title": "Mine",
+    "titleLocked": true,
+    "titleSource": "user"
+   },
+   "title": "한글 이름",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "한글 이름",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "한글 이름",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "ai",
+   "initial": {
+    "title": "AI title",
+    "titleLocked": true,
+    "titleSource": "ai"
+   },
+   "title": "Valid name",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "Valid name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "Valid name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "ai",
+   "initial": {
+    "title": "AI title",
+    "titleLocked": true,
+    "titleSource": "ai"
+   },
+   "title": "  Valid   spaced  name ",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "Valid spaced name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "Valid spaced name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "ai",
+   "initial": {
+    "title": "AI title",
+    "titleLocked": true,
+    "titleSource": "ai"
+   },
+   "title": "",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "AI title",
+     "titleLocked": true,
+     "titleSource": "ai",
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session title is invalid.",
+    "kind": "TypeError",
+    "kept": {
+     "title": "AI title",
+     "titleLocked": true,
+     "titleSource": "ai",
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "ai",
+   "initial": {
+    "title": "AI title",
+    "titleLocked": true,
+    "titleSource": "ai"
+   },
+   "title": "   ",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "AI title",
+     "titleLocked": true,
+     "titleSource": "ai",
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session title is invalid.",
+    "kind": "TypeError",
+    "kept": {
+     "title": "AI title",
+     "titleLocked": true,
+     "titleSource": "ai",
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "ai",
+   "initial": {
+    "title": "AI title",
+    "titleLocked": true,
+    "titleSource": "ai"
+   },
+   "title": "\n\t",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "AI title",
+     "titleLocked": true,
+     "titleSource": "ai",
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session title is invalid.",
+    "kind": "TypeError",
+    "kept": {
+     "title": "AI title",
+     "titleLocked": true,
+     "titleSource": "ai",
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "ai",
+   "initial": {
+    "title": "AI title",
+    "titleLocked": true,
+    "titleSource": "ai"
+   },
+   "title": "Mine",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "Mine",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "Mine",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "ai",
+   "initial": {
+    "title": "AI title",
+    "titleLocked": true,
+    "titleSource": "ai"
+   },
+   "title": "AI title",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "AI title",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "AI title",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "ai",
+   "initial": {
+    "title": "AI title",
+    "titleLocked": true,
+    "titleSource": "ai"
+   },
+   "title": "Old",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "Old",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "Old",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "ai",
+   "initial": {
+    "title": "AI title",
+    "titleLocked": true,
+    "titleSource": "ai"
+   },
+   "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "ai",
+   "initial": {
+    "title": "AI title",
+    "titleLocked": true,
+    "titleSource": "ai"
+   },
+   "title": "한글 이름",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "한글 이름",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "한글 이름",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "legacyLocked",
+   "initial": {
+    "title": "Old",
+    "titleLocked": true
+   },
+   "title": "Valid name",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "Valid name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "Valid name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "legacyLocked",
+   "initial": {
+    "title": "Old",
+    "titleLocked": true
+   },
+   "title": "  Valid   spaced  name ",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "Valid spaced name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "Valid spaced name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "legacyLocked",
+   "initial": {
+    "title": "Old",
+    "titleLocked": true
+   },
+   "title": "",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Old",
+     "titleLocked": true,
+     "titleSource": null,
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session title is invalid.",
+    "kind": "TypeError",
+    "kept": {
+     "title": "Old",
+     "titleLocked": true,
+     "titleSource": null,
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "legacyLocked",
+   "initial": {
+    "title": "Old",
+    "titleLocked": true
+   },
+   "title": "   ",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Old",
+     "titleLocked": true,
+     "titleSource": null,
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session title is invalid.",
+    "kind": "TypeError",
+    "kept": {
+     "title": "Old",
+     "titleLocked": true,
+     "titleSource": null,
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "legacyLocked",
+   "initial": {
+    "title": "Old",
+    "titleLocked": true
+   },
+   "title": "\n\t",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Old",
+     "titleLocked": true,
+     "titleSource": null,
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session title is invalid.",
+    "kind": "TypeError",
+    "kept": {
+     "title": "Old",
+     "titleLocked": true,
+     "titleSource": null,
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "legacyLocked",
+   "initial": {
+    "title": "Old",
+    "titleLocked": true
+   },
+   "title": "Mine",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "Mine",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "Mine",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "legacyLocked",
+   "initial": {
+    "title": "Old",
+    "titleLocked": true
+   },
+   "title": "AI title",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "AI title",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "AI title",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "legacyLocked",
+   "initial": {
+    "title": "Old",
+    "titleLocked": true
+   },
+   "title": "Old",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "Old",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "Old",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "legacyLocked",
+   "initial": {
+    "title": "Old",
+    "titleLocked": true
+   },
+   "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "legacyLocked",
+   "initial": {
+    "title": "Old",
+    "titleLocked": true
+   },
+   "title": "한글 이름",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "한글 이름",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "한글 이름",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "generated",
+   "initial": {
+    "title": "Generated"
+   },
+   "title": "Valid name",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "Valid name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "Valid name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "generated",
+   "initial": {
+    "title": "Generated"
+   },
+   "title": "  Valid   spaced  name ",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "Valid spaced name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "Valid spaced name",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "generated",
+   "initial": {
+    "title": "Generated"
+   },
+   "title": "",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Generated",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session title is invalid.",
+    "kind": "TypeError",
+    "kept": {
+     "title": "Generated",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "generated",
+   "initial": {
+    "title": "Generated"
+   },
+   "title": "   ",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Generated",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session title is invalid.",
+    "kind": "TypeError",
+    "kept": {
+     "title": "Generated",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "generated",
+   "initial": {
+    "title": "Generated"
+   },
+   "title": "\n\t",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Generated",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session title is invalid.",
+    "kind": "TypeError",
+    "kept": {
+     "title": "Generated",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "generated",
+   "initial": {
+    "title": "Generated"
+   },
+   "title": "Mine",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "Mine",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "Mine",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "generated",
+   "initial": {
+    "title": "Generated"
+   },
+   "title": "AI title",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "AI title",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "AI title",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "generated",
+   "initial": {
+    "title": "Generated"
+   },
+   "title": "Old",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "Old",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "Old",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "generated",
+   "initial": {
+    "title": "Generated"
+   },
+   "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "generated",
+   "initial": {
+    "title": "Generated"
+   },
+   "title": "한글 이름",
+   "runtime": {
+    "returned": true,
+    "kept": {
+     "title": "한글 이름",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   },
+   "desktop": {
+    "ok": true,
+    "kept": {
+     "title": "한글 이름",
+     "titleLocked": true,
+     "titleSource": "user",
+     "stamped": true
+    }
+   }
+  },
+  {
+   "state": "closed",
+   "initial": {
+    "title": "Gone",
+    "closed": true
+   },
+   "title": "Valid name",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session is not available.",
+    "kind": "Error",
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "closed",
+   "initial": {
+    "title": "Gone",
+    "closed": true
+   },
+   "title": "  Valid   spaced  name ",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session is not available.",
+    "kind": "Error",
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "closed",
+   "initial": {
+    "title": "Gone",
+    "closed": true
+   },
+   "title": "",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session title is invalid.",
+    "kind": "TypeError",
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "closed",
+   "initial": {
+    "title": "Gone",
+    "closed": true
+   },
+   "title": "   ",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session title is invalid.",
+    "kind": "TypeError",
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "closed",
+   "initial": {
+    "title": "Gone",
+    "closed": true
+   },
+   "title": "\n\t",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session title is invalid.",
+    "kind": "TypeError",
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "closed",
+   "initial": {
+    "title": "Gone",
+    "closed": true
+   },
+   "title": "Mine",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session is not available.",
+    "kind": "Error",
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "closed",
+   "initial": {
+    "title": "Gone",
+    "closed": true
+   },
+   "title": "AI title",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session is not available.",
+    "kind": "Error",
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "closed",
+   "initial": {
+    "title": "Gone",
+    "closed": true
+   },
+   "title": "Old",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session is not available.",
+    "kind": "Error",
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "closed",
+   "initial": {
+    "title": "Gone",
+    "closed": true
+   },
+   "title": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session is not available.",
+    "kind": "Error",
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   }
+  },
+  {
+   "state": "closed",
+   "initial": {
+    "title": "Gone",
+    "closed": true
+   },
+   "title": "한글 이름",
+   "runtime": {
+    "returned": false,
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   },
+   "desktop": {
+    "error": "Session is not available.",
+    "kind": "Error",
+    "kept": {
+     "title": "Gone",
+     "titleLocked": null,
+     "titleSource": null,
+     "stamped": false
+    }
+   }
+  }
+ ],
+ "missing": {
+  "returned": false,
+  "desktop": {
+   "error": "Session is not available.",
+   "kind": "Error"
+  }
+ }
+}
