@@ -509,3 +509,21 @@ test('the notification operations are the spec map clientNotification rows', () 
   const wanted = operations.filter((row) => row.target.kind === 'clientNotification').map((row) => row.name);
   assert.deepEqual([...NOTIFICATION_DESKTOP_OPERATIONS].sort(), wanted.sort());
 });
+
+test('termEnsure leaves sizeOwner out when the core says null and keeps an owner', async () => {
+  const owner = { cols: 80, rows: 24, owner: 'phone-1' };
+  const none = await laneWith({ 'terminal/ensure': { id: 't1', replay: 'r', sizeOwner: null } }).lane.invoke('termEnsure', ['t1', R, null]);
+  assert.deepEqual(none, { id: 't1', replay: 'r' });
+  assert.equal('sizeOwner' in none, false);
+  const owned = await laneWith({ 'terminal/ensure': { id: 't1', replay: 'r', sizeOwner: owner } }).lane.invoke('termEnsure', ['t1', R, null]);
+  assert.deepEqual(owned.sizeOwner, owner);
+});
+
+test('readScopedEditorSettings sends root and rel as the editor handler passes them (rel is required by the core)', () => {
+  assert.deepEqual(routeDesktopOperation('readScopedEditorSettings', [U, R, 'src/a.ts', undefined]), {
+    method: 'projectFs/readEditorSettings',
+    params: { root: R, rel: 'src/a.ts' },
+  });
+  // Without rel nothing is invented: the core answers invalidParams, as it should for a call the editor never makes.
+  assert.deepEqual(routeDesktopOperation('readScopedEditorSettings', [U, R]).params, { root: R });
+});
