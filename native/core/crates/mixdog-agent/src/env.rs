@@ -632,6 +632,15 @@ pub trait TailReminder: Send + Sync {
     fn text(&self, model: &str) -> Option<String>;
 }
 
+/// The run's session MCP catalog (Node `refreshDeferredMcpToolCatalog(session)`): the connected names,
+/// the late pool and the pending deferred-tools delta follow the live MCP registry. The loop runs it
+/// where Node does: at every request boundary, at the start of every tool call, and again for an MCP
+/// tool call once its gate has passed.
+#[async_trait]
+pub trait McpCatalog: Send + Sync {
+    async fn refresh(&self);
+}
+
 /// Todo / goal reminders around the end of a turn. State lives with the
 /// session (a user cycle spans several turns).
 #[async_trait]
@@ -922,6 +931,8 @@ pub struct RunEnv {
     pub reuse: Option<Arc<dyn ResultReuse>>,
     pub reactions: Option<Arc<dyn Reactions>>,
     pub tail: Option<Arc<dyn TailReminder>>,
+    /// The session's MCP catalog, refreshed at the request boundary and around every tool call.
+    pub mcp: Option<Arc<dyn McpCatalog>>,
     /// Records the request a logical send is sending (captureSideQuestionRequest).
     pub side: Option<Arc<dyn SendTap>>,
     pub step_judge: Option<Arc<dyn crate::step_effort::StepEffortJudge>>,

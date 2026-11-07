@@ -123,6 +123,10 @@ impl TurnSettings for TurnStart {
         self.route.apply(thread).await?;
         self.settings.reconcile(thread, conversation).await
     }
+
+    async fn refresh_mcp(&self, thread: &ThreadId) -> Result<(), String> {
+        self.settings.refresh_mcp(thread).await
+    }
 }
 
 #[cfg(test)]

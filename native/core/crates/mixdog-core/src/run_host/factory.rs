@@ -157,6 +157,12 @@ pub trait RunParts: Send + Sync + 'static {
     /// the turn started with).
     async fn reconcile_turn(&self, thread: &ThreadId, header: mixdog_store::schema::record::Header, conversation: bool) -> Result<mixdog_store::schema::record::Header, TurnError>;
 
+    /// `refreshDeferredMcpToolCatalog(session)`: the thread's MCP catalog follows the live registry. Run by the
+    /// loop at each request boundary and around each tool call; a host with no MCP catalog has nothing to refresh.
+    async fn refresh_mcp(&self, _thread: &ThreadId) -> Result<(), TurnError> {
+        Ok(())
+    }
+
     /// `getHiddenAgent(agent).stallCap.idleSeconds`: an internal agent's own idle budget, which
     /// the progress watchdog honours.
     fn stall_cap_idle_seconds(&self, _agent: Option<&str>) -> Option<i64> {
@@ -601,6 +607,22 @@ fn prompt_text(body: &Value) -> String {
         _ => String::new(),
     }
 }
+/// The run's [`McpCatalog`]: the parts' refresh for this thread. A refresh that fails is logged; like Node's
+/// (`catch` around the reconcile in `foldMcpSurface`), it never breaks the turn.
+struct ThreadMcp {
+    parts: Arc<dyn RunParts>,
+    thread: ThreadId,
+}
+
+#[async_trait]
+impl mixdog_agent::env::McpCatalog for ThreadMcp {
+    async fn refresh(&self) {
+        if let Err(error) = self.parts.refresh_mcp(&self.thread).await {
+            tracing::warn!("[mcp] catalog refresh failed: {error:?}");
+        }
+    }
+}
+
 /// The request's system messages: the header's prompt fields, in Node's order and tiers (WP-PROMPT).
 pub(crate) fn system_messages(header: &mixdog_store::schema::record::Header) -> Vec<AgentMessage> {
     mixdog_core_prompt::prompt::blocks::request_system_messages(header)
@@ -783,6 +805,7 @@ async fn drive(parts: Arc<dyn RunParts>, liveness: Arc<mixdog_services::task_rep
         reuse,
         reactions,
         tail,
+        mcp: Some(Arc::new(ThreadMcp { parts: parts.clone(), thread: thread.clone() })),
         side,
         step_judge,
         artifacts,

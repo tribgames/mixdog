@@ -92,6 +92,7 @@ use super::tool_pool::model_surface::workflow_allows_agents;
 use super::tool_surface::ApplyOptions;
 use super::tool_surface::ToolSurface;
 use super::tool_surface::clean;
+use super::tool_surface::parse_tool_selection;
 use super::tool_surface::truthy;
 use super::tool_surface::filter_disallowed_tools;
 use super::tool_surface::tool_name;
@@ -214,6 +215,8 @@ pub struct LeadSurfaceHost {
     /// Thread id to the key its surface was last brought to. In this process only, as Node's is: a thread
     /// first seen here (resumed) is checked once.
     applied: std::sync::Mutex<HashMap<String, Applied>>,
+    /// Thread id to the inputs its last MCP reconcile left (`RECONCILE_STATE`); in this process only, as Node's is.
+    mcp_state: std::sync::Mutex<HashMap<String, Value>>,
 }
 
 /// `deferredSurfaceModeForLead`.
@@ -271,7 +274,7 @@ impl LeadSurfaceHost {
     pub fn new(sources: SurfaceSources) -> Result<Self, VariantError> {
         check_pool(&sources.pool)?;
         let agent_defs = agent_definitions(&sources.pool);
-        Ok(Self { mode: normalize_tool_mode(&sources.mode), sources, agent_defs, applied: std::sync::Mutex::default() })
+        Ok(Self { mode: normalize_tool_mode(&sources.mode), sources, agent_defs, applied: std::sync::Mutex::default(), mcp_state: std::sync::Mutex::default() })
     }
 
     /// `availabilityKey()`: the config installed, the surface generation and the gate list.
@@ -573,6 +576,11 @@ impl TurnSettings for LeadSurfaceHost {
         self.note_gates(thread, gates);
         self.fold_mcp_surface(thread).await.map_err(described)
     }
+
+    /// `refreshDeferredMcpToolCatalog(session)` at a request boundary, a tool call or a `load_tool`.
+    async fn refresh_mcp(&self, thread: &ThreadId) -> Result<(), String> {
+        self.fold(thread, false).await.map(|_| ()).map_err(|error| format!("{error:?}"))
+    }
 }
 
 impl LeadSurfaceHost {
@@ -586,45 +594,99 @@ impl LeadSurfaceHost {
     ///   (`reconcileDeferredMcpToolCatalog`).
     ///
     /// Not carried: the grace Node waits for a reconnect in flight (`awaitMcpGrace`, and the agent runtime's wait for
-    /// its initial connect), since the hub offers no readiness wait; and the reconciles at the turn's later requests and
-    /// MCP tool calls, which no turn-start step can make.
+    /// its initial connect), since the hub offers no readiness wait. The reconciles at the request boundary and around
+    /// each tool call are `refresh_mcp`.
     async fn fold_mcp_surface(&self, thread: &ThreadId) -> Result<Header, CoreError> {
+        self.fold(thread, true).await
+    }
+
+    /// `refreshDeferredMcpToolCatalog(session)`: the reconcile alone, for a session that has a deferred provider mode.
+    async fn fold(&self, thread: &ThreadId, first_turn: bool) -> Result<Header, CoreError> {
         let s = &self.sources;
         loop {
             let header = s.threads.header(thread).await.map_err(|error| port(thread, error))?;
             let cwd = header.get("cwd").and_then(Value::as_str).map_or_else(|| s.cwd.clone(), PathBuf::from);
             let live: Vec<Value> = s.mcp.tools(&cwd).iter().map(tool_doc).collect();
-            let next = self.folded_surface(&header, &live).map_err(|message| failed("tools", message))?;
+            let (next, state) = self.folded_surface(thread, &header, &live, first_turn).map_err(|message| failed("tools", message))?;
             let change = header_diff(&header, &next);
             if change.set.is_empty() && change.unset.is_empty() {
+                self.note_mcp_state(thread, state);
                 return Ok(header);
             }
             let expect: Map<String, Value> = change.set.keys().chain(change.unset.iter()).map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null))).collect();
-            // A header that moved meanwhile is read and decided again.
+            // A header that moved meanwhile is read and decided again; the state is kept only for a fold that landed.
             if s.threads.patch_header_if(thread, expect, change.set, change.unset).await.map_err(|error| port(thread, error))?.is_none() {
+                self.note_mcp_state(thread, state);
                 return Ok(next);
             }
         }
     }
 
+    /// `reconcileStateOf(session, liveMcpTools)`: the inputs a reconcile reads, as they stand. The
+    /// registry's tool-generation counter (`getMcpToolGeneration`) only invalidates Node's identity-keyed tool
+    /// clones; the live tools themselves are compared by value here.
+    fn mcp_state_of(session: &Value, live: &[Value]) -> Value {
+        let text = |key: &str| json!(clean(session.get(key)));
+        let selection = |key: &str| json!(parse_tool_selection(session.get(key)));
+        json!({
+            "live": live,
+            "tools": session.get("tools").cloned().unwrap_or(Value::Null),
+            "lateCatalog": session.get("deferredLateToolCatalog").cloned().unwrap_or(Value::Null),
+            "scope": text("mcpScopeId"),
+            "cwd": text("cwd"),
+            "mode": text("deferredSurfaceMode"),
+            "providerMode": text("deferredProviderMode"),
+            "exposure": text("toolExposureMode"),
+            "provider": text("provider"),
+            "model": text("model"),
+            "disallowed": session.get("disallowedTools").cloned().unwrap_or_else(|| json!([])),
+            "callable": selection("deferredCallableTools"),
+            "discovered": selection("deferredDiscoveredTools"),
+        })
+    }
+
+    /// `reconcileDeferredMcpToolCatalog` behind its `RECONCILE_STATE` cache: a reconcile whose inputs equal those the
+    /// last one left behind is skipped outright. The state to remember once the result is written, `None` for a skip.
+    fn reconcile_cached(&self, thread: &ThreadId, surface: &ToolSurface, session: &mut Value, live: &[Value]) -> Option<Value> {
+        if !session.get("tools").is_some_and(Value::is_array) {
+            return None;
+        }
+        if self.mcp_state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(thread.as_str()) == Some(&Self::mcp_state_of(session, live)) {
+            return None;
+        }
+        surface.reconcile_mcp_catalog(session, live);
+        Some(Self::mcp_state_of(session, live))
+    }
+
+    /// Remembers the state a landed reconcile left (`RECONCILE_STATE.set`).
+    fn note_mcp_state(&self, thread: &ThreadId, state: Option<Value>) {
+        if let Some(state) = state {
+            self.mcp_state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(thread.as_str().to_owned(), state);
+        }
+    }
+
     /// `header` with the MCP fold applied over the system prompt as the session holds it (`messages`), the blocks
-    /// written back only where the fold changed them.
-    fn folded_surface(&self, header: &Header, live: &[Value]) -> Result<Header, String> {
+    /// written back only where the fold changed them, and the reconcile state to remember once it is written.
+    /// `first_turn`: the turn start (`foldMcpSurface`), which also runs the initial fold of a fresh session.
+    fn folded_surface(&self, thread: &ThreadId, header: &Header, live: &[Value], first_turn: bool) -> Result<(Header, Option<Value>), String> {
+        // `refreshDeferredMcpToolCatalog`: a session with no deferred provider mode has no MCP catalog to refresh.
+        if !first_turn && !truthy(header.get("deferredProviderMode")) {
+            return Ok((header.clone(), None));
+        }
         let s = &self.sources;
         let surface = ToolSurface { host: s.tool_host.as_ref(), clock: s.clock.as_ref() };
         let before = SystemBlocks::from_header(header);
         let mut session = Value::Object(header.clone());
         session["messages"] = Value::Array(before.node_messages());
-        if truthy(header.get("deferredInitialRefreshPending")) {
+        let state = if first_turn && truthy(header.get("deferredInitialRefreshPending")) {
             // One-shot: cleared before the fold, so the fold never runs twice.
             session["deferredInitialRefreshPending"] = json!(false);
             surface.refresh_initial_mcp_surface(&mut session, live);
-            if truthy(session.get("deferredProviderMode")) {
-                surface.reconcile_mcp_catalog(&mut session, live);
-            }
+            // The request boundary's `refreshDeferredMcpToolCatalog` follows, for a session with a deferred mode.
+            if truthy(session.get("deferredProviderMode")) { self.reconcile_cached(thread, &surface, &mut session, live) } else { None }
         } else {
-            surface.reconcile_mcp_catalog(&mut session, live);
-        }
+            self.reconcile_cached(thread, &surface, &mut session, live)
+        };
         let mut next = session.as_object().cloned().ok_or_else(|| "the folded session is not an object".to_owned())?;
         let messages = next.shift_remove("messages").and_then(|messages| messages.as_array().cloned()).unwrap_or_default();
         let mut after = SystemBlocks::from_node_messages(&messages).map_err(|error| format!("{error:?}"))?;
@@ -632,7 +694,7 @@ impl LeadSurfaceHost {
         if after != before {
             after.write(&mut next);
         }
-        Ok(next)
+        Ok((next, state))
     }
 }
 

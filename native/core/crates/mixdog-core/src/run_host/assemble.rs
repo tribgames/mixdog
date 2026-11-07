@@ -336,6 +336,11 @@ impl RunParts for HostRunParts {
         self.services.turn_settings.reconcile(thread, conversation).await.map_err(refuse)
     }
 
+    async fn refresh_mcp(&self, thread: &ThreadId) -> Result<(), TurnError> {
+        use super::turn_settings::TurnSettings;
+        self.services.turn_settings.refresh_mcp(thread).await.map_err(refuse)
+    }
+
     fn stall_cap_idle_seconds(&self, agent: Option<&str>) -> Option<i64> {
         self.services.seams.stall_cap_idle_seconds(agent)
     }

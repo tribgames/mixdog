@@ -196,7 +196,7 @@ fn rig(surface: SessionSurface, hooks: Option<Arc<Hooks>>, tools: Vec<Arc<Runs>>
         cancel: CancellationToken::new(),
     });
     let hooks: Option<Arc<dyn ToolHooks>> = hooks.map(|h| h as Arc<dyn ToolHooks>);
-    Rig { pipeline: Pipeline { gate: Arc::new(gate), hooks, observer, guards }, approvals, tools: registry }
+    Rig { pipeline: Pipeline { gate: Arc::new(gate), hooks, observer, guards, mcp: None }, approvals, tools: registry }
 }
 
 fn ctx(approvals: Arc<MockApprovalGate>) -> ToolContext {

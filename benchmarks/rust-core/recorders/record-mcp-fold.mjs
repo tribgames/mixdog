@@ -32,7 +32,7 @@ const finalDir = join(FIXTURES_ROOT, 'mcp-fold');
 const stage = stageSet(finalDir);
 const recorder = 'benchmarks/rust-core/recorders/record-mcp-fold.mjs';
 const U = (rel) => importFrom(tree, `src/${rel}`);
-const { applyDeferredToolSurface, reconcileDeferredMcpToolCatalog, refreshInitialDeferredMcpSurface } = await U(
+const { applyDeferredToolSurface, reconcileDeferredMcpToolCatalog, refreshDeferredMcpToolCatalog, refreshInitialDeferredMcpSurface } = await U(
   'runtime/agent/orchestrator/runtime-core/tool-catalog.mjs'
 );
 
@@ -77,24 +77,30 @@ const asBridgeless = (current) => {
   delete current.toolExposureMode;
 };
 
+// The live tools are the registry's own objects, passed by identity as the real callers pass them (the reconcile's
+// state cache compares them so).
 // `foldMcpSurface` (turn-prepare.mjs) then, on the first turn, the request boundary's reconcile.
 const turn = (current, live) => {
   if (current.deferredInitialRefreshPending) {
     current.deferredInitialRefreshPending = false;
-    refreshInitialDeferredMcpSurface(current, json(live));
-    if (current.deferredProviderMode) reconcileDeferredMcpToolCatalog(current, json(live));
+    refreshInitialDeferredMcpSurface(current, live);
+    if (current.deferredProviderMode) reconcileDeferredMcpToolCatalog(current, live);
     return null;
   }
-  reconcileDeferredMcpToolCatalog(current, json(live));
+  reconcileDeferredMcpToolCatalog(current, live);
   return null;
 };
 const CALLS = {
-  initial: (current, live) => refreshInitialDeferredMcpSurface(current, json(live)),
-  reconcile: (current, live) => reconcileDeferredMcpToolCatalog(current, json(live)),
+  initial: (current, live) => refreshInitialDeferredMcpSurface(current, live),
+  reconcile: (current, live) => reconcileDeferredMcpToolCatalog(current, live),
   turn,
+  // refreshDeferredMcpToolCatalog(session) of the request boundary, a tool call and load_tool; it reads the registry,
+  // which this recorder leaves empty.
+  refresh: (current) => refreshDeferredMcpToolCatalog(current),
 };
 
-// [suite, name, session, [[call, live]...]]
+// [suite, name, session, [[call, live, set?]...]]: set is assigned onto the session before the call, as another
+// writer (an acknowledged delta, a gate) would between two calls.
 const CASES = [
   ['unit', 'native: nothing connected changes nothing', session('anthropic-oauth'), [['initial', []]]],
   ['unit', 'native: a server connected before the first send joins the boot catalog and the prompt', session('anthropic-oauth'), [['initial', [alphaList, alphaGet]], ['initial', [alphaList, alphaGet]]]],
@@ -117,15 +123,20 @@ const CASES = [
   ['turn', 'first turn: a server gone since creation', session('openrouter', [...DEFERRED, alphaList]), [['turn', []], ['turn', [betaPing]]]],
   ['turn', 'a resumed session takes the late path only', session('anthropic-oauth', DEFERRED, resumed), [['turn', [alphaList]], ['turn', [alphaList]], ['turn', []]]],
   ['turn', 'first turn on a fixed surface', session('openrouter', DEFERRED, asBridgeless), [['turn', [alphaList]], ['turn', []]]],
+  ['turn', 'cache: an unchanged registry skips the reconcile, a changed one runs it', session('anthropic-oauth'), [['turn', [alphaList]], ['turn', [alphaList]], ['turn', [alphaList], { deferredMcpToolNames: ['stale'] }], ['turn', [alphaList, betaPing]]]],
+  ['turn', 'cache: an input the key reads runs the reconcile again', session('anthropic-oauth', [...DEFERRED, alphaList]), [['turn', [alphaList]], ['turn', [alphaList], { deferredMcpToolNames: ['stale'] }], ['turn', [alphaList], { disallowedTools: ['get_goal', 'office'] }], ['turn', [alphaList], { deferredMcpToolNames: ['stale'], callerDisallowedTools: [] }]]],
+  ['turn', 'refresh: a session with a deferred mode follows the registry', session('anthropic-oauth', [...DEFERRED, alphaList], resumed), [['refresh', []], ['refresh', []]]],
+  ['turn', 'refresh: a session with no deferred mode is left alone', session('anthropic-oauth', [...DEFERRED, alphaList], (current) => { resumed(current); delete current.deferredProviderMode; }), [['refresh', []]]],
 ].map(([suite, name, before, steps]) => {
   const current = json(before);
   return {
     suite,
     name,
     before,
-    steps: steps.map(([call, live]) => {
+    steps: steps.map(([call, live, set]) => {
+      if (set) Object.assign(current, json(set));
       const result = CALLS[call](current, live);
-      return { call, live, result: result ?? null, after: json(current) };
+      return { call, live, set: set ?? null, result: result ?? null, after: json(current) };
     }),
   };
 });

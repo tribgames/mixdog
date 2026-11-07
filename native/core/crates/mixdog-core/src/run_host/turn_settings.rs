@@ -22,6 +22,28 @@ pub trait TurnSettings: Send + Sync + 'static {
     /// that has a prompt identity is rebuilt whole, any other takes the moved tool gates and connectors
     /// without touching its prefix (`reconcileSession`).
     async fn reconcile(&self, thread: &ThreadId, conversation: bool) -> Result<Header, String>;
+
+    /// `refreshDeferredMcpToolCatalog(session)`: the thread's MCP catalog follows the live registry. A host
+    /// with no MCP catalog has nothing to refresh.
+    async fn refresh_mcp(&self, _thread: &ThreadId) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+/// The MCP catalog of one thread, refreshed through the turn settings.
+pub struct SettingsMcp {
+    pub settings: Arc<dyn TurnSettings>,
+    pub thread: ThreadId,
+}
+
+#[async_trait]
+impl mixdog_agent::env::McpCatalog for SettingsMcp {
+    /// A refresh that fails is logged; like Node's (`catch` around the reconcile) it never breaks the call.
+    async fn refresh(&self) {
+        if let Err(error) = self.settings.refresh_mcp(&self.thread).await {
+            tracing::warn!("[mcp] catalog refresh failed: {error}");
+        }
+    }
 }
 
 /// [`TurnSettings`] bound after the directory exists.
@@ -40,6 +62,13 @@ impl TurnSettings for LateTurnSettings {
     async fn reconcile(&self, thread: &ThreadId, conversation: bool) -> Result<Header, String> {
         match self.0.get() {
             Some(host) => host.reconcile(thread, conversation).await,
+            None => Err("the turn settings are not bound yet".to_owned()),
+        }
+    }
+
+    async fn refresh_mcp(&self, thread: &ThreadId) -> Result<(), String> {
+        match self.0.get() {
+            Some(host) => host.refresh_mcp(thread).await,
             None => Err("the turn settings are not bound yet".to_owned()),
         }
     }
