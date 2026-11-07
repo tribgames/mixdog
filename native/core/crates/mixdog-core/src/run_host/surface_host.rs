@@ -617,6 +617,24 @@ impl TurnSettings for LeadSurfaceHost {
     async fn refresh_mcp(&self, thread: &ThreadId) -> Result<(), String> {
         self.fold(thread, false).await.map(|_| ()).map_err(|error| format!("{error:?}"))
     }
+
+    /// The request boundary's `migrateToolExposureAtBoundary`: the migrated header is written once, the thread's own
+    /// header read again when it moved meanwhile.
+    async fn migrate_exposure(&self, thread: &ThreadId, rows: &[Value]) -> Result<Option<Header>, String> {
+        let s = &self.sources;
+        let unanswered = has_unanswered_tool_calls(rows);
+        loop {
+            let header = s.threads.header(thread).await.map_err(|error| port(thread, error)).map_err(|error| format!("{error:?}"))?;
+            let Some(next) = self.migrate_exposure_of(&header, unanswered)? else {
+                return Ok(None);
+            };
+            let change = header_diff(&header, &next);
+            let expect: Map<String, Value> = change.set.keys().chain(change.unset.iter()).map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null))).collect();
+            if s.threads.patch_header_if(thread, expect, change.set, change.unset).await.map_err(|error| port(thread, error)).map_err(|error| format!("{error:?}"))?.is_none() {
+                return Ok(Some(next));
+            }
+        }
+    }
 }
 
 impl LeadSurfaceHost {
@@ -639,17 +657,11 @@ impl LeadSurfaceHost {
     /// `refreshDeferredMcpToolCatalog(session)`: the reconcile alone, for a session that has a deferred provider mode.
     async fn fold(&self, thread: &ThreadId, first_turn: bool) -> Result<Header, CoreError> {
         let s = &self.sources;
-        // The turn's request boundary migrates a surface built for another exposure only where no tool call waits for a result.
-        let unanswered = first_turn && has_unanswered_tool_calls(&s.messages.messages(thread).await.map_err(|error| port(thread, error))?);
         loop {
             let header = s.threads.header(thread).await.map_err(|error| port(thread, error))?;
             let cwd = header.get("cwd").and_then(Value::as_str).map_or_else(|| s.cwd.clone(), PathBuf::from);
             let live: Vec<Value> = s.mcp.tools(&cwd).iter().map(tool_doc).collect();
             let (next, state) = self.folded_surface(thread, &header, &live, first_turn).map_err(|message| failed("tools", message))?;
-            let next = match first_turn {
-                true => self.migrate_exposure(&next, unanswered).map_err(|message| failed("tools", message))?.unwrap_or(next),
-                false => next,
-            };
             let change = header_diff(&header, &next);
             if change.set.is_empty() && change.unset.is_empty() {
                 self.note_mcp_state(thread, state);
@@ -713,9 +725,9 @@ impl LeadSurfaceHost {
     /// against the old one is dropped: the provider state, the prefix guard, the context baseline. `None`: nothing to
     /// migrate, or `unanswered` (a tool call still waits for its result, which is not a safe boundary).
     ///
-    /// The migration's cache-break tag rides on Node's request options (`opts.cacheBreakIntent`), which the Rust loop
-    /// has no counterpart of, so the header carries none (see `decisions.md` `deferred-fold-5`).
-    fn migrate_exposure(&self, header: &Header, unanswered: bool) -> Result<Option<Header>, String> {
+    /// The migrated send's cache-break tag (`opts.cacheBreakIntent`) is read only by code the Rust core does not port
+    /// (see `decisions.md` `deferred-fold-5`), so the header carries none.
+    fn migrate_exposure_of(&self, header: &Header, unanswered: bool) -> Result<Option<Header>, String> {
         let s = &self.sources;
         let mut session = Value::Object(header.clone());
         if unanswered || !tool_exposure_migration_needed(&session, None, &load_tool_def(s.tool_host.as_ref())) {

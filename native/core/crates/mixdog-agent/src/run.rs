@@ -191,6 +191,9 @@ pub enum AgentError {
     /// The model hop itself failed (a provider that is not there, a session closed during the
     /// hop); the text is the error as Node throws it.
     RouteFailed(String),
+    /// The request's tools could not be taken (`prepareProviderRequest` throws from the session's tool refresh, the
+    /// snapshot or the exposure migration); the text is the error as Node throws it.
+    RequestTools(String),
     /// The slot could not be taken back after a provider request: the cancel's own text.
     Admission(String),
     /// A message could not be committed to the transcript.
@@ -240,7 +243,7 @@ impl std::fmt::Display for AgentError {
         match self {
             Self::Aborted => f.write_str("agent loop aborted"),
             Self::Provider(error) => f.write_str(&error.message),
-            Self::RouteFailed(message) | Self::Admission(message) => f.write_str(message),
+            Self::RouteFailed(message) | Self::RequestTools(message) | Self::Admission(message) => f.write_str(message),
             Self::Commit(error) => write!(f, "{error}"),
             Self::ContextOverflow(o) => write!(
                 f,

@@ -269,11 +269,20 @@ impl Run {
         // the transcript is repaired and the request's tools are taken.
         let mut candidate = None;
         if let Some(mcp) = self.env.mcp.clone() {
+            // `migrateToolExposureAtBoundary` comes first: a migrated session takes a new tool snapshot and provider
+            // state, and its system prompt is the rewritten one.
+            if let Some(system) = mcp.migrate(&self.messages).await.map_err(AgentError::RequestTools)? {
+                let leading = self.messages.iter().take_while(|m| m.message.role == Role::System).count();
+                self.messages.splice(..leading, system);
+                self.fixed_surface = None;
+                self.provider_state = None;
+                self.baseline = None;
+            }
             mcp.refresh().await;
-            if let Some(live) = mcp.tools().await {
+            if let Some(live) = mcp.tools().await.map_err(AgentError::RequestTools)? {
                 self.tools = live;
             }
-            candidate = Some(mcp.snapshot(self.candidate_tools(), &self.messages).await);
+            candidate = Some(mcp.snapshot(self.candidate_tools(), &self.messages).await.map_err(AgentError::RequestTools)?);
         }
         // `adoptDynamicToolChanges`: the request's tools are the frozen surface, with MCP changes adopted.
         let candidate = candidate.unwrap_or_else(|| self.candidate_tools());

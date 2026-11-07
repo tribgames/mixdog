@@ -144,6 +144,10 @@ impl TurnSettings for TurnStart {
     async fn refresh_mcp(&self, thread: &ThreadId) -> Result<(), String> {
         self.settings.refresh_mcp(thread).await
     }
+
+    async fn migrate_exposure(&self, thread: &ThreadId, rows: &[serde_json::Value]) -> Result<Option<Header>, String> {
+        self.settings.migrate_exposure(thread, rows).await
+    }
 }
 
 #[cfg(test)]
