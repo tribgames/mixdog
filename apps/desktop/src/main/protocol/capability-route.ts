@@ -98,16 +98,26 @@ export interface CapabilityLane {
   read(requests: ReadonlyArray<DesktopCapabilityReadRequest>): Promise<DesktopCapabilityReadResult[]>;
   /** `SessionHostLifecycle.renameSession` on a core connection: the host's own checks, then `thread/name/set`. */
   renameSession(sessionId: string, title: string): Promise<void>;
+  /** The session metadata the core keeps on the thread (spec-v2 SPEC.md R-meta, protocol.md §12.3):
+   *  `thread/metadata/update {threadId, favorite | projectPath}`, today's `setSessionFavorite`/`setSessionProject`. */
+  updateThreadMetadata(sessionId: string, patch: { favorite?: boolean; projectPath?: string }): Promise<void>;
+  /** `thread/archive` / `thread/unarchive` of one thread (today's `setSessionArchived`). */
+  setThreadArchived(sessionId: string, archived: boolean): Promise<void>;
   /** The request of a capability alone (no state read for a reply): what the host's own actions need. */
   perform(capability: string, args: readonly unknown[], sessionId: string | undefined): Promise<unknown>;
 }
 
 /** The actions `SessionHost` composes itself (`invokeSession`/`invokeControl`) that a core connection serves through the
  *  lane: the same action names and positional arguments as the renderer's capabilities, whose Rust op exists and whose
- *  reply no host caller reads (`session-host-lifecycle.ts`: `setCwd`, `setWorkflow`, `setOrchestrationMode`,
- *  `setArchivedSessionWorktrees`, `purgeAgentDefinition`). The others stay on the Node transport, with the reply their callers read. */
+ *  reply no host caller reads in a way the core's reply cannot serve (`session-host-lifecycle.ts`): the unread ones
+ *  (`setWorkflow`, `setOrchestrationMode`, `setArchivedSessionWorktrees`, `purgeAgentDefinition`) and the ones whose Rust
+ *  reply has Node's shape (`deleteSession`: boolean; `stopShellJob`/`releaseShellJob`: `{stopped|released, error?, ...}`;
+ *  `setFast`: only the state read after it). The others stay on the Node transport, with the reply their callers read. */
 export const CORE_HOST_ACTIONS: ReadonlySet<string> = new Set([
-  'setCwd',
+  'deleteSession',
+  'stopShellJob',
+  'releaseShellJob',
+  'setFast',
   'setWorkflow',
   'setOrchestrationMode',
   'setArchivedSessionWorktrees',
@@ -249,6 +259,12 @@ export function createCapabilityLane({
       return { value, snapshot: await stateOf(sessionId ?? (await controlThread())) };
     },
     perform: (capability, args, sessionId) => send(capability, args, sessionId),
+    async updateThreadMetadata(sessionId, patch) {
+      await request('thread/metadata/update', { threadId: sessionId, ...patch });
+    },
+    async setThreadArchived(sessionId, archived) {
+      await request(archived ? 'thread/archive' : 'thread/unarchive', { threadId: sessionId });
+    },
     // Node's host throws `TypeError('Session title is invalid.')` for a title that is empty once normalized, before the
     // runtime is reached; the core cannot tell that case from a refusal ("Session is not available.", the runtime's `false`,
     // which it sends as a code-less `domainError`), so the host check stays here. `setName` and `publishCatalogs` are the
