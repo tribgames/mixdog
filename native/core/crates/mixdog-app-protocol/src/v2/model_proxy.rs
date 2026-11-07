@@ -553,6 +553,15 @@ pub enum ProxyItemKind {
     Tool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum ProxyProgress {
+    Semantic,
+    Reasoning,
+    Text,
+    Tool,
+}
+
 /// One stream event of an attempt (`StreamEvent`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema, TS)]
 #[serde(tag = "type", rename_all = "camelCase", rename_all_fields = "camelCase")]
@@ -569,6 +578,16 @@ pub enum ProxyEvent {
     Citation { value: JsonValue },
     ServerToolBlock { value: JsonValue },
     ProviderKeepalive,
+    /// Semantic progress of the stream that has no delta event of its own (`StreamEvent::Progress`).
+    Progress { kind: ProxyProgress },
+    /// What one wire chunk reports for everything it carries; `null`: transport only (`StreamEvent::ChunkProgress`).
+    ChunkProgress { kind: Option<ProxyProgress> },
+    /// The assistant text the turn returns when it is not what the deltas folded to (`StreamEvent::FinalContent`).
+    FinalContent { text: String },
+    /// The tool calls the turn returns when they are not the ones dispatched live (`StreamEvent::ReturnedCalls`).
+    ReturnedCalls { calls: Vec<ProxyToolCall> },
+    /// Anthropic extended-thinking blocks, verbatim and ordered (`StreamEvent::ThinkingBlocks`).
+    ThinkingBlocks { value: JsonValue },
     ProviderState { state: JsonValue },
     /// `pricing_model`: the catalog model the send bills as when it differs from the one sent.
     /// `request_ms`: the request's wall time as the usage ledger measured it (Node `usageDurationMs`).
