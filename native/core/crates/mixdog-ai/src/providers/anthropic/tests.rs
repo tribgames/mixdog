@@ -1333,3 +1333,21 @@ fn no_timer_exists_in_the_provider_sources() {
         }
     }
 }
+
+/// Every wire event Node's Anthropic decoder reported progress for (`golden/stream_progress.json`) reports the same
+/// kinds through the Rust decoder: block opens of thinking and server tools, signature, arguments and the close of a call.
+#[test]
+fn the_decoder_reports_the_progress_kinds_node_s_does() {
+    use crate::providers::progress_golden::{golden, node_names, rust_names};
+    let mut decoder = api_codec().decoder(&request(Vec::new(), RequestOptions::default()));
+    decoder
+        .feed(sse("message_start", json!({ "type": "message_start", "message": { "usage": { "input_tokens": 1, "output_tokens": 0 } } })).as_bytes())
+        .expect("message_start");
+    for step in golden()["events"].as_array().expect("events") {
+        let mut events = Vec::new();
+        for wire in step["wire"].as_array().expect("wire") {
+            events.extend(decoder.feed(sse(wire["type"].as_str().expect("type"), wire.clone()).as_bytes()).expect("feed"));
+        }
+        assert_eq!(rust_names(&events), node_names(&step["kinds"]), "{}", step["label"]);
+    }
+}

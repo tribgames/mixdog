@@ -10,6 +10,7 @@ use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::Exposure;
 use mixdog_core_api::domain::provider::ItemKind;
+use mixdog_core_api::domain::provider::ProgressKind;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::ProviderReplay;
 use mixdog_core_api::domain::provider::StopReason;
@@ -199,6 +200,7 @@ impl DevinDecoder {
         if !msg.delta_tool_calls.is_empty() {
             self.in_thinking = false;
         }
+        let mut reported = false;
         for call in msg.delta_tool_calls {
             let id = if call.id.is_empty() {
                 match self.active_call {
@@ -219,6 +221,7 @@ impl DevinDecoder {
                 }
             };
             self.active_call = Some(at);
+            reported = true;
             let entry = &mut self.calls[at];
             // The last name a call is given wins.
             if !call.name.is_empty() {
@@ -240,11 +243,19 @@ impl DevinDecoder {
                 }
             }
         }
+        // The chunk carries `tool_calls` for the chat consumer, which reports `tool` once per chunk.
+        if reported {
+            events.push(StreamEvent::Progress(ProgressKind::Tool));
+        }
     }
 
     /// The events of a clean end: tool calls, usage, replay, `Completed`.
     fn terminal(&mut self) -> Result<Vec<StreamEvent>, ProviderError> {
         let mut events = Vec::new();
+        // The terminal chunk names the calls (`devinChunks`): one more `tool_calls` chunk.
+        if !self.calls.is_empty() {
+            events.push(StreamEvent::Progress(ProgressKind::Tool));
+        }
         for call in std::mem::take(&mut self.calls) {
             if call.name.is_empty() {
                 let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
@@ -378,5 +389,53 @@ impl WireDecoder for DevinDecoder {
 
     fn exposure(&self) -> Exposure {
         self.exposure
+    }
+}
+
+#[cfg(test)]
+mod progress_tests {
+    use super::super::schema::ChatToolCall;
+    use super::*;
+    use crate::providers::progress_golden::{golden, node_names, rust_names};
+
+    fn message(wire: &Value) -> ChatResponse {
+        let text = |key: &str| wire.get(key).and_then(Value::as_str).unwrap_or_default().to_owned();
+        ChatResponse {
+            delta_text: text("deltaText"),
+            delta_thinking: text("deltaThinking"),
+            delta_tool_calls: wire
+                .get("deltaToolCalls")
+                .and_then(Value::as_array)
+                .map(|calls| {
+                    calls
+                        .iter()
+                        .map(|call| ChatToolCall {
+                            id: call["id"].as_str().unwrap_or_default().to_owned(),
+                            name: call["name"].as_str().unwrap_or_default().to_owned(),
+                            arguments_json: call["argumentsJson"].as_str().unwrap_or_default().to_owned(),
+                            ..ChatToolCall::default()
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            ..ChatResponse::default()
+        }
+    }
+
+    /// Node turns each Devin message into a chat chunk, and its chat consumer reported these kinds
+    /// (`golden/stream_progress.json`): thinking, text, one `tool` per chunk that carries call deltas, and one more for
+    /// the terminal chunk that names the calls.
+    #[test]
+    fn the_decoder_reports_the_progress_kinds_node_s_chat_consumer_does() {
+        let mut decoder = DevinDecoder::new(ProviderId::from("devin"), "m", Vec::new());
+        for step in golden()["decoders"]["devin"].as_array().expect("devin") {
+            let mut events = Vec::new();
+            if step["wire"]["terminal"] == Value::Bool(true) {
+                events = decoder.terminal().expect("terminal");
+            } else {
+                decoder.apply(message(&step["wire"]), &mut events);
+            }
+            assert_eq!(rust_names(&events), node_names(&step["kinds"]), "{}", step["wire"]);
+        }
     }
 }

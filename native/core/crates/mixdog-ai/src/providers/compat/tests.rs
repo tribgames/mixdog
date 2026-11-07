@@ -1866,3 +1866,16 @@ fn a_gemini_model_behind_a_compat_route_is_held_to_googles_rule() {
         }
     }
 }
+
+/// Node's chat consumer reported these progress kinds for each chunk (`golden/stream_progress.json`); the Rust chat
+/// decoder reports the same: a call's header and arguments chunks are `tool`, its dispatch at the finish is none.
+#[test]
+fn the_chat_decoder_reports_the_progress_kinds_node_s_consumer_does() {
+    use crate::providers::progress_golden::{golden, node_names, rust_names};
+    let mut decoder = plain_codec().decoder(&base_request("m"));
+    for step in golden()["decoders"]["chat"].as_array().expect("chat") {
+        let unit = format!("data: {}\n\n", step["wire"]);
+        let events = decoder.feed(unit.as_bytes()).expect("feed");
+        assert_eq!(rust_names(&events), node_names(&step["kinds"]), "{}", step["wire"]);
+    }
+}

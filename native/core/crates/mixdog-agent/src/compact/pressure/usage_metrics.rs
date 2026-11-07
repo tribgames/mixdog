@@ -315,3 +315,28 @@ pub fn bump_epoch(session: &Header) -> HeaderPatch {
     patch.put("usageMetricsEpoch", num(number_or_zero(session.get("usageMetricsEpoch")) + 1.0));
     patch
 }
+
+/// `measuredContextTokens(usage)` (`loop/usage.mjs`): the provider-measured whole-context occupancy (Cursor's
+/// checkpoint `usedTokens`, kept on `Usage.raw.context_tokens` by `cursor-wire-stream-sink.mjs`), when it is a
+/// positive number; it feeds the context gauge when the provider reports no prompt count.
+pub fn measured_context_tokens(usage: &mixdog_core_api::domain::provider::Usage) -> Option<u64> {
+    let value = usage.raw.as_ref()?.get("context_tokens")?.as_f64()?;
+    (value.is_finite() && value > 0.0).then(|| round(value) as u64)
+}
+
+#[cfg(test)]
+mod measured_tests {
+    use super::measured_context_tokens;
+    use mixdog_core_api::domain::provider::Usage;
+    use serde_json::json;
+
+    /// `measuredContextTokens(usage)`: a positive provider-measured figure, rounded as `Math.round` does.
+    #[test]
+    fn a_positive_measured_occupancy_is_kept_rounded_and_anything_else_is_not() {
+        let with = |raw| Usage { raw: Some(raw), ..Default::default() };
+        assert_eq!(measured_context_tokens(&with(json!({ "context_tokens": 7000.6 }))), Some(7001));
+        assert_eq!(measured_context_tokens(&with(json!({ "context_tokens": 0 }))), None);
+        assert_eq!(measured_context_tokens(&with(json!({ "other": 5 }))), None);
+        assert_eq!(measured_context_tokens(&Usage::default()), None);
+    }
+}

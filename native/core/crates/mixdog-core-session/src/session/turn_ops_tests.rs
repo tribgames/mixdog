@@ -502,7 +502,7 @@ async fn a_manual_compactions_result_is_committed_only_to_the_context_it_was_pla
 
 /// A commit that carries the header writes it with the compaction, in the record that counts it:
 /// the caller's `compaction.compactCount` stands (it is not counted twice), and a commit that
-/// carries none counts one more.
+/// carries none leaves the count to the pass's telemetry.
 #[tokio::test(start_paused = true)]
 async fn a_manual_compaction_commit_writes_the_header_it_carries_without_counting_twice() {
     use super::run::Compaction;
@@ -534,11 +534,12 @@ async fn a_manual_compaction_commit_writes_the_header_it_carries_without_countin
     assert_eq!(header["compaction"]["lastStage"], json!("manual"));
     assert_eq!(header["lastContextTokens"], json!(0));
 
-    // Nothing carried: one more is counted over the state the header holds.
+    // Nothing carried: the pre-send pass's own telemetry counts the compaction (`rememberCompactTelemetry`), not the commit.
     let snapshot = snapshot_of(directory.model_context(&handle.id).read().await.expect("context"));
     let applied = directory.commit_compaction(&handle.id, snapshot, compaction("sum2"), None).await.expect("answered");
     assert_eq!(applied, super::turn_ops::CompactionCommit::Applied);
-    eventually(|| (handle.live_header().header().get("compaction")?.get("compactCount") == Some(&json!(8))).then_some(())).await;
+    eventually(|| idle(&handle).then_some(())).await;
+    assert_eq!(handle.live_header().header()["compaction"]["compactCount"], json!(7));
 }
 
 /// `failedTurnProvenance` (`ask-session.mjs:198-201`): a retry of a system-caused turn (a restored

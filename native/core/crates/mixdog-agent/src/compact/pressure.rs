@@ -48,6 +48,7 @@ pub use usage_metrics::bump_epoch;
 pub use usage_metrics::bump_turn_id;
 pub use usage_metrics::fold_usage_readout;
 pub use usage_metrics::iteration_metrics;
+pub use usage_metrics::measured_context_tokens;
 pub use usage_metrics::terminal_usage;
 pub use usage_metrics::uncached_input_tokens;
 pub use status::After;

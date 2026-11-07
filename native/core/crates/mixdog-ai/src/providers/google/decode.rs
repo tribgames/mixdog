@@ -12,6 +12,7 @@ use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::Exposure;
 use mixdog_core_api::domain::provider::ItemKind;
+use mixdog_core_api::domain::provider::ProgressKind;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::ProviderReplay;
 use mixdog_core_api::domain::provider::StopReason;
@@ -274,6 +275,7 @@ impl GeminiDecoder {
                 .unwrap_or_else(|| synthesized_call_id(index, &name, &args));
             self.open_item(ItemKind::Tool, out);
             out.push(StreamEvent::ToolCallStart { id: id.clone(), name: name.clone() });
+            out.push(StreamEvent::Progress(ProgressKind::Tool));
             out.push(StreamEvent::ToolCallArgsDelta { id: id.clone(), delta: args.to_string() });
             out.push(StreamEvent::ToolCallDone(ToolCall { id, name, arguments: args, native_type: None  }));
             self.open = None;

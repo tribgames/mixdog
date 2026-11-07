@@ -343,7 +343,18 @@ const passFlow = (name, session, messages, end, { trigger = 'auto', reactive = f
   usageDelta('usage-before-compaction', session, transcript('user', 'call', 'tool'), { deltaInput: 800, deltaOutput: 20, deltaPrompt: 800 });
   passFlow('pass-compacted-bumps-the-epoch-and-voids-the-reading', session, transcript('user', 'call', 'tool'), { kind: 'done', changed: true, handoffSource: 'session-local', afterTokens: 300, durationMs: 1234.4, after: ['user', 'answer'] });
 }
-passFlow('pass-no-change-keeps-the-reading', newSession('s-pass-same'), transcript('user'), { kind: 'done', changed: false, handoffSource: 'rules', afterTokens: 40, durationMs: 12, after: ['user'] });
+{
+  // The summary model's usage reaches onUsageDelta (pre-send-compact.mjs) with the loop's current turn and epoch
+  // (send-phase.mjs), so the iteration counter restarting after the epoch bump is not read as a second bump.
+  const session = newSession('s-compact-usage');
+  turnStart('turn-start-compact-usage', session);
+  usageDelta('usage-call-before-the-compaction', session, transcript('user', 'call', 'tool'), { deltaInput: 800, deltaOutput: 20, deltaPrompt: 800 });
+  passFlow('pass-compacted-before-the-summary-usage', session, transcript('user', 'call', 'tool'), { kind: 'done', changed: true, handoffSource: 'session-local', afterTokens: 300, durationMs: 50, after: ['user', 'answer'] });
+  const ids = () => ({ usageMetricsTurnId: session.usageMetricsTurnId, usageMetricsEpoch: session.usageMetricsEpoch });
+  iteration('compact-usage-counts-once-in-the-new-epoch', session, { iterationIndex: 1, source: 'fresh_context_compact', deltaInput: 200, deltaOutput: 30, deltaCachedRead: 50, reasoningTokens: 7, reasoningTokensComplete: true, ...ids() });
+  iteration('next-call-after-the-compact-usage-keeps-the-epoch', session, { iterationIndex: 2, deltaInput: 120, deltaOutput: 10, deltaPrompt: 120, ...ids() });
+}
+passFlow('pass-no-change-keeps-the-reading',newSession('s-pass-same'), transcript('user'), { kind: 'done', changed: false, handoffSource: 'rules', afterTokens: 40, durationMs: 12, after: ['user'] });
 passFlow('pass-skipped-is-a-plain-check', newSession('s-pass-skip'), transcript('user', 'call', 'tool'), { kind: 'skipped' }, { trigger: 'cache_expired' });
 passFlow(
   'pass-failed-records-the-error',
@@ -435,24 +446,193 @@ syncCase('sync-without-a-section-leaves-the-session-alone', newSession('s-sync-n
     onToolCall: () => {},
     onTextDelta: () => {},
   });
+  // Each step is the decoder's wire events (the SSE `data` objects) fed in order; `at` advances the clock first.
   const steps = [
-    ['tool_use block opens', 'ToolCallStart', 0, () => turn.onContentBlockStart(0, { type: 'tool_use', id: 'c1', name: 'read' })],
-    ['arguments stream (first)', 'ToolCallArgsDelta', 70_000, () => turn.onContentBlockDelta(0, { type: 'input_json_delta', partial_json: '{"path":' })],
-    ['arguments stream (second)', 'ToolCallArgsDelta', 1_000, () => turn.onContentBlockDelta(0, { type: 'input_json_delta', partial_json: '"a.txt"}' })],
-    ['tool_use block closes', 'ToolCallDone', 61_000, () => turn.onContentBlockStop(0)],
-    ['thinking streams', 'ReasoningDelta', 1_000, () => { turn.onContentBlockStart(1, { type: 'thinking', thinking: '' }); turn.onContentBlockDelta(1, { type: 'thinking_delta', thinking: 'hm' }); }],
-    ['text streams', 'TextDelta', 61_000, () => { turn.onContentBlockStart(2, { type: 'text', text: '' }); turn.onContentBlockDelta(2, { type: 'text_delta', text: 'Done.' }); }],
+    ['tool_use block opens', 0, [{ type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'c1', name: 'read', input: {} } }]],
+    ['arguments stream (first)', 70_000, [{ type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"path":' } }]],
+    ['arguments stream (second)', 1_000, [{ type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '"a.txt"}' } }]],
+    ['tool_use block closes', 61_000, [{ type: 'content_block_stop', index: 0 }]],
+    ['thinking block opens', 1_000, [{ type: 'content_block_start', index: 1, content_block: { type: 'thinking', thinking: '', signature: '' } }]],
+    ['thinking streams', 0, [{ type: 'content_block_delta', index: 1, delta: { type: 'thinking_delta', thinking: 'hm' } }]],
+    ['signature streams', 0, [{ type: 'content_block_delta', index: 1, delta: { type: 'signature_delta', signature: 'sig' } }]],
+    ['thinking block closes', 0, [{ type: 'content_block_stop', index: 1 }]],
+    ['redacted thinking opens', 0, [{ type: 'content_block_start', index: 2, content_block: { type: 'redacted_thinking', data: 'opaque' } }]],
+    ['text block opens', 61_000, [{ type: 'content_block_start', index: 3, content_block: { type: 'text', text: '' } }]],
+    ['text streams', 0, [{ type: 'content_block_delta', index: 3, delta: { type: 'text_delta', text: 'Done.' } }]],
+    ['text block closes', 0, [{ type: 'content_block_stop', index: 3 }]],
+    ['server tool call opens', 0, [{ type: 'content_block_start', index: 4, content_block: { type: 'server_tool_use', id: 's1', name: 'web_search', input: {} } }]],
+    ['server tool arguments stream', 0, [{ type: 'content_block_delta', index: 4, delta: { type: 'input_json_delta', partial_json: '{"query":"x"}' } }]],
+    ['server tool call closes', 0, [{ type: 'content_block_stop', index: 4 }]],
+    ['server tool result arrives', 0, [{ type: 'content_block_start', index: 5, content_block: { type: 'web_search_tool_result', tool_use_id: 's1', content: [] } }]],
+    ['server tool result closes', 0, [{ type: 'content_block_stop', index: 5 }]],
   ];
   const events = [];
   const started = clock;
-  for (const [label, rust, advance, drive] of steps) {
+  for (const [label, advance, wire] of steps) {
     clock += advance;
     kinds = [];
-    drive();
+    for (const event of wire) {
+      if (event.type === 'content_block_start') turn.onContentBlockStart(event.index, event.content_block);
+      else if (event.type === 'content_block_delta') turn.onContentBlockDelta(event.index, event.delta);
+      else turn.onContentBlockStop(event.index);
+    }
     await Promise.all(pending.splice(0));
-    events.push({ label, rust, at: clock, kinds, after: session.lastHeartbeatAt ?? null, saves });
+    events.push({ label, wire, at: clock, kinds, after: session.lastHeartbeatAt ?? null, saves });
+  }  // ---- the other decoders: each wire event through Node's real decoder, the progress kinds it reported (transport apart) ----
+  const providerDir = 'src/runtime/agent/orchestrator/providers';
+  const decoders = {};
+  const nonTransport = (kinds) => kinds.filter((kind) => kind !== 'transport');
+
+  // OpenAI Responses over the websocket: the event switch over the real response state and text relay.
+  {
+    const { createWsResponseState } = await load(`${providerDir}/openai-ws-response-state.mjs`);
+    const { createWsTextRelay } = await load(`${providerDir}/openai-ws-text-relay.mjs`);
+    const { createWsEventSwitch } = await load(`${providerDir}/openai-ws-stream/event-switch.mjs`);
+    let kinds = [];
+    const progress = (kind) => kinds.push(kind);
+    const midState = {};
+    const response = createWsResponseState({ onToolCall() {}, onStreamDelta: progress, midState, traceProvider: 'openai-oauth' });
+    const textRelay = createWsTextRelay({ response, knownToolNames: ['read'], sessionState: midState, onTextDelta() {}, onStreamDelta: progress });
+    let seen = false;
+    const watchdogs = { clearFirstMeaningful() {}, semanticSeen: () => seen, bumpSemantic() { seen = true; } };
+    const noop = () => {};
+    const terminal = { onResponseCompleted: noop, onResponseDone: noop, onResponseIncomplete: noop, onResponseFailed: noop, onErrorFrame: noop };
+    const onEvent = createWsEventSwitch({ response, textRelay, watchdogs, midState, progress, terminal, streamingStart: Date.now(), onStreamItemStart: null });
+    const fc = { type: 'function_call', id: 'fc1', call_id: 'c1', name: 'read', arguments: '' };
+    const wire = [
+      { type: 'response.created', response: { id: 'r1', model: 'm' } },
+      { type: 'response.output_item.added', output_index: 0, item: { type: 'reasoning', id: 'rs1', summary: [] } },
+      { type: 'response.reasoning_summary_text.delta', item_id: 'rs1', delta: 'thinking' },
+      { type: 'response.output_item.done', output_index: 0, item: { type: 'reasoning', id: 'rs1', summary: [{ type: 'summary_text', text: 'thinking' }] } },
+      { type: 'response.output_item.added', output_index: 1, item: { type: 'message', id: 'm1', role: 'assistant', content: [] } },
+      { type: 'response.output_text.delta', item_id: 'm1', delta: 'Hello there. ' },
+      { type: 'response.output_item.done', output_index: 1, item: { type: 'message', id: 'm1', role: 'assistant', content: [{ type: 'output_text', text: 'Hello there. ' }] } },
+      { type: 'response.output_item.added', output_index: 2, item: fc },
+      { type: 'response.function_call_arguments.delta', item_id: 'fc1', delta: '{"path":' },
+      { type: 'response.function_call_arguments.delta', item_id: 'fc1', delta: '"a.txt"}' },
+      { type: 'response.function_call_arguments.done', item_id: 'fc1', arguments: '{"path":"a.txt"}' },
+      { type: 'response.output_item.done', output_index: 2, item: { ...fc, arguments: '{"path":"a.txt"}', status: 'completed' } },
+    ];
+    decoders.responses = [];
+    for (const event of wire) {
+      kinds = [];
+      onEvent(event);
+      decoders.responses.push({ wire: event, kinds: nonTransport(kinds) });
+    }
   }
-  writeFileSync(join(here, 'golden', 'stream_progress.json'), `${JSON.stringify({ start: started, events }, null, 2)}\n`);
+
+  // OpenAI-compatible chat completions: the real chunk consumer over an async chunk source.
+  {
+    const { consumeCompatChatCompletionStream } = await load(`${providerDir}/openai-compat-chat-stream.mjs`);
+    const chunk = (delta, extra = {}) => ({ id: 'c', model: 'm', choices: [{ index: 0, delta, finish_reason: null, ...extra }] });
+    const wire = [
+      chunk({ role: 'assistant', content: '' }),
+      chunk({ reasoning_content: 'hmm' }),
+      chunk({ content: 'Hello. ' }),
+      chunk({ tool_calls: [{ index: 0, id: 'c1', type: 'function', function: { name: 'read', arguments: '' } }] }),
+      chunk({ tool_calls: [{ index: 0, function: { arguments: '{"path":' } }] }),
+      chunk({ tool_calls: [{ index: 0, function: { arguments: '"a.txt"}' } }] }),
+      { id: 'c', model: 'm', choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 5, completion_tokens: 3, total_tokens: 8 } },
+    ];
+    const per = wire.map(() => []);
+    let current = -1;
+    async function* source() {
+      for (let index = 0; index < wire.length; index += 1) {
+        current = index;
+        yield wire[index];
+      }
+      current = -1;
+    }
+    try {
+      await consumeCompatChatCompletionStream(source(), {
+        label: 'chat',
+        providerName: 'custom',
+        knownToolNames: ['read'],
+        onStreamDelta: (kind) => { if (current >= 0) per[current].push(kind); },
+        onToolCall() {},
+        onTextDelta() {},
+        parseToolCalls: (calls) => calls,
+      });
+    } catch {
+      /* the kinds were reported before the settlement */
+    }
+    decoders.chat = wire.map((event, index) => ({ wire: event, kinds: nonTransport(per[index]) }));
+  }
+
+  // Gemini (and Antigravity's envelope): the real REST stream consumer over an SSE body.
+  {
+    const { consumeGeminiRestStreamResponse } = await load(`${providerDir}/gemini-stream.mjs`);
+    const part = (parts, extra = {}) => ({ candidates: [{ content: { role: 'model', parts }, ...extra }] });
+    const wire = [
+      part([{ text: 'pondering', thought: true }]),
+      part([{ text: 'Hello. ' }]),
+      part([{ functionCall: { name: 'read', args: { path: 'a.txt' } } }]),
+      { candidates: [{ finishReason: 'STOP' }], usageMetadata: { promptTokenCount: 5, candidatesTokenCount: 3, totalTokenCount: 8 } },
+    ];
+    const per = wire.map(() => []);
+    let current = -1;
+    const encoder = new TextEncoder();
+    const body = new ReadableStream({
+      start(controller) {
+        for (const event of wire) controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\r\n\r\n`));
+        controller.close();
+      },
+    });
+    let chunks = 0;
+    try {
+      await consumeGeminiRestStreamResponse(new Response(body), {
+        label: 'gemini',
+        onChunk: () => { current = chunks; chunks += 1; },
+        onStreamDelta: (kind) => { if (current >= 0) per[current].push(kind); },
+        onTextDelta() {},
+      });
+    } catch {
+      /* the kinds were reported before the aggregation */
+    }
+    decoders.gemini = wire.map((event, index) => ({ wire: event, kinds: nonTransport(per[index]) }));
+  }
+  // Devin: its turn turns each decoded message into a chat chunk (`createDevinTurn().chunk`), the terminal chunk names the
+  // calls (`devinChunks`); the real chat consumer reports the progress.
+  {
+    const { createDevinTurn } = await load(`${providerDir}/devin.mjs`);
+    const { consumeCompatChatCompletionStream } = await load(`${providerDir}/openai-compat-stream.mjs`);
+    const turn = createDevinTurn({});
+    const messages = [
+      { deltaThinking: 'hm' },
+      { deltaText: 'Hello. ' },
+      { deltaToolCalls: [{ id: 'c1', name: 'read', argumentsJson: '{"path":' }] },
+      { deltaToolCalls: [{ id: 'c1', argumentsJson: '"a.txt"}' }] },
+      { stopReason: 0 },
+    ];
+    const chunks = messages.map((msg) => turn.chunk(msg));
+    const names = turn.finalToolNames();
+    chunks.push({ choices: [{ index: 0, delta: { tool_calls: names }, finish_reason: turn.finishReason() }] });
+    const wire = [...messages, { terminal: true }];
+    const per = chunks.map(() => []);
+    let current = -1;
+    async function* source() {
+      for (let index = 0; index < chunks.length; index += 1) {
+        current = index;
+        yield chunks[index];
+      }
+      current = -1;
+    }
+    try {
+      await consumeCompatChatCompletionStream(source(), {
+        label: 'devin',
+        providerName: 'devin',
+        knownToolNames: ['read'],
+        onStreamDelta: (kind) => { if (current >= 0) per[current].push(kind); },
+        onToolCall() {},
+        onTextDelta() {},
+        parseToolCalls: (calls) => calls,
+      });
+    } catch {
+      /* the kinds were reported before the settlement */
+    }
+    decoders.devin = wire.map((event, index) => ({ wire: event, kinds: nonTransport(per[index]) }));
+  }
+  writeFileSync(join(here, 'golden', 'stream_progress.json'), `${JSON.stringify({ start: started, events, decoders }, null, 2)}\n`);
 }
 
 writeFileSync(join(here, 'golden', 'usage.json'), `${JSON.stringify({ cases }, null, 2)}\n`);

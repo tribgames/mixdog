@@ -1095,3 +1095,16 @@ fn error_text_is_never_matched() {
     assert_eq!(classify(429, "Resource exhausted: server busy, capacity exceeded"), ErrorKind::RateLimited);
     assert_eq!(classify(400, "prompt is too long, maximum context length exceeded"), ErrorKind::InvalidRequest);
 }
+
+/// Node's Gemini stream consumer reported one kind per chunk (`golden/stream_progress.json`): thinking, text, a call;
+/// a bare finish chunk none. The Rust decoder reports the same for each chunk.
+#[test]
+fn the_decoder_reports_the_progress_kinds_node_s_consumer_does() {
+    use crate::providers::progress_golden::{golden, node_names, rust_names};
+    let gemini = providers().into_iter().find(|p| p.dir == "gemini").expect("gemini");
+    let mut decoder = gemini.codec.decoder(&fixture_request(gemini.model));
+    for step in golden()["decoders"]["gemini"].as_array().expect("gemini") {
+        let events = decoder.feed(format!("data: {}\r\n\r\n", step["wire"]).as_bytes()).expect("feed");
+        assert_eq!(rust_names(&events), node_names(&step["kinds"]), "{}", step["wire"]);
+    }
+}

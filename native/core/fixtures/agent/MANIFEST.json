@@ -30,7 +30,7 @@
     {
       "bytes": 1746,
       "path": "compact/golden/heartbeat.json",
-      "sha256": "3cf11bcd9f40051f2810e38857d081df9d28e08dcf52f1b02bc27c8a78206328"
+      "sha256": "304e90ae98a635063631a1b72a8137eeace52b4d3ec2d34bef79b84f99e933c3"
     },
     {
       "bytes": 484473,
@@ -53,9 +53,9 @@
       "sha256": "bf7e89f2b4c7fb36d6f93f36b2de44fae6b6972cd4291932ab9f3eb759c4b1d6"
     },
     {
-      "bytes": 1232,
+      "bytes": 15279,
       "path": "compact/golden/stream_progress.json",
-      "sha256": "738411df3d6f835e68ce205b3f3319d46fd9a3961798c74e3c934c8ff57b09de"
+      "sha256": "21d7e52563cab7f09aa229018148ef460ff159f137c6e8cd30d0cbef8e6b97e9"
     },
     {
       "bytes": 23095,
@@ -63,9 +63,9 @@
       "sha256": "a3b99b253ca9c0284f06de9c3facf1c7853f07eb201c0512b97d6deb72cbe2cd"
     },
     {
-      "bytes": 291911,
+      "bytes": 328244,
       "path": "compact/golden/usage.json",
-      "sha256": "3311321f4183efdd166dcf8a2b7086dc965b3089990d93e1b1801d255b936009"
+      "sha256": "2d02a9c6f55896aca4865673bfd2bbcd23e4947dbe6318a26edccdc137d09ffe"
     },
     {
       "bytes": 20467,
@@ -88,9 +88,9 @@
       "sha256": "217304c5f70827657253bc6a1dd3b57ab187c7158962dead7f179cf4a72ccc31"
     },
     {
-      "bytes": 30063,
+      "bytes": 40902,
       "path": "compact/record_usage.mjs",
-      "sha256": "d34ba951d56550bc38ce7b97a576125b2760465d5e757c97053c0cf4361dddac"
+      "sha256": "e216c7b0dee75a86c27bcaed4972531696bb47994f42c140e1293c11fc6d173b"
     },
     {
       "bytes": 3313,
@@ -405,11 +405,11 @@
   ],
   "product": {
     "appsSha256": "9bd8fb856b7e00e551f02099c8aa5ad3f6450f5e03419b97b2dc9be008094ac1",
-    "commit": "be4c7d84d685c418e5ac3394b9c60075468d73e3",
+    "commit": "59bb859520c181968f5aae92a8eb77c6a63b14b9",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9249,
     "refComparison": {
-      "closestCommit": "be4c7d84d685c418e5ac3394b9c60075468d73e3",
+      "closestCommit": "59bb859520c181968f5aae92a8eb77c6a63b14b9",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -421,5 +421,5 @@
   },
   "recorder": "native/core/fixtures/agent/record.mjs",
   "set": "agent",
-  "totalBytes": 2678503
+  "totalBytes": 2739722
 }

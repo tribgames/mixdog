@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::Exposure;
 use mixdog_core_api::domain::provider::ItemKind;
+use mixdog_core_api::domain::provider::ProgressKind;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::ProviderReplay;
 use mixdog_core_api::domain::provider::StopReason;
@@ -325,6 +326,8 @@ impl AnthropicDecoder {
             }
             "thinking" => {
                 out.push(StreamEvent::ItemStart { kind: ItemKind::Reasoning, phase: None });
+                // Omitted-thinking displays stream no thinking_delta until the signature: the opening is the only sign.
+                out.push(StreamEvent::Progress(ProgressKind::Reasoning));
                 self.blocks.insert(
                     index,
                     Block::Thinking { thinking: text_of("thinking"), signature: text_of("signature") },
@@ -332,6 +335,7 @@ impl AnthropicDecoder {
             }
             "redacted_thinking" => {
                 out.push(StreamEvent::ItemStart { kind: ItemKind::Reasoning, phase: None });
+                out.push(StreamEvent::Progress(ProgressKind::Reasoning));
                 self.blocks.insert(index, Block::Redacted { data: text_of("data") });
             }
             "tool_use" => {
@@ -341,12 +345,14 @@ impl AnthropicDecoder {
                 self.blocks.insert(index, Block::ToolUse { id, name, json: String::new(), done: None });
             }
             kind if NATIVE_CALL_TYPES.contains(&kind) => {
+                out.push(StreamEvent::Progress(ProgressKind::Tool));
                 self.blocks.insert(
                     index,
                     Block::NativeCall { block: block.clone(), json: String::new(), done: false },
                 );
             }
             kind if NATIVE_RESULT_TYPES.contains(&kind) => {
+                out.push(StreamEvent::Progress(ProgressKind::Tool));
                 self.blocks.insert(index, Block::NativeResult(block.clone()));
             }
             _ => {}
@@ -400,6 +406,9 @@ impl AnthropicDecoder {
                         Block::Thinking { thinking: String::new(), signature: piece.to_owned() },
                     );
                 }
+                if !piece.is_empty() {
+                    out.push(StreamEvent::Progress(ProgressKind::Reasoning));
+                }
             }
             "input_json_delta" => {
                 let piece = str_of("partial_json");
@@ -411,6 +420,8 @@ impl AnthropicDecoder {
                     Some(Block::NativeCall { json, .. }) => json.push_str(piece),
                     _ => {}
                 }
+                // Node reports every input_json_delta, whatever block it lands on.
+                out.push(StreamEvent::Progress(ProgressKind::Tool));
             }
             "citations_delta" => {
                 let Some(citation) = delta.get("citation").filter(|c| c.is_object()) else {
@@ -451,6 +462,7 @@ impl AnthropicDecoder {
                     arguments,
                     native_type: None,
                 }));
+                out.push(StreamEvent::Progress(ProgressKind::Tool));
             }
             Some(Block::NativeCall { block, json, done }) => {
                 let current = block.get("input").filter(|v| v.is_object()).cloned();

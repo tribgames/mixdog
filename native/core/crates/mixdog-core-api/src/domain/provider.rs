@@ -555,6 +555,27 @@ pub enum ItemKind {
     Tool,
 }
 
+/// What a decoder reports to Node's `onStreamDelta(kind)` beyond the text and reasoning deltas themselves: the
+/// semantic progress of the stream (`markSessionStreamDelta`), which refreshes liveness and the heartbeat.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ProgressKind {
+    /// Any other semantic event (an item boundary): the default kind.
+    Semantic,
+    Reasoning,
+    Tool,
+}
+
+impl ProgressKind {
+    /// The kind's name in Node's `onStreamDelta(kind)`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Semantic => "semantic",
+            Self::Reasoning => "reasoning",
+            Self::Tool => "tool",
+        }
+    }
+}
+
 /// Deltas are hints; the folded result is the truth. Partial output of a dead
 /// attempt is discarded by the consumer.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -584,6 +605,10 @@ pub enum StreamEvent {
     /// Provider ping, SSE comment or keepalive event. Informational only:
     /// sets the display state `waitingOnProvider`; never progress, never death.
     ProviderKeepalive,
+    /// Semantic progress of the stream at the point where Node's decoder calls `onStreamDelta(kind)` without a
+    /// delta event of its own (a tool call's arguments or its end, an item boundary). Text and reasoning deltas
+    /// are their own events and report their own kinds. Folds into nothing.
+    Progress(ProgressKind),
     /// The session's provider state changed during the request (Node writes
     /// `opts.providerState` back); the whole new state, to be persisted.
     ProviderState(ProviderState),
@@ -604,6 +629,19 @@ pub enum StreamEvent {
         /// without it falls back to its own clock.
         request_ms: Option<u64>,
     },
+}
+
+impl StreamEvent {
+    /// The kind Node's `onStreamDelta(kind)` reports for this event: `text` and `reasoning` for their deltas,
+    /// the stated kind for a [`StreamEvent::Progress`], nothing for any other event.
+    pub fn progress_kind(&self) -> Option<&'static str> {
+        match self {
+            Self::TextDelta(_) => Some("text"),
+            Self::ReasoningDelta(_) => Some("reasoning"),
+            Self::Progress(kind) => Some(kind.name()),
+            _ => None,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

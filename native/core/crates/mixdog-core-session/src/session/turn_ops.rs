@@ -31,7 +31,7 @@ pub enum CompactionCommit {
 impl super::SessionDirectory {
     /// Commits `compaction`, planned on the model context whose item ids are `snapshot`, to
     /// `thread`. Opens the thread as `loadSession` does. `header` is what the commit sets in the
-    /// thread's header with the compaction; `None` counts one more `compactCount`.
+    /// thread's header with the compaction; `None` writes none (the pre-send pass's telemetry counts it).
     pub async fn commit_compaction(
         &self,
         thread: &ThreadId,

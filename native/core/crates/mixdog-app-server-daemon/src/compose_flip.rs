@@ -1885,6 +1885,15 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let path = TurnPath::new(turn_path_parts(&process, registry.clone(), early, ready, owed)).map_err(ComposeError::TurnPath)?;
     let directory = path.directory.clone();
     late.bind(&directory);
+    // A config reload or a settings save moves the loaded sessions onto the saved compaction (`adoptFullConfig` -> `syncSessionCompaction`); the daemon's config is never injected.
+    drop(mixdog_rt::spawn(
+        "compaction-follow",
+        mixdog_rt::TaskClass::Work,
+        mixdog_core::run_host::compaction_follow::follow(config.clone(), false, Arc::new(LateThreads(late.clone())), {
+            let directory = directory.clone();
+            Arc::new(move || directory.loaded_ids())
+        }),
+    ));
     // The idle-time maintenance schedule (Node `startDaemonMaintenance`, daemon.mjs:938-980): one idle probe, the hourly `worktree-cleanup` task, a 60 s tick.
     // Idle = no loaded session has a turn running or a stage still owning provider/tool work (`IN_FLIGHT_STAGES`, runtime-state.mjs:13: connecting,
     // requesting, streaming, tool_running, cancelling). `WorktreeMaintenance::start` also spawns the startup reconcile off the boot path (daemon.mjs:1001-1015) and

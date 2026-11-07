@@ -1,64 +1,757 @@
 {
-  "start": 1700000287103,
+  "start": 1700000292103,
   "events": [
     {
       "label": "tool_use block opens",
-      "rust": "ToolCallStart",
-      "at": 1700000287103,
+      "wire": [
+        {
+          "type": "content_block_start",
+          "index": 0,
+          "content_block": {
+            "type": "tool_use",
+            "id": "c1",
+            "name": "read",
+            "input": {}
+          }
+        }
+      ],
+      "at": 1700000292103,
       "kinds": [],
       "after": null,
       "saves": 0
     },
     {
       "label": "arguments stream (first)",
-      "rust": "ToolCallArgsDelta",
-      "at": 1700000357103,
+      "wire": [
+        {
+          "type": "content_block_delta",
+          "index": 0,
+          "delta": {
+            "type": "input_json_delta",
+            "partial_json": "{\"path\":"
+          }
+        }
+      ],
+      "at": 1700000362103,
       "kinds": [
         "tool"
       ],
-      "after": 1700000357103,
+      "after": 1700000362103,
       "saves": 1
     },
     {
       "label": "arguments stream (second)",
-      "rust": "ToolCallArgsDelta",
-      "at": 1700000358103,
+      "wire": [
+        {
+          "type": "content_block_delta",
+          "index": 0,
+          "delta": {
+            "type": "input_json_delta",
+            "partial_json": "\"a.txt\"}"
+          }
+        }
+      ],
+      "at": 1700000363103,
       "kinds": [
         "tool"
       ],
-      "after": 1700000357103,
+      "after": 1700000362103,
       "saves": 1
     },
     {
       "label": "tool_use block closes",
-      "rust": "ToolCallDone",
-      "at": 1700000419103,
+      "wire": [
+        {
+          "type": "content_block_stop",
+          "index": 0
+        }
+      ],
+      "at": 1700000424103,
       "kinds": [
         "tool"
       ],
-      "after": 1700000419103,
+      "after": 1700000424103,
+      "saves": 2
+    },
+    {
+      "label": "thinking block opens",
+      "wire": [
+        {
+          "type": "content_block_start",
+          "index": 1,
+          "content_block": {
+            "type": "thinking",
+            "thinking": "",
+            "signature": ""
+          }
+        }
+      ],
+      "at": 1700000425103,
+      "kinds": [
+        "reasoning"
+      ],
+      "after": 1700000424103,
       "saves": 2
     },
     {
       "label": "thinking streams",
-      "rust": "ReasoningDelta",
-      "at": 1700000420103,
+      "wire": [
+        {
+          "type": "content_block_delta",
+          "index": 1,
+          "delta": {
+            "type": "thinking_delta",
+            "thinking": "hm"
+          }
+        }
+      ],
+      "at": 1700000425103,
       "kinds": [
-        "reasoning",
         "reasoning"
       ],
-      "after": 1700000419103,
+      "after": 1700000424103,
+      "saves": 2
+    },
+    {
+      "label": "signature streams",
+      "wire": [
+        {
+          "type": "content_block_delta",
+          "index": 1,
+          "delta": {
+            "type": "signature_delta",
+            "signature": "sig"
+          }
+        }
+      ],
+      "at": 1700000425103,
+      "kinds": [
+        "reasoning"
+      ],
+      "after": 1700000424103,
+      "saves": 2
+    },
+    {
+      "label": "thinking block closes",
+      "wire": [
+        {
+          "type": "content_block_stop",
+          "index": 1
+        }
+      ],
+      "at": 1700000425103,
+      "kinds": [],
+      "after": 1700000424103,
+      "saves": 2
+    },
+    {
+      "label": "redacted thinking opens",
+      "wire": [
+        {
+          "type": "content_block_start",
+          "index": 2,
+          "content_block": {
+            "type": "redacted_thinking",
+            "data": "opaque"
+          }
+        }
+      ],
+      "at": 1700000425103,
+      "kinds": [
+        "reasoning"
+      ],
+      "after": 1700000424103,
+      "saves": 2
+    },
+    {
+      "label": "text block opens",
+      "wire": [
+        {
+          "type": "content_block_start",
+          "index": 3,
+          "content_block": {
+            "type": "text",
+            "text": ""
+          }
+        }
+      ],
+      "at": 1700000486103,
+      "kinds": [],
+      "after": 1700000424103,
       "saves": 2
     },
     {
       "label": "text streams",
-      "rust": "TextDelta",
-      "at": 1700000481103,
+      "wire": [
+        {
+          "type": "content_block_delta",
+          "index": 3,
+          "delta": {
+            "type": "text_delta",
+            "text": "Done."
+          }
+        }
+      ],
+      "at": 1700000486103,
       "kinds": [
         "text"
       ],
-      "after": 1700000481103,
+      "after": 1700000486103,
+      "saves": 3
+    },
+    {
+      "label": "text block closes",
+      "wire": [
+        {
+          "type": "content_block_stop",
+          "index": 3
+        }
+      ],
+      "at": 1700000486103,
+      "kinds": [],
+      "after": 1700000486103,
+      "saves": 3
+    },
+    {
+      "label": "server tool call opens",
+      "wire": [
+        {
+          "type": "content_block_start",
+          "index": 4,
+          "content_block": {
+            "type": "server_tool_use",
+            "id": "s1",
+            "name": "web_search",
+            "input": {}
+          }
+        }
+      ],
+      "at": 1700000486103,
+      "kinds": [
+        "tool"
+      ],
+      "after": 1700000486103,
+      "saves": 3
+    },
+    {
+      "label": "server tool arguments stream",
+      "wire": [
+        {
+          "type": "content_block_delta",
+          "index": 4,
+          "delta": {
+            "type": "input_json_delta",
+            "partial_json": "{\"query\":\"x\"}"
+          }
+        }
+      ],
+      "at": 1700000486103,
+      "kinds": [
+        "tool",
+        "tool"
+      ],
+      "after": 1700000486103,
+      "saves": 3
+    },
+    {
+      "label": "server tool call closes",
+      "wire": [
+        {
+          "type": "content_block_stop",
+          "index": 4
+        }
+      ],
+      "at": 1700000486103,
+      "kinds": [],
+      "after": 1700000486103,
+      "saves": 3
+    },
+    {
+      "label": "server tool result arrives",
+      "wire": [
+        {
+          "type": "content_block_start",
+          "index": 5,
+          "content_block": {
+            "type": "web_search_tool_result",
+            "tool_use_id": "s1",
+            "content": []
+          }
+        }
+      ],
+      "at": 1700000486103,
+      "kinds": [
+        "tool"
+      ],
+      "after": 1700000486103,
+      "saves": 3
+    },
+    {
+      "label": "server tool result closes",
+      "wire": [
+        {
+          "type": "content_block_stop",
+          "index": 5
+        }
+      ],
+      "at": 1700000486103,
+      "kinds": [],
+      "after": 1700000486103,
       "saves": 3
     }
-  ]
+  ],
+  "decoders": {
+    "responses": [
+      {
+        "wire": {
+          "type": "response.created",
+          "response": {
+            "id": "r1",
+            "model": "m"
+          }
+        },
+        "kinds": []
+      },
+      {
+        "wire": {
+          "type": "response.output_item.added",
+          "output_index": 0,
+          "item": {
+            "type": "reasoning",
+            "id": "rs1",
+            "summary": []
+          }
+        },
+        "kinds": []
+      },
+      {
+        "wire": {
+          "type": "response.reasoning_summary_text.delta",
+          "item_id": "rs1",
+          "delta": "thinking"
+        },
+        "kinds": [
+          "reasoning"
+        ]
+      },
+      {
+        "wire": {
+          "type": "response.output_item.done",
+          "output_index": 0,
+          "item": {
+            "type": "reasoning",
+            "id": "rs1",
+            "summary": [
+              {
+                "type": "summary_text",
+                "text": "thinking"
+              }
+            ]
+          }
+        },
+        "kinds": [
+          "reasoning"
+        ]
+      },
+      {
+        "wire": {
+          "type": "response.output_item.added",
+          "output_index": 1,
+          "item": {
+            "type": "message",
+            "id": "m1",
+            "role": "assistant",
+            "content": []
+          }
+        },
+        "kinds": [
+          "semantic"
+        ]
+      },
+      {
+        "wire": {
+          "type": "response.output_text.delta",
+          "item_id": "m1",
+          "delta": "Hello there. "
+        },
+        "kinds": [
+          "text"
+        ]
+      },
+      {
+        "wire": {
+          "type": "response.output_item.done",
+          "output_index": 1,
+          "item": {
+            "type": "message",
+            "id": "m1",
+            "role": "assistant",
+            "content": [
+              {
+                "type": "output_text",
+                "text": "Hello there. "
+              }
+            ]
+          }
+        },
+        "kinds": [
+          "semantic"
+        ]
+      },
+      {
+        "wire": {
+          "type": "response.output_item.added",
+          "output_index": 2,
+          "item": {
+            "type": "function_call",
+            "id": "fc1",
+            "call_id": "c1",
+            "name": "read",
+            "arguments": ""
+          }
+        },
+        "kinds": [
+          "tool"
+        ]
+      },
+      {
+        "wire": {
+          "type": "response.function_call_arguments.delta",
+          "item_id": "fc1",
+          "delta": "{\"path\":"
+        },
+        "kinds": [
+          "tool"
+        ]
+      },
+      {
+        "wire": {
+          "type": "response.function_call_arguments.delta",
+          "item_id": "fc1",
+          "delta": "\"a.txt\"}"
+        },
+        "kinds": [
+          "tool"
+        ]
+      },
+      {
+        "wire": {
+          "type": "response.function_call_arguments.done",
+          "item_id": "fc1",
+          "arguments": "{\"path\":\"a.txt\"}"
+        },
+        "kinds": [
+          "tool"
+        ]
+      },
+      {
+        "wire": {
+          "type": "response.output_item.done",
+          "output_index": 2,
+          "item": {
+            "type": "function_call",
+            "id": "fc1",
+            "call_id": "c1",
+            "name": "read",
+            "arguments": "{\"path\":\"a.txt\"}",
+            "status": "completed"
+          }
+        },
+        "kinds": [
+          "tool"
+        ]
+      }
+    ],
+    "chat": [
+      {
+        "wire": {
+          "id": "c",
+          "model": "m",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "role": "assistant",
+                "content": ""
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        "kinds": []
+      },
+      {
+        "wire": {
+          "id": "c",
+          "model": "m",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "reasoning_content": "hmm"
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        "kinds": [
+          "reasoning"
+        ]
+      },
+      {
+        "wire": {
+          "id": "c",
+          "model": "m",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "content": "Hello. "
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        "kinds": [
+          "text"
+        ]
+      },
+      {
+        "wire": {
+          "id": "c",
+          "model": "m",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "id": "c1",
+                    "type": "function",
+                    "function": {
+                      "name": "read",
+                      "arguments": ""
+                    }
+                  }
+                ]
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        "kinds": [
+          "tool"
+        ]
+      },
+      {
+        "wire": {
+          "id": "c",
+          "model": "m",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "function": {
+                      "arguments": "{\"path\":"
+                    }
+                  }
+                ]
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        "kinds": [
+          "tool"
+        ]
+      },
+      {
+        "wire": {
+          "id": "c",
+          "model": "m",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {
+                "tool_calls": [
+                  {
+                    "index": 0,
+                    "function": {
+                      "arguments": "\"a.txt\"}"
+                    }
+                  }
+                ]
+              },
+              "finish_reason": null
+            }
+          ]
+        },
+        "kinds": [
+          "tool"
+        ]
+      },
+      {
+        "wire": {
+          "id": "c",
+          "model": "m",
+          "choices": [
+            {
+              "index": 0,
+              "delta": {},
+              "finish_reason": "tool_calls"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 5,
+            "completion_tokens": 3,
+            "total_tokens": 8
+          }
+        },
+        "kinds": []
+      }
+    ],
+    "gemini": [
+      {
+        "wire": {
+          "candidates": [
+            {
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "pondering",
+                    "thought": true
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "kinds": [
+          "reasoning"
+        ]
+      },
+      {
+        "wire": {
+          "candidates": [
+            {
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "text": "Hello. "
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "kinds": [
+          "text"
+        ]
+      },
+      {
+        "wire": {
+          "candidates": [
+            {
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "read",
+                      "args": {
+                        "path": "a.txt"
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "kinds": [
+          "tool"
+        ]
+      },
+      {
+        "wire": {
+          "candidates": [
+            {
+              "finishReason": "STOP"
+            }
+          ],
+          "usageMetadata": {
+            "promptTokenCount": 5,
+            "candidatesTokenCount": 3,
+            "totalTokenCount": 8
+          }
+        },
+        "kinds": []
+      }
+    ],
+    "devin": [
+      {
+        "wire": {
+          "deltaThinking": "hm"
+        },
+        "kinds": [
+          "reasoning"
+        ]
+      },
+      {
+        "wire": {
+          "deltaText": "Hello. "
+        },
+        "kinds": [
+          "text"
+        ]
+      },
+      {
+        "wire": {
+          "deltaToolCalls": [
+            {
+              "id": "c1",
+              "name": "read",
+              "argumentsJson": "{\"path\":"
+            }
+          ]
+        },
+        "kinds": [
+          "tool"
+        ]
+      },
+      {
+        "wire": {
+          "deltaToolCalls": [
+            {
+              "id": "c1",
+              "argumentsJson": "\"a.txt\"}"
+            }
+          ]
+        },
+        "kinds": [
+          "tool"
+        ]
+      },
+      {
+        "wire": {
+          "stopReason": 0
+        },
+        "kinds": []
+      },
+      {
+        "wire": {
+          "terminal": true
+        },
+        "kinds": [
+          "tool"
+        ]
+      }
+    ]
+  }
 }
