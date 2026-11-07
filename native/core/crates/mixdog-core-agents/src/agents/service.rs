@@ -25,6 +25,8 @@ use serde_json::json;
 
 use super::AgentConnectors;
 use super::AgentDefinitions;
+use super::AgentGreetings;
+use super::AgentHomeSessions;
 use super::AgentsError;
 use super::SaveOptions;
 use super::permissions::AgentPermissions;
@@ -51,10 +53,53 @@ pub const METHODS: &[&str] = &[
     "agent/recordAgentApprovalAudit",
 ];
 
+/// What the desktop host did around the definition calls (`session-host-lifecycle.ts` `invokeCapability`): a deleted
+/// agent's home thread is archived, a restored one's is brought back, and an agent a dialog saved is recorded as
+/// greeted.
+#[derive(Clone)]
+pub struct AgentLifecycle {
+    homes: AgentHomeSessions,
+    greetings: AgentGreetings,
+}
+
+impl AgentLifecycle {
+    pub fn new(homes: AgentHomeSessions, greetings: AgentGreetings) -> Self {
+        Self { homes, greetings }
+    }
+
+    /// A catalog read (`listAgents`) was answered with `agents`: deletions that did not pass through the editor are
+    /// reconciled and an agent a chat's setup tool just created greets the user. Neither holds the reply.
+    pub fn listed(&self, agents: Value) {
+        let homes = self.homes.clone();
+        let greetings = self.greetings.clone();
+        drop(mixdog_rt::spawn("agent-list-reconcile", mixdog_rt::TaskClass::Work, async move {
+            if let Err(error) = homes.reconcile().await {
+                tracing::warn!("[mixdog-session] Could not archive the threads of removed agents: {error:?}");
+            }
+            if let Err(error) = greetings.reconcile(&agents).await {
+                tracing::warn!("[mixdog-session] Could not check for new agents: {error:?}");
+            }
+        }));
+    }
+
+    /// A deleted agent's home thread is archived by its fixed id once the definition is proven gone on disk. It does
+    /// not hold the reply (`void this.retireAgentHomes(...)`).
+    fn retire_later(&self, agent_id: &str) {
+        let homes = self.homes.clone();
+        let ids = vec![agent_id.to_owned()];
+        drop(mixdog_rt::spawn("agent-home-retire", mixdog_rt::TaskClass::Work, async move {
+            if let Err(error) = homes.retire(&ids).await {
+                tracing::warn!("[mixdog-session] Could not archive the threads of removed agents: {error:?}");
+            }
+        }));
+    }
+}
+
 pub struct AgentService {
     agents: Arc<AgentDefinitions>,
     connectors: AgentConnectors,
     permissions: AgentPermissions,
+    lifecycle: AgentLifecycle,
 }
 
 fn invalid(path: &str, expected: &str) -> CoreError {
@@ -91,8 +136,8 @@ fn no_widen(params: &Value) -> bool {
 }
 
 impl AgentService {
-    pub fn new(agents: Arc<AgentDefinitions>, connectors: AgentConnectors, permissions: AgentPermissions) -> Self {
-        Self { agents, connectors, permissions }
+    pub fn new(agents: Arc<AgentDefinitions>, connectors: AgentConnectors, permissions: AgentPermissions, lifecycle: AgentLifecycle) -> Self {
+        Self { agents, connectors, permissions, lifecycle }
     }
 
     async fn dispatch(&self, method: &str, params: &Value) -> Result<Value, CoreError> {
@@ -121,10 +166,30 @@ impl AgentService {
             "agent/saveAgentDefinition" => {
                 let payload = params.get("payload").and_then(Value::as_object).ok_or_else(|| invalid("params.payload", "object"))?;
                 let options = SaveOptions { no_widen: no_widen(params), approved: None };
-                self.agents.save_with(payload, options).await.map_err(failed)
+                let saved = self.agents.save_with(payload, options).await.map_err(failed)?;
+                // The dialog that saved it greets it (or it already existed).
+                if let Some(id) = saved.get("id").and_then(Value::as_str)
+                    && let Err(error) = self.lifecycle.greetings.note_created(id).await
+                {
+                    tracing::warn!("[mixdog-session] Could not record the new agent: {error:?}");
+                }
+                Ok(saved)
             }
-            "agent/deleteAgentDefinition" => self.agents.delete(text(params, "agentId")?).await.map_err(failed),
-            "agent/restoreAgentDefinition" => self.agents.restore(text(params, "agentId")?).await.map_err(failed),
+            "agent/deleteAgentDefinition" => {
+                let deleted = self.agents.delete(text(params, "agentId")?).await.map_err(failed)?;
+                if let Some(id) = deleted.get("id").and_then(Value::as_str) {
+                    self.lifecycle.retire_later(id);
+                }
+                Ok(deleted)
+            }
+            "agent/restoreAgentDefinition" => {
+                let restored = self.agents.restore(text(params, "agentId")?).await.map_err(failed)?;
+                // Its chat is back (out of the archive, writable) before the reply.
+                if let Some(id) = restored.get("id").and_then(Value::as_str) {
+                    self.lifecycle.homes.restore(id).await?;
+                }
+                Ok(restored)
+            }
             "agent/purgeAgentDefinition" => self.agents.purge(text(params, "agentId")?).await.map_err(failed),
             "agent/getAgentConnectors" => self.connectors.list(text(params, "agentId")?).await.map_err(failed),
             "agent/getAgentAlwaysAllowedTools" => self.connectors.always_allowed(text(params, "agentId")?).await.map_err(failed),

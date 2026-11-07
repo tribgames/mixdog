@@ -24,10 +24,13 @@ use mixdog_core_rooms::rooms::sessions::AgentCatalog;
 use mixdog_core_session::session::SessionDirectory;
 use mixdog_core_session::session::testing::Rig;
 use mixdog_core_session::session::thread_state::SessionThreads;
+use mixdog_services::memory::session_search::ingest::IngestSession;
+use mixdog_services::memory::session_search::ingest::StoredSessions;
 use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+use super::RoomMembers;
 use super::SessionHomeDeps;
 use crate::run_host::directory_sessions::DirectorySessions;
 
@@ -47,16 +50,47 @@ impl AgentCatalog for Catalog {
         false
     }
 
-    async fn presence(&self, _: &[String]) -> Result<HashMap<String, Presence>, RoomError> {
-        Ok(HashMap::new())
+    /// Ada's definition is gone from the files; nobody else is known.
+    async fn presence(&self, ids: &[String]) -> Result<HashMap<String, Presence>, RoomError> {
+        Ok(ids.iter().filter(|id| id.as_str() == "ada").map(|id| (id.clone(), Presence::Deleted)).collect())
     }
 
     async fn archived_name(&self, _: &str) -> String {
-        String::new()
+        "Ada Gone".into()
     }
 
     async fn task_workspace(&self) -> String {
         "/ws".into()
+    }
+}
+
+/// The stored sessions: just the ones a test names.
+struct Stored(Vec<String>);
+
+#[async_trait]
+impl StoredSessions for Stored {
+    async fn session_ids(&self) -> mixdog_services::memory::error::Result<Vec<String>> {
+        Ok(self.0.clone())
+    }
+
+    async fn record_stamp(&self, _: &str) -> Option<String> {
+        None
+    }
+
+    async fn read(&self, _: &str) -> Option<IngestSession> {
+        None
+    }
+}
+
+/// The rooms: the members that left, in order.
+#[derive(Default)]
+struct Rooms(std::sync::Mutex<Vec<String>>);
+
+#[async_trait]
+impl RoomMembers for Rooms {
+    async fn forget_room_member(&self, agent_id: &str) -> Result<(), RoomError> {
+        self.0.lock().unwrap().push(agent_id.to_owned());
+        Ok(())
     }
 }
 
@@ -87,6 +121,7 @@ struct World {
     directory: Arc<SessionDirectory>,
     state: Arc<dyn ThreadState>,
     deps: Arc<SessionHomeDeps>,
+    rooms: Arc<Rooms>,
 }
 
 async fn world() -> World {
@@ -96,8 +131,10 @@ async fn world() -> World {
     let directory = Arc::new(SessionDirectory::new(rig.deps_on(store.clone())));
     let state: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
     let sessions = Arc::new(DirectorySessions::new(directory.clone(), state.clone()));
-    let deps = Arc::new(SessionHomeDeps::new(Arc::new(Catalog), sessions, directory.clone()));
-    World { _data: data, rig, store, directory, state, deps }
+    let rooms = Arc::new(Rooms::default());
+    let stored = Arc::new(Stored(vec!["sess_home_ada".into(), "sess_other".into()]));
+    let deps = Arc::new(SessionHomeDeps::new(Arc::new(Catalog), sessions, directory.clone(), stored, rooms.clone()));
+    World { _data: data, rig, store, directory, state, deps, rooms }
 }
 
 fn connection() -> CallContext {
@@ -210,4 +247,28 @@ async fn the_deps_read_the_catalog_and_report_a_missing_session_as_node_does() {
     assert_eq!(missing.code.as_deref(), Some("SESSION_NOT_AVAILABLE"));
     let id = world.deps.mint_archive_id();
     assert!(id.starts_with("sess_") && id.len() > 40 && id != world.deps.mint_archive_id());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deleted_agents_home_is_archived_and_named_then_brought_back_by_a_restore() {
+    let world = world().await;
+    let homes = AgentHomeSessions::new(world.deps.clone());
+    let home = homes.open("ada").await.expect("opens")["sessionId"].as_str().unwrap().to_owned();
+    let header = || async { world.state.header(&ThreadId::from(home.as_str())).await.unwrap() };
+    assert_eq!(world.deps.known_session_ids().await.unwrap(), ["sess_home_ada", "sess_other"]);
+    assert!(homes.has_home("ada").await.unwrap() && !homes.has_home("bob").await.unwrap());
+
+    homes.retire(&["ada".into(), "lead".into()]).await.expect("retires");
+    let retired = header().await;
+    assert_eq!((retired.get("archived"), retired.get("retired")), (Some(&json!(true)), Some(&json!(true))));
+    assert_eq!(world.rooms.0.lock().unwrap().as_slice(), ["ada"], "the deletion is proven once, and Mixy is never retired");
+
+    // A reconcile after the transition archives nothing again.
+    world.deps.set_archived(&home, false).await.unwrap();
+    homes.reconcile().await.expect("reconciles");
+    assert_eq!(header().await.get("archived"), Some(&json!(false)), "a hand-restored home stays restored");
+
+    homes.restore("ada").await.expect("restores");
+    let restored = header().await;
+    assert_eq!((restored.get("archived"), restored.get("retired")), (Some(&json!(false)), Some(&json!(false))));
 }
