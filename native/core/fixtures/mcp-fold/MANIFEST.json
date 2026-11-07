@@ -3,18 +3,18 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 525629,
+      "bytes": 636020,
       "path": "golden.json",
-      "sha256": "ca800d555f10085b456273b9a297b944079a6c7bc623c128ec375bf405492249"
+      "sha256": "e05df9f077582c87012c6669327d1c8895f4863223b14cf83c8987e296276c5d"
     }
   ],
   "product": {
     "appsSha256": "9bd8fb856b7e00e551f02099c8aa5ad3f6450f5e03419b97b2dc9be008094ac1",
-    "commit": "c306f33771116790eb3bfb76538cddf98d45343d",
+    "commit": "200d6888a52dd1844a923c5c3717f4cd5a020010",
     "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
     "files": 9249,
     "refComparison": {
-      "closestCommit": "c306f33771116790eb3bfb76538cddf98d45343d",
+      "closestCommit": "200d6888a52dd1844a923c5c3717f4cd5a020010",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-mcp-fold.mjs",
   "set": "mcp-fold",
-  "totalBytes": 525629
+  "totalBytes": 636020
 }

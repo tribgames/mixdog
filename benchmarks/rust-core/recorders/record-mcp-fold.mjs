@@ -8,6 +8,9 @@
 //   turn  — a turn start as `turn-prepare.mjs foldMcpSurface` runs it (the one-shot flag cleared, the initial fold,
 //           or the late reconcile), followed on the first turn by the request boundary's `refreshDeferredMcpToolCatalog`
 //           (`session/loop/request-boundary.mjs`) over the same registry.
+//   migrate — `migrateToolExposureAtBoundary` over a session whose persisted exposure differs from its provider's,
+//           with the request boundary's `delete pendingCacheBreakIntent` after a migration; `transcript` is the
+//           conversation the request is built from (its unanswered tool calls make the boundary unsafe).
 //
 //   node benchmarks/rust-core/recorders/record-mcp-fold.mjs --tree <dir with node_modules>
 //
@@ -35,6 +38,8 @@ const U = (rel) => importFrom(tree, `src/${rel}`);
 const { applyDeferredToolSurface, reconcileDeferredMcpToolCatalog, refreshDeferredMcpToolCatalog, refreshInitialDeferredMcpSurface } = await U(
   'runtime/agent/orchestrator/runtime-core/tool-catalog.mjs'
 );
+
+const { migrateToolExposureAtBoundary } = await U('runtime/agent/orchestrator/session/loop/tool-exposure-migration.mjs');
 
 const json = (value) => JSON.parse(JSON.stringify(value));
 const doc = (name, extra = {}) => ({ name, description: `${name} tool`, inputSchema: { type: 'object', properties: {} }, ...extra });
@@ -97,7 +102,22 @@ const CALLS = {
   // refreshDeferredMcpToolCatalog(session) of the request boundary, a tool call and load_tool; it reads the registry,
   // which this recorder leaves empty.
   refresh: (current) => refreshDeferredMcpToolCatalog(current),
+  // `prepareProviderRequest`: the migration, then the cache-break tag it carries on the request instead of the session.
+  migrate: (current, _live, transcript = []) => {
+    const migrated = migrateToolExposureAtBoundary(current, [...current.messages, ...transcript]);
+    if (migrated) delete current.pendingCacheBreakIntent;
+    return migrated;
+  },
 };
+
+const measured = (current) => {
+  current.providerState = { id: 'resp_1' };
+  current._providerPrefixGuardState = { hash: 'h' };
+  current.pendingCacheBreakIntent = 'manual_compaction';
+};
+const ask = { role: 'user', content: 'list things' };
+const asked = { role: 'assistant', content: '', toolCalls: [{ id: 'call_1', name: 'read', arguments: {} }] };
+const answered = { role: 'tool', toolCallId: 'call_1', content: 'ok' };
 
 // [suite, name, session, [[call, live, set?]...]]: set is assigned onto the session before the call, as another
 // writer (an acknowledged delta, a gate) would between two calls.
@@ -126,6 +146,12 @@ const CASES = [
   ['turn', 'cache: an unchanged registry skips the reconcile, a changed one runs it', session('anthropic-oauth'), [['turn', [alphaList]], ['turn', [alphaList]], ['turn', [alphaList], { deferredMcpToolNames: ['stale'] }], ['turn', [alphaList, betaPing]]]],
   ['turn', 'cache: an input the key reads runs the reconcile again', session('anthropic-oauth', [...DEFERRED, alphaList]), [['turn', [alphaList]], ['turn', [alphaList], { deferredMcpToolNames: ['stale'] }], ['turn', [alphaList], { disallowedTools: ['get_goal', 'office'] }], ['turn', [alphaList], { deferredMcpToolNames: ['stale'], callerDisallowedTools: [] }]]],
   ['turn', 'refresh: a session with a deferred mode follows the registry', session('anthropic-oauth', [...DEFERRED, alphaList], resumed), [['refresh', []], ['refresh', []]]],
+  ['migrate', 'a native session whose provider became a bridge one migrates once', session('anthropic-oauth', DEFERRED, measured), [['migrate', [], { provider: 'openrouter' }, [ask]], ['migrate', [], null, [ask]]]],
+  ['migrate', 'a bridge session whose provider became a native one migrates', session('openrouter', DEFERRED, measured), [['migrate', [], { provider: 'anthropic-oauth' }, [ask]]]],
+  ['migrate', 'a fixed surface persisted before exposure versions migrates to the bridge', session('openrouter', DEFERRED, (current) => { measured(current); asBridgeless(current); }), [['migrate', [], null, [ask]]]],
+  ['migrate', 'an unanswered tool call is not a safe boundary, an answered one is', session('anthropic-oauth', DEFERRED, measured), [['migrate', [], { provider: 'openrouter' }, [ask, asked]], ['migrate', [], null, [ask, asked, answered]]]],
+  ['migrate', 'a session already on its provider is left as it is', session('anthropic-oauth', DEFERRED, measured), [['migrate', [], null, [ask]]]],
+  ['migrate', 'a session with no exposure yet is left as it is', session('anthropic-oauth', DEFERRED, (current) => { measured(current); delete current.deferredProviderMode; delete current.toolExposureMode; }), [['migrate', [], { provider: 'openrouter' }, [ask]]]],
   ['turn', 'refresh: a session with no deferred mode is left alone', session('anthropic-oauth', [...DEFERRED, alphaList], (current) => { resumed(current); delete current.deferredProviderMode; }), [['refresh', []]]],
 ].map(([suite, name, before, steps]) => {
   const current = json(before);
@@ -133,10 +159,10 @@ const CASES = [
     suite,
     name,
     before,
-    steps: steps.map(([call, live, set]) => {
+    steps: steps.map(([call, live, set, transcript]) => {
       if (set) Object.assign(current, json(set));
-      const result = CALLS[call](current, live);
-      return { call, live, set: set ?? null, result: result ?? null, after: json(current) };
+      const result = CALLS[call](current, live, transcript);
+      return { call, live, set: set ?? null, transcript: transcript ?? null, result: result ?? null, after: json(current) };
     }),
   };
 });

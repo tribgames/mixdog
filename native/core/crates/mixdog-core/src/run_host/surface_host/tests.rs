@@ -751,6 +751,37 @@ fn the_mcp_fold_follows_node() {
     assert!(turns > 0);
 }
 
+/// Node's `migrateToolExposureAtBoundary` and the request boundary's cache-break clean-up (`fixtures/mcp-fold`, the
+/// `migrate` cases): a session persisted for another exposure than its provider's is rebuilt and what was measured
+/// against the old surface is dropped; a session already on its provider's, one with no exposure yet, and one with a
+/// tool call waiting for its result are left as they are.
+#[test]
+fn the_exposure_migration_follows_node() {
+    let golden = golden();
+    let host = rig(&golden, setup("full")).host;
+    let fold = fold_golden();
+    let (mut steps, mut migrations) = (0, 0);
+    for case in fold["cases"].as_array().expect("cases").iter().filter(|case| case["suite"] == "migrate") {
+        let label = case["name"].as_str().expect("name");
+        let mut header = header_of(&case["before"]);
+        for (n, step) in case["steps"].as_array().expect("steps").iter().enumerate() {
+            for (key, value) in step["set"].as_object().into_iter().flatten() {
+                header.insert(key.clone(), value.clone());
+            }
+            let transcript = step["transcript"].as_array().expect("transcript");
+            let next = host.migrate_exposure(&header, crate::run_host::tool_migration::has_unanswered_tool_calls(transcript)).expect(label);
+            assert_eq!(next.is_some(), step["result"] == true, "{label} step {n}");
+            migrations += usize::from(next.is_some());
+            if let Some(next) = next {
+                header = next;
+            }
+            assert_eq!(header, header_of(&step["after"]), "{label} step {n}");
+            steps += 1;
+        }
+    }
+    assert_eq!((steps, migrations), (8, 4));
+}
+
 /// The loop's refresh (request boundary, tool call, `load_tool`) writes what Node's
 /// `refreshDeferredMcpToolCatalog` leaves, once: the same registry again is skipped by the state cache. A thread with
 /// no deferred mode is not touched.

@@ -4,6 +4,70 @@
       "name": "an unchanged session keeps its surface",
       "steps": [
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 174,
+              "reserveTokens": 174,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": null,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594264,
+              "lastBeforeTokens": 190,
+              "lastAfterTokens": 190,
+              "lastPressureTokens": 190,
+              "currentEstimatedTokens": 190,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594264,
+                  "stage": "pre_send_check",
+                  "pressure": 190,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -87,6 +151,80 @@
           ]
         },
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 174,
+              "reserveTokens": 174,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": 0,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594264,
+              "lastBeforeTokens": 190,
+              "lastAfterTokens": 190,
+              "lastPressureTokens": 190,
+              "currentEstimatedTokens": 190,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594264,
+                  "stage": "pre_send_check",
+                  "pressure": 190,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594264,
+                  "stage": "pre_send_check",
+                  "pressure": 190,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null,
+            "effectiveContextWindowPercent": 0
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -170,6 +308,89 @@
           ]
         },
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 174,
+              "reserveTokens": 174,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": 0,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594265,
+              "lastBeforeTokens": 190,
+              "lastAfterTokens": 190,
+              "lastPressureTokens": 190,
+              "currentEstimatedTokens": 190,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594264,
+                  "stage": "pre_send_check",
+                  "pressure": 190,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594264,
+                  "stage": "pre_send_check",
+                  "pressure": 190,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594265,
+                  "stage": "pre_send_check",
+                  "pressure": 190,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null,
+            "effectiveContextWindowPercent": 0
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -258,6 +479,71 @@
       "name": "a changed MCP schema replaces the definition in place",
       "steps": [
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list",
+              "mcp__beta__ping"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 240,
+              "reserveTokens": 240,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": null,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594265,
+              "lastBeforeTokens": 256,
+              "lastAfterTokens": 256,
+              "lastPressureTokens": 256,
+              "currentEstimatedTokens": 256,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594265,
+                  "stage": "pre_send_check",
+                  "pressure": 256,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -366,6 +652,81 @@
           ]
         },
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list",
+              "mcp__beta__ping"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 238,
+              "reserveTokens": 238,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": 0,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594266,
+              "lastBeforeTokens": 254,
+              "lastAfterTokens": 254,
+              "lastPressureTokens": 254,
+              "currentEstimatedTokens": 254,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594265,
+                  "stage": "pre_send_check",
+                  "pressure": 256,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594266,
+                  "stage": "pre_send_check",
+                  "pressure": 254,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null,
+            "effectiveContextWindowPercent": 0
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -479,6 +840,71 @@
       "name": "a disconnected MCP tool leaves the surface",
       "steps": [
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list",
+              "mcp__beta__ping"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 240,
+              "reserveTokens": 240,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": null,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594266,
+              "lastBeforeTokens": 256,
+              "lastAfterTokens": 256,
+              "lastPressureTokens": 256,
+              "currentEstimatedTokens": 256,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594266,
+                  "stage": "pre_send_check",
+                  "pressure": 256,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -587,6 +1013,80 @@
           ]
         },
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__beta__ping"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 172,
+              "reserveTokens": 172,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": 0,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594267,
+              "lastBeforeTokens": 188,
+              "lastAfterTokens": 188,
+              "lastPressureTokens": 188,
+              "currentEstimatedTokens": 188,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594266,
+                  "stage": "pre_send_check",
+                  "pressure": 256,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594267,
+                  "stage": "pre_send_check",
+                  "pressure": 188,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null,
+            "effectiveContextWindowPercent": 0
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -678,6 +1178,87 @@
           ]
         },
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 106,
+              "reserveTokens": 106,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": 0,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594267,
+              "lastBeforeTokens": 122,
+              "lastAfterTokens": 122,
+              "lastPressureTokens": 122,
+              "currentEstimatedTokens": 122,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594266,
+                  "stage": "pre_send_check",
+                  "pressure": 256,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594267,
+                  "stage": "pre_send_check",
+                  "pressure": 188,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594267,
+                  "stage": "pre_send_check",
+                  "pressure": 122,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null,
+            "effectiveContextWindowPercent": 0
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -756,6 +1337,70 @@
       "name": "a new MCP tool is appended after the surface",
       "steps": [
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 174,
+              "reserveTokens": 174,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": null,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594267,
+              "lastBeforeTokens": 190,
+              "lastAfterTokens": 190,
+              "lastPressureTokens": 190,
+              "currentEstimatedTokens": 190,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594267,
+                  "stage": "pre_send_check",
+                  "pressure": 190,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -839,6 +1484,82 @@
           ]
         },
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list",
+              "mcp__alpha__get",
+              "mcp__beta__ping"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 306,
+              "reserveTokens": 306,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": 0,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594268,
+              "lastBeforeTokens": 322,
+              "lastAfterTokens": 322,
+              "lastPressureTokens": 322,
+              "currentEstimatedTokens": 322,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594267,
+                  "stage": "pre_send_check",
+                  "pressure": 190,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594268,
+                  "stage": "pre_send_check",
+                  "pressure": 322,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null,
+            "effectiveContextWindowPercent": 0
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -977,6 +1698,70 @@
       "name": "an eager tool change is not adopted",
       "steps": [
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 174,
+              "reserveTokens": 174,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": null,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594268,
+              "lastBeforeTokens": 190,
+              "lastAfterTokens": 190,
+              "lastPressureTokens": 190,
+              "currentEstimatedTokens": 190,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594268,
+                  "stage": "pre_send_check",
+                  "pressure": 190,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -1060,6 +1845,80 @@
           ]
         },
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 174,
+              "reserveTokens": 174,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": 0,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594268,
+              "lastBeforeTokens": 190,
+              "lastAfterTokens": 190,
+              "lastPressureTokens": 190,
+              "currentEstimatedTokens": 190,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594268,
+                  "stage": "pre_send_check",
+                  "pressure": 190,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594268,
+                  "stage": "pre_send_check",
+                  "pressure": 190,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null,
+            "effectiveContextWindowPercent": 0
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -1143,6 +2002,89 @@
           ]
         },
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 174,
+              "reserveTokens": 174,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": 0,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594268,
+              "lastBeforeTokens": 190,
+              "lastAfterTokens": 190,
+              "lastPressureTokens": 190,
+              "currentEstimatedTokens": 190,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594268,
+                  "stage": "pre_send_check",
+                  "pressure": 190,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594268,
+                  "stage": "pre_send_check",
+                  "pressure": 190,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594268,
+                  "stage": "pre_send_check",
+                  "pressure": 190,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null,
+            "effectiveContextWindowPercent": 0
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -1247,6 +2189,71 @@
       "name": "a reordered session keeps the sent order",
       "steps": [
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list",
+              "mcp__beta__ping"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 240,
+              "reserveTokens": 240,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": null,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594269,
+              "lastBeforeTokens": 256,
+              "lastAfterTokens": 256,
+              "lastPressureTokens": 256,
+              "currentEstimatedTokens": 256,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594269,
+                  "stage": "pre_send_check",
+                  "pressure": 256,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -1355,6 +2362,81 @@
           ]
         },
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list",
+              "mcp__beta__ping"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 240,
+              "reserveTokens": 240,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": 0,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594269,
+              "lastBeforeTokens": 256,
+              "lastAfterTokens": 256,
+              "lastPressureTokens": 256,
+              "currentEstimatedTokens": 256,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594269,
+                  "stage": "pre_send_check",
+                  "pressure": 256,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594269,
+                  "stage": "pre_send_check",
+                  "pressure": 256,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null,
+            "effectiveContextWindowPercent": 0
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "mcp__beta__ping",
@@ -1468,6 +2550,71 @@
       "name": "a removed and a re-added tool take the end",
       "steps": [
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list",
+              "mcp__beta__ping"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 240,
+              "reserveTokens": 240,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": null,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594269,
+              "lastBeforeTokens": 256,
+              "lastAfterTokens": 256,
+              "lastPressureTokens": 256,
+              "currentEstimatedTokens": 256,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594269,
+                  "stage": "pre_send_check",
+                  "pressure": 256,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -1576,6 +2723,80 @@
           ]
         },
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__beta__ping"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 172,
+              "reserveTokens": 172,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": 0,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594269,
+              "lastBeforeTokens": 188,
+              "lastAfterTokens": 188,
+              "lastPressureTokens": 188,
+              "currentEstimatedTokens": 188,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594269,
+                  "stage": "pre_send_check",
+                  "pressure": 256,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594269,
+                  "stage": "pre_send_check",
+                  "pressure": 188,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null,
+            "effectiveContextWindowPercent": 0
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -1667,6 +2888,90 @@
           ]
         },
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list",
+              "mcp__beta__ping"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 240,
+              "reserveTokens": 240,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": 0,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594270,
+              "lastBeforeTokens": 256,
+              "lastAfterTokens": 256,
+              "lastPressureTokens": 256,
+              "currentEstimatedTokens": 256,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594269,
+                  "stage": "pre_send_check",
+                  "pressure": 256,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594269,
+                  "stage": "pre_send_check",
+                  "pressure": 188,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594270,
+                  "stage": "pre_send_check",
+                  "pressure": 256,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null,
+            "effectiveContextWindowPercent": 0
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -1780,6 +3085,67 @@
       "name": "without a connected snapshot every MCP tool is available",
       "steps": [
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 180,
+              "reserveTokens": 180,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": null,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594270,
+              "lastBeforeTokens": 196,
+              "lastAfterTokens": 196,
+              "lastPressureTokens": 196,
+              "currentEstimatedTokens": 196,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594270,
+                  "stage": "pre_send_check",
+                  "pressure": 196,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -1861,6 +3227,77 @@
           ]
         },
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 247,
+              "reserveTokens": 247,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": 0,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594270,
+              "lastBeforeTokens": 263,
+              "lastAfterTokens": 263,
+              "lastPressureTokens": 263,
+              "currentEstimatedTokens": 263,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594270,
+                  "stage": "pre_send_check",
+                  "pressure": 196,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594270,
+                  "stage": "pre_send_check",
+                  "pressure": 263,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null,
+            "effectiveContextWindowPercent": 0
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -1966,6 +3403,89 @@
           ]
         },
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 112,
+              "reserveTokens": 112,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": 0,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594270,
+              "lastBeforeTokens": 128,
+              "lastAfterTokens": 128,
+              "lastPressureTokens": 128,
+              "currentEstimatedTokens": 128,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594270,
+                  "stage": "pre_send_check",
+                  "pressure": 196,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594270,
+                  "stage": "pre_send_check",
+                  "pressure": 263,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594270,
+                  "stage": "pre_send_check",
+                  "pressure": 128,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null,
+            "effectiveContextWindowPercent": 0,
+            "deferredMcpToolNames": [
+              "mcp__beta__ping"
+            ]
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -2046,6 +3566,70 @@
       "name": "a name listed twice is sent once, the first definition",
       "steps": [
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 174,
+              "reserveTokens": 174,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": null,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594271,
+              "lastBeforeTokens": 190,
+              "lastAfterTokens": 190,
+              "lastPressureTokens": 190,
+              "currentEstimatedTokens": 190,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594271,
+                  "stage": "pre_send_check",
+                  "pressure": 190,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -2137,6 +3721,80 @@
           ]
         },
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 173,
+              "reserveTokens": 173,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": 0,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594271,
+              "lastBeforeTokens": 189,
+              "lastAfterTokens": 189,
+              "lastPressureTokens": 189,
+              "currentEstimatedTokens": 189,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594271,
+                  "stage": "pre_send_check",
+                  "pressure": 190,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594271,
+                  "stage": "pre_send_check",
+                  "pressure": 189,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null,
+            "effectiveContextWindowPercent": 0
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -2233,6 +3891,71 @@
       "name": "everything changes at once",
       "steps": [
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list",
+              "mcp__beta__ping"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 240,
+              "reserveTokens": 240,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": null,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594271,
+              "lastBeforeTokens": 256,
+              "lastAfterTokens": 256,
+              "lastPressureTokens": 256,
+              "currentEstimatedTokens": 256,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594271,
+                  "stage": "pre_send_check",
+                  "pressure": 256,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "read",
@@ -2341,6 +4064,81 @@
           ]
         },
         {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__gamma__run",
+              "mcp__beta__ping"
+            ],
+            "compaction": {
+              "auto": true,
+              "requestReserveTokens": 244,
+              "reserveTokens": 244,
+              "boundaryTokens": 1000000,
+              "triggerTokens": 1000000,
+              "bufferTokens": 0,
+              "bufferRatio": 0,
+              "contextWindow": 1000000,
+              "rawContextWindow": 1000000,
+              "effectiveContextWindowPercent": 0,
+              "autoCompactTokenLimit": null,
+              "handoffTimeoutMs": 300000,
+              "lastCheckedAt": 1794063594271,
+              "lastBeforeTokens": 260,
+              "lastAfterTokens": 260,
+              "lastPressureTokens": 260,
+              "currentEstimatedTokens": 260,
+              "lastApiRequestTokens": null,
+              "lastStage": "pre_send_check",
+              "lastChanged": false,
+              "lastTrigger": null,
+              "lastFreshContext": false,
+              "lastFreshContextError": null,
+              "lastHandoffSource": null,
+              "lastError": null,
+              "lastDurationMs": null,
+              "compactCount": 0,
+              "singleShotConsumed": false,
+              "recentChecks": [
+                {
+                  "at": 1794063594271,
+                  "stage": "pre_send_check",
+                  "pressure": 256,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                },
+                {
+                  "at": 1794063594271,
+                  "stage": "pre_send_check",
+                  "pressure": 260,
+                  "est": 16,
+                  "trigger": 1000000,
+                  "baseline": null,
+                  "baselineAt": null
+                }
+              ]
+            },
+            "rawContextWindow": 1000000,
+            "compactBoundaryTokens": 1000000,
+            "autoCompactTokenLimit": null,
+            "effectiveContextWindowPercent": 0
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
           "tools": [
             {
               "name": "shell",
@@ -2447,6 +4245,1962 @@
               }
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "a deferred catalog tool joins a native session once it is discovered",
+      "steps": [
+        {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "anthropic-oauth",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list"
+            ],
+            "deferredNativeTools": true,
+            "deferredProviderMode": "native",
+            "deferredToolCatalog": [
+              {
+                "name": "office",
+                "description": "office tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "mcp__alpha__get",
+                "description": "Get one thing.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredLateToolCatalog": []
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "office",
+              "description": "office tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "deferLoading": true
+            }
+          ],
+          "sent": null
+        },
+        {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "anthropic-oauth",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list"
+            ],
+            "deferredNativeTools": true,
+            "deferredProviderMode": "native",
+            "deferredToolCatalog": [
+              {
+                "name": "office",
+                "description": "office tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "mcp__alpha__get",
+                "description": "Get one thing.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredLateToolCatalog": [],
+            "deferredDiscoveredTools": [
+              "office"
+            ]
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "office",
+              "description": "office tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "deferLoading": true
+            }
+          ],
+          "sent": null
+        },
+        {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "anthropic-oauth",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list"
+            ],
+            "deferredNativeTools": true,
+            "deferredProviderMode": "native",
+            "deferredToolCatalog": [
+              {
+                "name": "office",
+                "description": "office tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "mcp__alpha__get",
+                "description": "Get one thing.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredLateToolCatalog": [],
+            "deferredDiscoveredTools": [
+              "office",
+              "mcp__alpha__get",
+              "ghost"
+            ]
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "office",
+              "description": "office tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "deferLoading": true
+            }
+          ],
+          "sent": null
+        },
+        {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "anthropic-oauth",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list"
+            ],
+            "deferredNativeTools": true,
+            "deferredProviderMode": "native",
+            "deferredToolCatalog": [
+              {
+                "name": "office",
+                "description": "office tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "mcp__alpha__get",
+                "description": "Get one thing.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredLateToolCatalog": [],
+            "deferredDiscoveredTools": []
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "office",
+              "description": "office tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "deferLoading": true
+            }
+          ],
+          "sent": null
+        }
+      ]
+    },
+    {
+      "name": "a tool the transcript referenced joins a native session",
+      "steps": [
+        {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "anthropic-oauth",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredNativeTools": true,
+            "deferredProviderMode": "native",
+            "deferredToolCatalog": [
+              {
+                "name": "office",
+                "description": "office tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "mcp__alpha__get",
+                "description": "Get one thing.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredLateToolCatalog": []
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": null,
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "office",
+              "description": "office tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "deferLoading": true
+            }
+          ],
+          "sent": null
+        },
+        {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "anthropic-oauth",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredNativeTools": true,
+            "deferredProviderMode": "native",
+            "deferredToolCatalog": [
+              {
+                "name": "office",
+                "description": "office tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "mcp__alpha__get",
+                "description": "Get one thing.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredLateToolCatalog": []
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            },
+            {
+              "role": "tool",
+              "toolCallId": "call_memory",
+              "content": "ok",
+              "nativeToolSearch": {
+                "provider": "anthropic-oauth",
+                "toolReferences": [
+                  "memory"
+                ]
+              }
+            }
+          ],
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": null,
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "office",
+              "description": "office tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "deferLoading": true
+            },
+            {
+              "name": "memory",
+              "description": "memory tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "deferLoading": true
+            }
+          ],
+          "sent": null
+        },
+        {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "anthropic-oauth",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredNativeTools": true,
+            "deferredProviderMode": "native",
+            "deferredToolCatalog": [
+              {
+                "name": "office",
+                "description": "office tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "mcp__alpha__get",
+                "description": "Get one thing.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredLateToolCatalog": []
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            },
+            {
+              "role": "tool",
+              "toolCallId": "call_memory",
+              "content": "ok",
+              "nativeToolSearch": {
+                "provider": "openai",
+                "toolReferences": [
+                  "memory"
+                ]
+              }
+            },
+            {
+              "role": "tool",
+              "toolCallId": "call_github",
+              "content": "ok",
+              "nativeToolSearch": {
+                "provider": "anthropic",
+                "toolReferences": [
+                  "github"
+                ]
+              }
+            }
+          ],
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": null,
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "office",
+              "description": "office tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "deferLoading": true
+            },
+            {
+              "name": "github",
+              "description": "github tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "deferLoading": true
+            }
+          ],
+          "sent": null
+        }
+      ]
+    },
+    {
+      "name": "the anchor keeps tool-search mode in a native session without a discovery",
+      "steps": [
+        {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "anthropic-oauth",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list"
+            ],
+            "deferredNativeTools": true,
+            "deferredProviderMode": "native",
+            "deferredToolCatalog": [
+              {
+                "name": "mcp__alpha__get",
+                "description": "Get one thing.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "office",
+                "description": "office tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredLateToolCatalog": []
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "office",
+              "description": "office tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "deferLoading": true
+            }
+          ],
+          "sent": null
+        },
+        {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "anthropic-oauth",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list"
+            ],
+            "deferredNativeTools": true,
+            "deferredProviderMode": "native",
+            "deferredToolCatalog": [
+              {
+                "name": "mcp__alpha__get",
+                "description": "Get one thing.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "office",
+                "description": "office tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredLateToolCatalog": []
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "office",
+              "description": "office tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "deferLoading": true
+            }
+          ],
+          "sent": null
+        },
+        {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "anthropic-oauth",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list"
+            ],
+            "deferredNativeTools": true,
+            "deferredProviderMode": "native",
+            "deferredToolCatalog": [
+              {
+                "name": "mcp__alpha__get",
+                "description": "Get one thing.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredLateToolCatalog": []
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": null
+        },
+        {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "anthropic-oauth",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredMcpToolNames": [
+              "mcp__alpha__list"
+            ],
+            "deferredNativeTools": true,
+            "deferredProviderMode": "native",
+            "deferredToolCatalog": [
+              {
+                "name": "mcp__alpha__get",
+                "description": "Get one thing.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredLateToolCatalog": []
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "office",
+              "description": "office tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": [
+            "mcp__alpha__list"
+          ],
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "office",
+              "description": "office tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "mcp__alpha__list",
+              "description": "List the things.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": null
+        }
+      ]
+    },
+    {
+      "name": "a native session on a gateway route or off Anthropic adds nothing",
+      "steps": [
+        {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "anthropic-oauth",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredNativeTools": true,
+            "deferredProviderMode": "native",
+            "deferredToolCatalog": [
+              {
+                "name": "office",
+                "description": "office tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "mcp__alpha__get",
+                "description": "Get one thing.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredLateToolCatalog": [],
+            "deferredDiscoveredTools": [
+              "office"
+            ]
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": null,
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "office",
+              "description": "office tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "deferLoading": true
+            }
+          ],
+          "sent": null
+        },
+        {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openai",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredNativeTools": true,
+            "deferredProviderMode": "native",
+            "deferredToolCatalog": [
+              {
+                "name": "office",
+                "description": "office tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "mcp__alpha__get",
+                "description": "Get one thing.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredLateToolCatalog": [],
+            "deferredDiscoveredTools": [
+              "office"
+            ]
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": null,
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": null
+        },
+        {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "openrouter",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredNativeTools": true,
+            "deferredProviderMode": "native",
+            "deferredToolCatalog": [
+              {
+                "name": "office",
+                "description": "office tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "mcp__alpha__get",
+                "description": "Get one thing.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredLateToolCatalog": [],
+            "deferredDiscoveredTools": [
+              "office"
+            ],
+            "wireRoute": {
+              "family": "anthropic"
+            }
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": null,
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": null
+        },
+        {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "anthropic",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredNativeTools": false,
+            "deferredProviderMode": "native",
+            "deferredToolCatalog": [
+              {
+                "name": "office",
+                "description": "office tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "mcp__alpha__get",
+                "description": "Get one thing.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredLateToolCatalog": [],
+            "deferredDiscoveredTools": [
+              "office"
+            ],
+            "wireRoute": {
+              "family": "anthropic"
+            }
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": null,
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "sent": null
+        }
+      ]
+    },
+    {
+      "name": "the late catalog supplies a discovered tool and a later entry wins",
+      "steps": [
+        {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "anthropic-oauth",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredNativeTools": true,
+            "deferredProviderMode": "native",
+            "deferredToolCatalog": [
+              {
+                "name": "office",
+                "description": "office tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "mcp__alpha__get",
+                "description": "Get one thing.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredLateToolCatalog": [],
+            "deferredDiscoveredTools": [
+              "office",
+              "github"
+            ]
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": null,
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "office",
+              "description": "office tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "deferLoading": true
+            },
+            {
+              "name": "github",
+              "description": "github tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "deferLoading": true
+            }
+          ],
+          "sent": null
+        },
+        {
+          "header": {
+            "id": "sess_request_tools",
+            "owner": "agent",
+            "provider": "anthropic-oauth",
+            "model": "fixture-model",
+            "contextWindow": 1000000,
+            "deferredNativeTools": true,
+            "deferredProviderMode": "native",
+            "deferredToolCatalog": [
+              {
+                "name": "office",
+                "description": "office tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "memory",
+                "description": "memory tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "mcp__alpha__get",
+                "description": "Get one thing.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredLateToolCatalog": [
+              {
+                "name": "office",
+                "description": "Late office.",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              },
+              {
+                "name": "github",
+                "description": "github tool",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {}
+                }
+              }
+            ],
+            "deferredDiscoveredTools": [
+              "office",
+              "github"
+            ]
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "System rules."
+            },
+            {
+              "role": "user",
+              "content": "current request"
+            }
+          ],
+          "tools": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          ],
+          "names": null,
+          "candidate": [
+            {
+              "name": "read",
+              "description": "read tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "shell",
+              "description": "shell tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              }
+            },
+            {
+              "name": "office",
+              "description": "Late office.",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "deferLoading": true
+            },
+            {
+              "name": "github",
+              "description": "github tool",
+              "inputSchema": {
+                "type": "object",
+                "properties": {}
+              },
+              "deferLoading": true
+            }
+          ],
+          "sent": null
         }
       ]
     }

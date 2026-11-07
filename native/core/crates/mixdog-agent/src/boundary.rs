@@ -267,14 +267,17 @@ impl Run {
     pub(crate) async fn prepare_request_boundary(&mut self) -> Result<(), AgentError> {
         // `refreshDeferredMcpToolCatalog(sessionRef)` of `prepareProviderRequest`: once per request, before
         // the transcript is repaired and the request's tools are taken.
+        let mut candidate = None;
         if let Some(mcp) = self.env.mcp.clone() {
             mcp.refresh().await;
             if let Some(live) = mcp.tools().await {
                 self.tools = live;
             }
+            candidate = Some(mcp.snapshot(self.candidate_tools(), &self.messages).await);
         }
         // `adoptDynamicToolChanges`: the request's tools are the frozen surface, with MCP changes adopted.
-        self.fixed_surface = Some(adopt_dynamic_tool_changes(self.fixed_surface.take(), self.candidate_tools()));
+        let candidate = candidate.unwrap_or_else(|| self.candidate_tools());
+        self.fixed_surface = Some(adopt_dynamic_tool_changes(self.fixed_surface.take(), candidate));
         // A soft compact target may remain above an explicit trigger: never
         // compact the same input twice before a provider attempt.
         let mut compact_attempted = false;
@@ -552,10 +555,14 @@ mod tests {
                 .collect()
         };
         let cases = golden["cases"].as_array().unwrap();
-        assert!(cases.len() >= 10);
+        assert!(cases.iter().filter(|case| !case["steps"][0]["sent"].is_null()).count() >= 10);
         for case in cases {
             let mut fixed = None;
             for (at, step) in case["steps"].as_array().unwrap().iter().enumerate() {
+                // A snapshot-only scenario (`fixtures/request-tools`) records the candidate alone.
+                if step["sent"].is_null() {
+                    continue;
+                }
                 let sent = adopt_dynamic_tool_changes(fixed.take(), tools(&step["candidate"]));
                 assert_eq!(sent, tools(&step["sent"]), "{} (request {at})", case["name"]);
                 fixed = Some(sent);

@@ -58,7 +58,15 @@ const request = (session, fixed) =>
     fixedProviderToolSurface: fixed,
   });
 
-const fresh = (tools, names) => ({
+const referenced = (provider, toolReferences) => ({ role: 'tool', toolCallId: `call_${toolReferences[0]}`, content: 'ok', nativeToolSearch: { provider, toolReferences } });
+const NATIVE = {
+  provider: 'anthropic-oauth',
+  deferredNativeTools: true,
+  deferredProviderMode: 'native',
+  deferredToolCatalog: [doc('office'), doc('memory'), doc('github'), doc('mcp__alpha__get', 'Get one thing.')],
+  deferredLateToolCatalog: [],
+};
+const fresh = (tools, names, extra = {}) => ({
   id: 'sess_request_tools',
   owner: 'agent',
   provider: 'openrouter',
@@ -66,10 +74,12 @@ const fresh = (tools, names) => ({
   contextWindow: 1_000_000,
   tools: json(tools),
   ...(names ? { deferredMcpToolNames: names } : {}),
+  ...extra,
   messages: [{ role: 'system', content: 'System rules.' }, { role: 'user', content: 'current request' }],
 });
 
-// [name, session, [change...]]: a change is `{ tools?, names? }` (`names: null` removes the connected snapshot).
+// [name, session, [change...]]: a change is `{ tools?, names?, ...fields }` (`names: null` removes the connected snapshot;
+// the other fields are assigned onto the session).
 const SCENARIOS = [
   ['an unchanged session keeps its surface', fresh([read, shell, alpha], ['mcp__alpha__list']), [{}, {}]],
   ['a changed MCP schema replaces the definition in place', fresh([read, alpha, shell, beta], ['mcp__alpha__list', 'mcp__beta__ping']), [{ tools: [read, { ...alpha, description: 'Fresher.' }, shell, beta] }]],
@@ -81,22 +91,31 @@ const SCENARIOS = [
   ['without a connected snapshot every MCP tool is available', fresh([read, alpha, beta]), [{ tools: [read, alpha, beta, alphaGet] }, { names: ['mcp__beta__ping'] }]],
   ['a name listed twice is sent once, the first definition', fresh([read, alpha, { ...alpha, description: 'Twin.' }, shell], ['mcp__alpha__list']), [{ tools: [read, shell, { ...alpha, description: 'Twin first.' }, alpha] }]],
   ['everything changes at once', fresh([read, alpha, shell, beta], ['mcp__alpha__list', 'mcp__beta__ping']), [{ tools: [shell, doc('mcp__gamma__run'), { ...beta, description: 'New beta.' }, read], names: ['mcp__gamma__run', 'mcp__beta__ping'] }]],
+  ['a deferred catalog tool joins a native session once it is discovered', fresh([read, shell, alpha], ['mcp__alpha__list'], NATIVE), [{ deferredDiscoveredTools: ['office'] }, { deferredDiscoveredTools: ['office', 'mcp__alpha__get', 'ghost'] }, { deferredDiscoveredTools: [] }], 'snapshot'],
+  ['a tool the transcript referenced joins a native session', fresh([read, shell], null, NATIVE), [{ messages: [...fresh([]).messages, referenced('anthropic-oauth', ['memory'])] }, { messages: [...fresh([]).messages, referenced('openai', ['memory']), referenced('anthropic', ['github'])] }], 'snapshot'],
+  ['the anchor keeps tool-search mode in a native session without a discovery', fresh([read, shell, alpha], ['mcp__alpha__list'], { ...NATIVE, deferredToolCatalog: [alphaGet, doc('office'), doc('memory')] }), [{}, { deferredToolCatalog: [alphaGet] }, { tools: [read, doc('office'), alpha] }], 'snapshot'],
+  ['a native session on a gateway route or off Anthropic adds nothing', fresh([read, shell], null, { ...NATIVE, deferredDiscoveredTools: ['office'] }), [{ provider: 'openai' }, { provider: 'openrouter', wireRoute: { family: 'anthropic' } }, { provider: 'anthropic', deferredNativeTools: false }], 'snapshot'],
+  ['the late catalog supplies a discovered tool and a later entry wins', fresh([read, shell], null, { ...NATIVE, deferredDiscoveredTools: ['office', 'github'] }), [{ deferredLateToolCatalog: [doc('office', 'Late office.'), doc('github')] }], 'snapshot'],
 ];
 const CASES = [];
-for (const [name, before, changes] of SCENARIOS) {
+for (const [name, before, changes, only] of SCENARIOS) {
   const session = json(before);
   let fixed = null;
   const steps = [];
   for (const change of [{}, ...changes]) {
-    if (change.tools) session.tools = json(change.tools);
+    const { tools: changedTools, names: changedNames, ...fields } = change;
+    Object.assign(session, json(fields));
+    if (changedTools) session.tools = json(changedTools);
     if ('names' in change) {
       if (change.names === null) delete session.deferredMcpToolNames;
       else session.deferredMcpToolNames = change.names;
     }
     const candidate = json(snapshotProviderRequestTools({ provider: session.provider, tools: session.tools, nativeTools: [], messages: session.messages, session }));
-    const result = await request(session, fixed);
-    fixed = result.fixedProviderToolSurface;
-    steps.push({ tools: json(session.tools), names: session.deferredMcpToolNames ?? null, candidate, sent: json(result.sendTools) });
+    // A `snapshot` scenario asks for the candidate alone: a request boundary would also migrate and refresh the session.
+    const result = only === 'snapshot' ? null : await request(session, fixed);
+    fixed = result ? result.fixedProviderToolSurface : null;
+    const { tools: _tools, messages: _messages, ...header } = json(session);
+    steps.push({ header, messages: json(session.messages), tools: json(session.tools), names: session.deferredMcpToolNames ?? null, candidate, sent: result ? json(result.sendTools) : null });
   }
   CASES.push({ name, steps });
 }

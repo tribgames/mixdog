@@ -80,6 +80,10 @@ use super::workflow_surface::RunWorkflowSurface;
 use super::reactions::REACTION_TOOL_NAME;
 use super::route_surface::header_diff;
 use super::route_surface::is_agent_owner;
+use super::route_surface::load_tool_def;
+use super::tool_exposure::tool_exposure_migration_needed;
+use super::tool_migration::has_unanswered_tool_calls;
+use super::tool_migration::invalidate_for_tool_surface_migration;
 use super::session_tools::BRIDGE;
 use super::session_tools::Resolve;
 use super::session_tools::SessionMcp;
@@ -635,11 +639,17 @@ impl LeadSurfaceHost {
     /// `refreshDeferredMcpToolCatalog(session)`: the reconcile alone, for a session that has a deferred provider mode.
     async fn fold(&self, thread: &ThreadId, first_turn: bool) -> Result<Header, CoreError> {
         let s = &self.sources;
+        // The turn's request boundary migrates a surface built for another exposure only where no tool call waits for a result.
+        let unanswered = first_turn && has_unanswered_tool_calls(&s.messages.messages(thread).await.map_err(|error| port(thread, error))?);
         loop {
             let header = s.threads.header(thread).await.map_err(|error| port(thread, error))?;
             let cwd = header.get("cwd").and_then(Value::as_str).map_or_else(|| s.cwd.clone(), PathBuf::from);
             let live: Vec<Value> = s.mcp.tools(&cwd).iter().map(tool_doc).collect();
             let (next, state) = self.folded_surface(thread, &header, &live, first_turn).map_err(|message| failed("tools", message))?;
+            let next = match first_turn {
+                true => self.migrate_exposure(&next, unanswered).map_err(|message| failed("tools", message))?.unwrap_or(next),
+                false => next,
+            };
             let change = header_diff(&header, &next);
             if change.set.is_empty() && change.unset.is_empty() {
                 self.note_mcp_state(thread, state);
@@ -695,6 +705,42 @@ impl LeadSurfaceHost {
         if let Some(state) = state {
             self.mcp_state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(thread.as_str().to_owned(), state);
         }
+    }
+
+    /// `migrateToolExposureAtBoundary` (`session/loop/tool-exposure-migration.mjs`) and the request boundary's
+    /// `delete sessionRef.pendingCacheBreakIntent` after it: a surface persisted for another exposure than its provider's
+    /// (or a bridge surface an earlier revision built) is rebuilt by `applyDeferredToolSurface`, and what was measured
+    /// against the old one is dropped: the provider state, the prefix guard, the context baseline. `None`: nothing to
+    /// migrate, or `unanswered` (a tool call still waits for its result, which is not a safe boundary).
+    ///
+    /// The migration's cache-break tag rides on Node's request options (`opts.cacheBreakIntent`), which the Rust loop
+    /// has no counterpart of, so the header carries none (see `decisions.md` `deferred-fold-5`).
+    fn migrate_exposure(&self, header: &Header, unanswered: bool) -> Result<Option<Header>, String> {
+        let s = &self.sources;
+        let mut session = Value::Object(header.clone());
+        if unanswered || !tool_exposure_migration_needed(&session, None, &load_tool_def(s.tool_host.as_ref())) {
+            return Ok(None);
+        }
+        let surface = ToolSurface { host: s.tool_host.as_ref(), clock: s.clock.as_ref() };
+        let before = SystemBlocks::from_header(header);
+        session["messages"] = Value::Array(before.node_messages());
+        let mode = header.get("deferredSurfaceMode").and_then(Value::as_str).filter(|mode| !mode.is_empty()).unwrap_or("lead").to_owned();
+        let options = ApplyOptions { provider: Some(clean(header.get("provider"))), model: Some(clean(header.get("model"))), disallowed: Vec::new() };
+        surface.apply(&mut session, &mode, &[], &options);
+        let mut next = session.as_object().cloned().ok_or_else(|| "the migrated session is not an object".to_owned())?;
+        let messages = next.shift_remove("messages").and_then(|messages| messages.as_array().cloned()).unwrap_or_default();
+        let mut after = SystemBlocks::from_node_messages(&messages).map_err(|error| format!("{error:?}"))?;
+        after.combined = before.combined;
+        if after != before {
+            after.write(&mut next);
+        }
+        let invalidated = invalidate_for_tool_surface_migration(s.clock.as_ref());
+        for key in invalidated.unset {
+            next.shift_remove(&key);
+        }
+        next.extend(invalidated.set);
+        next.shift_remove("pendingCacheBreakIntent");
+        Ok(Some(next))
     }
 
     /// `header` with the MCP fold applied over the system prompt as the session holds it (`messages`), the blocks

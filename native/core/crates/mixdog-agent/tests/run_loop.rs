@@ -2400,6 +2400,31 @@ async fn a_changed_mcp_definition_reaches_the_next_request_and_an_eager_one_does
     assert_eq!(sent[1], [pair("echo", "echo"), pair("mcp__srv__ping", "ping v2")]);
 }
 
+/// The deferred snapshot of the session adds a discovered catalog tool.
+struct SnapshotMcp;
+
+#[async_trait::async_trait]
+impl mixdog_agent::env::McpCatalog for SnapshotMcp {
+    async fn refresh(&self) {}
+
+    async fn snapshot(&self, mut tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, messages: &[AgentMessage]) -> Vec<mixdog_core_api::domain::provider::ToolDefinition> {
+        assert!(!messages.is_empty(), "the snapshot reads the transcript the request is built from");
+        tools.push(mixdog_core_api::domain::provider::ToolDefinition { name: "office".into(), description: "Create a document.".into(), input_schema: json!({"type": "object"}), defer_loading: true, freeform: None });
+        tools
+    }
+}
+
+/// `snapshotProviderRequestTools` runs at the request boundary: what it adds to the candidate list is sent marked
+/// `defer_loading`, after the eager tools.
+#[tokio::test]
+async fn the_request_carries_the_deferred_snapshot() {
+    let mut h = Harness::new(vec![turn(vec![text("done"), done(StopReason::EndTurn)])]);
+    h.mcp = Some(Arc::new(SnapshotMcp));
+    finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
+    let sent: Vec<(String, bool)> = h.provider.requests()[0].tools.iter().map(|t| (t.name.clone(), t.defer_loading)).collect();
+    assert_eq!(sent, [("echo".to_owned(), false), ("office".to_owned(), true)]);
+}
+
 /// Node refreshes the session's MCP catalog once per request (`request-boundary.mjs:77`), at the start of
 /// every tool call (`call-prep.mjs:70`) and, for an MCP call, again once its gate has passed (`tool-exec.mjs:114`):
 /// two requests, one plain and one MCP call make 1 + (1) + (1 + 1) + 1.
