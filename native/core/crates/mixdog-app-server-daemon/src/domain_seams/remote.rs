@@ -191,6 +191,7 @@ pub fn build_remote(inputs: RemoteInputs) -> Result<BuiltRemote, String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, reason = "the test lays out its fixture files with blocking calls on the test thread")]
 mod tests {
     use super::*;
 

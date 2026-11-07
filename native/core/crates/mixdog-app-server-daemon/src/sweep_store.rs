@@ -161,6 +161,7 @@ impl SweepStore for DirectorySweepStore {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the test lays out its fixture files with blocking calls on the test thread")]
 mod tests {
     use std::sync::Mutex;
     use std::sync::atomic::AtomicBool;

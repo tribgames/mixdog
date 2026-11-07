@@ -840,6 +840,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let voice_manifest: serde_json::Value = {
         let path = b.package_root.join("src").join("runtime").join("channels").join("data").join("voice-runtime-manifest.json");
         let shown = path.display().to_string();
+        #[allow(clippy::disallowed_methods, reason = "the body of an interactive-io lane job")]
         let text = mixdog_core_base::support::on_lane(b.tokens.interactive_io, &mixdog_rt::CancellationToken::new(), move |_lane| std::fs::read_to_string(path))
             .await
             .map_err(|error| ComposeError::VoiceManifest(format!("reading {shown}: {error:?}")))?
