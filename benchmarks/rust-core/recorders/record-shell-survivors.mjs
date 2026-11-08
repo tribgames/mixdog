@@ -9,7 +9,7 @@
 //   node benchmarks/rust-core/recorders/record-shell-survivors.mjs --tree <git checkout at --commit, with node_modules> \
 //        --commit <40-hex> --spawn-bin <mixdog-spawn built from the same commit> \
 //        --spawn-build-command "<the cargo command>" --spawn-target-dir <its CARGO_TARGET_DIR> --rustc <rustc of the build>
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -44,9 +44,26 @@ const { normalizeToolEnvelope } = await importFrom(tree, 'src/runtime/agent/orch
 const ws = join(work, 'ws');
 mkdirSync(ws, { recursive: true });
 const text = async (tool, input) => String(normalizeToolEnvelope(await executeBuiltinTool(tool, input, ws)).result ?? '');
-const child = (seconds) => `$p = Start-Process ping -ArgumentList '-n','${seconds}','127.0.0.1' -PassThru -WindowStyle Hidden; Write-Output "CHILD=$($p.Id)"`;
-const NATURAL = child(3); // the hidden ping ends by itself after about two seconds
+// The descendant is a hidden PowerShell that blocks on a named event the observer owns, and only then sleeps `seconds`: it
+// cannot end before the observer holds it, and it ends by itself only once the observer opens the gate.
+const GATE = '<GATE>';
+const child = (seconds) => `$p = Start-Process powershell -ArgumentList '-NoProfile','-Command','[void][Threading.EventWaitHandle]::OpenExisting(''${GATE}'').WaitOne(); Start-Sleep -Seconds ${seconds}' -PassThru -WindowStyle Hidden; Write-Output "CHILD=$($p.Id)"`;
+const NATURAL = child(1);
 const LONG = child(90);
+
+// The observer's side of a gate: a holder process creates the event and opens it when told to.
+const gates = [];
+const makeGate = async (tag) => {
+  const name = `mixdog-survivor-gate-${process.pid}-${tag}`;
+  const holder = spawn('powershell', ['-NoProfile', '-Command',
+    `$e = New-Object Threading.EventWaitHandle($false, [Threading.EventResetMode]::ManualReset, '${name}'); [Console]::Out.WriteLine('ready'); [void][Console]::In.ReadLine(); $e.Set(); Start-Sleep -Seconds 120`]);
+  await new Promise((resolve, reject) => {
+    holder.once('error', reject);
+    holder.stdout.on('data', (d) => String(d).includes('ready') && resolve());
+  });
+  gates.push(holder);
+  return { name, open: () => holder.stdin.write('\n') };
+};
 
 const scrubbers = [];
 const scrub = (t) => {
@@ -54,24 +71,27 @@ const scrub = (t) => {
   for (const [from, to] of scrubbers) out = out.replaceAll(from, to);
   return out.replace(/(started|finished): \S+/g, '$1: <TIME>').replace(/CHILD=\d+/g, 'CHILD=<PID>');
 };
-const start = async (command) => {
-  const ran = await text('shell', { command });
+const start = async (template, gate) => {
+  scrubbers.push([gate.name, GATE]);
+  const ran = await text('shell', { command: template.replace(GATE, gate.name) });
   const id = /task_id: (\S+)/.exec(ran)[1];
   scrubbers.push([id, '<TASK>']);
   return { ran, id };
 };
 
-const natural = await start(NATURAL);
+const naturalGate = await makeGate('natural');
+const natural = await start(NATURAL, naturalGate);
 const naturalOut = {
   command: NATURAL,
   run: natural.ran,
   readRunning: await text('task', { action: 'read', task_id: natural.id }),
+  gate: naturalGate.open(),
   wait: await text('task', { action: 'wait', task_id: natural.id, timeout_ms: 20000 }),
   read: await text('task', { action: 'read', task_id: natural.id }),
   tail: await text('task', { action: 'read', task_id: natural.id, output: 'tail' }),
   cancelAfterEnd: await text('task', { action: 'cancel', task_id: natural.id }),
 };
-const cancelled = await start(LONG);
+const cancelled = await start(LONG, await makeGate('cancelled')); // never opened: the descendant waits until the cancel ends it
 const cancelOut = {
   command: LONG,
   run: cancelled.ran,
@@ -86,13 +106,13 @@ const list = await text('task', { action: 'list' });
 const dir = join(FIXTURES_ROOT, 'shell-survivors');
 rmSync(dir, { recursive: true, force: true });
 mkdirSync(dir, { recursive: true });
-const finish = (section) => Object.fromEntries(Object.entries(section).map(([k, v]) => [k, k === 'command' ? v : scrub(v)]));
+const finish = (section) => Object.fromEntries(Object.entries(section).filter(([k]) => k !== 'gate').map(([k, v]) => [k, k === 'command' ? v : scrub(v)]));
 writeJson(join(dir, 'golden.json'), {
   platform: process.platform,
   arch: process.arch,
   node: process.version,
   nodeCommit: commit,
-  normalization: 'task id -> <TASK>; started/finished values -> <TIME>; CHILD=<digits> -> CHILD=<PID>',
+  normalization: 'task id -> <TASK>; started/finished values -> <TIME>; CHILD=<digits> -> CHILD=<PID>; the gate event name -> <GATE>',
   natural: finish(naturalOut),
   cancelled: finish(cancelOut),
   list: scrub(list),
@@ -106,6 +126,7 @@ writeSetManifest(dir, {
   extra: { spawn: spawnIdentity, scenarios: ['natural end', 'cancel while running', 'cancel after the natural end', 'cancel twice'], blocked: ['unconfirmed cancel and the kill/observe schedule: expectations are the shell-tracker-trace recording; a Windows job object ends every member, nothing here resists the kill', 'POSIX recordings (no-pidfd termination, SIGTERM/SIGKILL sequence): this machine is Windows'] },
 });
 clearInterval(keepAlive);
+for (const holder of gates) holder.kill();
 rmSync(work, { recursive: true, force: true });
 console.log('recorded shell-survivors');
 process.exit(0);

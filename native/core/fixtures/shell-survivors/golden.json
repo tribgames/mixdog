@@ -3,10 +3,10 @@
   "arch": "x64",
   "node": "v22.20.0",
   "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
-  "normalization": "task id -> <TASK>; started/finished values -> <TIME>; CHILD=<digits> -> CHILD=<PID>",
+  "normalization": "task id -> <TASK>; started/finished values -> <TIME>; CHILD=<digits> -> CHILD=<PID>; the gate event name -> <GATE>",
   "natural": {
-    "command": "$p = Start-Process ping -ArgumentList '-n','3','127.0.0.1' -PassThru -WindowStyle Hidden; Write-Output \"CHILD=$($p.Id)\"",
-    "run": "[exit code: 0]\n⚠️ the command finished but left descendants running: they are tracked as the task below, and `task cancel` terminates them.\nbackground task\ntask_id: <TASK>\nlabel: $p = Start-Process ping -ArgumentList '-n','3','127.0.0.1' -PassThru -WindowStyle Hidden; Write-Output \"CHILD=$($p.Id)\"\nstatus: running\nstarted: <TIME>\n\nCHILD=<PID>\n",
+    "command": "$p = Start-Process powershell -ArgumentList '-NoProfile','-Command','[void][Threading.EventWaitHandle]::OpenExisting(''<GATE>'').WaitOne(); Start-Sleep -Seconds 1' -PassThru -WindowStyle Hidden; Write-Output \"CHILD=$($p.Id)\"",
+    "run": "[exit code: 0]\n⚠️ the command finished but left descendants running: they are tracked as the task below, and `task cancel` terminates them.\nbackground task\ntask_id: <TASK>\nlabel: $p = Start-Process powershell -ArgumentList '-NoProfile','-Command','[void][Threading.EventWaitHandle]::OpenExisting(''m\nstatus: running\nstarted: <TIME>\n\nCHILD=<PID>\n",
     "readRunning": "background task\ntask_id: <TASK>\nsurface: shell\nstatus: running\nstarted: <TIME>",
     "wait": "background task\ntask_id: <TASK>\nsurface: shell\nstatus: completed\nstarted: <TIME>\nfinished: <TIME>\n\n(no new output)",
     "read": "background task\ntask_id: <TASK>\nsurface: shell\nstatus: completed\nstarted: <TIME>\nfinished: <TIME>\n\n(no new output)",
@@ -14,13 +14,13 @@
     "cancelAfterEnd": "Error: task not found: <TASK>"
   },
   "cancelled": {
-    "command": "$p = Start-Process ping -ArgumentList '-n','90','127.0.0.1' -PassThru -WindowStyle Hidden; Write-Output \"CHILD=$($p.Id)\"",
-    "run": "[exit code: 0]\n⚠️ the command finished but left descendants running: they are tracked as the task below, and `task cancel` terminates them.\nbackground task\ntask_id: <TASK>\nlabel: $p = Start-Process ping -ArgumentList '-n','90','127.0.0.1' -PassThru -WindowStyle Hidden; Write-Output \"CHILD=$($p.Id)\"\nstatus: running\nstarted: <TIME>\n\nCHILD=<PID>\n",
+    "command": "$p = Start-Process powershell -ArgumentList '-NoProfile','-Command','[void][Threading.EventWaitHandle]::OpenExisting(''<GATE>'').WaitOne(); Start-Sleep -Seconds 90' -PassThru -WindowStyle Hidden; Write-Output \"CHILD=$($p.Id)\"",
+    "run": "[exit code: 0]\n⚠️ the command finished but left descendants running: they are tracked as the task below, and `task cancel` terminates them.\nbackground task\ntask_id: <TASK>\nlabel: $p = Start-Process powershell -ArgumentList '-NoProfile','-Command','[void][Threading.EventWaitHandle]::OpenExisting(''m\nstatus: running\nstarted: <TIME>\n\nCHILD=<PID>\n",
     "readRunning": "background task\ntask_id: <TASK>\nsurface: shell\nstatus: running\nstarted: <TIME>",
     "cancel": "status: completed\ntask_id: <TASK>\ncancelled: shell/shell",
     "cancelAgain": "Error: task not found: <TASK>",
     "read": "background task\ntask_id: <TASK>\nsurface: shell\nstatus: cancelled\nstarted: <TIME>\nfinished: <TIME>\nerror: cancelled by task control",
     "tail": "background task\ntask_id: <TASK>\nsurface: shell\nstatus: cancelled\nstarted: <TIME>\nfinished: <TIME>\nerror: cancelled by task control"
   },
-  "list": "background tasks: 2\n- <TASK> shell/shell completed label=$p = Start-Process ping -ArgumentList '-n','3','127.0.0.1' -PassThru -WindowStyle Hidden; Write-Output \"CHILD=$($p.Id)\"\n- <TASK> shell/shell cancelled label=$p = Start-Process ping -ArgumentList '-n','90','127.0.0.1' -PassThru -WindowStyle Hidden; Write-Output \"CHILD=$($p.Id)\" error=cancelled by task control"
+  "list": "background tasks: 2\n- <TASK> shell/shell completed label=$p = Start-Process powershell -ArgumentList '-NoProfile','-Command','[void][Threading.EventWaitHandle]::OpenExisting(''m\n- <TASK> shell/shell cancelled label=$p = Start-Process powershell -ArgumentList '-NoProfile','-Command','[void][Threading.EventWaitHandle]::OpenExisting(''m error=cancelled by task control"
 }

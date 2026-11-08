@@ -7,9 +7,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 2791,
+      "bytes": 3026,
       "path": "golden.json",
-      "sha256": "18e40a78430429fd029c07c99a4ad88852c128681dd591a1cd9509e507bebe3b"
+      "sha256": "3a86ae8f4cf75d0ab5fe7306a704b4b247b8c2b4680e33d7133ef2de07a599a3"
     }
   ],
   "product": {
@@ -51,5 +51,5 @@
       "LLVM version: 23.1.1"
     ]
   },
-  "totalBytes": 2791
+  "totalBytes": 3026
 }

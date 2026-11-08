@@ -52,17 +52,24 @@ pub(crate) struct Table {
     procs: Vec<Proc>,
     at: HashMap<u32, usize>,
     children: HashMap<u32, Vec<u32>>,
+    /// Pids the listing named whose rows the kernel would not show us: they exist, and nothing more
+    /// is known of them, so they are never read as absent.
+    unreadable: HashSet<u32>,
 }
 
 impl Table {
     pub(crate) fn new(procs: Vec<Proc>) -> Self {
+        Self::with_unreadable(procs, Vec::new())
+    }
+
+    pub(crate) fn with_unreadable(procs: Vec<Proc>, unreadable: Vec<u32>) -> Self {
         let mut at = HashMap::new();
         let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
         for (index, proc) in procs.iter().enumerate() {
             at.insert(proc.pid, index);
             children.entry(proc.ppid).or_default().push(proc.pid);
         }
-        Self { procs, at, children }
+        Self { procs, at, children, unreadable: unreadable.into_iter().collect() }
     }
 
     fn token(&self, pid: u32) -> Option<&str> {
@@ -128,7 +135,7 @@ struct Tracker {
 
 impl Tracker {
     fn present(table: &Table, identity: &Identity) -> bool {
-        table.token(identity.pid) == Some(identity.token.as_str())
+        table.token(identity.pid) == Some(identity.token.as_str()) || table.unreadable.contains(&identity.pid)
     }
 
     fn root_alive(&self, table: &Table, root_exited: bool) -> bool {
@@ -136,7 +143,7 @@ impl Tracker {
             return false;
         }
         match table.token(self.root) {
-            None => false,
+            None => table.unreadable.contains(&self.root),
             Some(token) => self.root_token.as_deref().is_none_or(|known| known == token),
         }
     }
@@ -615,6 +622,28 @@ mod tests {
         assert_eq!(signalled(true, json!([[row("rt")]])), [json!({"op": "read"}), kill], "the same process still holds it");
         assert_eq!(signalled(true, json!([[row("someone-else")]])), [json!({"op": "read"})], "another process holds the id");
         assert_eq!(signalled(true, json!([{"error": "denied"}])), [json!({"op": "read"})], "unknown ownership signals nothing");
+    }
+
+    /// A survivor whose row the kernel will not show (it changed credentials) still exists: the look that
+    /// cannot read it must not report the tree gone.
+    #[tokio::test]
+    async fn a_tracked_survivor_the_table_cannot_read_is_not_gone() {
+        struct Reads(Mutex<Vec<(Vec<Proc>, Vec<u32>)>>);
+        impl Reader for Reads {
+            fn table(&self) -> io::Result<Table> {
+                let (procs, unreadable) = self.0.lock().unwrap().remove(0);
+                Ok(Table::with_unreadable(procs, unreadable))
+            }
+        }
+        let survivor = Proc { pid: 7000, ppid: 1, pgid: ROOT, token: "s1".to_owned() };
+        let reads = Reads(Mutex::new(vec![(vec![survivor.clone()], vec![]), (vec![], vec![7000]), (vec![], vec![])]));
+        let log = Log::default();
+        let tree = Tree::new(reads, ScriptedSignals::new(&log), ScriptedClock::new(&log), ROOT, None);
+        tree.root_reaped();
+        let identity = Identity { pid: 7000, token: "s1".to_owned() };
+        assert_eq!(tree.observe(), Observation::Running(vec![identity.clone()]));
+        assert_eq!(tree.observe(), Observation::Running(vec![identity]), "present but unreadable");
+        assert_eq!(tree.observe(), Observation::Gone, "absent from the listing too");
     }
 
     #[tokio::test]
