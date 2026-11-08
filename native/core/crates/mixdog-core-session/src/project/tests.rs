@@ -298,6 +298,30 @@ fn commit_in(dir: &Path, file: &str) {
     git(dir, &["commit", "-q", "-m", &format!("work {file}")]);
 }
 
+/// A session that runs a turn refuses `project/removeWorktree` with the text Node's `assertLeadIdle`
+/// throws (the w2b `removeWorktree-second` recording), the same one `thread/*` answers for it.
+#[tokio::test(flavor = "multi_thread")]
+async fn removing_the_worktree_of_a_session_that_runs_a_turn_words_nodes_refusal() {
+    let rig = rig();
+    let repo = rig.repo.to_string_lossy().into_owned();
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let io = PolicyIo { maintenance: tokens.maintenance_io, interactive: tokens.interactive_io, durability: tokens.durability_io };
+    let registry = Arc::new(One(repo));
+    let connectors = ProjectConnectors::new(registry.clone(), Arc::new(Installed), dir.path(), io);
+    let ops = testing::scopes(dir.path(), "project").await;
+    let live_ids: LiveSessions = Arc::new(HashSet::new);
+    let service = ProjectService::new(registry, rig.worktrees.clone(), rig.ws.clone(), Arc::new(Sessions::default()), live_ids, connectors, ops);
+    run(&rig, enter("busy-wt", "c1")).await.unwrap();
+    rig.state.lock().unwrap().turn_running = true;
+    let refused = service.call(testing::request("project/removeWorktree", testing::with_op(json!({ "threadId": "lead", "input": {} }), 1), Some(1))).await;
+    let Err(error) = refused else { panic!("a running turn refused nothing") };
+    assert_eq!(
+        answer(Err(error)),
+        json!({ "error": { "code": "WORKTREE_BUSY_JOBS", "message": "The session is running a turn; wait for it to finish.", "details": { "reason": "turn" } } })
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn every_recorded_step_equals_nodes_over_real_state() {
     let rig = rig();
