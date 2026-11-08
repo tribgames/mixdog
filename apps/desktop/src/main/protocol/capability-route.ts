@@ -229,10 +229,11 @@ export function createCapabilityLane({
     return pending;
   };
   const send = async (capability: string, args: readonly unknown[], sessionId?: string): Promise<unknown> => {
-    // `noteUserInput(at)` is the `client/activity {at}` notification (rate-limited by the connection), not a request; it has no value.
+    // `noteUserInput(at)` is the `client/activity {at}` notification (rate-limited by the connection), not a request; Node's
+    // session-api wrapper answers it `{ ok: true }`.
     if (capability === 'noteUserInput') {
       protocol.noteUserInput(args[0] as number);
-      return undefined;
+      return { ok: true };
     }
     let thread = sessionId;
     // An action with no op fails in `usesCallSession`, before a thread is started for it.
@@ -253,6 +254,24 @@ export function createCapabilityLane({
         provider: forked.provider,
         model: forked.model,
       };
+    }
+    // The core answers these route ops with the route object / normalized mode; Node's session-api wrapper
+    // (`session-api/settings.mjs`) answers the effort in force, nothing, and `true`.
+    if (capability === 'setEffort') {
+      const route = ((await request(method, params)) ?? {}) as {
+        effectiveEffort?: unknown;
+        effort?: unknown;
+        preset?: { effort?: unknown } | null;
+      };
+      return route.effectiveEffort || route.effort || route.preset?.effort || 'auto';
+    }
+    if (capability === 'setToolMode') {
+      await request(method, params);
+      return undefined;
+    }
+    if (capability === 'setModel') {
+      await request(method, params);
+      return true;
     }
     if (!ADDRESSED_SESSION_CAPABILITIES.has(capability)) return request(method, params);
     return request(method, params).catch((error: unknown) => {
