@@ -597,10 +597,12 @@ async fn the_control_thread_runs_in_the_runtime_scope_and_opens_none() {
     assert_eq!(opened, ["runtime".to_owned(), "t1".to_owned()], "the control thread opened no scope");
 }
 
-/// A thread just created is built from the settings as they stand (`noteToolAvailability`): its first
-/// turn composes the prompt to read its settings and finds nothing to rebuild.
+/// A daemon thread gets its surface at its first turn: Node's recorded task session (capability harness,
+/// `setRoute-second`) is created with no deferred catalog and its first turn's patch writes the surface, its
+/// standalone tools as whole definitions (title and trigger). So a just created thread is noted as brought to no
+/// key, its first turn rebuilds it, and the turn after it finds nothing to rebuild.
 #[tokio::test]
-async fn a_just_created_thread_is_not_rebuilt_at_its_first_turn() {
+async fn a_just_created_thread_is_reconciled_at_its_first_turn() {
     let g = golden();
     let case = &g["cases"][0];
     let mode = case["mode"].as_str().expect("mode");
@@ -610,13 +612,26 @@ async fn a_just_created_thread_is_not_rebuilt_at_its_first_turn() {
     header.insert("toolSpec".into(), tool_spec_for_mode(mode));
     header.insert("cwd".into(), json!("/work"));
     let seeded = rig.host.seed(&thread, &header).await.expect("seed");
-    // `availabilityKey`: the config revision, the surface generation (the new session moved it to 1) and the gate list.
-    assert!(rig.host.applied_to(&thread) == Some(Applied { gates: "0|1|".to_owned(), settings: "r1".to_owned() }));
+    assert!(rig.host.applied_to(&thread).is_none(), "creation notes no applied key");
     *rig.threads.header.lock().unwrap() = seeded;
     rig.host.reconcile_empty(&thread).await.expect("first turn");
-    assert_eq!(rig.prompts.0.lock().unwrap().len(), 2, "composed at creation and read again at the turn");
-    // The connectors' baseline is the one thing a first turn records.
-    assert!(rig.threads.patches.lock().unwrap().iter().all(|(set, unset)| unset.is_empty() && set.keys().all(|key| key == "agentConnectorTools")));
+    // `availabilityKey`: the config revision, the surface generation (the new session moved it to 1) and the gate list.
+    assert!(rig.host.applied_to(&thread) == Some(Applied { gates: "0|1|".to_owned(), settings: "r1".to_owned() }));
+    let rebuilt = rig.threads.patches.lock().unwrap().iter().any(|(set, _)| set.contains_key("deferredToolCatalog"));
+    assert!(rebuilt, "the first turn writes the surface");
+    let catalog = rig.threads.patches.lock().unwrap().iter().rev().find_map(|(set, _)| set.get("deferredToolCatalog").cloned()).expect("a catalog");
+    for standalone in internal_tools(&pool_of(&g)) {
+        let definition = tool_doc(&standalone);
+        if let Some(entry) = catalog.as_array().expect("catalog").iter().find(|entry| entry["name"] == definition["name"]) {
+            assert_eq!(entry, &definition, "{}: a deferred standalone tool is its whole definition", definition["name"]);
+        }
+    }
+    let patches = rig.threads.patches.lock().unwrap().len();
+    rig.host.reconcile_empty(&thread).await.expect("second turn");
+    assert!(
+        rig.threads.patches.lock().unwrap()[patches..].iter().all(|(set, unset)| unset.is_empty() && set.keys().all(|key| key == "agentConnectorTools")),
+        "a turn after the first one finds nothing to rebuild"
+    );
     // A skill, plugin or MCP change moves the surface generation: the next turn rebuilds and is brought to the new key.
     rig.generation.bump();
     rig.host.reconcile_empty(&thread).await.expect("after a change");
