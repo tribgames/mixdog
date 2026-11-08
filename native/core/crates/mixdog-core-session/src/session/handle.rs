@@ -479,6 +479,12 @@ impl SessionHandle {
             .map_err(|_| self.closing())?;
         let (base, mut header) = rx.await.map_err(|_| self.closing())??;
         let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
+        if let Some(heir) = &params.into_thread_id {
+            let heirs = super::SessionDirectory::over(directory.clone());
+            if heirs.try_stored_header(heir).await?.is_some() {
+                return heirs.carry_into(&self.id, heir).await;
+            }
+        }
         // The desktop's `inheritSession` creates the heir where the source's Project is (or in the task workspace) with a
         // fresh classification, never in the source's worktree; an inherit into an existing thread keeps that thread's place.
         if params.into_thread_id.is_none() {
