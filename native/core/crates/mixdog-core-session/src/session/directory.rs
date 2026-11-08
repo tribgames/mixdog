@@ -608,15 +608,20 @@ impl SessionDirectory {
     /// a route that names no model is refused as `prepareRoute` refuses it (the start, which Node's reservation catches,
     /// is the one place that takes it as it is).
     pub(super) async fn seat_session(&self, id: &ThreadId) -> Result<(), CoreError> {
-        let Some(header) = self.try_stored_header(id).await? else { return Ok(()) };
-        let rows = if mixdog_core_ports::ports::route::header_names_session(&header) { Vec::new() } else { self.rows_of(id.as_str()).await? };
-        if mixdog_core_ports::ports::route::has_session(&header, &rows) {
+        if self.try_stored_header(id).await?.is_none() || self.holds_session(id).await? {
             return Ok(());
         }
         let refused = |message: String| mixdog_core_base::support::failed("route", message);
         let routes = &self.inner.deps.new_route;
         routes.adopt(id, None).await.map_err(&refused)?;
         routes.seat(id).await.map_err(&refused)
+    }
+
+    /// Whether the stored thread has its session (`getSession()?.id`).
+    pub(super) async fn holds_session(&self, id: &ThreadId) -> Result<bool, CoreError> {
+        let Some(header) = self.try_stored_header(id).await? else { return Ok(false) };
+        let rows = if mixdog_core_ports::ports::route::header_names_session(&header) { Vec::new() } else { self.rows_of(id.as_str()).await? };
+        Ok(mixdog_core_ports::ports::route::has_session(&header, &rows))
     }
 
     /// Creates the thread under a fixed `id` (agent homes and room sessions are derived keys, not

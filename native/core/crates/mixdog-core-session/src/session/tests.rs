@@ -1353,6 +1353,24 @@ async fn an_inherit_compacts_as_node_does() {
     assert!(lock(&rig.compaction.heir_asked).is_empty());
 }
 
+/// `runtime.clear` answers false for a runtime with no session, which the host's reset turns into a refusal when it
+/// rebuilds the prompt (`session-reset.mjs`: "The conversation could not be cleared."); a session clears.
+#[tokio::test(start_paused = true)]
+async fn a_rebuilding_clear_of_a_thread_with_no_session_is_refused() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let header = |value: Value| value.as_object().cloned().expect("header");
+    directory.create_with_id(ThreadId::from("sess_control"), header(json!({ "cwd": "/ws" })), json!({})).await.expect("create");
+    directory.create_with_id(ThreadId::from("sess_seated"), header(json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model" })), json!({})).await.expect("create");
+    async fn clear(directory: &SessionDirectory, id: &str) -> Result<Reply, CoreError> {
+        let handle = directory.open_handle(&ThreadId::from(id), &CallContext::internal("test")).await.expect("open");
+        handle.request(request("thread/clear", json!({ "threadId": id, "opId": "op-clear", "rebuildPrompt": true }), "op-clear")).await
+    }
+    let refused = clear(&directory, "sess_control").await.err().expect("no session, no clear");
+    assert!(format!("{refused:?}").contains("The conversation could not be cleared."), "{refused:?}");
+    assert!(clear(&directory, "sess_seated").await.is_ok());
+}
+
 /// A route the adoption refuses (a default with no model, as Node's `prepareRoute` throws) fails
 /// `thread/start` with that text and no code before anything else runs: no tools are composed and
 /// no thread exists.
@@ -2744,6 +2762,10 @@ async fn clear_with_rebuild_prompt_reseeds_the_emptied_thread_and_answers_whethe
         deps.empty_surface = Arc::new(Reseeds(calls.clone(), applied));
         let directory = SessionDirectory::new(Arc::new(deps));
         let handle = start_thread(&directory).await;
+        // A session of a real route names its model; the rig's route has none, which would make the emptied thread a reservation.
+        let set = json!({ "provider": "custom-harness", "model": "harness-model" });
+        let patch = CoreRequest { method: mixdog_core_api::ids::Method("thread/header/patch"), params: json!({ "threadId": handle.id, "set": set, "unset": [] }), op: None, ctx: CallContext::internal("test") };
+        handle.request(patch).await.expect("patch");
         turn(&handle, "one", "op-1").await;
         eventually_on(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
         let Reply::Value(plain) = handle.request(request("thread/clear", json!({ "threadId": handle.id, "opId": "op-2" }), "op-2")).await.expect("clear") else { panic!("a value") };
