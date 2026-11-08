@@ -17,8 +17,11 @@ pub mod tcp;
 pub mod ws;
 
 pub use link::BidiOpen;
+pub use link::ABORTED;
 pub use link::CONNECTION_ERROR;
 pub use link::FETCH_FAILED;
+pub use link::REQUEST_TIMED_OUT;
+pub use link::SIGNAL_TIMED_OUT;
 pub use link::BodyStream;
 pub use link::Exchange;
 pub use link::FrameSink;

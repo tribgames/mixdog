@@ -14,6 +14,8 @@
 //! error.` (`Sdk`); Cursor's `http2` socket errors name the resolved address (`Socket`). Each class cites the call
 //! that decides it, beside its deadline.
 
+use std::sync::Mutex;
+use std::sync::PoisonError;
 use std::time::Duration;
 
 use mixdog_rt::Liveness;
@@ -47,14 +49,25 @@ pub const NODE_DISPATCHER: Exchange = Exchange::new(Liveness::unary(secs(600)), 
 /// `antigravity-oauth-tokens.mjs:77` (all 30_000). Text: every one is a raw `fetch`
 /// (`anthropic-oauth-credentials.mjs:315,612`, `openai-oauth-tokens.mjs:227`, `grok-oauth-tokens.mjs:313`,
 /// `cursor-auth.mjs:222`, `antigravity-oauth-tokens.mjs:330`).
-pub const TOKEN_EXCHANGE: Exchange = Exchange::new(Liveness::unary(secs(30)), Redirect::Error, Surface::Fetch);
+/// The timer is `AbortSignal.timeout` at Anthropic (`anthropic-oauth-credentials.mjs:609`), Antigravity
+/// (`antigravity-oauth-tokens.mjs:341`) and Cursor (`cursor-auth.mjs:359`): a miss reads as the `TimeoutError`.
+pub const TOKEN_EXCHANGE: Exchange = Exchange::new(Liveness::unary(secs(30)), Redirect::Error, Surface::FetchSignal);
+
+/// OpenAI's token refresh: the same 30_000 on a bare `setTimeout(() => controller.abort())`
+/// (`openai-oauth-tokens.mjs:225`), so a miss reads as the `AbortError`.
+pub const TOKEN_OPENAI: Exchange = Exchange::new(Liveness::unary(secs(30)), Redirect::Error, Surface::FetchAborted);
+
+/// Grok's token calls: `createTimeoutSignal(null, TOKEN_TIMEOUT_MS, 'grok-oauth refresh')`
+/// (`grok-oauth-tokens.mjs:304`), whose reason the fetch rejects with.
+pub const TOKEN_GROK: Exchange =
+    Exchange::new(Liveness::unary(secs(30)), Redirect::Error, Surface::FetchLabeled("grok-oauth refresh"));
 
 /// Antigravity project lookup: `antigravity-oauth-tokens.mjs:78` 30_000; raw `fetch`
-/// (`antigravity-oauth-catalog.mjs:48-49` `postInternalJson`, `fetchFn = fetch`).
-pub const ANTIGRAVITY_PROJECT: Exchange = Exchange::new(Liveness::unary(secs(30)), Redirect::Error, Surface::Fetch);
+/// (`antigravity-oauth-catalog.mjs:48-58` `postInternalJson`, `withTimeoutSignal` = `AbortSignal.timeout`).
+pub const ANTIGRAVITY_PROJECT: Exchange = Exchange::new(Liveness::unary(secs(30)), Redirect::Error, Surface::FetchSignal);
 
-/// Devin session exchange: `devin-auth.mjs:32` 30_000; raw `fetch` (`devin-auth.mjs:175-179`).
-pub const DEVIN_EXCHANGE: Exchange = Exchange::new(Liveness::unary(secs(30)), Redirect::Error, Surface::Fetch);
+/// Devin session exchange: `devin-auth.mjs:32` 30_000; raw `fetch` (`devin-auth.mjs:175-179`, `AbortSignal.timeout`).
+pub const DEVIN_EXCHANGE: Exchange = Exchange::new(Liveness::unary(secs(30)), Redirect::Error, Surface::FetchSignal);
 
 /// Model lists. OpenAI `openai-oauth-catalog.mjs:23` 10_000; compat
 /// `openai-compat-models.mjs:7` 10_000; Antigravity `antigravity-oauth-catalog.mjs:28` 15_000;
@@ -66,12 +79,32 @@ pub const DEVIN_EXCHANGE: Exchange = Exchange::new(Liveness::unary(secs(30)), Re
 /// what `discoverCustomProviderModels` shows (`fetch failed`); Antigravity `antigravity-oauth-catalog.mjs:48`;
 /// Grok `grok-oauth-tokens.mjs:117`; Devin `devin-wire-models.mjs:494`; Gemini `gemini-model-catalog.mjs:35`, all
 /// raw `fetch`. Cursor's list is `callCursorUnary` over `http2` (`cursor-wire-transport.mjs:265`).
-pub const OPENAI_CATALOG: Exchange = Exchange::new(Liveness::unary(secs(10)), Redirect::Follow, Surface::Fetch);
-pub const COMPAT_MODEL_LIST: Exchange = Exchange::new(Liveness::unary(secs(10)), Redirect::Follow, Surface::Fetch);
-pub const ANTIGRAVITY_MODELS: Exchange = Exchange::new(Liveness::unary(secs(15)), Redirect::Error, Surface::Fetch);
-pub const GROK_DISCOVERY: Exchange = Exchange::new(Liveness::unary(secs(15)), Redirect::Error, Surface::Fetch);
+///
+/// Timer, each by its call: OpenAI `AbortSignal.timeout` (`:118`); Antigravity `withTimeoutSignal` (`:58`) and Devin
+/// `AbortSignal.timeout` (`devin-wire-models.mjs:499`) read as the `TimeoutError`; Grok `createTimeoutSignal`
+/// (`grok-oauth-tokens.mjs:115`) as its labelled `ProviderTimeoutError`; compat is `createTimeoutSignal` too
+/// (`openai-compat-models.mjs:104`), labelled `"<provider> model list"` (see [`COMPAT_MODEL_LIST`]).
+pub const OPENAI_CATALOG: Exchange = Exchange::new(Liveness::unary(secs(10)), Redirect::Follow, Surface::FetchSignal);
+pub fn compat_model_list(provider: &str) -> Exchange {
+    // The label is `"<provider> model list"`; provider ids are a small closed set, so each is leaked once.
+    static LABELS: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
+    let label = format!("{provider} model list");
+    let mut known = LABELS.lock().unwrap_or_else(PoisonError::into_inner);
+    let label = match known.iter().find(|seen| **seen == label) {
+        Some(seen) => *seen,
+        None => {
+            let leaked: &'static str = Box::leak(label.into_boxed_str());
+            known.push(leaked);
+            leaked
+        }
+    };
+    Exchange::new(Liveness::unary(secs(10)), Redirect::Follow, Surface::FetchLabeled(label))
+}
+pub const ANTIGRAVITY_MODELS: Exchange = Exchange::new(Liveness::unary(secs(15)), Redirect::Error, Surface::FetchSignal);
+pub const GROK_DISCOVERY: Exchange =
+    Exchange::new(Liveness::unary(secs(15)), Redirect::Error, Surface::FetchLabeled("grok-oauth discovery"));
 pub const CURSOR_MODELS: Exchange = Exchange::new(Liveness::unary(secs(15)), Redirect::Manual, Surface::Socket);
-pub const DEVIN_DISCOVERY: Exchange = Exchange::new(Liveness::unary(secs(5)), Redirect::Error, Surface::Fetch);
+pub const DEVIN_DISCOVERY: Exchange = Exchange::new(Liveness::unary(secs(5)), Redirect::Error, Surface::FetchSignal);
 pub const GEMINI_MODELS: Exchange = Exchange::new(Liveness::unary(secs(60)), Redirect::Follow, Surface::Fetch);
 
 /// Devin run: `devin-wire-transport.mjs:453` POSTs with `redirect: 'error'`; the same raw `fetch` call.
@@ -84,10 +117,12 @@ pub const CURSOR_RUN: Exchange = Exchange::new(Liveness::stream(secs(600)), Redi
 /// The OpenCode Console requests (device code and token, refresh, `/api/user`, `/api/orgs`, config):
 /// `opencode-go-oauth-tokens.mjs:39` `REQUEST_TIMEOUT_MS` 20_000 on `AbortSignal.timeout` (`:188`), and
 /// `redirect: 'error'` (`consoleRequest`); raw `fetch` (`:187-189`, `fetchFn = fetch`).
-pub const OPENCODE_CONSOLE: Exchange = Exchange::new(Liveness::unary(secs(20)), Redirect::Error, Surface::Fetch);
+pub const OPENCODE_CONSOLE: Exchange = Exchange::new(Liveness::unary(secs(20)), Redirect::Error, Surface::FetchSignal);
 
-/// Grok model list: `grok-oauth.mjs:509` 10_000 and `:512` `redirect: 'error'`; raw `fetch` (`:507`, `:541`).
-pub const GROK_LISTING: Exchange = Exchange::new(Liveness::unary(secs(10)), Redirect::Error, Surface::Fetch);
+/// Grok model list: `grok-oauth.mjs:509` 10_000 and `:512` `redirect: 'error'`; raw `fetch` (`:507`, `:541`) under
+/// `createTimeoutSignal(null, 10_000, 'grok-oauth model list')` (`:505`).
+pub const GROK_LISTING: Exchange =
+    Exchange::new(Liveness::unary(secs(10)), Redirect::Error, Surface::FetchLabeled("grok-oauth model list"));
 
 /// Vertex service-account token: Node reaches it through google-auth-library / `fetch`, no `redirect`
 /// option (`vertex-ai-auth.mjs`), so it follows. Raw `fetch` (`vertex-ai-auth.mjs:569` `this.fetchFn`,
@@ -96,11 +131,13 @@ pub const VERTEX_TOKEN: Exchange = Exchange::new(Liveness::unary(secs(30)), Redi
 
 /// Google cache create: `stall-policy.mjs:92` `PROVIDER_CACHE_CREATE_TOTAL_TIMEOUT_MS`
 /// (default `min(180_000, generate total)`); raw `fetch` (`gemini.mjs:519` `this._fetch`).
-pub const CACHE_CREATE: Exchange = Exchange::new(Liveness::unary(secs(180)), Redirect::Follow, Surface::Fetch);
+/// The timer is `createTimeoutSignal(null, …, 'Gemini cachedContents.create total')` (`gemini.mjs:511`).
+pub const CACHE_CREATE: Exchange =
+    Exchange::new(Liveness::unary(secs(180)), Redirect::Follow, Surface::FetchLabeled("Gemini cachedContents.create total"));
 
 /// The registry check of the self-updater: `runtime/shared/update-checker.mjs:22`
-/// `FETCH_TIMEOUT_MS` 5_000; raw `fetch` (`update-checker.mjs:99`).
-pub const UPDATE_CHECK: Exchange = Exchange::new(Liveness::unary(secs(5)), Redirect::Follow, Surface::Fetch);
+/// `FETCH_TIMEOUT_MS` 5_000; raw `fetch` (`update-checker.mjs:99`) on a bare `setTimeout(() => controller.abort())`.
+pub const UPDATE_CHECK: Exchange = Exchange::new(Liveness::unary(secs(5)), Redirect::Follow, Surface::FetchAborted);
 
 /// The local whisper `/inference` exchange: no timer, because no input bounds it (Node's `fetch`
 /// carries none, `whisper-server.mjs:536-540`; D-hang-services-3). The caller cancels by dropping.
@@ -112,7 +149,7 @@ pub const VOICE_INFERENCE: Exchange = Exchange::new(Liveness::cancel_only(), Red
 pub const VERTEX_METADATA: Exchange = Exchange::new(
     Liveness::unary(Duration::from_millis(1000)),
     Redirect::Follow,
-    Surface::Fetch,
+    Surface::FetchSignal,
 );
 
 /// One shared credential refresh (lock wait plus token call): Node holds the credential

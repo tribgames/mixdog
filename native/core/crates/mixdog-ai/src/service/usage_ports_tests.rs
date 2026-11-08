@@ -231,23 +231,35 @@ async fn a_redeem_posts_nodes_body_with_nodes_headers_and_replays_once() {
 
 #[tokio::test]
 async fn a_refusal_of_the_transport_reads_as_nodes_fetch_failed_or_timeout() {
-    struct Refusing(&'static str);
+    /// Refuses with the message the link gives for the exchange's surface, or with none of the link's (a route the
+    /// proxy policy could not decide: no typed fault).
+    struct Refusing(Option<TransportFault>);
 
     #[async_trait]
     impl HttpSend for Refusing {
-        async fn send(&self, _: WireRequest, _: Exchange) -> Result<HttpResponse, ProviderError> {
+        async fn send(&self, _: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
             let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::Ambiguous);
-            error.message = self.0.to_owned();
+            error.message = "no route".to_owned();
+            if let Some(fault) = &self.0 {
+                error.transport = Some(fault.clone());
+                error.message = exchange.surface.timeout_text(Duration::from_secs(1)).unwrap();
+            }
             Err(error)
         }
     }
 
-    let get = |message: &'static str| async move { RoutedUsageHttp::new(Arc::new(Refusing(message))).get("https://x.test/a", &[], Duration::from_secs(1)).await.err().unwrap() };
-    // `redirect: 'error'` is the transport's refusal of a 3xx.
-    let redirected = get("unexpected redirect (HTTP 302)").await;
-    assert_eq!((redirected.message.as_str(), redirected.status), ("fetch failed", None));
-    let stalled = get("request timed out after 1000ms").await;
-    assert_eq!(stalled.message, "The operation was aborted due to timeout");
+    let get = |fault: Option<TransportFault>, bare: bool| async move {
+        let http: Arc<dyn HttpSend> = Arc::new(Refusing(fault));
+        let usage = if bare { RoutedUsageHttp::following(http) } else { RoutedUsageHttp::new(http) };
+        usage.get("https://x.test/a", &[], Duration::from_secs(1)).await.err().unwrap()
+    };
+    let io = Some(TransportFault::Io { os_code: None });
+    // No typed fault: Node's `fetch failed`.
+    let undecided = get(None, false).await;
+    assert_eq!((undecided.message.as_str(), undecided.status), ("fetch failed", None));
+    // The timer's own text, by the call's timer: `AbortSignal.timeout` and a bare `AbortController`.
+    assert_eq!(get(io.clone(), false).await.message, "The operation was aborted due to timeout");
+    assert_eq!(get(io, true).await.message, "This operation was aborted");
 }
 #[tokio::test]
 async fn a_provider_without_a_signed_in_credential_fails_and_one_without_usage_is_left_alone() {

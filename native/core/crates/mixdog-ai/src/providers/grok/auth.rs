@@ -4,7 +4,7 @@
 //! URLs, the client id and the token-endpoint bodies.
 
 use crate::transport::deadlines::GROK_DISCOVERY;
-use crate::transport::deadlines::TOKEN_EXCHANGE;
+use crate::transport::deadlines::TOKEN_GROK;
 use std::sync::Arc;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
@@ -160,7 +160,7 @@ pub async fn refresh(http: &dyn HttpSend, tokens: &StoredTokens) -> Result<Store
                 )],
                 body: refresh_form(tokens).into_bytes(),
             },
-            TOKEN_EXCHANGE,
+            TOKEN_GROK,
         )
         .await?;
     let success = head.is_success();
@@ -419,7 +419,7 @@ impl PkceProvider for GrokLogin {
                     )],
                     body: body.into_bytes(),
                 },
-                TOKEN_EXCHANGE,
+                TOKEN_GROK,
             )
             .await
             .map_err(|e| failed("transport", e.message))?;

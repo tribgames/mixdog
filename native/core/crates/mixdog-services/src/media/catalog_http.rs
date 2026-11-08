@@ -8,6 +8,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use mixdog_ai::netproxy::RoutedClients;
 use mixdog_ai::transport::FETCH_FAILED;
+use mixdog_ai::transport::SIGNAL_TIMED_OUT;
 
 use super::catalog_fetch::{CatalogHttp, HttpFailure, HttpReply};
 
@@ -24,7 +25,7 @@ impl RoutedCatalogHttp {
 fn transport(error: &reqwest::Error) -> HttpFailure {
     if error.is_timeout() {
         // `AbortSignal.timeout`: a `TimeoutError`.
-        HttpFailure { message: "The operation was aborted due to timeout".to_owned(), timed_out: true }
+        HttpFailure { message: SIGNAL_TIMED_OUT.to_owned(), timed_out: true }
     } else {
         HttpFailure { message: FETCH_FAILED.to_owned(), timed_out: false }
     }

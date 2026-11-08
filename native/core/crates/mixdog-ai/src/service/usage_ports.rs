@@ -67,25 +67,29 @@ use crate::transport::Surface;
 use crate::transport::http::HttpSend;
 use mixdog_rt::Liveness;
 
-/// `AbortSignal.timeout(ms)`'s `TimeoutError` message.
-const TIMED_OUT: &str = "The operation was aborted due to timeout";
-
 /// [`UsageHttp`] over the routed link. The exchange is Node's `fetchOptions`: a redirect is a network
 /// error (`redirect: 'error'`) and the timeout covers the head and the body (`AbortSignal.timeout`),
 /// both enforced by the transport.
 pub struct RoutedUsageHttp {
     http: Arc<dyn HttpSend>,
     redirect: Redirect,
+    surface: Surface,
 }
 
 impl RoutedUsageHttp {
     pub fn new(http: Arc<dyn HttpSend>) -> Self {
-        Self { http, redirect: Redirect::Error }
+        Self { http, redirect: Redirect::Error, surface: Surface::FetchSignal }
     }
 
-    /// The same, but redirects are followed, as the bare `fetch` of `api-usage.mjs` does.
+    /// The same, but redirects are followed and the deadline is an `AbortController`, as the bare `fetch` of
+    /// `api-usage.mjs` does; its abort reads differently from `AbortSignal.timeout`.
     pub fn following(http: Arc<dyn HttpSend>) -> Self {
-        Self { http, redirect: Redirect::Follow }
+        Self { http, redirect: Redirect::Follow, surface: Surface::FetchAborted }
+    }
+
+    /// Redirects are an error and the deadline is an `AbortController` (OpenCode Go's status read).
+    pub fn aborting(http: Arc<dyn HttpSend>) -> Self {
+        Self { http, redirect: Redirect::Error, surface: Surface::FetchAborted }
     }
 
     async fn exchange(&self, method: &str, url: &str, headers: &[(String, String)], body: Vec<u8>, timeout: Duration) -> Result<UsageResponse, UsageError> {
@@ -96,11 +100,12 @@ impl RoutedUsageHttp {
             headers: headers.to_vec(),
             body,
         };
-        let exchange = Exchange::new(Liveness::unary(timeout), self.redirect, Surface::Fetch);
+        let exchange = Exchange::new(Liveness::unary(timeout), self.redirect, self.surface);
         let failed = |error: ProviderError| {
-            // The transport names a missed deadline; every other refusal (the link's own `fetch failed`, or
-            // a route the proxy policy could not decide) reads as Node's `fetch failed`.
-            UsageError::new(if error.message.contains("timed out") { TIMED_OUT } else { FETCH_FAILED })
+            // A transport fault already carries the call site's Node text (`fetch failed`, or the
+            // `AbortSignal.timeout` message); a refusal before any transport (a route the proxy policy
+            // could not decide) reads as Node's `fetch failed`.
+            UsageError::new(if error.transport.is_some() { error.message } else { FETCH_FAILED.to_owned() })
         };
         let head = self.http.send(request, exchange).await.map_err(failed)?;
         let status = head.status;
@@ -424,10 +429,7 @@ impl ProviderUsageSource {
             headers.push(("x-org-id".to_owned(), org.to_owned()));
         }
         let timeout = Duration::from_millis(usage_opencode_go::FETCH_TIMEOUT_MS);
-        // The deadline here is an `AbortController`, whose abort reads differently from `AbortSignal.timeout`.
-        let reply = RoutedUsageHttp::new(self.http.clone()).get(usage_opencode_go::STATUS_URL, &headers, timeout).await.map_err(|error| {
-            if error.message == TIMED_OUT { UsageError::new("This operation was aborted") } else { error }
-        })?;
+        let reply = RoutedUsageHttp::aborting(self.http.clone()).get(usage_opencode_go::STATUS_URL, &headers, timeout).await?;
         if !(200..300).contains(&reply.status) {
             let message = if reply.status == 401 { "OpenCode console credential was rejected".to_owned() } else { format!("OpenCode Go usage fetch failed ({})", reply.status) };
             return Err(UsageError { status: Some(reply.status), message });

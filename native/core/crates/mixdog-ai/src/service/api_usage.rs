@@ -288,11 +288,8 @@ impl ApiUsageService {
     /// `fetchJson`: the parsed body (null when empty or not JSON); a non-2xx answer is an error
     /// carrying its status and parsed body.
     async fn fetch_json(&self, url: &str, headers: Vec<(String, String)>) -> Result<Value, ApiError> {
-        let reply = self.http.get(url, &headers, FETCH_TIMEOUT).await.map_err(|UsageError { message, .. }| {
-            // The deadline here is an `AbortController`, whose abort reads differently from `AbortSignal.timeout`.
-            let message = if message == "The operation was aborted due to timeout" { "This operation was aborted".to_owned() } else { message };
-            ApiError { status: None, message, body: None }
-        })?;
+        // The deadline is an `AbortController`; the transport's `Surface::FetchAborted` words its abort.
+        let reply = self.http.get(url, &headers, FETCH_TIMEOUT).await.map_err(|UsageError { message, .. }| ApiError { status: None, message, body: None })?;
         let data = if reply.body.is_empty() { Value::Null } else { serde_json::from_str(&reply.body).unwrap_or(Value::Null) };
         if !(200..300).contains(&reply.status) {
             return Err(ApiError { status: Some(reply.status), message: format!("usage fetch failed ({})", reply.status), body: Some(data) });

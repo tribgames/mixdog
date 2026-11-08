@@ -6,6 +6,7 @@
 //! token bodies.
 
 use crate::transport::deadlines::TOKEN_EXCHANGE;
+use crate::transport::link::Surface;
 use crate::transport::link::deadline_error;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -506,7 +507,7 @@ impl OAuthSession {
             .file
             .refresh_once(async move { parts.refresh(rejected).await })
             .await
-            .unwrap_or_else(|expired| Err(deadline_error(expired, DeliveryState::Ambiguous)))
+            .unwrap_or_else(|expired| Err(deadline_error(expired, DeliveryState::Ambiguous, Surface::Socket)))
     }
 }
 
