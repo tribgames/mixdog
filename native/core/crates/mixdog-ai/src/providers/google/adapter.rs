@@ -5,7 +5,7 @@
 //! request accepted.
 
 use crate::transport::deadlines::GEMINI_MODELS;
-use crate::transport::deadlines::MODEL_STREAM;
+use crate::transport::deadlines::MODEL_STREAM_FETCH;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -192,14 +192,14 @@ impl GoogleAdapter {
         self.check_identity(&authorization)?;
         let mut response = self
             .http
-            .send(Self::authorized(wire, &authorization), MODEL_STREAM)
+            .send(Self::authorized(wire, &authorization), MODEL_STREAM_FETCH)
             .await?;
         if response.status == 401 && self.auth.rejected(&authorization).await {
             authorization = self.auth.authorize().await?;
             self.check_identity(&authorization)?;
             response = self
                 .http
-                .send(Self::authorized(wire, &authorization), MODEL_STREAM)
+                .send(Self::authorized(wire, &authorization), MODEL_STREAM_FETCH)
                 .await?;
         }
         Ok(response)

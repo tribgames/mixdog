@@ -290,5 +290,51 @@ async fn an_error_site_fails_on_the_302_as_a_network_error() {
         .err()
         .expect("a redirect is refused");
     assert_eq!(error.transport, Some(TransportFault::Io { os_code: None }));
-    assert_eq!(error.message, "unexpected redirect (HTTP 302)");
+    // A raw `fetch` call site: a refused redirect is `TypeError: fetch failed`.
+    assert_eq!(error.message, "fetch failed");
+}
+
+/// A loopback port nobody listens on.
+async fn closed_port_url() -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    drop(listener);
+    format!("http://{addr}/v1")
+}
+
+async fn refused(exchange: mixdog_ai::transport::Exchange, url: String) -> mixdog_core_api::domain::provider::ProviderError {
+    use mixdog_ai::transport::HttpSend;
+    use mixdog_ai::transport::ReqwestLink;
+    use mixdog_core_api::domain::provider::WireRequest;
+
+    let link = ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap();
+    link.send(
+        WireRequest { transport: TransportKind::Http1, method: "GET".into(), url, headers: Vec::new(), body: Vec::new() },
+        exchange,
+    )
+    .await
+    .err()
+    .expect("nothing listens there")
+}
+
+#[tokio::test]
+async fn a_refused_connection_reads_as_the_call_sites_text_and_stays_a_typed_connect_fault() {
+    use mixdog_ai::transport::deadlines::{COMPAT_MODEL_LIST, MODEL_STREAM};
+    // Node: a raw `fetch` call (the model list) says `fetch failed`, the SDK call (the model stream)
+    // `Connection error.` (`golden/connect_errors.json`, `cases.refused.ended`).
+    for (exchange, text) in [(COMPAT_MODEL_LIST, "fetch failed"), (MODEL_STREAM, "Connection error.")] {
+        let error = refused(exchange, closed_port_url().await).await;
+        assert!(matches!(error.transport, Some(TransportFault::Connect { .. })), "{error:?}");
+        assert_eq!(error.message, text);
+    }
+}
+
+#[tokio::test]
+async fn a_restricted_port_reads_as_the_call_sites_text_without_connecting() {
+    use mixdog_ai::transport::deadlines::{COMPAT_MODEL_LIST, MODEL_STREAM};
+    for (exchange, text) in [(COMPAT_MODEL_LIST, "fetch failed"), (MODEL_STREAM, "Connection error.")] {
+        let error = refused(exchange, "http://127.0.0.1:9/v1".into()).await;
+        assert_eq!(error.transport, Some(TransportFault::Io { os_code: None }));
+        assert_eq!(error.message, text);
+    }
 }

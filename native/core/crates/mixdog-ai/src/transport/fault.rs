@@ -9,6 +9,8 @@ use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::TransportFault;
 use tokio_tungstenite::tungstenite;
 
+use super::link::Surface;
+
 /// `connecting` is true while the TCP connection is being established: any
 /// OS failure then is a connect failure (including the OS SYN retry
 /// timeout), while after connect the same `ETIMEDOUT` is the socket's own
@@ -69,11 +71,13 @@ pub fn fault_from_reqwest(err: &reqwest::Error) -> (TransportFault, DeliveryStat
     }
 }
 
-/// [`fault_from_reqwest`] as a classified error (kind `Transient`).
-pub fn provider_error_from_reqwest(err: &reqwest::Error) -> ProviderError {
+/// [`fault_from_reqwest`] as a classified error (kind `Transient`). The message is the call site's
+/// text ([`Surface`]); the fault stays typed for logic.
+pub fn provider_error_from_reqwest(err: &reqwest::Error, surface: Surface) -> ProviderError {
     let (fault, delivery) = fault_from_reqwest(err);
-    let mut error = ProviderError::transport(fault.clone(), delivery);
-    error.message = format!("{fault:?}");
+    let message = surface.text(|| format!("{fault:?}"));
+    let mut error = ProviderError::transport(fault, delivery);
+    error.message = message;
     error
 }
 

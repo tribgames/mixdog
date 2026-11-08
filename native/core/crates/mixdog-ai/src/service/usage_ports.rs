@@ -61,13 +61,12 @@ use crate::providers::openai::adapter::CredentialSource;
 use crate::providers::openai::oauth::OpenAiOAuth;
 use crate::providers::connect::rewrite::Credential as _;
 use crate::transport::Exchange;
+use crate::transport::FETCH_FAILED;
 use crate::transport::Redirect;
+use crate::transport::Surface;
 use crate::transport::http::HttpSend;
 use mixdog_rt::Liveness;
 
-/// What a transport failure reads as: Node's `fetch` rejects with this `TypeError`, whatever the cause
-/// (a refused connection, a redirect under `redirect: 'error'`).
-const FETCH_FAILED: &str = "fetch failed";
 /// `AbortSignal.timeout(ms)`'s `TimeoutError` message.
 const TIMED_OUT: &str = "The operation was aborted due to timeout";
 
@@ -97,9 +96,10 @@ impl RoutedUsageHttp {
             headers: headers.to_vec(),
             body,
         };
-        let exchange = Exchange::new(Liveness::unary(timeout), self.redirect);
+        let exchange = Exchange::new(Liveness::unary(timeout), self.redirect, Surface::Fetch);
         let failed = |error: ProviderError| {
-            // The transport names a missed deadline; every other refusal reads as Node's `fetch failed`.
+            // The transport names a missed deadline; every other refusal (the link's own `fetch failed`, or
+            // a route the proxy policy could not decide) reads as Node's `fetch failed`.
             UsageError::new(if error.message.contains("timed out") { TIMED_OUT } else { FETCH_FAILED })
         };
         let head = self.http.send(request, exchange).await.map_err(failed)?;

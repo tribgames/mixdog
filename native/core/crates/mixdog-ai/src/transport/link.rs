@@ -101,16 +101,55 @@ pub enum Redirect {
     Manual,
 }
 
-/// The two per-request choices of an HTTP exchange: how long it may take and what a redirect does.
+/// The text a failed exchange reads as, which the Node call site decides: what a connection that
+/// never produced a status (refused, unresolved, reset, a restricted port, a refused or endless
+/// redirect) is called by the code that issued the request. The typed [`TransportFault`] on the
+/// error stays the only thing logic reads; this is the sentence users and logs see.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Surface {
+    /// A raw `fetch`: its network errors are `TypeError: fetch failed`, whatever the cause.
+    Fetch,
+    /// The OpenAI / Anthropic SDK: it wraps a connect failure of its fetch as
+    /// `APIConnectionError: Connection error.`.
+    Sdk,
+    /// Node's `http2`: a socket error whose text names the resolved address (`connect ECONNREFUSED
+    /// 1.2.3.4:443`), which the link cannot know; the fault's own description stands.
+    Socket,
+}
+
+/// `TypeError: fetch failed`, the message of every network error of a raw `fetch`.
+pub const FETCH_FAILED: &str = "fetch failed";
+/// `APIConnectionError: Connection error.`, the SDK's wrapper of a failed connection.
+pub const CONNECTION_ERROR: &str = "Connection error.";
+
+impl Surface {
+    /// Node's text for a connection failure, `None` where the link has none to give.
+    pub const fn connection_text(self) -> Option<&'static str> {
+        match self {
+            Self::Fetch => Some(FETCH_FAILED),
+            Self::Sdk => Some(CONNECTION_ERROR),
+            Self::Socket => None,
+        }
+    }
+
+    /// The text of a failure: Node's, else the link's own `fallback`.
+    pub fn text(self, fallback: impl FnOnce() -> String) -> String {
+        self.connection_text().map_or_else(fallback, str::to_owned)
+    }
+}
+
+/// The three per-request choices of an HTTP exchange: how long it may take, what a redirect does,
+/// and what a failure to connect reads as.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Exchange {
     pub liveness: Liveness,
     pub redirect: Redirect,
+    pub surface: Surface,
 }
 
 impl Exchange {
-    pub const fn new(liveness: Liveness, redirect: Redirect) -> Self {
-        Self { liveness, redirect }
+    pub const fn new(liveness: Liveness, redirect: Redirect, surface: Surface) -> Self {
+        Self { liveness, redirect, surface }
     }
 }
 
@@ -203,8 +242,8 @@ impl ReqwestLink {
     }
 
     #[allow(clippy::result_large_err, reason = "ProviderError is the contract's error type")]
-    async fn builder(&self, request: &WireRequest) -> Result<reqwest::RequestBuilder, ProviderError> {
-        if let Some(refused) = restricted_port(&request.url) {
+    async fn builder(&self, request: &WireRequest, surface: Surface) -> Result<reqwest::RequestBuilder, ProviderError> {
+        if let Some(refused) = restricted_port(&request.url, surface) {
             return Err(refused);
         }
         let method = reqwest::Method::from_bytes(request.method.as_bytes()).map_err(|_| {
@@ -301,24 +340,25 @@ const RESTRICTED_PORTS: [u16; 82] = [
     6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080,
 ];
 
-/// A request to a port `fetch` refuses fails before any connection, as a plain network error with no errno ("bad
-/// port"): the loop sees an I/O fault, not an unreachable network, so only the provider's own ladder retries it.
-pub(crate) fn restricted_port(url: &str) -> Option<ProviderError> {
+/// A request to a port `fetch` refuses fails before any connection, as a plain network error with no errno (the end
+/// of Node's chain reads "bad port", the call site's text on top): the loop sees an I/O fault, not an unreachable
+/// network, so only the provider's own ladder retries it.
+pub(crate) fn restricted_port(url: &str, surface: Surface) -> Option<ProviderError> {
     let port = reqwest::Url::parse(url).ok()?.port()?;
     RESTRICTED_PORTS.contains(&port).then(|| {
         let mut error = ProviderError::transport(TransportFault::Io { os_code: None }, DeliveryState::NotSent);
-        error.message = "bad port".to_owned();
+        error.message = surface.text(|| "bad port".to_owned());
         error
     })
 }
 
 /// `fetch` rejects a redirect under `redirect: 'error'` as a network error.
-fn redirect_refused(status: reqwest::StatusCode) -> ProviderError {
+fn redirect_refused(status: reqwest::StatusCode, surface: Surface) -> ProviderError {
     let mut error = ProviderError::transport(
         TransportFault::Io { os_code: None },
         DeliveryState::Ambiguous,
     );
-    error.message = format!("unexpected redirect (HTTP {})", status.as_u16());
+    error.message = surface.text(|| format!("unexpected redirect (HTTP {})", status.as_u16()));
     error
 }
 
@@ -380,7 +420,7 @@ impl HttpSend for ReqwestLink {
         request: WireRequest,
         exchange: Exchange,
     ) -> Result<HttpResponse, ProviderError> {
-        settle(exchange, self.hops(request, exchange.redirect)).await
+        settle(exchange, self.hops(request, exchange)).await
     }
 }
 
@@ -389,20 +429,21 @@ impl ReqwestLink {
     async fn hops(
         &self,
         mut request: WireRequest,
-        redirect: Redirect,
+        exchange: Exchange,
     ) -> Result<reqwest::Response, ProviderError> {
+        let Exchange { redirect, surface, .. } = exchange;
         for _ in 0..=MAX_REDIRECTS {
-            let builder = self.builder(&request).await?.body(request.body.clone());
+            let builder = self.builder(&request, surface).await?.body(request.body.clone());
             let raw = builder
                 .send()
                 .await
-                .map_err(|err| provider_error_from_reqwest(&err))?;
+                .map_err(|err| provider_error_from_reqwest(&err, surface))?;
             if !is_redirect(raw.status()) {
                 return Ok(raw);
             }
             match redirect {
                 Redirect::Manual => return Ok(raw),
-                Redirect::Error => return Err(redirect_refused(raw.status())),
+                Redirect::Error => return Err(redirect_refused(raw.status(), surface)),
                 Redirect::Follow => {
                     let location = raw
                         .headers()
@@ -421,7 +462,7 @@ impl ReqwestLink {
             TransportFault::Io { os_code: None },
             DeliveryState::Ambiguous,
         );
-        error.message = format!("more than {MAX_REDIRECTS} redirects");
+        error.message = surface.text(|| format!("more than {MAX_REDIRECTS} redirects"));
         Err(error)
     }
 }
@@ -458,17 +499,18 @@ impl BidiOpen for ReqwestLink {
                 .await
                 .map(|bytes| (Ok::<_, std::io::Error>(bytes), rx))
         });
+        let surface = exchange.surface;
         let builder = self
-            .builder(&request)
+            .builder(&request, surface)
             .await?
             .body(reqwest::Body::wrap_stream(stream));
         let answer = async {
             let raw = builder
                 .send()
                 .await
-                .map_err(|err| provider_error_from_reqwest(&err))?;
+                .map_err(|err| provider_error_from_reqwest(&err, surface))?;
             if redirect == Redirect::Error && is_redirect(raw.status()) {
-                return Err(redirect_refused(raw.status()));
+                return Err(redirect_refused(raw.status(), surface));
             }
             Ok(raw)
         };
@@ -551,13 +593,16 @@ mod tests {
         let golden: serde_json::Value =
             serde_json::from_str(include_str!("../../../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
         let recorded: Vec<u16> = golden["badPorts"].as_array().unwrap().iter().map(|p| p.as_u64().unwrap() as u16).collect();
-        let refused: Vec<u16> = (1..=u16::MAX).filter(|port| restricted_port(&format!("http://127.0.0.1:{port}/v1")).is_some()).collect();
+        let refused: Vec<u16> =
+            (1..=u16::MAX).filter(|port| restricted_port(&format!("http://127.0.0.1:{port}/v1"), Surface::Fetch).is_some()).collect();
         assert_eq!(refused, recorded);
-        let error = restricted_port("http://127.0.0.1:9/v1").expect("port 9 is refused");
+        let error = restricted_port("http://127.0.0.1:9/v1", Surface::Fetch).expect("port 9 is refused");
         assert_eq!(error.transport, Some(TransportFault::Io { os_code: None }));
         assert_eq!(error.delivery, DeliveryState::NotSent);
-        assert_eq!(error.message, "bad port");
-        assert!(restricted_port("https://example.com/v1").is_none(), "a default port is never restricted");
+        // The text is the call site's (the golden's chain: `Connection error.` <- `fetch failed` <- `bad port`).
+        assert_eq!(error.message, "fetch failed");
+        assert_eq!(restricted_port("http://127.0.0.1:9/v1", Surface::Sdk).expect("refused").message, "Connection error.");
+        assert!(restricted_port("https://example.com/v1", Surface::Fetch).is_none(), "a default port is never restricted");
     }
 
     /// A body whose peer holds the connection open and says nothing.

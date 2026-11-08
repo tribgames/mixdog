@@ -15,6 +15,11 @@
 //   cutRole    the same with a first chunk that carries only the assistant role (a model event, nothing shown)
 //
 // `--only cut` records the two cut cases alone into the existing golden (the port scan of `badPorts` is slow).
+// `--only probes` records `probes` alone: what the settings page's two custom-provider probes show for the same
+// endpoints (refused, badPort, dns), through the real `discoverCustomProviderModels` and `testCustomProvider` of
+// `provider-admin.mjs` with a stub config module: the discovery error view (`discoveryErrorView` + `sanitizeCustomError`,
+// a raw `fetch` => "fetch failed"), the connection test that gets as far as discovery (its `phase: 'discovery'` result) and
+// the one that sends (a manual model, the SDK => the thrown "Connection error.").
 //
 // The loop is driven the way `send-phase.mjs` drives it: a `retry_transport` verdict adds one to `transportRetriesUsed`
 // and carries `transportRetryMax` into the next call; a thrown error ends the turn. Waits are recorded, not served
@@ -34,7 +39,7 @@ const args = process.argv.slice(2);
 const treeAt = args.indexOf('--tree');
 const nodeRoot = resolve(treeAt >= 0 ? args[treeAt + 1] : (process.env.MIXDOG_BENCH_TREE ?? join(here, '..', '..', '..', '..', '..')));
 const scratch = mkdtempSync(join(tmpdir(), 'mixdog-connect-golden-'));
-for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) process.env[key] = join(scratch, key);
+for (const key of ['MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'MIXDOG_DESKTOP_USER_DATA', 'MIXDOG_CONFIG_DIR', 'MIXDOG_RUNTIME_ROOT', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA']) process.env[key] = join(scratch, key);
 process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 for (const name of ['MIXDOG_TRANSPORT_RETRY_BACKOFF_MS', 'MIXDOG_CONNECTION_RETRY_BACKOFF_MS', 'MIXDOG_RECOVERY_RETRY_BACKOFF_MS']) delete process.env[name];
 mkdirSync(join(here, 'golden'), { recursive: true });
@@ -62,6 +67,8 @@ const { applyRetryAction } = await load(`${orchestrator}/session/loop/send-phase
 const { OpenAICompatProvider } = await load(`${orchestrator}/providers/openai-compat.mjs`);
 const { isProviderRecoveryExhausted, isProviderRecoveryTerminal } = await load(`${orchestrator}/providers/retry-executor.mjs`);
 const { isConnectFailure } = await load(`${orchestrator}/providers/retry-classification.mjs`);
+
+const admin = await load('src/session-runtime/services/provider-admin.mjs');
 
 const MAX_LAPS = 30;
 
@@ -129,6 +136,28 @@ async function record(baseURL) {
   return { laps, ended: ended ?? { kind: 'capped' } };
 }
 
+const portless = (value) => JSON.parse(JSON.stringify(value ?? null).replace(/127\.0\.0\.1:\d+/g, '127.0.0.1:<port>'));
+const cfgMod = { loadConfig: () => ({ providers: {} }), saveConfig() {} };
+
+// The same unsaved input through both probes; the connection test once with a manual model (it sends, no discovery) and
+// once without (it discovers first and stops at the discovery error).
+async function recordProbes(baseURL) {
+  const input = { name: 'Probe', protocol: 'openai-chat', baseURL, apiKey: 'sk-DUMMY-probe-secret-0123456789' };
+  const manual = { ...input, schemaVersion: 2, modelOverrides: { 'm-manual': { manual: true } } };
+  const attempt = async (run) => {
+    try {
+      return { result: portless(await run()) };
+    } catch (error) {
+      return { thrown: portless(String(error.message)) };
+    }
+  };
+  return {
+    discover: await attempt(() => admin.discoverCustomProviderModels(cfgMod, input)),
+    testDiscovery: await attempt(() => admin.testCustomProvider(cfgMod, input)),
+    testSend: await attempt(() => admin.testCustomProvider(cfgMod, manual)),
+  };
+}
+
 const closedPort = () =>
   new Promise((done) => {
     const probe = createServer().listen(0, '127.0.0.1', () => {
@@ -194,7 +223,14 @@ if (!only) {
   reset.server.close();
   golden.cases.badPort = await record('http://127.0.0.1:9/v1');
 }
-for (const [name, first] of [
+if (!only || only === 'probes') {
+  golden.probes = {
+    refused: await recordProbes(`http://127.0.0.1:${await closedPort()}/v1`),
+    badPort: await recordProbes('http://127.0.0.1:9/v1'),
+    dns: await recordProbes('https://connect-errors-no-such-host.invalid/v1'),
+  };
+}
+for (const [name, first] of only === 'probes' ? [] : [
   ['cut', ': open\n\n'],
   ['cutRole', `data: ${JSON.stringify({ id: 'c1', object: 'chat.completion.chunk', model: 'm', choices: [{ index: 0, delta: { role: 'assistant' } }] })}\n\n`],
 ]) {
