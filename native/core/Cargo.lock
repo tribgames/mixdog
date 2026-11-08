@@ -4447,11 +4447,8 @@ dependencies = [
 name = "mixdog-ledger"
 version = "1.4.5"
 dependencies = [
- "bytes",
  "chrono",
- "mixdog-core-api",
  "mixdog-js",
- "mixdog-protocol",
  "mixdog-rt",
  "mixdog-store",
  "rusqlite",

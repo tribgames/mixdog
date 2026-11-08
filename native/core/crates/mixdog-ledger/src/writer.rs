@@ -19,7 +19,6 @@ use std::sync::Weak;
 use std::sync::mpsc;
 use std::sync::mpsc::TryRecvError;
 
-use mixdog_core_api::StatePublisher;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::InLane;
 use mixdog_rt::LaneToken;
@@ -130,10 +129,11 @@ fn commit_records(
     inserted
 }
 
-/// Where the `usage` section is published (P7: the ledger writer, after batch commit).
-struct Publication {
-    publisher: Arc<dyn StatePublisher>,
-    scope: String,
+/// Told, from the writer thread, that what the statistics show changed: once the queue is idle
+/// after a commit (or a repair) that changed it, never at boot. Appends coalesce into one call.
+/// It must not block: the owner publishes the `usage` section (P7), the writer only signals.
+pub trait UsageChanged: Send + Sync {
+    fn usage_changed(&self);
 }
 
 fn now_ms() -> i64 {
@@ -148,7 +148,7 @@ struct Context {
     maintenance: MaintenanceIo,
     /// Weak: the thread must not keep its own queue open once the `UsageWriter` is dropped.
     inner: Weak<Inner>,
-    publication: Option<Publication>,
+    changed: Option<Arc<dyn UsageChanged>>,
     build_budget: i64,
 }
 
@@ -274,8 +274,10 @@ fn run(mut conn: Connection, commands: mpsc::Receiver<Command>, context: Context
         blocked: false,
         waiters: Vec::new(),
     };
-    // The section is out of date: boot, or a commit changed what it summarizes.
-    let mut stale = context.publication.is_some();
+    // Rollup days to recompute: at boot, and after a commit. The owner reads at startup itself, so boot is not a change
+    // to tell it of; `moved` is what a commit or repair changed since the owner was last told.
+    let mut stale = context.changed.is_some();
+    let mut moved = false;
     loop {
         let command = match held.take() {
             Some(command) => command,
@@ -286,20 +288,21 @@ fn run(mut conn: Connection, commands: mpsc::Receiver<Command>, context: Context
                     build.dispatch(&context);
                     continue;
                 }
-                Err(TryRecvError::Empty) => match (&context.publication, stale) {
-                    (Some(publication), true) => {
-                        // Idle: one bounded step of the rollup-day recompute; the section is
-                        // published once no day is stale. Appends coalesce into one
-                        // publication. A failure waits for the next commit to retry.
-                        stale = matches!(
-                            maintain_usage(
-                                &mut conn,
-                                publication.publisher.as_ref(),
-                                &publication.scope,
-                                now_ms()
-                            ),
-                            Ok(false)
-                        );
+                Err(TryRecvError::Empty) => match (&context.changed, stale) {
+                    (Some(changed), true) => {
+                        // Idle: one bounded step of the rollup-day recompute; the owner is told
+                        // once no day is stale. Appends coalesce into one call. A failure waits
+                        // for the next commit to retry.
+                        stale = match maintain_usage(&mut conn, now_ms()) {
+                            Ok(true) => {
+                                if std::mem::take(&mut moved) {
+                                    changed.usage_changed();
+                                }
+                                false
+                            }
+                            Ok(false) => true,
+                            Err(_) => false,
+                        };
                         continue;
                     }
                     _ => match commands.recv() {
@@ -333,7 +336,10 @@ fn run(mut conn: Connection, commands: mpsc::Receiver<Command>, context: Context
                 }
                 let inserted = commit_records(&mut conn, group);
                 build.note_committed(&conn, &inserted);
-                stale |= context.publication.is_some() && !inserted.is_empty();
+                if context.changed.is_some() && !inserted.is_empty() {
+                    stale = true;
+                    moved = true;
+                }
             }
             Command::Quota { samples, reply } => {
                 reply.send(record_quota_samples(&mut conn, &samples));
@@ -351,8 +357,10 @@ fn run(mut conn: Connection, commands: mpsc::Receiver<Command>, context: Context
                 if let Some(flight) = build.flight.as_mut() {
                     flight.stale = true;
                 }
-                stale |=
-                    context.publication.is_some() && applied.as_ref().is_ok_and(|r| !r.conflict);
+                if context.changed.is_some() && applied.as_ref().is_ok_and(|r| !r.conflict) {
+                    stale = true;
+                    moved = true;
+                }
                 reply.send(applied);
             }
             Command::Settle { reply } => reply.send(()),
@@ -391,24 +399,16 @@ impl UsageWriter {
         Self::start(thread, maintenance, path, None, build_budget)
     }
 
-    /// [`open`](Self::open), and the writer also keeps the `usage` section of `scope` current:
+    /// [`open`](Self::open), and the writer also tells `changed` when the statistics moved:
     /// once the queue is idle after a commit it recomputes stale rollup days in bounded steps
-    /// and publishes the summary through `publisher` (`maintain_usage`).
+    /// (`maintain_usage`) and then signals. It recomputes at boot too, but does not signal for it.
     pub fn open_publishing(
         thread: SqliteWriterThread,
         maintenance: MaintenanceIo,
         path: &Path,
-        publisher: Arc<dyn StatePublisher>,
-        scope: &str,
+        changed: Arc<dyn UsageChanged>,
     ) -> Result<Arc<Self>> {
-        let scope = scope.to_string();
-        Self::start(
-            thread,
-            maintenance,
-            path,
-            Some(Publication { publisher, scope }),
-            BUILD_BUDGET,
-        )
+        Self::start(thread, maintenance, path, Some(changed), BUILD_BUDGET)
     }
 
     #[allow(
@@ -419,7 +419,7 @@ impl UsageWriter {
         thread: SqliteWriterThread,
         maintenance: MaintenanceIo,
         path: &Path,
-        publication: Option<Publication>,
+        changed: Option<Arc<dyn UsageChanged>>,
         build_budget: i64,
     ) -> Result<Arc<Self>> {
         let mut conn = Connection::open(path)?;
@@ -433,7 +433,7 @@ impl UsageWriter {
             path: path.to_path_buf(),
             maintenance,
             inner: Arc::downgrade(&inner),
-            publication,
+            changed,
             build_budget,
         };
         thread.spawn_thread("mixdog-usage-writer", move |_| run(conn, receiver, context))?;

@@ -368,11 +368,15 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let (network_proxy, routed_clients) = (net.policy.clone(), net.clients.clone());
     // The one usage ledger source (wp-ai-admin-1 `LedgerSource::get()`): `ProcessInputs.ledger` (the registry's accounting) and
     // `LocalSeams.media_ledger` (wp-svc-misc-24 `QueuedLedger`) both write through it, and it is asked per row, as Node asks `getUsageLedger()`.
+    // The `usage` section (DS §15 P7): every ledger the source opens publishes its statistics and, once `usage_push.dashboard` is bound below, the dashboard,
+    // through the one publisher; the statistics are read with the clock `getUsageStats` uses.
+    let usage_push = mixdog_core::run_host::usage_stats_feed::UsagePush::new(state.publisher.clone(), Arc::new(mixdog_core_domains::domains::ai_account::usage::now_ms));
     let ledger_source = mixdog_core::run_host::ledger_source::LedgerSource::new(
         Arc::new(mixdog_ai::registry::keys::ProcessEnv),
         b.data_dir.clone(),
         b.tokens.clone(),
         Arc::new(mixdog_core_base::pricing::ledger_pricer::CatalogPricer::ungated(&b.catalog)),
+        usage_push.clone(),
     );
     let usage_sink: Arc<dyn mixdog_ai::registry::accounting::UsageSink> = Arc::new(crate::compose_mcp::SourcedSink(ledger_source.sink()));
     let now_ms_epoch: Arc<dyn Fn() -> u64 + Send + Sync> = mixdog_ai::client_versions::system_clock(); // Date.now() for the OAuth wiring
@@ -2716,6 +2720,15 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         },
     )
     .map_err(|error| ComposeError::ComposeDomains(crate::compose_domains::ComposeDomainsError::Watch(mixdog_core_config::config::ConfigError::Io(std::io::Error::other(error)))))?)?;
+    usage_push
+        .dashboard
+        .bind(Arc::new(mixdog_core::run_host::usage_stats_feed::DashboardReading { dashboards: dashboards.clone(), sources: usage_sources.clone(), accounts: account_store.clone() }))
+        .map_err(|_| ComposeError::AlreadyBound("usage dashboard source"))?;
+    // The ledger opens here, at startup, rather than at its first record or statistics question: opening starts the feeds, which publish both
+    // `usage` entries at once, so a client that subscribes later is handed them. An open that fails is logged and tried again at the next ask.
+    if let Err(error) = ledger_source.get().await {
+        tracing::warn!(%error, "[usage] the ledger could not be opened at startup");
+    }
     builder.register(mixdog_core_domains::domains::ai_account::usage::UsageService::new(ledger_source.clone(), directory.clone(), usage_sources.clone(), account_store.clone(), dashboards.clone()))?;
     // modelProxy/run, modelProxy/cancel (and the `modelProxy/run/event` notifications): the PC end of the model proxy (model-proxy-1). They are in the method and notification tables at 51e73b496, so the
     // unclaimed check asks for them. Every input is an instance held above: the registry, the one broker, the one account store and OAuth usage, the config, the registry's builder, key store and env.

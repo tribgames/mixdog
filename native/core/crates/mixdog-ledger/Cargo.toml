@@ -11,9 +11,6 @@ workspace = true
 mixdog-js = { workspace = true }
 mixdog-rt = { workspace = true }
 mixdog-store = { workspace = true }
-mixdog-protocol = { workspace = true }
-mixdog-core-api = { workspace = true }
-bytes = { workspace = true }
 chrono = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }
@@ -23,8 +20,7 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 mixdog-rt = { workspace = true, features = ["test-support"] }
-tokio = { workspace = true, features = ["rt", "macros"] }
-mixdog-core-api = { workspace = true, features = ["mock"] }
+tokio = { workspace = true, features = ["rt", "macros", "sync"] }
 tempfile = { workspace = true }
 # The golden twin holds shortest-round-trip doubles; serde_json's default parser can be 1 ulp off.
 serde_json = { workspace = true, features = ["float_roundtrip"] }

@@ -98,8 +98,8 @@ mod tests {
     async fn the_samples_nodes_fetch_recorded_are_stored_through_the_shared_source() {
         let twin: Value = serde_json::from_str(TWIN).unwrap();
         let root = tempfile::tempdir().unwrap();
-        let source = LedgerSource::new(Arc::new(Vars(HashMap::new())), root.path().join("mixdog_data_dir"), mixdog_rt::testing::tokens(), Arc::new(NoPrices));
-        let history = LedgerQuotaHistory::new(source.clone());
+        let source = LedgerSource::new(Arc::new(Vars(HashMap::new())), root.path().join("mixdog_data_dir"), mixdog_rt::testing::tokens(), Arc::new(NoPrices), crate::run_host::usage_stats_feed::recording_push());
+        let history =LedgerQuotaHistory::new(source.clone());
         let mut stored = 0;
         for flow in twin["flows"].as_array().unwrap() {
             for batch in flow["history"].as_array().into_iter().flatten() {
@@ -146,8 +146,8 @@ mod tests {
         let blocker = root.path().join("file");
         write_file(&blocker, b"x");
         let vars = Vars(HashMap::from([("MIXDOG_USAGE_LEDGER_PATH".to_owned(), blocker.join("sub").join("ledger.sqlite").to_string_lossy().into_owned())]));
-        let source = LedgerSource::new(Arc::new(vars), root.path().to_path_buf(), mixdog_rt::testing::tokens(), Arc::new(NoPrices));
-        let sample = Sample { provider: "p".into(), account: "a".into(), label: "5H".into(), ts: 1, used_pct: 1.0, reset_at: None };
+        let source = LedgerSource::new(Arc::new(vars), root.path().to_path_buf(), mixdog_rt::testing::tokens(), Arc::new(NoPrices), crate::run_host::usage_stats_feed::recording_push());
+        let sample =Sample { provider: "p".into(), account: "a".into(), label: "5H".into(), ts: 1, used_pct: 1.0, reset_at: None };
         assert!(LedgerQuotaHistory::new(source).record(vec![sample]).await.is_err());
     }
 }

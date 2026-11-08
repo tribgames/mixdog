@@ -2,7 +2,7 @@ import type { DesktopApi, DesktopCapability, SessionSnapshot } from '../shared/c
 import type { CommandSurface as CommandSurfaceName } from './slash-commands';
 import { readGlobalCapabilities } from './global-capability-reads';
 import { record } from './record-utils';
-import { sectionStoreFor } from './section-store';
+import { sectionSourceOf } from './section-capabilities';
 
 export type SurfaceApi = Pick<DesktopApi, 'invokeCapability'> &
   Partial<Pick<DesktopApi, 'getSnapshot' | 'subscribeState' | 'subscribeSessionState' | 'readCapabilities' | 'sections'>>;
@@ -23,8 +23,16 @@ export const LOADERS: Record<CommandSurfaceName, DesktopCapability[]> = {
 const SURFACE_DATA_CACHE_LIMIT = 64;
 
 const surfaceDataCache = new Map<string, Record<string, unknown>>();
+/** K1: delete with the Node lane. A remote client on a Node-hosted connection (no core endpoint, so no pushed `usage`
+ *  section) re-reads changed statistics no sooner than this after its previous read began, and only while the dialog is
+ *  open. A connection with a core endpoint is told instead and never reads on this interval. */
+export const REMOTE_STATS_REFRESH_INTERVAL_MS = 30_000;
+
 type StatsCache = {
   data?: Record<string, unknown>;
+  dirty: boolean;
+  readAt: number;
+  timer: ReturnType<typeof setTimeout> | null;
   revision: number;
   acceptedRevision: number;
   pending: Promise<Record<string, unknown>> | null;
@@ -38,6 +46,9 @@ function statsCache(api: SurfaceApi): StatsCache {
   let cache = statsDataCache.get(api);
   if (!cache) {
     cache = {
+      dirty: false,
+      readAt: 0,
+      timer: null,
       revision: 0,
       acceptedRevision: -1,
       pending: null,
@@ -101,7 +112,23 @@ export function subscribeStatsDataCache(api: SurfaceApi, listener: () => void): 
   cache.listeners.add(listener);
   return () => {
     cache.listeners.delete(listener);
+    if (cache.listeners.size === 0) clearStaleRefresh(cache);
   };
+}
+
+function clearStaleRefresh(cache: StatsCache): void {
+  if (cache.timer) clearTimeout(cache.timer);
+  cache.timer = null;
+}
+
+function scheduleStaleRefresh(api: SurfaceApi, cache: StatsCache): void {
+  if (!cache.dirty || cache.timer || cache.listeners.size === 0) return;
+  const delay = Math.max(0, cache.readAt + REMOTE_STATS_REFRESH_INTERVAL_MS - Date.now());
+  cache.timer = setTimeout(() => {
+    cache.timer = null;
+    if (!cache.dirty || cache.listeners.size === 0) return;
+    void refreshStatsDataCache(api).catch(() => undefined);
+  }, delay);
 }
 
 /** Opening and background warmup share one read, including changes that arrive
@@ -112,6 +139,8 @@ export function refreshStatsDataCache(api: SurfaceApi): Promise<Record<string, u
   cache.pending = (async () => {
     while (true) {
       const revision = cache.revision;
+      cache.dirty = false;
+      cache.readAt = Date.now();
       const [value] = await readGlobalCapabilities(api, [
         {
           capability: 'getUsageStats',
@@ -175,36 +204,68 @@ export function holdStatsDataCache(api: SurfaceApi, { background = true }: { bac
       ]);
       if (signatures.get(sessionId) === signature) return;
       signatures.set(sessionId, signature);
-      // A client that holds no background cache receives the statistics as the pushed `usage` section.
-      if (!background) return;
+      if (!background) {
+        // K1: delete with the Node lane. A connection with a core endpoint is told the statistics (the `usage` section
+        // below) and never reads here; this re-read is the Node-hosted connection's alone, so no core-connected host
+        // reaches it. Until the connection's lane is known a change is only recorded.
+        if (lane !== 'core') {
+          cache.dirty = true;
+          if (lane === 'node') scheduleStaleRefresh(api, cache);
+        }
+        return;
+      }
       cache.revision += 1;
       // Only the open dialog shows these numbers; closed, the revision bump
       // marks the cache stale and opening reads fresh figures.
       if (!hidden() && cache.listeners.size > 0) warm();
     };
+    // The connection's lane, as the rest of the desktop chooses it (`SectionSource.core`, desktop-core-route-1): a
+    // client that holds no background cache is pushed the aggregate on a core connection (section `usage`, key
+    // `stats`, desktop-services.md §15 P7). Whether a sections source merely exists says nothing: the preload offers
+    // one on every connection.
+    let lane: 'pending' | 'core' | 'node' = 'pending';
+    let unsubscribeStats: (() => void) | undefined;
+    let released = false;
     const unsubscribeState = api.subscribeState?.(update);
     const unsubscribeSession = api.subscribeSessionState?.(({ sessionId, snapshot }) => update(snapshot, sessionId));
     if (background) page?.addEventListener('visibilitychange', onVisibility);
-    // Section `usage` key `stats` (desktop-services.md §15 P7): the aggregate is pushed, never re-read on a timer.
-    const sections = background ? undefined : sectionStoreFor(api);
-    const takeStats = (): void => {
-      const entry = sections?.get('usage', 'stats');
-      if (entry) setStatsDataCache(api, { getUsageStats: entry.value });
-    };
-    const unsubscribeStats = sections?.subscribe('usage', takeStats);
-    void sections?.ready().then(takeStats);
+    else {
+      const source = sectionSourceOf(api);
+      source
+        .core()
+        .then((core) => {
+          if (released) return;
+          if (!core) {
+            lane = 'node';
+            scheduleStaleRefresh(api, cache);
+            return;
+          }
+          lane = 'core';
+          const store = source.store();
+          if (!store) throw new Error('A connection with a core endpoint has no section store.');
+          const takeStats = (): void => {
+            const entry = store.get('usage', 'stats');
+            if (entry) setStatsDataCache(api, { getUsageStats: entry.value });
+          };
+          unsubscribeStats = store.subscribe('usage', takeStats);
+          return store.ready().then(takeStats);
+        })
+        .catch((error: unknown) => console.error('[usage] the statistics connection lane could not be followed', error));
+    }
     cache.release = () => {
+      released = true;
       unsubscribeState?.();
       unsubscribeSession?.();
       unsubscribeStats?.();
+      clearStaleRefresh(cache);
       page?.removeEventListener('visibilitychange', onVisibility);
     };
     if (background) warm();
   }
-  let released = false;
+  let heldReleased = false;
   return () => {
-    if (released) return;
-    released = true;
+    if (heldReleased) return;
+    heldReleased = true;
     cache.holders -= 1;
     if (cache.holders === 0) {
       cache.release?.();

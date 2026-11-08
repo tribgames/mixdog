@@ -156,47 +156,42 @@ async fn the_refresh_reprices_only_what_changed() {
 }
 
 #[tokio::test]
-async fn the_writer_publishes_the_usage_section_once_idle_after_a_commit() {
-    use mixdog_core_api::mock::MockStatePublisher;
-    use mixdog_protocol::SectionName;
+async fn the_writer_signals_a_change_once_idle_after_a_commit() {
+    use mixdog_ledger::writer::UsageChanged;
+
+    struct Signals(tokio::sync::mpsc::UnboundedSender<()>);
+    impl UsageChanged for Signals {
+        fn usage_changed(&self) {
+            self.0.send(()).unwrap();
+        }
+    }
 
     let tokens = mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ledger.sqlite");
-    let publisher = Arc::new(MockStatePublisher::default());
+    let (signals, mut told) = tokio::sync::mpsc::unbounded_channel();
     let writer = UsageWriter::open_publishing(
         tokens.sqlite_writer_thread,
         tokens.maintenance_io,
         &path,
-        publisher.clone(),
-        "all",
+        Arc::new(Signals(signals)),
     )
     .unwrap();
-    let published = || publisher.published().len();
-    let wait_for = |count: usize| {
-        for _ in 0..500 {
-            if published() >= count {
-                return;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-        }
-        panic!(
-            "the usage section was not published ({} of {count})",
-            published()
-        );
-    };
 
-    // Boot publishes the (empty) summary once the writer is idle.
-    wait_for(1);
-    for i in 0..5_i64 {
-        writer
-            .record_queued(record(&format!("p{i}"), 1_000 + i, "catalog", Some(0.1)))
-            .await
-            .unwrap();
-    }
-    wait_for(2);
-    let (section, key, _) = publisher.published().last().cloned().unwrap();
-    assert_eq!((section, key.as_deref()), (SectionName::Usage, Some("all")));
+    // Booting is not a change: the first signal is the first record's.
+    // A record that was already stored is not a change.
+    let first = record("p0", 1_000, "catalog", Some(0.1));
+    writer.record_queued(first.clone()).await.unwrap();
+    told.recv().await.unwrap();
+    writer.record_queued(first).await.unwrap();
+    writer.settle_writes().await.unwrap();
+    assert!(told.try_recv().is_err(), "a repeated id changes nothing");
+    // A new record is.
+    writer
+        .record_queued(record("p1", 1_001, "catalog", Some(0.1)))
+        .await
+        .unwrap();
+    told.recv().await.unwrap();
 }
 
 // ---- the ledger's read methods, the queue bound and the refresh's serialization ----

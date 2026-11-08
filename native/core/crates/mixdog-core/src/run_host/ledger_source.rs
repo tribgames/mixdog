@@ -27,6 +27,7 @@ use mixdog_ledger::writer::UsageWriter;
 use mixdog_rt::LaneTokens;
 
 use super::accounting_scope::LedgerSink;
+use super::usage_stats_feed::{self, UsagePush};
 
 /// `process.env.MIXDOG_USAGE_LEDGER_PATH`.
 pub const LEDGER_PATH_ENV: &str = "MIXDOG_USAGE_LEDGER_PATH";
@@ -38,14 +39,16 @@ pub struct LedgerSource {
     plugin_data: PathBuf,
     lanes: LaneTokens,
     pricer: Arc<dyn Pricer>,
+    push: UsagePush,
     stores: Mutex<HashMap<PathBuf, Arc<UsageLedger>>>,
 }
 
 impl LedgerSource {
     /// `plugin_data` is `resolvePluginData()`; `pricer` is what the refresher prices unpriced
-    /// records with: `CatalogPricer::ungated(&catalog)`, which works on a cold catalog.
-    pub fn new(env: Arc<dyn Environment>, plugin_data: PathBuf, lanes: LaneTokens, pricer: Arc<dyn Pricer>) -> Arc<Self> {
-        Arc::new(Self { env, plugin_data, lanes, pricer, stores: Mutex::default() })
+    /// records with: `CatalogPricer::ungated(&catalog)`, which works on a cold catalog. `push` is
+    /// where every ledger it opens publishes the `usage` section (`usage_stats_feed`).
+    pub fn new(env: Arc<dyn Environment>, plugin_data: PathBuf, lanes: LaneTokens, pricer: Arc<dyn Pricer>, push: UsagePush) -> Arc<Self> {
+        Arc::new(Self { env, plugin_data, lanes, pricer, push, stores: Mutex::default() })
     }
 
     fn stores(&self) -> std::sync::MutexGuard<'_, HashMap<PathBuf, Arc<UsageLedger>>> {
@@ -107,10 +110,13 @@ impl LedgerSource {
         if path == Path::new(IN_MEMORY) {
             return Err(LedgerError::Invalid("a ledger file path (an in-memory ledger is not supported)"));
         }
-        let writer = UsageWriter::open(self.lanes.sqlite_writer_thread, self.lanes.maintenance_io, path)?;
+        let (changed, changes) = usage_stats_feed::changes();
+        let writer = UsageWriter::open_publishing(self.lanes.sqlite_writer_thread, self.lanes.maintenance_io, path, changed)?;
         let reader = UsageReader::new(path, self.lanes.interactive_io, self.lanes.maintenance_io);
         let refresher = UsageRefresher::new(self.pricer.clone(), self.lanes.cpu_bulk);
-        Ok(Arc::new(UsageLedger { writer, reader, refresher }))
+        let ledger = Arc::new(UsageLedger { writer, reader, refresher });
+        usage_stats_feed::spawn_feeds(&ledger, changes, &self.push);
+        Ok(ledger)
     }
 
     /// The `ProcessInputs.ledger` closure, read per send: a sink that opens the ledger of the path read now when it records (Node's
@@ -226,7 +232,7 @@ mod tests {
         for (n, flow) in twin["flows"].as_array().unwrap().iter().enumerate() {
             let root = tempfile::tempdir().unwrap();
             let vars = Arc::new(Vars::default());
-            let source = LedgerSource::new(vars.clone(), root.path().join("mixdog_data_dir"), tokens, Arc::new(NoPrices));
+            let source = LedgerSource::new(vars.clone(), root.path().join("mixdog_data_dir"), tokens, Arc::new(NoPrices), usage_stats_feed::recording_push());
             let mut seen: Vec<Arc<UsageLedger>> = Vec::new();
             for (s, step) in flow["steps"].as_array().unwrap().iter().enumerate() {
                 let at = format!("flow {n} step {s} {}", step["op"]);
@@ -269,7 +275,7 @@ mod tests {
     async fn a_sends_row_reaches_the_ledger_the_source_opened_and_a_failed_open_fails_the_row() {
         let root = tempfile::tempdir().unwrap();
         let tokens = mixdog_rt::testing::tokens();
-        let source = LedgerSource::new(Arc::new(Vars::default()), root.path().join("data"), tokens, Arc::new(NoPrices));
+        let source = LedgerSource::new(Arc::new(Vars::default()), root.path().join("data"), tokens, Arc::new(NoPrices), usage_stats_feed::recording_push());
         let sink = source.sink()().unwrap();
         assert!(source.if_open().is_none(), "the ledger opens when the first row is recorded");
         sink.record_queued(row()).await.unwrap();
@@ -282,14 +288,14 @@ mod tests {
         std::fs::write(&file, "x").unwrap();
         let vars = Arc::new(Vars::default());
         vars.0.lock().unwrap().insert(LEDGER_PATH_ENV.into(), file.join("ledger.sqlite").to_string_lossy().into_owned());
-        let broken = LedgerSource::new(vars, root.path().join("data2"), tokens, Arc::new(NoPrices));
+        let broken = LedgerSource::new(vars, root.path().join("data2"), tokens, Arc::new(NoPrices), usage_stats_feed::recording_push());
         let sink = broken.sink()().unwrap();
         assert!(sink.record_queued(row()).await.is_err());
         assert!(broken.if_open().is_none(), "a failed open stores nothing");
         // Node's test-only in-memory ledger is refused, not half-supported.
         let memory = Arc::new(Vars::default());
         memory.0.lock().unwrap().insert(LEDGER_PATH_ENV.into(), IN_MEMORY.into());
-        let memory = LedgerSource::new(memory, root.path().join("data3"), tokens, Arc::new(NoPrices));
+        let memory = LedgerSource::new(memory, root.path().join("data3"), tokens, Arc::new(NoPrices), usage_stats_feed::recording_push());
         assert!(memory.get().await.is_err() && memory.if_open().is_none());
     }
 }
