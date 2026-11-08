@@ -2304,6 +2304,7 @@ impl SessionActor {
         // `setActiveTurnCount(-1)`: the parked warmups re-check.
         self.turn_prewarm_armed = false;
         self.deps.code_graph_prewarm.wake();
+        self.deps.code_graph_prewarm.turn_settled();
         // An ended turn has no working messages left (`liveTurnMessages` ends with the turn).
         self.cell.turn_messages.send_replace(Default::default());
         self.steer_marked.clear();

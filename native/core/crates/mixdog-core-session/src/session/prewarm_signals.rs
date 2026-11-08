@@ -31,6 +31,8 @@ pub trait CodeGraphPrewarmSignals: Send + Sync {
     fn schedule(&self, delay: Option<Duration>, reason: &'static str);
     /// `rt.wakeDeferredWarmups()`: the runtime's busy state changed.
     fn wake(&self);
+    /// `settleTurn` (`turn-settle.mjs`): a turn settled. The first one of the process reschedules the provider model warm.
+    fn turn_settled(&self) {}
     /// `isCodeGraphPrewarmLazy()` (`runtime-tunables.mjs`): a cwd applied before the first turn
     /// does not warm.
     fn lazy(&self) -> bool;

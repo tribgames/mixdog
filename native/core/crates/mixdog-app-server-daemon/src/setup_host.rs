@@ -21,6 +21,7 @@ use mixdog_core_config::config::Config;
 use mixdog_core_domains::domains::ai_account::auth_refresh::ProviderEffects;
 use mixdog_core_domains::domains::ai_account::auth_refresh::RefreshEffects;
 use mixdog_core_domains::domains::ai_account::setup_cache::CachedProviderSetup;
+use mixdog_core_domains::domains::ai_admin::model_warmup::ModelWarmup;
 use mixdog_core_domains::domains::ai_account::setup_cache::SetupHost;
 use mixdog_core_domains::domains::ai_account::collaborators::ProviderSetup;
 use mixdog_rt::TaskClass;
@@ -115,6 +116,19 @@ impl SetupWarmup {
                 let _ = setup.get(false, false, false, false).await; // `cachedProviderSetup()`
             }
         });
+    }
+}
+
+/// The model warm's late cell: bound once the model list and the runtime's gates exist; `verify_bound` checks it.
+pub struct ModelWarmupCell(pub Arc<ModelWarmup>);
+
+impl Bound for ModelWarmupCell {
+    fn cell(&self) -> &'static str {
+        "provider model warm-up"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.0.is_bound()
     }
 }
 

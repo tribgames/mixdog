@@ -14,6 +14,7 @@ use mixdog_core_config::config::Config;
 use mixdog_rt::TaskClass;
 
 use super::collaborators::AuthRefresh;
+use crate::domains::ai_admin::model_warmup::ModelWarmup;
 use super::dashboards::Dashboards;
 
 /// The dependencies `createAuthRefresh` takes, plus `reloadFullConfig` for the account switch.
@@ -95,23 +96,18 @@ pub struct ProviderEffects {
     pub readiness: Arc<ProviderReadiness>,
     pub admission: Arc<Admission>,
     pub dashboards: Arc<Dashboards>,
+    /// The model cache's own warm: `warmProviderModelCache()` of the account flows is its load, the one every reader shares.
+    pub models: Arc<ModelWarmup>,
 }
 
 impl ProviderEffects {
-    pub fn new(config: Config, readiness: Arc<ProviderReadiness>, admission: Arc<Admission>, dashboards: Arc<Dashboards>) -> Arc<Self> {
-        Arc::new(Self { config, readiness, admission, dashboards })
+    pub fn new(config: Config, readiness: Arc<ProviderReadiness>, admission: Arc<Admission>, dashboards: Arc<Dashboards>, models: Arc<ModelWarmup>) -> Arc<Self> {
+        Arc::new(Self { config, readiness, admission, dashboards, models })
     }
 
     /// The production `AuthRefresh`.
     pub fn auth_refresh(self: &Arc<Self>) -> Arc<dyn AuthRefresh> {
         AuthRefreshFlow::new(self.clone())
-    }
-
-    async fn warm(readiness: Arc<ProviderReadiness>) {
-        match readiness.ensure_providers_ready(None).await {
-            Ok(ready) if ready.catalogs_due => readiness.refresh_catalogs().await,
-            _ => {}
-        }
     }
 }
 
@@ -138,8 +134,10 @@ impl RefreshEffects for ProviderEffects {
         self.dashboards.invalidate();
     }
 
+    /// `warmProviderModelCache()`: Node's readiness and catalog refresh are the `prepare` of that one load, so they run
+    /// inside it and nowhere else.
     fn warm_provider_model_cache(&self) {
-        mixdog_rt::spawn("auth-refresh-warm", TaskClass::Work, Self::warm(self.readiness.clone()));
+        self.models.warm_now();
     }
 
     fn reset_admission_cooldowns(&self) {

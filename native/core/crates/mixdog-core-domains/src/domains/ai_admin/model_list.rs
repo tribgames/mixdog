@@ -19,6 +19,9 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
 
+use futures::FutureExt as _;
+use futures::future::{BoxFuture, Shared};
+
 use async_trait::async_trait;
 use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ProviderReadiness};
 use mixdog_ai::registry::effective::EffectiveProviders;
@@ -67,14 +70,30 @@ pub struct ListHost {
     pub route: Arc<dyn Fn() -> Obj + Send + Sync>,
     /// `config.providers` as the last load saw it (what the sync readers show).
     last: Arc<Mutex<serde_json::Map<String, Value>>>,
-    /// The background load a quick read started (`warmProviderModelCache`).
-    warm: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     /// The cache state; one lock, so an adoption cannot interleave with an invalidation.
     cache: Arc<Mutex<CacheState>>,
+    /// Tests: one permit per caller that joined the load in flight, so a test waits for the reader instead of yielding.
+    #[cfg(test)]
+    pub(super) joined: Arc<tokio::sync::Semaphore>,
+    /// Tests: runs inside `claim` between its ownership check and its sequence choice.
+    #[cfg(test)]
+    pub(super) claim_hook: Arc<Mutex<Option<Arc<dyn Fn(&ListHost) + Send + Sync>>>>,
+}
+
+/// One load every reader and warm shares (`caches.providerModelsPromise`): `Ok(false)` is a load that found no enabled provider
+/// (or a warm that failed, which Node's `onFailed` turns into an empty answer for everyone joined to it).
+type Load = Shared<BoxFuture<'static, Result<bool, String>>>;
+
+struct Flight {
+    id: u64,
+    load: Load,
 }
 
 /// What `providerModelCaches` holds of a load.
 struct CacheState {
+    /// `caches.providerModelsPromise`: the load in flight, if any.
+    flight: Option<Flight>,
+    flights: u64,
     /// A full load completed (`caches.providerModelsCache.models` is set).
     loaded: bool,
     /// `caches.providerModelsLoadSeq`: a load that began under an older one is not adopted.
@@ -86,6 +105,14 @@ struct CacheState {
 impl CacheState {
     /// `Object.assign(providerModelCaches, emptyModelCaches()); providerModelsLoadSeq += 1`.
     fn invalidate(&mut self) {
+        self.reset();
+        self.flight = None;
+    }
+
+    /// The cache goes and loads in flight are superseded, but the load in flight stays the one everyone joins: a load
+    /// registers the providers it lists, which moves the revision under its own feet, and it must not stop being shared
+    /// for that (Node drops the promise there, so a second reader starts a second load).
+    fn reset(&mut self) {
         self.seq += 1;
         self.loaded = false;
     }
@@ -93,7 +120,7 @@ impl CacheState {
     /// `syncCatalogRevision`: the cache goes when the registry's catalog moved on.
     fn sync(&mut self, revision: u64) {
         if std::mem::replace(&mut self.observed, revision) != revision {
-            self.invalidate();
+            self.reset();
         }
     }
 }
@@ -112,16 +139,31 @@ impl ListHost {
         route: Arc<dyn Fn() -> Obj + Send + Sync>,
         initial: serde_json::Map<String, Value>,
     ) -> Self {
-        let cache = CacheState { loaded: false, seq: 0, observed: readiness.catalog_revision() };
+        let cache = CacheState { flight: None, flights: 0, loaded: false, seq: 0, observed: readiness.catalog_revision() };
         Self {
             readiness,
             effective,
             config,
             route,
             last: Arc::new(Mutex::new(initial)),
-            warm: Arc::new(Mutex::new(None)),
             cache: Arc::new(Mutex::new(cache)),
+            #[cfg(test)]
+            joined: Arc::new(tokio::sync::Semaphore::new(0)),
+            #[cfg(test)]
+            claim_hook: Arc::default(),
         }
+    }
+
+    /// Tests: the invalidation a concurrent caller makes, if it can take the cache lock now. `false`: the lock is held.
+    #[cfg(test)]
+    pub(super) fn invalidate_unless_locked(&self) -> bool {
+        use std::sync::TryLockError;
+        match self.cache.try_lock() {
+            Ok(mut cache) => cache.invalidate(),
+            Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner().invalidate(),
+            Err(TryLockError::WouldBlock) => return false,
+        }
+        true
     }
 
     fn cache(&self) -> std::sync::MutexGuard<'_, CacheState> {
@@ -129,7 +171,7 @@ impl ListHost {
     }
 
     /// The provider-models cache is dropped and loads in flight are superseded.
-    fn invalidate(&self) {
+    pub(super) fn invalidate(&self) {
         self.cache().invalidate();
     }
 
@@ -141,16 +183,35 @@ impl ListHost {
     }
 
     /// The sequence a load starts under, the revision synced first.
-    fn begin(&self) -> u64 {
+    pub(super) fn begin(&self) -> u64 {
         let mut cache = self.cache();
         cache.sync(self.readiness.catalog_revision());
         cache.seq
     }
 
+    /// What a load takes after its preparation, under one hold of the cache lock: whether it still owns its sequence
+    /// (`ownsLoad`), the revision synced (the preparation registered the providers it lists, which moved it), whether
+    /// the cache is loaded then, and the sequence to adopt under. An invalidation cannot land between these steps:
+    /// one that came first is seen by `owns` and the load keeps `started` (refused by `adopt`); one that comes after
+    /// moves the sequence past the one taken here.
+    pub(super) fn claim(&self, started: u64) -> (bool, u64) {
+        let mut cache = self.cache();
+        let owns = cache.seq == started;
+        #[cfg(test)]
+        {
+            let hook = self.claim_hook.lock().unwrap_or_else(PoisonError::into_inner).clone();
+            if let Some(hook) = hook {
+                hook(self);
+            }
+        }
+        cache.sync(self.readiness.catalog_revision());
+        (cache.loaded, if owns { cache.seq } else { started })
+    }
+
     /// `adoptProviderModelCache`: the revision is synced before the sequence is checked
     /// (`provider-models.mjs`), so a revision change during the load supersedes it; a load that is
     /// still current fills the cache, all under the one lock an invalidation takes.
-    fn adopt(&self, seq: u64) {
+    pub(super) fn adopt(&self, seq: u64) {
         let mut cache = self.cache();
         cache.sync(self.readiness.catalog_revision());
         if cache.seq == seq {
@@ -163,15 +224,79 @@ impl ListHost {
         self.last.lock().unwrap_or_else(PoisonError::into_inner).iter().map(|(k, v)| (k.clone(), v.clone())).collect()
     }
 
-    /// Waits for the background load a quick read started; nothing when none runs.
+    /// Waits for the load in flight, if any; nothing when none runs.
     pub async fn settle_warm(&self) {
-        let running = self.warm.lock().unwrap_or_else(PoisonError::into_inner).take();
-        if let Some(handle) = running {
-            // A warm that panicked has nothing to report here; a failed one logged itself.
-            let _ = handle.await;
+        let running = self.cache().flight.as_ref().map(|flight| flight.load.clone());
+        if let Some(load) = running {
+            // A failed load reported itself to its readers (and the log); there is nothing to add here.
+            let _ = load.await;
         }
     }
 
+    /// `caches.providerModelsPromise` is set.
+    pub fn load_in_flight(&self) -> bool {
+        self.cache().flight.is_some()
+    }
+
+    /// `startSharedLoad`: the load in flight, or a new one that every warm and reader joins. `load_secrets` is
+    /// Node's `loadSecrets`: the load prepares the secrets first, and only such a load is adopted as the cache.
+    /// `swallow` is `onFailed`: a failed load is logged and answers `Ok(false)` to everyone joined to it. The load's
+    /// sequence is taken here, as `++providerModelsLoadSeq` is, before anything it prepares.
+    fn shared_load(&self, catalog: &Arc<CatalogService>, load_secrets: bool, swallow: bool) -> Load {
+        let mut cache = self.cache();
+        if let Some(flight) = &cache.flight {
+            #[cfg(test)]
+            self.joined.add_permits(1);
+            return flight.load.clone();
+        }
+        cache.sync(self.readiness.catalog_revision());
+        let started = cache.seq;
+        cache.flights += 1;
+        let id = cache.flights;
+        let (host, catalog) = (self.clone(), catalog.clone());
+        let handle = mixdog_rt::spawn("model-list-load", mixdog_rt::TaskClass::Work, async move {
+            let outcome = host.run_load(&catalog, load_secrets, started).await;
+            // `.finally(() => if (caches.providerModelsPromise === promise) = null)`
+            let mut cache = host.cache();
+            if cache.flight.as_ref().is_some_and(|flight| flight.id == id) {
+                cache.flight = None;
+            }
+            outcome
+        });
+        let load: Load = async move {
+            match handle.await {
+                Ok(Err(error)) if swallow => {
+                    tracing::warn!(%error, "[provider-models] the warm load failed");
+                    Ok(false)
+                }
+                Ok(outcome) => outcome,
+                Err(error) => Err(error.to_string()),
+            }
+        }
+        .boxed()
+        .shared();
+        cache.flight = Some(Flight { id, load: load.clone() });
+        load
+    }
+
+    /// One load (`loadProviderModelsFresh`): the providers prepared, then the listings that are due, adopted when the
+    /// load carries secrets. `started` is the sequence the load began under. A preparation moves the registry's
+    /// revision (it registers the providers it lists), so a load still current after it carries the sequence forward
+    /// (`ownsLoad`); one an invalidation superseded during the preparation keeps `started`, and `adopt` refuses it.
+    /// `false`: no provider is enabled, nothing was loaded.
+    async fn run_load(&self, catalog: &CatalogService, load_secrets: bool, started: u64) -> Result<bool, String> {
+        if !self.prepare(load_secrets).await? {
+            return Ok(false);
+        }
+        let (loaded, seq) = self.claim(started);
+        if !loaded {
+            catalog.refresh_due().await;
+        }
+        if load_secrets {
+            self.adopt(seq);
+        }
+        Ok(true)
+    }
     /// `loadConfig()`: the canonical agent section with the providers merged onto it.
     pub async fn loaded(&self) -> Result<Loaded, String> {
         let agent = self.config.loaded_agent().await.map_err(|error| error.to_string())?;
@@ -188,13 +313,16 @@ impl ListHost {
         Ok(loaded)
     }
 
-    /// `prepare` of the catalog load. `None`: no provider is enabled, a fresh install has nothing to
-    /// load (the registry refuses an all-disabled init by design).
-    async fn prepare(&self) -> Result<Option<Loaded>, String> {
-        let loaded = self.loaded().await?;
-        match self.readiness.ensure_providers_ready(Some(loaded.providers.clone())).await {
-            Ok(_) => Ok(Some(loaded)),
-            Err(error) if error.code == Some(NO_ENABLED_PROVIDERS) => Ok(None),
+    /// `prepare` of the catalog load. A load with secrets reads the full config first (`awaitKeychainPrewarm();
+    /// ensureFullConfig()`); one without prepares the providers of the runtime's config as it is at this moment
+    /// (`config().providers`, which the config sync keeps current: the readiness holds it) and reads no secret.
+    /// `false`: no provider is enabled, a fresh install has nothing to load (the registry refuses an all-disabled init
+    /// by design).
+    async fn prepare(&self, load_secrets: bool) -> Result<bool, String> {
+        let providers = if load_secrets { Some(self.loaded().await?.providers) } else { None };
+        match self.readiness.ensure_providers_ready(providers).await {
+            Ok(_) => Ok(true),
+            Err(error) if error.code == Some(NO_ENABLED_PROVIDERS) => Ok(false),
             Err(error) => Err(error.message),
         }
     }
@@ -323,36 +451,29 @@ impl ModelListService {
     /// `collectProviderModels({ force, quick, provider })`: `provider` scopes a forced refresh. `Err`
     /// is a provider load that failed, which Node's `collectProviderModels` rejects with.
     pub async fn rows_for(&self, force: bool, quick: bool, provider: Option<&str>) -> Result<Vec<Value>, String> {
-        if let Some(host) = &self.host {
-            let snapshot = self.catalog.snapshot();
-            if quick && !force && !self.cache_loaded() {
-                // A quick read before any load answers from the profile and seeds the full load in
-                // the background (`warmProviderModelCache`); a failed warm is logged and leaves the
-                // cache empty, as its `onFailed` does (`provider-models.mjs`).
-                let (warm, catalog) = (host.clone(), self.catalog.clone());
-                let started = mixdog_rt::spawn("model-list-warm", mixdog_rt::TaskClass::Work, async move {
-                    match warm.prepare().await {
-                        Ok(Some(_)) => {
-                            // The sequence is taken once the preparation (which registers providers and so moves the
-                            // revision) is done, as the full read does: a revision change after this point is somebody
-                            // else's, and `adopt` refuses the load for it. No ownership is inferred from before it.
-                            let seq = warm.begin();
-                            catalog.refresh_due().await;
-                            warm.adopt(seq);
-                        }
-                        Ok(None) => {}
-                        Err(error) => tracing::warn!(%error, "[provider-models] the warm load failed"),
-                    }
-                });
-                *host.warm.lock().unwrap_or_else(PoisonError::into_inner) = Some(started);
-                let Loaded { agent, providers } = host.loaded().await?;
-                return Ok(self.quick_rows(&snapshot, &providers, &agent, &(host.route)()));
+        match &self.host {
+            Some(host) if !force => {
+                let snapshot = self.catalog.snapshot();
+                if quick && !self.cache_loaded() {
+                    // A quick read before any load answers from the profile and seeds the full load in the background
+                    // (`warmProviderModelCache({ loadSecrets: true })`, joining a load already in flight).
+                    self.warm_cache(true);
+                    let Loaded { agent, providers } = host.loaded().await?;
+                    return Ok(self.quick_rows(&snapshot, &providers, &agent, &(host.route)()));
+                }
+                // The one load in flight is joined, never raced (`startSharedLoad`); a read that finds none starts it.
+                if !host.shared_load(&self.catalog, true, false).await? {
+                    return Ok(Vec::new());
+                }
             }
-            if host.prepare().await?.is_none() {
-                return Ok(Vec::new());
+            Some(host) => {
+                if !host.prepare(true).await? {
+                    return Ok(Vec::new());
+                }
+                self.ready(force, provider).await;
             }
+            None => self.ready(force, provider).await,
         }
-        self.ready(force, provider).await;
         let snapshot = self.catalog.snapshot();
         let mut rows = self.from_cache_rows(&snapshot, &self.cache_rows(&snapshot));
         if snapshot.partial() {
@@ -370,6 +491,27 @@ impl ModelListService {
             }
         }
         Ok(rows)
+    }
+    /// `warmProviderModelCache({ loadSecrets })`: the load in the background. Nothing starts when the cache is loaded
+    /// or a load is in flight (Node's `models` / `promise` guard); a load without secrets runs but is never adopted.
+    pub fn warm_cache(&self, load_secrets: bool) {
+        let Some(host) = &self.host else { return };
+        if self.cache_loaded() || host.load_in_flight() {
+            return;
+        }
+        drop(host.shared_load(&self.catalog, load_secrets, true));
+    }
+
+    /// Waits for the load in flight, if any.
+    pub async fn settle_warm(&self) {
+        if let Some(host) = &self.host {
+            host.settle_warm().await;
+        }
+    }
+
+    /// `Array.isArray(caches.providerModelsCache.models) || caches.providerModelsPromise`: nothing left for a warm to do.
+    pub fn warm_needed(&self) -> bool {
+        self.host.as_ref().is_some_and(|host| !self.cache_loaded() && !host.load_in_flight())
     }
     /// The catalog flattened into deduplicated cache rows; a hidden custom model leaves the picker.
     pub fn cache_rows(&self, snapshot: &CatalogSnapshot) -> Vec<Value> {
