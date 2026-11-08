@@ -767,6 +767,42 @@ test('inheritFrom of a missing session is refused with the text Node throws', as
   await assert.rejects(recordingLane(async () => { throw other; }).lane.invoke('inheritFrom', ['src-1'], 'heir-1'), other);
 });
 
+// The recorded Rust wire errors (harness `capabilities-w2b`, `rewindToItem-missing` and `prioritizeQueued-missing`; the busy
+// `preconditionFailed` as `capabilities-w11p` saw it) against Node's recorded replies: `null`, and a count of none.
+const wireRefusal = (reason, data) =>
+  Object.assign(new Error(`-32600 ${reason} ${reason}`), { detail: { kind: 'rpc', code: -32600, reason, message: reason, data: { reason, ...data } } });
+
+test('rewindToItem answers null for an unknown item and for a busy session, as Node does', async () => {
+  for (const refusal of [
+    wireRefusal('itemNotFound', { threadId: 't1', itemId: 'harness-no-such-item' }),
+    wireRefusal('preconditionFailed', { expected: 'idle', actual: 'running' }),
+  ]) {
+    const { lane, calls } = recordingLane(async () => {
+      throw refusal;
+    });
+    const { value } = await lane.invoke('rewindToItem', ['harness-no-such-item'], 't1');
+    assert.equal(value, null);
+    assert.equal(calls[0].method, 'thread/rewind');
+  }
+  const other = wireRefusal('threadNotFound', { threadId: 't1' });
+  await assert.rejects(recordingLane(async () => { throw other; }).lane.invoke('rewindToItem', ['i1'], 't1'), other);
+});
+
+test('prioritizeQueued of an entry that is not queued answers a count of none, as Node does', async () => {
+  const missing = wireRefusal('queuedEntryNotFound', { threadId: 't1', queuedId: 'harness-no-such-queued' });
+  const { lane } = recordingLane(async () => {
+    throw missing;
+  });
+  const { value } = await lane.invoke('prioritizeQueued', ['harness-no-such-queued'], 't1');
+  assert.deepEqual(value, { count: 0, ids: [], priority: 'now' });
+  // On an idle session (harness `capabilities-w11`) the core answers `turnNotActive`; Node's answer is the same.
+  const idle = wireRefusal('turnNotActive', { threadId: 't1' });
+  const asked = await recordingLane(async () => { throw idle; }).lane.invoke('prioritizeQueued', ['harness-no-such-queued'], 't1');
+  assert.deepEqual(asked.value, { count: 0, ids: [], priority: 'now' });
+  const other = new Error('core busy');
+  await assert.rejects(recordingLane(async () => { throw other; }).lane.invoke('prioritizeQueued', ['q1'], 't1'), other);
+});
+
 // The quota auto-resume switch is a published `config` subtree of its own (one section entry per subtree, keyed by the subtree's
 // name), holding the boolean. Node's recorded `quotaAutoResumeEnabled()` over each stored config (`fixtures/quota-auto-resume`,
 // where the switch is `quotaResume.autoResume`; the 1.4.5 migration moves it to `quotaAutoResume`) is what the lane reads, whatever
