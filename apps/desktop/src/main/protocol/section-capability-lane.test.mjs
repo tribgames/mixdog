@@ -94,3 +94,15 @@ test('other capabilities and mixed reads keep the lane and the order', async () 
   assert.deepEqual(results.map((result) => (result.ok ? result.value : result.error)), ['lane:getTheme', [1], 'Unknown OAuth provider.', 'lane:getProfile']);
   assert.deepEqual(sent, [['invoke', 'getProfile', [], 's1'], ['read', ['getTheme', 'getProfile']]]);
 });
+
+test('a lane method that is not a section capability reaches the wrapped lane', async () => {
+  const { protocol } = fakeProtocol([]);
+  const { lane } = fakeLane();
+  const calls = [];
+  lane.stopShellJob = async (sessionId, taskId) => (calls.push([sessionId, taskId]), { stopped: true });
+  lane.getQuotaAutoResume = async () => true;
+  const wrapped = withSectionCapabilities({ lane, protocol, snapshot });
+  assert.deepEqual(await wrapped.stopShellJob('s1', 't1'), { stopped: true });
+  assert.equal(await wrapped.getQuotaAutoResume(), true);
+  assert.deepEqual(calls, [['s1', 't1']]);
+});
