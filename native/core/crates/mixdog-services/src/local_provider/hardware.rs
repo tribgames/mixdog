@@ -171,6 +171,14 @@ impl HardwareProbe {
         if fresh || self.in_flight.swap(true, Ordering::AcqRel) {
             return;
         }
+        // Node's `refresh()` marks the probe as running before `status()` copies the value, so the
+        // read that starts a probe already reports it; a read racing the spawned task would not.
+        if self.supported_platform {
+            let changed = !std::mem::replace(&mut self.value.lock().unwrap().checking, true);
+            if changed {
+                self.signal.notify();
+            }
+        }
         let probe = self.clone();
         tokio::spawn(async move {
             probe.detect(false).await;
@@ -331,6 +339,16 @@ mod tests {
         assert_eq!(empty.error.as_deref(), Some("No compatible NVIDIA GPU detected."));
         let unsupported = HardwareProbe::new("linux", "x86_64", None, Processes::for_tests()).refresh(false, || async { Err("never".into()) }).await;
         assert!(!unsupported.supported && !unsupported.checking);
+    }
+
+    #[tokio::test]
+    async fn the_read_that_starts_a_probe_reports_it_running() {
+        let probe = HardwareProbe::new("windows", "x86_64", Some(0), Processes::for_tests());
+        probe.refresh(false, || async { Ok(Query::Nvidia(SMI.into())) }).await;
+        assert!(!probe.status().checking);
+        // The cache is stale: the read starts the next probe, and Node answers `checking: true` at once.
+        probe.start_refresh();
+        assert!(probe.status().checking);
     }
 
     #[tokio::test]
