@@ -57,8 +57,13 @@ pub fn answers() -> Value {
 
 /// A scratch copy of the recorded directory: `<root>/.mixdog/data` is `<D>`, `<root>/.mixdog` is `<H>`.
 pub struct Copy {
-    pub dir: tempfile::TempDir,
-    pub roots: MigrationRoots,
+    dir: tempfile::TempDir,
+}
+
+impl Copy {
+    pub fn roots(&self) -> MigrationRoots {
+        roots_at(self.dir.path())
+    }
 }
 
 /// The roots of a recorded directory copied under `root`.
@@ -81,8 +86,8 @@ pub fn copy_at(root: &Path) -> MigrationRoots {
 
 pub fn copy() -> Copy {
     let dir = tempfile::tempdir().expect("scratch dir");
-    let roots = copy_at(dir.path());
-    Copy { dir, roots }
+    copy_at(dir.path());
+    Copy { dir }
 }
 pub fn migrator(roots: &MigrationRoots, options: MigrateOptions) -> Migrator {
     let office = OfficeExtractor { docs: Arc::new(NoDocs), runtime: runtime().handle().clone() };
@@ -102,7 +107,7 @@ pub fn migrate(roots: &MigrationRoots) -> Complete {
 /// A completed migration of a fresh copy.
 pub fn migrated() -> (Copy, Complete) {
     let copy = copy();
-    let complete = migrate(&copy.roots);
+    let complete = migrate(&copy.roots());
     (copy, complete)
 }
 
