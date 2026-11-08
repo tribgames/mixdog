@@ -1,56 +1,338 @@
 {
   "cases": [
     {
-      "name": "lifecycle: silent core",
-      "call": "forceDaemonUpgrade",
+      "nodeCall": "GET /health",
+      "reply": {
+        "kind": "silent"
+      },
+      "request": {
+        "method": "GET",
+        "path": "/health",
+        "timeoutMs": 800,
+        "deadlineMs": 800
+      },
       "settled": "rejected",
-      "code": "ESESSIONTIMEOUT",
-      "message": "session timeout: POST /upgrade"
-    },
-    {
-      "name": "lifecycle: answer after 2900 ms",
-      "call": "forceDaemonUpgrade",
-      "settled": "resolved",
-      "value": true
-    },
-    {
-      "name": "lifecycle: answer after 3300 ms",
-      "call": "forceDaemonUpgrade",
-      "settled": "rejected",
-      "code": "ESESSIONTIMEOUT",
-      "message": "session timeout: POST /upgrade"
-    },
-    {
-      "name": "lifecycle: a trickle that outlasts 3000 ms but never goes silent for 3000 ms",
-      "call": "forceDaemonUpgrade",
-      "settled": "resolved",
-      "value": true
-    },
-    {
-      "name": "probe: silent core",
-      "call": "probeSessionHealth",
-      "settled": "resolved",
-      "value": null
-    },
-    {
-      "name": "probe: answer after 600 ms",
-      "call": "probeSessionHealth",
-      "settled": "resolved",
-      "value": {
-        "status": "ok"
+      "error": {
+        "code": "ESESSIONTIMEOUT",
+        "message": "session timeout: GET /health"
+      },
+      "elapsedMs": 805,
+      "seen": {
+        "health": null
       }
     },
     {
-      "name": "probe: answer after 1000 ms",
-      "call": "probeSessionHealth",
+      "nodeCall": "GET /health",
+      "reply": {
+        "kind": "after",
+        "ms": 600
+      },
+      "request": {
+        "method": "GET",
+        "path": "/health",
+        "timeoutMs": 800,
+        "deadlineMs": 800
+      },
       "settled": "resolved",
-      "value": null
+      "error": null,
+      "elapsedMs": 615,
+      "seen": {
+        "health": "ok"
+      }
     },
     {
-      "name": "probe: a trickle that never goes silent for 800 ms but outlasts it",
-      "call": "probeSessionHealth",
+      "nodeCall": "GET /health",
+      "reply": {
+        "kind": "after",
+        "ms": 1000
+      },
+      "request": {
+        "method": "GET",
+        "path": "/health",
+        "timeoutMs": 800,
+        "deadlineMs": 800
+      },
+      "settled": "rejected",
+      "error": {
+        "code": "ESESSIONTIMEOUT",
+        "message": "session timeout: GET /health"
+      },
+      "elapsedMs": 812,
+      "seen": {
+        "health": null
+      }
+    },
+    {
+      "nodeCall": "GET /health",
+      "reply": {
+        "kind": "trickle",
+        "everyMs": 300,
+        "chunks": 4
+      },
+      "request": {
+        "method": "GET",
+        "path": "/health",
+        "timeoutMs": 800,
+        "deadlineMs": 800
+      },
+      "settled": "rejected",
+      "error": {
+        "code": "ESESSIONTIMEOUT",
+        "message": "session timeout: GET /health"
+      },
+      "elapsedMs": 806,
+      "seen": {
+        "health": null
+      }
+    },
+    {
+      "nodeCall": "POST /install-hold close",
+      "reply": {
+        "kind": "silent"
+      },
+      "request": {
+        "method": "POST",
+        "path": "/install-hold",
+        "timeoutMs": 3000,
+        "deadlineMs": 0
+      },
+      "settled": "rejected",
+      "error": {
+        "code": "ESESSIONTIMEOUT",
+        "message": "session timeout: POST /install-hold"
+      },
+      "elapsedMs": 3015,
+      "seen": {
+        "status": "unknown",
+        "error": "session timeout: POST /install-hold"
+      }
+    },
+    {
+      "nodeCall": "POST /install-hold close",
+      "reply": {
+        "kind": "after",
+        "ms": 2900
+      },
+      "request": {
+        "method": "POST",
+        "path": "/install-hold",
+        "timeoutMs": 3000,
+        "deadlineMs": 0
+      },
       "settled": "resolved",
-      "value": null
+      "error": null,
+      "elapsedMs": 2908,
+      "seen": {
+        "status": "held",
+        "error": null
+      }
+    },
+    {
+      "nodeCall": "POST /install-hold close",
+      "reply": {
+        "kind": "trickle",
+        "everyMs": 1000,
+        "chunks": 5
+      },
+      "request": {
+        "method": "POST",
+        "path": "/install-hold",
+        "timeoutMs": 3000,
+        "deadlineMs": 0
+      },
+      "settled": "resolved",
+      "error": null,
+      "elapsedMs": 5038,
+      "seen": {
+        "status": "held",
+        "error": null
+      }
+    },
+    {
+      "nodeCall": "POST /install-hold release",
+      "reply": {
+        "kind": "silent"
+      },
+      "request": {
+        "method": "POST",
+        "path": "/install-hold",
+        "timeoutMs": 3000,
+        "deadlineMs": 0
+      },
+      "settled": "rejected",
+      "error": {
+        "code": "ESESSIONTIMEOUT",
+        "message": "session timeout: POST /install-hold"
+      },
+      "elapsedMs": 3015,
+      "seen": {
+        "status": "unknown",
+        "error": "session timeout: POST /install-hold"
+      }
+    },
+    {
+      "nodeCall": "POST /install-hold release",
+      "reply": {
+        "kind": "after",
+        "ms": 2900
+      },
+      "request": {
+        "method": "POST",
+        "path": "/install-hold",
+        "timeoutMs": 3000,
+        "deadlineMs": 0
+      },
+      "settled": "resolved",
+      "error": null,
+      "elapsedMs": 2913,
+      "seen": {
+        "status": "released",
+        "error": null
+      }
+    },
+    {
+      "nodeCall": "POST /install-hold release",
+      "reply": {
+        "kind": "trickle",
+        "everyMs": 1000,
+        "chunks": 5
+      },
+      "request": {
+        "method": "POST",
+        "path": "/install-hold",
+        "timeoutMs": 3000,
+        "deadlineMs": 0
+      },
+      "settled": "resolved",
+      "error": null,
+      "elapsedMs": 5023,
+      "seen": {
+        "status": "released",
+        "error": null
+      }
+    },
+    {
+      "nodeCall": "POST /stop",
+      "reply": {
+        "kind": "silent"
+      },
+      "request": {
+        "method": "POST",
+        "path": "/stop",
+        "timeoutMs": 3000,
+        "deadlineMs": 0
+      },
+      "settled": "rejected",
+      "error": {
+        "code": "ESESSIONTIMEOUT",
+        "message": "session timeout: POST /stop"
+      },
+      "elapsedMs": 3014,
+      "seen": {
+        "request": "failed",
+        "error": "session timeout: POST /stop"
+      }
+    },
+    {
+      "nodeCall": "POST /stop",
+      "reply": {
+        "kind": "after",
+        "ms": 2900
+      },
+      "request": {
+        "method": "POST",
+        "path": "/stop",
+        "timeoutMs": 3000,
+        "deadlineMs": 0
+      },
+      "settled": "resolved",
+      "error": null,
+      "elapsedMs": 2903,
+      "seen": {
+        "request": "sent",
+        "error": null
+      }
+    },
+    {
+      "nodeCall": "POST /stop",
+      "reply": {
+        "kind": "trickle",
+        "everyMs": 1000,
+        "chunks": 5
+      },
+      "request": {
+        "method": "POST",
+        "path": "/stop",
+        "timeoutMs": 3000,
+        "deadlineMs": 0
+      },
+      "settled": "resolved",
+      "error": null,
+      "elapsedMs": 5021,
+      "seen": {
+        "request": "sent",
+        "error": null
+      }
+    },
+    {
+      "nodeCall": "POST /shutdown",
+      "reply": {
+        "kind": "silent"
+      },
+      "request": {
+        "method": "POST",
+        "path": "/shutdown",
+        "timeoutMs": 3000,
+        "deadlineMs": 0
+      },
+      "settled": "rejected",
+      "error": {
+        "code": "ESESSIONTIMEOUT",
+        "message": "session timeout: POST /shutdown"
+      },
+      "elapsedMs": 3004,
+      "seen": {
+        "shutDown": false
+      }
+    },
+    {
+      "nodeCall": "POST /shutdown",
+      "reply": {
+        "kind": "after",
+        "ms": 2900
+      },
+      "request": {
+        "method": "POST",
+        "path": "/shutdown",
+        "timeoutMs": 3000,
+        "deadlineMs": 0
+      },
+      "settled": "resolved",
+      "error": null,
+      "elapsedMs": 2908,
+      "seen": {
+        "shutDown": true
+      }
+    },
+    {
+      "nodeCall": "POST /shutdown",
+      "reply": {
+        "kind": "trickle",
+        "everyMs": 1000,
+        "chunks": 5
+      },
+      "request": {
+        "method": "POST",
+        "path": "/shutdown",
+        "timeoutMs": 3000,
+        "deadlineMs": 0
+      },
+      "settled": "resolved",
+      "error": null,
+      "elapsedMs": 5032,
+      "seen": {
+        "shutDown": true
+      }
     }
   ]
 }

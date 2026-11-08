@@ -1,16 +1,21 @@
 #!/usr/bin/env node
-// Golden twin of the session client's request bounds (`standalone/session-client.mjs` `request`): the real exported
-// calls (`forceDaemonUpgrade`, a lifecycle call: timeoutMs 3000, no deadline; `probeSessionHealth`: timeoutMs 800 and
-// deadlineMs 800) pointed at a stub HTTP server on loopback that answers late, trickles, or never answers. The
-// recording holds, per case, whether the call resolved, the error code and message, and the answer. Rust
-// `mixdogd ctl` (`ctl.rs`) must bound its calls the same way: lifecycle commands by 3000 ms of silence, `status` by 800 ms in
-// all, and a call past its bound fails with `session timeout: <method> <path>`.
+// Golden for the bounds of the control calls (`standalone/session-client.mjs`). The real exported functions that make each
+// call run against a stub HTTP server on loopback that answers late, trickles, or never answers:
+//   probeSessionHealth       GET  /health                       (status)
+//   holdInTreeDaemon         POST /install-hold {close|release} (hold, cancelDrain)
+//   stopInTreeDaemon         POST /stop                         (stop, release)
+//   shutdownDaemon           POST /shutdown                     (terminate)
+// `request` is wrapped in memory by a module-load hook (the product tree on disk is untouched) so that each case records
+// the options the call site really passed (`timeoutMs`, `deadlineMs`), the error `request` threw (`code`, `message`) and
+// how long it ran. The stop and hold calls need a daemon of this process's tree; the hook exposes that registry so a
+// stand-in can be entered (nothing is spawned).
 //
 //   node benchmarks/rust-core/recorders/record-ctl-timeouts.mjs --tree <git checkout of the ref> [--ref <commit>]
 //
 // Output: native/core/fixtures/ctl-timeouts/golden.json.
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { register } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -40,86 +45,154 @@ Object.assign(process.env, {
   LOCALAPPDATA: dirs.localappdata,
 });
 
+// Appended to session-client.mjs as it loads: `request` is rebound to a recorder around the real one.
+const APPENDED = `
+export const __inTreeDaemons = inTreeDaemons;
+{
+  const real = request;
+  request = (options) => {
+    const entry = {
+      method: options.method ?? 'GET',
+      path: options.path,
+      timeoutMs: options.timeoutMs ?? 120000,
+      deadlineMs: options.deadlineMs ?? 0,
+      error: null,
+      elapsedMs: null,
+    };
+    (globalThis.__ctlRequests ??= []).push(entry);
+    const startedAt = performance.now();
+    const settle = () => {
+      entry.elapsedMs = Math.round(performance.now() - startedAt);
+    };
+    return real(options).then(
+      (value) => {
+        settle();
+        return value;
+      },
+      (error) => {
+        settle();
+        entry.error = { code: error.code ?? null, message: error.message };
+        throw error;
+      }
+    );
+  };
+}
+`;
+const hooks = `
+export async function load(url, context, nextLoad) {
+  const loaded = await nextLoad(url, context);
+  if (!url.endsWith('/src/standalone/session-client.mjs')) return loaded;
+  return { ...loaded, source: String(loaded.source) + ${JSON.stringify(APPENDED)}, shortCircuit: true };
+}
+`;
+register(`data:text/javascript,${encodeURIComponent(hooks)}`);
 const client = await import(pathToFileURL(join(tree, 'src', 'standalone', 'session-client.mjs')).href);
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// A stub that never replies in time. `script(res)` decides when and how it answers.
+const TOKEN = 'ctl-timeouts-stub';
+const STAND_IN_PID = 424242;
+
+// A reply script is data: `silent`, `{after: ms}`, or `{trickle: {everyMs, chunks}}` (headers and the opening of the body
+// at once, then one more piece every `everyMs`, the closing brace last).
+function serve(reply, body) {
+  const text = JSON.stringify(body);
+  return (res) => {
+    if (reply.kind === 'silent') return;
+    if (reply.kind === 'after') {
+      setTimeout(() => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(text);
+      }, reply.ms);
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.write(text.slice(0, -1));
+    let sent = 0;
+    const timer = setInterval(() => {
+      sent += 1;
+      if (sent < reply.chunks) res.write(' ');
+      else {
+        clearInterval(timer);
+        res.end('}');
+      }
+    }, reply.everyMs);
+  };
+}
+
 async function withStub(script, run) {
   const server = http.createServer((req, res) => {
     req.resume();
     script(res);
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const { port } = server.address();
-  writeFileSync(
-    join(dirs.runtime, 'daemon.json'),
-    JSON.stringify({ pid: process.pid, endpoints: { session: { port, token: 'tok' } } })
-  );
   try {
-    return await run(port);
+    return await run(server.address().port);
   } finally {
     server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
   }
 }
 
-const json = (res, body) => {
-  res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify(body));
-};
-const silent = () => {};
-const after = (ms, body) => (res) => setTimeout(() => json(res, body), ms);
-// Headers at once, then one body chunk every `everyMs` until `chunks` are out, then the closing `}`.
-const trickle = (everyMs, chunks, body) => (res) => {
-  res.writeHead(200, { 'Content-Type': 'application/json' });
-  const text = JSON.stringify(body);
-  res.write(text.slice(0, -1));
-  let sent = 0;
-  const timer = setInterval(() => {
-    sent += 1;
-    if (sent < chunks) res.write(' ');
-    else {
-      clearInterval(timer);
-      res.end('}');
-    }
-  }, everyMs);
+// Per Node call: the exported function that makes it, what it returns that shows the request's outcome, the stub's answer.
+const CALLS = {
+  'GET /health': {
+    answer: { status: 'ok' },
+    run: (d) => client.probeSessionHealth({ port: d.port, token: d.token }),
+    seen: (v) => ({ health: v?.status ?? null }),
+  },
+  'POST /install-hold close': {
+    answer: { held: true },
+    standIn: true,
+    run: (d) => client.holdInTreeDaemon({ release: false, ttlMs: 1000, discovery: d }),
+    seen: (v) => ({ status: v.status, error: v.error }),
+  },
+  'POST /install-hold release': {
+    answer: {},
+    standIn: true,
+    run: (d) => client.holdInTreeDaemon({ release: true, discovery: d }),
+    seen: (v) => ({ status: v.status, error: v.error }),
+  },
+  'POST /stop': {
+    answer: {},
+    standIn: true,
+    run: (d) => client.stopInTreeDaemon({ timeoutMs: 1, discovery: d }),
+    seen: (v) => ({ request: v.request, error: v.error }),
+  },
+  // shutdownDaemon swallows the error: a refused or timed-out request shows as "the daemon (this process) is still alive".
+  'POST /shutdown': {
+    answer: {},
+    pid: process.pid,
+    run: (d) => client.shutdownDaemon(d),
+    seen: (v) => ({ shutDown: v }),
+  },
 };
 
-const lifecycle = () => client.forceDaemonUpgrade();
-const probe = (port) => client.probeSessionHealth({ port, token: 'tok' });
+const LIFECYCLE = [{ kind: 'silent' }, { kind: 'after', ms: 2900 }, { kind: 'trickle', everyMs: 1000, chunks: 5 }];
+const PROBE = [{ kind: 'silent' }, { kind: 'after', ms: 600 }, { kind: 'after', ms: 1000 }, { kind: 'trickle', everyMs: 300, chunks: 4 }];
 
-async function outcome(call) {
-  try {
-    const value = await call();
-    return { settled: 'resolved', value };
-  } catch (error) {
-    return { settled: 'rejected', code: error.code ?? null, message: error.message };
+const cases = [];
+for (const [nodeCall, spec] of Object.entries(CALLS)) {
+  for (const reply of nodeCall === 'GET /health' ? PROBE : LIFECYCLE) {
+    globalThis.__ctlRequests = [];
+    if (spec.standIn) client.__inTreeDaemons.set({ exitCode: null, signalCode: null }, STAND_IN_PID);
+    const seen = await withStub(serve(reply, spec.answer), async (port) =>
+      spec.seen(await spec.run({ port, token: TOKEN, pid: spec.pid ?? STAND_IN_PID }))
+    );
+    client.__inTreeDaemons.clear();
+    if (globalThis.__ctlRequests.length !== 1) throw new Error(`${nodeCall}: ${globalThis.__ctlRequests.length} requests`);
+    const { method, path, timeoutMs, deadlineMs, error, elapsedMs } = globalThis.__ctlRequests[0];
+    cases.push({
+      nodeCall,
+      reply,
+      request: { method, path, timeoutMs, deadlineMs },
+      settled: error ? 'rejected' : 'resolved',
+      error,
+      elapsedMs,
+      seen,
+    });
   }
 }
 
-const HEALTH = { status: 'ok' };
-const ACCEPTED = { accepted: true };
-const CASES = [
-  { name: 'lifecycle: silent core', call: 'forceDaemonUpgrade', script: silent, expect: 'rejected' },
-  { name: 'lifecycle: answer after 2900 ms', call: 'forceDaemonUpgrade', script: after(2900, ACCEPTED), expect: 'resolved' },
-  { name: 'lifecycle: answer after 3300 ms', call: 'forceDaemonUpgrade', script: after(3300, ACCEPTED), expect: 'rejected' },
-  { name: 'lifecycle: a trickle that outlasts 3000 ms but never goes silent for 3000 ms', call: 'forceDaemonUpgrade', script: trickle(1000, 5, ACCEPTED), expect: 'resolved' },
-  { name: 'probe: silent core', call: 'probeSessionHealth', script: silent, expect: 'null' },
-  { name: 'probe: answer after 600 ms', call: 'probeSessionHealth', script: after(600, HEALTH), expect: 'health' },
-  { name: 'probe: answer after 1000 ms', call: 'probeSessionHealth', script: after(1000, HEALTH), expect: 'null' },
-  { name: 'probe: a trickle that never goes silent for 800 ms but outlasts it', call: 'probeSessionHealth', script: trickle(300, 4, HEALTH), expect: 'null' },
-];
-
-const cases = [];
-for (const spec of CASES) {
-  const result = await withStub(spec.script, (port) => outcome(spec.call === 'forceDaemonUpgrade' ? lifecycle : () => probe(port)));
-  cases.push({ name: spec.name, call: spec.call, ...result });
-  await sleep(50);
-}
-
-writeJson(join(stage, 'golden.json'), {
-  cases,
-});
+writeJson(join(stage, 'golden.json'), { cases });
 writeSetManifest(stage, {
   set: 'ctl-timeouts',
   recorder,

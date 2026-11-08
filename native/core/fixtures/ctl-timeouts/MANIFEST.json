@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1399,
+      "bytes": 7093,
       "path": "golden.json",
-      "sha256": "a06edb3421bf5b5deda76c90c916ff7cac8bdedf368580336f784244024f27f9"
+      "sha256": "e07a2076a73d9fa70a8c54163f7ac2e79acc015bb7f572179a26f951b67c9d34"
     }
   ],
   "product": {
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-ctl-timeouts.mjs",
   "set": "ctl-timeouts",
-  "totalBytes": 1399
+  "totalBytes": 7093
 }
