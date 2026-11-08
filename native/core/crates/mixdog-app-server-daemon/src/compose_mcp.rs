@@ -1037,11 +1037,18 @@ mod tests {
 
     /// The composed MCP service publishes its sign-in flows on the core's scoped feeds: a sign-in begun
     /// through `mcp/beginMcpOAuthLogin` opens `login:<flowId>`, whose snapshot is what the flow's status read
-    /// answers (a server that is not configured fails the flow at once, so the feed holds its final state).
+    /// answers (a configured server whose address refuses the connection fails the flow at once, so the feed holds
+    /// its final state). A server that is not configured is refused before any flow exists, so it opens no feed.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_sign_in_begun_through_the_composition_publishes_its_login_feed() {
-        let Composed { composed, feeds, .. } = compose_over(Arc::new(Quiet)).await;
+        let Composed { composed, extensions, feeds, .. } = compose_over(Arc::new(Quiet)).await;
         let owner = composed.mcp_domain.clone();
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/mcp", closed.local_addr().unwrap());
+        drop(closed);
+        let mut agent = extensions.agent();
+        agent.insert("mcpServers".to_owned(), serde_json::json!({"remote": {"type": "http", "url": url}}));
+        extensions.save_agent(&extensions.agent(), &agent).await.unwrap();
         let request = |method: &'static str, params: Value| mixdog_core_api::CoreRequest {
             method: mixdog_core_api::ids::Method(method),
             params,
@@ -1049,6 +1056,8 @@ mod tests {
             ctx: mixdog_core_api::CallContext::internal("compose_mcp test"),
         };
         assert!(owner.call(request("mcp/beginMcpOAuthLogin", serde_json::json!({"name": "unconfigured"}))).await.is_err());
+        assert!(feeds.ids().is_empty(), "a refused sign-in opened a feed");
+        assert!(owner.call(request("mcp/beginMcpOAuthLogin", serde_json::json!({"name": "remote", "options": {"openBrowser": false}}))).await.is_err());
         let ids = feeds.ids();
         let [feed_id] = ids.as_slice() else { panic!("one sign-in opened {ids:?}") };
         let flow_id = feed_id.0.strip_prefix("login:").expect("a login feed");
