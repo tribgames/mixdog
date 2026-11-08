@@ -225,4 +225,8 @@ impl ToolModulesHost for ServicesToolModulesHost {
     fn invalidate_pre_session_tool_surface(&self) {
         self.parts.effects.invalidate_pre_session_tool_surface();
     }
+
+    fn attach_tool_settings(&self, settings: std::sync::Weak<dyn mixdog_services::local_provider::provider::ToolSettings>) {
+        self.parts.local_provider.attach_tool_settings(settings);
+    }
 }
