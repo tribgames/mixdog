@@ -514,5 +514,103 @@
     },
     "stub": {},
     "agent": {}
+  },
+  {
+    "name": "custom-discovery-update",
+    "calls": [
+      {
+        "action": "listProviderModels",
+        "args": [
+          {
+            "quick": true
+          }
+        ]
+      },
+      {
+        "action": "listProviderModels",
+        "args": [
+          {}
+        ]
+      },
+      {
+        "action": "updateCustomProviderModel",
+        "args": [
+          "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+          "disc-a",
+          {
+            "hidden": true
+          }
+        ],
+        "configure": true
+      },
+      {
+        "action": "listProviderModels",
+        "args": [
+          {
+            "quick": true
+          }
+        ]
+      },
+      {
+        "action": "listProviderModels",
+        "args": [
+          {}
+        ]
+      }
+    ],
+    "stub": {
+      "/c/v1/models": {
+        "object": "list",
+        "data": [
+          {
+            "id": "disc-a",
+            "object": "model",
+            "owned_by": "fixture"
+          },
+          {
+            "id": "disc-b",
+            "object": "model",
+            "owned_by": "fixture"
+          },
+          {
+            "id": "disc-c",
+            "object": "model",
+            "owned_by": "fixture",
+            "context_length": 131072
+          }
+        ]
+      }
+    },
+    "agent": {
+      "providers": {
+        "custom-dddddddd-dddd-dddd-dddd-dddddddddddd": {
+          "type": "custom",
+          "schemaVersion": 2,
+          "name": "Delta",
+          "protocol": "openai-chat",
+          "baseURL": "__BASE_URL__/c/v1",
+          "auth": "none",
+          "enabled": true,
+          "modelOverrides": {
+            "disc-b": {
+              "hidden": true
+            },
+            "m1": {
+              "manual": true,
+              "name": "Manual One"
+            }
+          }
+        }
+      },
+      "presets": [
+        {
+          "id": "d1",
+          "name": "D1",
+          "provider": "custom-dddddddd-dddd-dddd-dddd-dddddddddddd",
+          "model": "disc-a"
+        }
+      ],
+      "default": "d1"
+    }
   }
 ]

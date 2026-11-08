@@ -21,7 +21,7 @@ try {
   for (const call of scenario.calls) {
     let entry;
     try {
-      const reply = await attached.call('session.read', { sessionId, action: call.action, args: call.args, open, baseRevision: null });
+      const reply = await attached.call(call.configure ? 'session.configure' : 'session.read', { sessionId, action: call.action, args: call.args, open, baseRevision: null });
       entry = { action: call.action, args: call.args, ok: true, value: reply?.value };
     } catch (error) {
       entry = { action: call.action, args: call.args, ok: false, error: String(error?.message || error) };

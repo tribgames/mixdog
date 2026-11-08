@@ -197,6 +197,11 @@ impl ProviderReadiness {
         }
     }
 
+    /// `catalogRevision(reg())`: moves when a provider registers or leaves and at every invalidation.
+    pub fn catalog_revision(&self) -> u64 {
+        self.registry.catalog_revision()
+    }
+
     /// Binds what else an invalidation drops; a second bind is refused.
     pub fn bind_invalidation(&self, hook: Arc<dyn CacheDrop>) -> Result<(), Arc<dyn CacheDrop>> {
         self.invalidation.set(hook)

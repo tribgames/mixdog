@@ -49,7 +49,7 @@ fn recording() -> Value {
 }
 
 /// The providers a profile can name that Node's route resolution knows.
-const KNOWN: [&str; 4] = ["custom-aaaa", "custom-bbbb", "custom-dddd", "anthropic-oauth"];
+const KNOWN: [&str; 5] = ["custom-aaaa", "custom-bbbb", "custom-dddd", "custom-dddddddd-dddd-dddd-dddd-dddddddddddd", "anthropic-oauth"];
 const GATED: [&str; 4] = ["mimo-oauth", "cursor-oauth", "devin-oauth", "antigravity-oauth"];
 /// Where the recorder's endpoint is, and a valid, unused address for the Rust profile.
 const ENDPOINT: &str = "http://127.0.0.1:9";
@@ -281,7 +281,7 @@ fn web_search(rig: &Rig) -> WebSearchModelsService {
 #[tokio::test]
 async fn the_quick_rows_are_nodes_for_every_profile() {
     let recording = recording();
-    for scenario in recording["scenarios"].as_array().unwrap() {
+    for scenario in recording["scenarios"].as_array().unwrap().iter().filter(|s| s["name"] != "custom-discovery-update") {
         let name = scenario["name"].as_str().unwrap();
         let rig = rig(scenario, &recording["seeds"], false).await;
         // A row marked `catalogComplete` means Node's daemon had finished its boot load before this first read
@@ -299,7 +299,7 @@ async fn the_quick_rows_are_nodes_for_every_profile() {
 async fn the_full_and_web_search_reads_are_nodes_after_the_registry_hands_over_its_sources() {
     let recording = recording();
     let mut searched = 0;
-    for scenario in recording["scenarios"].as_array().unwrap() {
+    for scenario in recording["scenarios"].as_array().unwrap().iter().filter(|s| s["name"] != "custom-discovery-update") {
         let name = scenario["name"].as_str().unwrap();
         let [_, full, search] = node_calls(scenario);
         let rig = rig(scenario, &recording["seeds"], false).await;
@@ -331,17 +331,50 @@ async fn a_custom_providers_discovered_models_list_as_node_lists_them() {
     assert_rows("custom-discovery: full", &rows, node_calls(scenario)[1]);
 }
 
-// `collectProviderModels`: once the full load set `providerModelsCache`, a quick read is answered from it
-// and marked `catalogComplete`, also when the load listed no provider (a custom-only profile has no source).
+// Node's `custom-discovery-update` recording: quick, full, `updateCustomProviderModel` (hides `disc-a`, which ends in
+// `invalidateProviderCaches`), quick, full. The cold quick read answers from the profile, the full read loads the
+// catalog, and the quick read after the change is cold again: the cache and the shared catalog were dropped.
 #[tokio::test]
-async fn a_quick_read_after_a_full_load_is_answered_from_the_loaded_catalog() {
+async fn a_quick_read_after_a_provider_change_answers_as_node_does() {
     let recording = recording();
-    let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "custom-discovery").unwrap();
+    let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "custom-discovery-update").unwrap();
+    let calls = scenario["calls"].as_array().unwrap();
+    assert_eq!(calls.iter().map(|c| c["action"].as_str().unwrap()).collect::<Vec<_>>(), ["listProviderModels", "listProviderModels", "updateCustomProviderModel", "listProviderModels", "listProviderModels"]);
     let rig = rig(scenario, &recording["seeds"], false).await;
-    let full = rig.service.rows(false, false).await.unwrap();
-    let quick = rig.service.rows(false, true).await.unwrap();
-    assert_eq!(quick.len(), full.len());
-    assert!(quick.iter().all(|row| row["catalogComplete"] == json!(true)), "{quick:?}");
+    // The hook the daemon binds (`compose_flip.rs`): the model list drops its cache with the readiness' invalidation.
+    let service = rig.service.clone();
+    rig.readiness.bind_invalidation(Arc::new(move || service.invalidate())).is_ok().then_some(()).unwrap();
+    let read = |quick| rig.service.rows(false, quick);
+    assert_rows("quick", &read(true).await.unwrap(), &calls[0]["value"]);
+    rig.host.settle_warm().await;
+    assert_rows("full", &read(false).await.unwrap(), &calls[1]["value"]);
+    // Loaded: a quick read is the loaded catalog, marked complete (what the cold read could not say).
+    assert!(read(true).await.unwrap().iter().all(|row| row["catalogComplete"] == json!(true)));
+    // The daemon\'s sync follows a stored change into the loaded config and the readiness.
+    let stop = mixdog_rt::CancellationToken::new();
+    let mut sync = spawn_provider_sync(rig.config.clone(), rig.effective.clone(), rig.readiness.clone(), rig.loaded.clone(), stop.clone());
+    let [provider, model, patch] = [0, 1, 2].map(|i| calls[2]["args"][i].clone());
+    rig.config
+        .update_agent(move |doc| {
+            let mut providers = doc.get("providers").and_then(Value::as_object).cloned().unwrap();
+            let entry = providers.get_mut(provider.as_str().unwrap()).unwrap();
+            entry["modelOverrides"][model.as_str().unwrap()]["hidden"] = patch["hidden"].clone();
+            doc.insert("providers".into(), Value::Object(providers));
+            Ok(())
+        })
+        .await
+        .unwrap();
+    sync.applied.wait_for(|applied| *applied >= 1).await.unwrap();
+    // `refresh.afterCredentialChange()`: `applyConfigChange` rebuilds the registered provider over the stored change,
+    // then `invalidateProviderCaches` drops every cache.
+    let record = rig.loaded.get()["providers"].as_object().cloned().unwrap();
+    rig.registry.sync_providers(&record, None).await.unwrap();
+    rig.readiness.reinit_providers().await.unwrap();
+    assert_rows("quick after the change", &read(true).await.unwrap(), &calls[3]["value"]);
+    rig.host.settle_warm().await;
+    assert_rows("full after the change", &read(false).await.unwrap(), &calls[4]["value"]);
+    stop.cancel();
+    sync.task.await.unwrap();
 }
 
 #[tokio::test]
