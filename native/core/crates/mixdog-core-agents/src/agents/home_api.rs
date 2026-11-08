@@ -217,10 +217,44 @@ fn locked(flights: &Mutex<Flights>) -> std::sync::MutexGuard<'_, Flights> {
     flights.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-fn forget(map: &Weak<Mutex<Flights>>, agent_id: &str, id: u64) {
-    if let Some(map) = Weak::upgrade(map) {
-        locked(&map).settled(agent_id, id);
+/// The end of one flight: it owns the flight's answer and its place in the map, built before the
+/// task is spawned and moved into it. `answer` takes the flight out of the map (unless a later flight
+/// replaced it) and then publishes; dropping the guard unanswered (the task aborted, its future dropped
+/// at shutdown, a panic) does the same with the terminal error, so waiters never hang and the map never
+/// keeps a dead flight.
+struct FlightEnd {
+    told: watch::Sender<Option<Outcome>>,
+    map: Weak<Mutex<Flights>>,
+    agent: String,
+    id: u64,
+}
+
+impl FlightEnd {
+    fn answer(self, outcome: Outcome) {
+        self.finish(outcome);
     }
+
+    fn finish(&self, outcome: Outcome) {
+        if let Some(map) = Weak::upgrade(&self.map) {
+            locked(&map).settled(&self.agent, self.id);
+        }
+        self.told.send_replace(Some(outcome));
+    }
+}
+
+impl Drop for FlightEnd {
+    fn drop(&mut self) {
+        if self.told.borrow().is_none() {
+            self.finish(ended());
+        }
+    }
+}
+
+/// A flight registered and not yet running.
+struct Launch {
+    end: FlightEnd,
+    kind: Kind,
+    previous: Option<Answer>,
 }
 
 fn ended() -> Outcome {
@@ -245,6 +279,9 @@ enum Kind {
 pub struct AgentHomeSessions {
     deps: Arc<dyn HomeDeps>,
     flights: Arc<Mutex<Flights>>,
+    /// Abort handles of the flight tasks started, in start order.
+    #[cfg(test)]
+    tasks: Arc<Mutex<Vec<tokio::task::AbortHandle>>>,
 }
 
 async fn resolve(deps: &dyn HomeDeps, agent_id: &str) -> Result<String, CoreError> {
@@ -315,66 +352,85 @@ async fn reset_home(deps: &dyn HomeDeps, agent_id: &str) -> Outcome {
 
 impl AgentHomeSessions {
     pub fn new(deps: Arc<dyn HomeDeps>) -> Self {
-        Self { deps, flights: Arc::new(Mutex::new(Flights::new())) }
+        Self {
+            deps,
+            flights: Arc::new(Mutex::new(Flights::new())),
+            #[cfg(test)]
+            tasks: Arc::default(),
+        }
     }
 
-    /// Starts the task of a flight for `agent_id` and makes it the agent's flight. A reset's task
-    /// first waits for `previous`, however that ended.
-    ///
-    /// An open's flight leaves the map before its answer appears (Node's `.finally` on the very
-    /// promise callers hold). A reset's leaves it a turn of the executor after (Node's cleanup is a
-    /// separate `flight.catch().finally()` chain), so a call made the moment a reset's caller resumes
-    /// still joins that flight.
-    fn begin(&self, flights: &mut Flights, agent_id: &str, kind: Kind, previous: Option<Answer>) -> Answer {
+    /// Makes a new flight the agent's flight (under the map's lock, nothing spawned yet). A reset's
+    /// flight first waits for `previous`, however that ended.
+    fn register(&self, flights: &mut Flights, agent_id: &str, kind: Kind, previous: Option<Answer>) -> (Answer, Launch) {
         let id = flights.next;
         flights.next += 1;
         let (told, answer) = watch::channel(None);
         flights.register(agent_id, answer.clone(), id);
-        let (deps, map, agent) = (self.deps.clone(), Arc::downgrade(&self.flights), agent_id.to_owned());
-        drop(mixdog_rt::spawn("agent-home-flight", TaskClass::Work, async move {
+        let end = FlightEnd { told, map: Arc::downgrade(&self.flights), agent: agent_id.to_owned(), id };
+        (answer, Launch { end, kind, previous })
+    }
+
+    /// Runs a registered flight as a task of its own. Whatever the kind, the flight leaves the map
+    /// before its answer appears: a call arriving while it is pending joins it, any call after the
+    /// answer starts a fresh one.
+    fn launch(&self, launch: Launch) {
+        let Launch { end, kind, previous } = launch;
+        let (deps, agent) = (self.deps.clone(), end.agent.clone());
+        let task = mixdog_rt::spawn("agent-home-flight", TaskClass::Work, async move {
             if let Some(mut previous) = previous {
                 let _ = previous.wait_for(Option::is_some).await;
             }
-            match kind {
-                Kind::Open => {
-                    let done = resolve(&*deps, &agent).await.map(|session_id| (session_id, None));
-                    forget(&map, &agent, id);
-                    told.send_replace(Some(done));
-                }
-                Kind::Reset => {
-                    told.send_replace(Some(reset_home(&*deps, &agent).await));
-                    tokio::task::yield_now().await;
-                    forget(&map, &agent, id);
-                }
-            }
-        }));
-        answer
+            let done = match kind {
+                Kind::Open => resolve(&*deps, &agent).await.map(|session_id| (session_id, None)),
+                Kind::Reset => reset_home(&*deps, &agent).await,
+            };
+            end.answer(done);
+        });
+        // The tests abort a flight's task to see its guard end it.
+        #[cfg(test)]
+        self.tasks.lock().unwrap_or_else(|e| e.into_inner()).push(task.abort_handle());
+        #[cfg(not(test))]
+        drop(task);
     }
 
     /// `agent/home/open`: `{ sessionId }`. A flight in progress, an open's or a reset's, is joined.
     pub async fn open(&self, agent_id: &str) -> Result<Value, CoreError> {
-        let answer = {
+        let (answer, launch) = {
             let mut flights = locked(&self.flights);
             match flights.current.get(agent_id) {
-                Some((_, pending)) => pending.clone(),
-                None => self.begin(&mut flights, agent_id, Kind::Open, None),
+                Some((_, pending)) => (pending.clone(), None),
+                None => {
+                    let (answer, launch) = self.register(&mut flights, agent_id, Kind::Open, None);
+                    (answer, Some(launch))
+                }
             }
         };
+        if let Some(launch) = launch {
+            self.launch(launch);
+        }
         let (session_id, _) = outcome(answer).await?;
         Ok(json!({ "sessionId": session_id }))
     }
 
     /// `agent/home/reset`: the agent keeps its one fixed home id; the conversation so far moves to a
-    /// new archived id. It waits for the flight it finds, however that ended, and is the flight an
-    /// open arriving meanwhile joins.
+    /// new archived id. It waits for the flight it finds, however that ended, and is the flight a
+    /// call arriving meanwhile joins.
     pub async fn reset(&self, agent_id: &str) -> Result<Value, CoreError> {
-        let answer = {
+        let (answer, launch) = {
             let mut flights = locked(&self.flights);
             let previous = flights.current.get(agent_id).map(|(_, pending)| pending.clone());
-            self.begin(&mut flights, agent_id, Kind::Reset, previous)
+            self.register(&mut flights, agent_id, Kind::Reset, previous)
         };
+        self.launch(launch);
         let (session_id, archived) = outcome(answer).await?;
         Ok(json!({ "sessionId": session_id, "archivedSessionId": archived }))
+    }
+
+    /// Aborts the task of the `index`th flight started.
+    #[cfg(test)]
+    pub(super) fn abort_flight(&self, index: usize) {
+        self.tasks.lock().unwrap_or_else(|e| e.into_inner())[index].abort();
     }
 
     /// Waits until no agent has a flight, the cleanup of the last one included.

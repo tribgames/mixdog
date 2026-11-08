@@ -154,9 +154,9 @@
       "sha256": "2cb05c6b3ca683eaf7fbdd869235eb7abe16aefd152a9ff252c736db437be8d6"
     },
     {
-      "bytes": 414524,
+      "bytes": 410541,
       "path": "settings/agent-home-api-twin.json",
-      "sha256": "1b7a54721601fe576bedd3314b685260c66820602bdf91a32beb10f90ee9b091"
+      "sha256": "2617736c36aa66b0ebb6a7c94e7693096b858bb23b3794f41130c76adf96af84"
     },
     {
       "bytes": 325962,
@@ -352,5 +352,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs",
   "set": "desktop",
-  "totalBytes": 40978579
+  "totalBytes": 40974596
 }
