@@ -2,8 +2,7 @@
 // What the agent sees when a foreground shell command finishes but leaves a descendant running (Node's
 // `probeShellDescendants` → survivors task), through its whole life: the start notice, `task read` while it runs,
 // `task wait` / `task read` after it ended on its own, `task read output:tail`, `task cancel` (while running, again,
-// and after a natural end), the read after a cancel (the observer's exit event must not turn it into a completion)
-// and `task list`. The real Node shell and task tools run on a clean checkout of one commit with the
+// and after a natural end), the read after a cancel and `task list`. The real Node shell and task tools run on a clean checkout of one commit with the
 // mixdog-spawn binary built from that same commit; the task id, the two timestamps and the child's pid are
 // replaced by placeholders. Windows form of the commands (the host this was recorded on).
 //
@@ -56,13 +55,10 @@ const scrub = (t) => {
   return out.replace(/(started|finished): \S+/g, '$1: <TIME>').replace(/CHILD=\d+/g, 'CHILD=<PID>');
 };
 const start = async (command) => {
-  const t0 = Date.now();
   const ran = await text('shell', { command });
-  const callMs = Date.now() - t0;
   const id = /task_id: (\S+)/.exec(ran)[1];
   scrubbers.push([id, '<TASK>']);
-  const startedMs = Date.parse(/started: (\S+)/.exec(ran)[1]);
-  return { ran, id, timing: { callMs, startedAfterCallBeganMs: startedMs - t0, startedAtCommandStart: startedMs - t0 < callMs / 2 } };
+  return { ran, id };
 };
 
 const natural = await start(NATURAL);
@@ -85,9 +81,6 @@ const cancelOut = {
   read: await text('task', { action: 'read', task_id: cancelled.id }),
   tail: await text('task', { action: 'read', task_id: cancelled.id, output: 'tail' }),
 };
-// The observer sees the killed tree end on its next recheck; that exit must not complete the cancelled task.
-await new Promise((resolve) => setTimeout(resolve, 6_500));
-cancelOut.readAfterObserverRecheck = await text('task', { action: 'read', task_id: cancelled.id });
 const list = await text('task', { action: 'list' });
 
 const dir = join(FIXTURES_ROOT, 'shell-survivors');
@@ -103,7 +96,6 @@ writeJson(join(dir, 'golden.json'), {
   natural: finish(naturalOut),
   cancelled: finish(cancelOut),
   list: scrub(list),
-  timing: { natural: natural.timing, cancelled: cancelled.timing },
 });
 const command = `node benchmarks/rust-core/recorders/record-shell-survivors.mjs --tree <git checkout of ${commit}> --commit ${commit} --spawn-bin <mixdog-spawn built from it> --spawn-build-command <cargo command> --spawn-target-dir <dir> --rustc <rustc>`;
 writeSetManifest(dir, {
@@ -111,7 +103,7 @@ writeSetManifest(dir, {
   recorder: 'benchmarks/rust-core/recorders/record-shell-survivors.mjs',
   command,
   identity,
-  extra: { spawn: spawnIdentity, scenarios: ['natural end', 'cancel while running', 'cancel after the natural end', 'cancel twice', 'observer exit after a cancel'], blocked: ['unconfirmed cancel: a Windows job object ends every member, nothing here resists the kill', 'POSIX recordings (no-pidfd termination, SIGTERM/SIGKILL sequence): this machine is Windows'] },
+  extra: { spawn: spawnIdentity, scenarios: ['natural end', 'cancel while running', 'cancel after the natural end', 'cancel twice'], blocked: ['unconfirmed cancel and the kill/observe schedule: expectations are the shell-tracker-trace recording; a Windows job object ends every member, nothing here resists the kill', 'POSIX recordings (no-pidfd termination, SIGTERM/SIGKILL sequence): this machine is Windows'] },
 });
 clearInterval(keepAlive);
 rmSync(work, { recursive: true, force: true });

@@ -3,6 +3,17 @@
 
 use mixdog_core_api::domain::process::ExitStatus;
 
+/// What one look at a command's tree found.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Seen {
+    /// Something is still running; `reachable` is whether this process can signal it.
+    Running { reachable: bool },
+    /// Nothing is left.
+    Gone,
+    /// The tree could not be inspected: nothing is known.
+    Unknown,
+}
+
 #[cfg(windows)]
 mod imp {
     use std::collections::HashMap;
@@ -38,6 +49,12 @@ mod imp {
     /// `JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO` (winnt.h), which windows-sys does not export: the
     /// last process of a job ended.
     const JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO: u32 = 4;
+
+    /// Kill-and-wait rounds of a cancel before it reports what is left (`KILL_ROUNDS` of `lib/shell-descendants.mjs`).
+    const KILL_ROUNDS: usize = 3;
+
+    /// How long one round waits for the job to empty.
+    const KILL_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
     /// The exit code a terminated job's processes report.
     pub(crate) const KILL_EXIT_CODE: u32 = 137;
@@ -134,8 +151,8 @@ mod imp {
             })
         }
 
-        /// Processes of the job still running.
-        fn active(&self) -> u32 {
+        /// Processes of the job still running; `None` when the job could not be asked.
+        fn active(&self) -> Option<u32> {
             let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
             let ok = unsafe {
                 QueryInformationJobObject(
@@ -146,19 +163,25 @@ mod imp {
                     std::ptr::null_mut(),
                 )
             };
-            if ok == 0 { 0 } else { info.ActiveProcesses }
+            (ok != 0).then_some(info.ActiveProcesses)
         }
 
-        /// Whether any process of the job is still running.
+        /// Whether any process of the job might still be running: a job that could not be asked is not empty.
         pub(crate) fn occupied(&self) -> bool {
-            self.active() > 0
+            self.active().is_none_or(|active| active > 0)
         }
 
-        /// What is left in the job: `Some(reachable)` while any process runs, `None` when empty.
-        /// Everything in a job can be ended with the job.
-        pub(crate) fn remaining(&self) -> Option<bool> {
-            self.occupied().then_some(true)
+        /// What is left in the job. Everything in a job can be ended with the job.
+        pub(crate) fn observe(&self) -> super::Seen {
+            match self.active() {
+                Some(0) => super::Seen::Gone,
+                Some(_) => super::Seen::Running { reachable: true },
+                None => super::Seen::Unknown,
+            }
         }
+
+        /// A job is not named by a pid, so the root's exit changes nothing about it.
+        pub(crate) fn root_reaped(&self) {}
 
         /// Starts reporting this job to the completion port (once) and returns the signal that
         /// is raised whenever its last process ends. `None` if the port is unavailable.
@@ -199,7 +222,7 @@ mod imp {
         }
 
         /// Completes when no process of the job is running; wakes on the port's message.
-        pub(crate) async fn wait_empty(&self) {
+        pub(crate) async fn wait_gone(&self) {
             let Some(notify) = self.signal() else { return };
             loop {
                 let mut notified = std::pin::pin!(notify.notified());
@@ -235,20 +258,17 @@ mod imp {
             unsafe { TerminateJobObject(self.job, KILL_EXIT_CODE) };
         }
 
-        /// A job holds every process it started, so ending the job is also the sweep of the observed targets.
-        pub(crate) fn sweep(&self) {
-            self.kill();
-        }
-
-        /// How long a kill waits, woken by the job's own message, for the job to empty: there is no gentle first stop
-        /// and no grace to give, only the operating system's time to end the processes.
-        pub(crate) const TERM_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
-        pub(crate) const SWEEP_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
-
-        /// Whether the job is empty within `within`; returns as soon as the last process ends.
-        pub(crate) async fn gone_within(&self, within: std::time::Duration) -> bool {
-            let _ = tokio::time::timeout(within, self.wait_empty()).await;
-            !self.occupied()
+        /// Ends the job and waits, woken by the job's own message, for it to empty (`KILL_ROUNDS` times at most): there
+        /// is no gentle first stop and no grace to give, only the operating system's time to end the processes.
+        pub(crate) async fn cancel(&self) -> bool {
+            for _ in 0..KILL_ROUNDS {
+                self.kill();
+                let _ = tokio::time::timeout(KILL_WAIT, self.wait_gone()).await;
+                if !self.occupied() {
+                    return true;
+                }
+            }
+            false
         }
 
         /// A job object has no gentle stop: the first stop is the forced one, so only the Unix path
@@ -270,304 +290,90 @@ mod imp {
 
 #[cfg(unix)]
 mod imp {
-    use std::sync::atomic::AtomicBool;
-    use std::sync::atomic::AtomicI32;
-    use std::sync::atomic::Ordering;
-    #[cfg(target_os = "linux")]
-    use std::sync::Mutex;
-    use std::time::Duration;
+    use std::sync::OnceLock;
 
-    /// `TERMINATION_RECHECK_MS` of `lib/shell-descendants.mjs`.
-    const RECHECK: Duration = Duration::from_millis(5_000);
+    use crate::osproc::OsReader;
+    use crate::osproc::OsSignals;
+    use crate::osproc::TRACKING;
+    use crate::osproc::TokioClock;
+    use crate::tree::Observation;
+    use crate::tree::Signal;
+    use crate::tree::Tree;
 
-    /// The group of a child started as its own group leader (`setsid` or `process_group(0)`).
+    /// The tree of a child started as its own group leader (`setsid` or `process_group(0)`): one
+    /// [`Tree`] follows it by identity, whether the group still has members or not.
     pub(crate) struct Containment {
-        group: AtomicI32,
-        /// The group was seen empty. Its id may be reused by an unrelated group from then on, so
-        /// nothing is sent to it or asked of it again.
-        emptied: AtomicBool,
-        /// Linux: the identities (pid and start time) of the group's members and their descendants, as of the last look, so a
-        /// process that left the group is still found and a recycled pid is never taken for it.
-        #[cfg(target_os = "linux")]
-        tracked: Mutex<Vec<(u32, String)>>,
+        tree: OnceLock<Tree<OsReader, OsSignals, TokioClock>>,
     }
 
     impl Containment {
         pub(crate) fn create() -> std::io::Result<Self> {
-            Ok(Self {
-                group: AtomicI32::new(0),
-                emptied: AtomicBool::new(false),
-                #[cfg(target_os = "linux")]
-                tracked: Mutex::new(Vec::new()),
-            })
+            Ok(Self { tree: OnceLock::new() })
         }
 
+        /// `pid` is our own child, just spawned and not yet reaped: the one moment its start token is
+        /// known to be its own.
         pub(crate) fn adopt(&self, pid: u32) {
-            self.group.store(pid as i32, Ordering::Release);
+            let token = OsReader::identity(pid).ok().flatten();
+            let _ = self.tree.set(Tree::new(OsReader, OsSignals, TokioClock, pid, token));
+        }
+
+        /// The root has been reaped: its pid and group id are free for reuse from now on.
+        pub(crate) fn root_reaped(&self) {
+            if let Some(tree) = self.tree.get() {
+                tree.root_reaped();
+            }
         }
 
         pub(crate) fn kill(&self) {
-            self.signal(libc::SIGKILL);
+            if let Some(tree) = self.tree.get() {
+                tree.signal_group(Signal::Kill);
+            }
         }
 
         /// SIGTERM to the group: the gentle first stop of an escalating one (`kill` is the second).
         pub(crate) fn terminate(&self) {
-            self.signal(libc::SIGTERM);
-        }
-
-        fn signal(&self, signal: libc::c_int) {
-            let group = self.group.load(Ordering::Acquire);
-            if group > 0 && !self.emptied.load(Ordering::Acquire) {
-                unsafe { libc::kill(-group, signal) };
+            if let Some(tree) = self.tree.get() {
+                tree.signal_group(Signal::Term);
             }
         }
 
-        /// Existence probe of the group (signal 0): `Some(reachable)` while it has members
-        /// (`false` when the kernel refuses us the signal), `None` once it has none.
-        fn probe(&self) -> Option<bool> {
-            let group = self.group.load(Ordering::Acquire);
-            if group <= 0 || self.emptied.load(Ordering::Acquire) {
-                return None;
-            }
-            if unsafe { libc::kill(-group, 0) } == 0 {
-                return Some(true);
-            }
-            if std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM) {
-                return Some(false);
-            }
-            self.emptied.store(true, Ordering::Release);
-            None
-        }
-
-        /// Whether the group still has a member (a zombie awaiting its reaper counts).
+        /// Whether the group might still have a member, for how long a record is kept. It proves
+        /// nothing about who owns the group.
         pub(crate) fn occupied(&self) -> bool {
-            self.probe().is_some()
+            self.tree.get().is_some_and(Tree::group_may_be_occupied)
         }
 
-        /// What is left in the group: `Some(reachable)` while a live process remains, else `None`.
-        pub(crate) fn remaining(&self) -> Option<bool> {
-            #[cfg(target_os = "linux")]
-            {
-                let group = self.group.load(Ordering::Acquire);
-                if group <= 0 || self.look().is_empty() {
-                    return None;
-                }
-                // Alive but possibly outside the group (a process that left it): reachable by its pid.
-                return Some(self.probe().unwrap_or(true));
-            }
-            #[cfg(not(target_os = "linux"))]
-            self.probe()
-        }
-
-        /// Linux: the live processes of the group and of their descendants, remembered by identity.
-        #[cfg(target_os = "linux")]
-        fn look(&self) -> Vec<u32> {
-            let group = self.group.load(Ordering::Acquire);
-            let mut tracked = self.tracked.lock().unwrap_or_else(|e| e.into_inner());
-            linux::members(group, &mut tracked)
-        }
-
-        /// Sends the second kill of a sweep: the group, and every remembered process that is still the one that was seen
-        /// (`killShellDescendants` kills the observed identities, never a bare pid). Linux only: the other platforms have no
-        /// process table to remember them in, so the group is all there is.
-        pub(crate) fn sweep(&self) {
-            self.kill();
-            #[cfg(target_os = "linux")]
-            {
-                let tracked = self.tracked.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                linux::kill_tracked(&tracked);
+        /// What is left of the tree.
+        pub(crate) fn observe(&self) -> super::Seen {
+            match self.tree.get().map(Tree::observe) {
+                Some(Observation::Running(_)) => super::Seen::Running { reachable: true },
+                Some(Observation::Unknown) => super::Seen::Unknown,
+                Some(Observation::Gone) | None => super::Seen::Gone,
             }
         }
 
-        /// How long the gentle stop gets before the forced one (`delay(200)` of `killShellDescendants`), and how long the
-        /// group gets to show empty after a forced one (`delay(100)`).
-        pub(crate) const TERM_GRACE: Duration = Duration::from_millis(200);
-        pub(crate) const SWEEP_WAIT: Duration = Duration::from_millis(100);
-
-        /// Whether nothing is left within `within`. With pidfd the members' exits end the wait early; otherwise it is
-        /// the whole span and then one look.
-        pub(crate) async fn gone_within(&self, within: Duration) -> bool {
-            #[cfg(target_os = "linux")]
-            if linux::pidfd_supported() {
-                let group = self.group.load(Ordering::Acquire);
-                if group > 0 {
-                    let tracked = self.tracked.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                    let _ = tokio::time::timeout(within, linux::wait_group_empty(group, tracked)).await;
-                }
-                return self.remaining().is_none();
-            }
-            tokio::time::sleep(within).await;
-            self.remaining().is_none()
-        }
-
-        /// Every group can be watched: `lib/shell-descendants.mjs` probes the process group on all
-        /// POSIX platforms. How its end is waited for differs ([`Self::wait_empty`]).
+        /// Whether the survivors of this platform can be followed at all: it needs a process table.
         pub(crate) fn watchable(&self) -> bool {
-            true
+            TRACKING
         }
 
-        /// Completes when no live process is left in the group. Linux with pidfd is woken by the
-        /// members' exits; elsewhere the group is re-probed at Node's termination cadence
-        /// (`TERMINATION_RECHECK_MS`), since these processes are no longer our children and have
-        /// no exit event to subscribe to.
-        pub(crate) async fn wait_empty(&self) {
-            #[cfg(target_os = "linux")]
-            if linux::pidfd_supported() {
-                let group = self.group.load(Ordering::Acquire);
-                if group > 0 {
-                    let tracked = self.tracked.lock().unwrap_or_else(|e| e.into_inner()).clone();
-                    linux::wait_group_empty(group, tracked).await;
-                }
-                return;
-            }
-            while self.remaining().is_some() {
-                tokio::time::sleep(RECHECK).await;
-            }
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    mod linux {
-        use std::os::fd::AsRawFd;
-        use std::os::fd::FromRawFd;
-        use std::os::fd::OwnedFd;
-        use std::sync::Arc;
-
-        /// One live process of the table: its parent, group and start time (the identity that survives pid reuse).
-        struct Entry {
-            pid: u32,
-            ppid: u32,
-            pgrp: i32,
-            start: String,
-        }
-
-        /// `/proc/<pid>/stat` of a live (not zombie) process.
-        fn entry_of(pid: u32) -> Option<Entry> {
-            let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-            // The command name may hold spaces and parentheses: the fields follow the last ')'.
-            let rest = &stat[stat.rfind(')')? + 2..];
-            let mut fields = rest.split(' ');
-            let state = fields.next()?;
-            let ppid: u32 = fields.next()?.parse().ok()?;
-            let pgrp: i32 = fields.next()?.parse().ok()?;
-            // Fields 4..19 follow the group (session ... itrealvalue); the 20th is the start time.
-            let start = fields.nth(16)?.to_owned();
-            (state != "Z" && state != "X").then_some(Entry { pid, ppid, pgrp, start })
-        }
-
-        fn table() -> Vec<Entry> {
-            let Ok(dir) = std::fs::read_dir("/proc") else {
-                return Vec::new();
-            };
-            dir.filter_map(|entry| entry_of(entry.ok()?.file_name().to_str()?.parse().ok()?)).collect()
-        }
-
-        /// The live processes of the group `group`, those of `tracked` that are still the processes that were seen, and
-        /// every descendant of either (the tracker of `shell-descendants.mjs` follows parent links the same way). `tracked`
-        /// becomes that set.
-        pub(super) fn members(group: i32, tracked: &mut Vec<(u32, String)>) -> Vec<u32> {
-            let table = table();
-            let mut found: Vec<u32> = table
-                .iter()
-                .filter(|e| e.pgrp == group || tracked.iter().any(|(pid, start)| *pid == e.pid && *start == e.start))
-                .map(|e| e.pid)
-                .collect();
-            let mut at = 0;
-            while at < found.len() {
-                let parent = found[at];
-                at += 1;
-                for e in table.iter().filter(|e| e.ppid == parent) {
-                    if !found.contains(&e.pid) {
-                        found.push(e.pid);
-                    }
-                }
-            }
-            *tracked = table.iter().filter(|e| found.contains(&e.pid)).map(|e| (e.pid, e.start.clone())).collect();
-            found
-        }
-
-        /// SIGKILL to each remembered process that still has the start time it was seen with.
-        pub(super) fn kill_tracked(tracked: &[(u32, String)]) {
-            for (pid, start) in tracked {
-                if entry_of(*pid).is_some_and(|e| e.start == *start) {
-                    unsafe { libc::kill(*pid as libc::pid_t, libc::SIGKILL) };
-                }
+        /// Completes when the tree is gone ([`Tree::wait_gone`]).
+        pub(crate) async fn wait_gone(&self) {
+            if let Some(tree) = self.tree.get() {
+                tree.wait_gone().await;
             }
         }
 
-        fn pidfd_open(pid: u32) -> Option<OwnedFd> {
-            let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::pid_t, 0) };
-            (fd >= 0).then(|| unsafe { OwnedFd::from_raw_fd(fd as i32) })
-        }
-
-        pub(super) fn pidfd_supported() -> bool {
-            pidfd_open(std::process::id()).is_some()
-        }
-
-        /// Wakes the blocked waiter when the future that started it is dropped.
-        struct Cancel(Arc<OwnedFd>);
-
-        impl Drop for Cancel {
-            fn drop(&mut self) {
-                let one = 1u64.to_ne_bytes();
-                unsafe { libc::write(self.0.as_raw_fd(), one.as_ptr().cast(), one.len()) };
-            }
-        }
-
-        pub(super) async fn wait_group_empty(group: i32, tracked: Vec<(u32, String)>) {
-            let raw = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC) };
-            if raw < 0 {
-                return;
-            }
-            let cancel = Arc::new(unsafe { OwnedFd::from_raw_fd(raw) });
-            let (done, finished) = tokio::sync::oneshot::channel();
-            let waiter_fd = Arc::clone(&cancel);
-            let spawned = std::thread::Builder::new().name("group-wait".to_owned()).spawn(move || {
-                block_until_empty(group, tracked, waiter_fd.as_raw_fd());
-                let _ = done.send(());
-            });
-            if spawned.is_err() {
-                return;
-            }
-            let _wake_on_drop = Cancel(cancel);
-            let _ = finished.await;
-        }
-
-        fn block_until_empty(group: i32, mut tracked: Vec<(u32, String)>, cancel: i32) {
-            loop {
-                let members = members(group, &mut tracked);
-                if members.is_empty() {
-                    return;
-                }
-                let mut watched: Vec<OwnedFd> = Vec::new();
-                let mut fds = vec![libc::pollfd {
-                    fd: cancel,
-                    events: libc::POLLIN,
-                    revents: 0,
-                }];
-                for pid in members {
-                    // A member that vanished since the scan has no pidfd; the next scan drops it.
-                    if let Some(fd) = pidfd_open(pid) {
-                        fds.push(libc::pollfd {
-                            fd: fd.as_raw_fd(),
-                            events: libc::POLLIN,
-                            revents: 0,
-                        });
-                        watched.push(fd);
-                    }
-                }
-                if watched.is_empty() {
-                    continue;
-                }
-                let ready = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };
-                if ready > 0 && fds[0].revents != 0 {
-                    return;
-                }
+        /// Ends the tree ([`Tree::cancel`]); `true` when a fresh look finds nothing left.
+        pub(crate) async fn cancel(&self) -> bool {
+            match self.tree.get() {
+                Some(tree) => tree.cancel().await,
+                None => true,
             }
         }
     }
 }
-
 pub(crate) use imp::Containment;
 
 #[cfg(all(test, unix))]

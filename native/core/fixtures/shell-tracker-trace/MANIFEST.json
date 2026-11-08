@@ -1,0 +1,43 @@
+{
+  "blocked": [
+    "real-kernel POSIX recording (pidfd waits, /proc table, SIGTERM delivery): this machine is Windows"
+  ],
+  "command": "node --experimental-test-module-mocks benchmarks/rust-core/recorders/record-shell-tracker-trace.mjs --tree <git checkout of b6f10295a2f698afc85332467192de28500bd146> --commit b6f10295a2f698afc85332467192de28500bd146",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 14649,
+      "path": "golden.json",
+      "sha256": "52391ee4248afe9a59344d8304afe1c3dc6ef8d3f827c0bb44c3a74d998aad94"
+    }
+  ],
+  "product": {
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-shell-tracker-trace.mjs",
+  "scenarios": [
+    "a member that left the group stays tracked; a recycled root pid is never adopted",
+    "a root whose token was taken while it was ours owns its links; a different token under its pid does not",
+    "a table that cannot be read is unknown, never empty",
+    "the group ends on SIGTERM: no SIGKILL, the target gets SIGTERM and a grace",
+    "what ignores SIGTERM gets SIGKILL after the grace, and a second round ends the target",
+    "a root pid held by another process: the group is not signalled, the observed target still is",
+    "a table that cannot be read at the start signals nothing",
+    "survivors that outlast every round are reported as not terminated after three rounds",
+    "a table that cannot be read after the kill is not a termination",
+    "the passive wait looks at every recheck, an unreadable table is not an end, the end is the first empty look"
+  ],
+  "set": "shell-tracker-trace",
+  "totalBytes": 14649
+}

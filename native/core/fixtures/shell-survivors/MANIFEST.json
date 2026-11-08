@@ -1,15 +1,15 @@
 {
   "blocked": [
-    "unconfirmed cancel: a Windows job object ends every member, nothing here resists the kill",
+    "unconfirmed cancel and the kill/observe schedule: expectations are the shell-tracker-trace recording; a Windows job object ends every member, nothing here resists the kill",
     "POSIX recordings (no-pidfd termination, SIGTERM/SIGKILL sequence): this machine is Windows"
   ],
   "command": "node benchmarks/rust-core/recorders/record-shell-survivors.mjs --tree <git checkout of b6f10295a2f698afc85332467192de28500bd146> --commit b6f10295a2f698afc85332467192de28500bd146 --spawn-bin <mixdog-spawn built from it> --spawn-build-command <cargo command> --spawn-target-dir <dir> --rustc <rustc>",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 3220,
+      "bytes": 2791,
       "path": "golden.json",
-      "sha256": "a68002b5bbd7afc0ed70ab32cb2bd83af990d3c6a145c85498c85a28bc77830d"
+      "sha256": "18e40a78430429fd029c07c99a4ad88852c128681dd591a1cd9509e507bebe3b"
     }
   ],
   "product": {
@@ -31,8 +31,7 @@
     "natural end",
     "cancel while running",
     "cancel after the natural end",
-    "cancel twice",
-    "observer exit after a cancel"
+    "cancel twice"
   ],
   "set": "shell-survivors",
   "spawn": {
@@ -52,5 +51,5 @@
       "LLVM version: 23.1.1"
     ]
   },
-  "totalBytes": 3220
+  "totalBytes": 2791
 }
