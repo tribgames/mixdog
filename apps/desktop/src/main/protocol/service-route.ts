@@ -96,8 +96,8 @@ const SINGLE: Readonly<Record<string, Single>> = {
   cancelQuotaResume: ([threadId]) => one('thread/quotaResume/cancel', { threadId }),
   stopShellJob: ([threadId, taskId]) => one('thread/backgroundTerminals/terminate', { threadId, taskId }),
   releaseShellJob: ([threadId, taskId]) => one('thread/backgroundTerminals/release', { threadId, taskId }),
-  // `quotaResume.autoResume` is the config path the Rust `QuotaAutoResume` setting reads and writes.
-  setQuotaAutoResume: ([enabled]) => one('config/value/write', { path: 'quotaResume.autoResume', value: enabled }),
+  // `quotaAutoResume` is the config key the core reads; Node's `quotaResume.autoResume` is moved to it by the 1.4.5 migration.
+  setQuotaAutoResume: ([enabled]) => one('config/value/write', { path: 'quotaAutoResume', value: enabled }),
   readAttachmentImage: ([digest, maxBytes]) => one('blob/read', given({ digest, length: maxBytes })),
   readSessionTranscript: ([threadId]) => one('thread/read', { threadId, window: tail(512) }),
   readSessionHistory: ([threadId]) => one('thread/items/list', { threadId }),

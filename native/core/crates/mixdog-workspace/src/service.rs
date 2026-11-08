@@ -250,8 +250,13 @@ pub struct WorkspaceService {
     /// The desktop host's channel, for the methods only an Electron window can answer.
     host: OnceLock<Arc<dyn HostChannel>>,
     phone_grants: OnceLock<PhoneGrants>,
+    /// The user's Markdown default view, read when editor settings are (see [`Self::set_user_markdown_view`]).
+    user_markdown_view: OnceLock<UserMarkdownView>,
     releases: Arc<crate::release::FolderReleases>,
 }
+
+/// Reads the user's Markdown default view.
+type UserMarkdownView = Arc<dyn Fn() -> Option<String> + Send + Sync>;
 
 fn s<'a>(params: &'a Value, key: &str) -> WsResult<&'a str> {
     params.get(key).and_then(Value::as_str).ok_or_else(|| WsError::invalid(format!("{key} is invalid.")))
@@ -314,6 +319,7 @@ impl WorkspaceService {
             state: deps.state,
             host: OnceLock::new(),
             phone_grants: OnceLock::new(),
+            user_markdown_view: OnceLock::new(),
             releases: deps.releases,
         });
         let _ = service.me.set(Arc::downgrade(&service));
@@ -346,6 +352,13 @@ impl WorkspaceService {
     /// through; without one they answer `capabilityUnavailable`. Set once.
     pub fn set_host(&self, host: Arc<dyn HostChannel>) {
         let _ = self.host.set(host);
+    }
+
+    /// Connects where the user's Markdown default view is stored (the config key `desktop.editor.markdownDefaultView`;
+    /// `projectFs/readEditorSettings` puts it in the user scope, where Node reads `mixdog.markdown.defaultView` from the
+    /// user settings file). Without it only the settings file is read. Set once.
+    pub fn set_user_markdown_view(&self, read: Arc<dyn Fn() -> Option<String> + Send + Sync>) {
+        let _ = self.user_markdown_view.set(read);
     }
 
     /// Connects the paired devices' one-file grants (`transfer/grant/mint` and the `granted` read source): the
@@ -975,9 +988,10 @@ impl WorkspaceService {
                 let rel = s(params, "rel")?.to_owned();
                 let workspace = params.get("workspaceFile").and_then(Value::as_str).map(PathBuf::from);
                 let user_data = self.user_data.clone();
+                let markdown_view = self.user_markdown_view.get().and_then(|read| read());
                 value(
                     run_fallible(self.lanes.interactive, &cancel, move || {
-                        crate::editorcfg::read_editor_settings(&user_data, &root, &rel, workspace.as_deref())
+                        crate::editorcfg::read_editor_settings(&user_data, &root, &rel, workspace.as_deref(), markdown_view)
                     })
                     .await?,
                 )

@@ -962,6 +962,46 @@ async fn recorded_editor_files_replay_identically() {
     }
 }
 
+/// The user's Markdown default view is a config key here (`desktop.editor.markdownDefaultView`; Node keeps it in the user settings
+/// file as `mixdog.markdown.defaultView`). Editor settings put it in the user scope: the recorded Node answers of the scoped
+/// settings (where the user file states `rich`) are the same when the file lacks the key and the config states it.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_users_markdown_view_in_the_config_is_the_user_scope_of_editor_settings() {
+    const STATED: &str = "\"mixdog.markdown.defaultView\": \"rich\",";
+    let fixture = corpus("editor-config");
+    let entries = fixture["entries"].as_array().unwrap();
+    let start = entries
+        .iter()
+        .position(|entry| entry["setup"].as_array().is_some_and(|setup| setup.iter().any(|step| step["text"].as_str().is_some_and(|text| text.contains(STATED)))))
+        .expect("the corpus records a user scope that states the view");
+    let env = env();
+    env.service.set_user_markdown_view(Arc::new(|| Some("rich".to_owned())));
+    let work = env.root.parent().unwrap().to_path_buf();
+    let work_s = work.to_string_lossy().into_owned();
+    for step in entries[start]["setup"].as_array().unwrap() {
+        let text = step["text"].as_str().unwrap().replace(STATED, "");
+        tree(&work, &[(step["file"].as_str().unwrap(), text.as_bytes())]);
+    }
+    let mut replayed = 0;
+    for (index, entry) in entries.iter().enumerate().skip(start) {
+        if index > start && entry.get("setup").is_some() {
+            break;
+        }
+        if entry["method"] != "projectFs/readEditorSettings" {
+            continue;
+        }
+        let input = fill(&entry["input"], &work_s);
+        if !std::path::Path::new(input["root"].as_str().unwrap()).exists() {
+            continue;
+        }
+        env.service.catalog().add(input["root"].as_str().unwrap(), &CancellationToken::new(), None).await.unwrap();
+        let got = call(&env, "projectFs/readEditorSettings", json!({ "root": input["root"], "rel": input["rel"], "workspaceFile": input["workspaceFile"] })).await.unwrap();
+        assert_eq!(&scrub(&got, &work_s), &entry["result"], "#{index} {}", entry["input"]);
+        replayed += 1;
+    }
+    assert!(replayed > 0);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn lsp_feed_carries_node_keyed_sections_with_a_snapshot_for_late_subscribers() {
     let env = env();

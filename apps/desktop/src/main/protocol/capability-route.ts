@@ -251,7 +251,10 @@ export function createCapabilityLane({
     const { method, params } = routeCapability(capability, named, thread);
     // `inheritFrom` answers as Node's does (`lifecycle/inheritance.mjs`): the heir, its source, the messages carried and its route.
     if (capability === 'inheritFrom') {
-      const forked = (await request(method, params)) as { thread: { id: string }; messages: number; provider: unknown; model: unknown };
+      // The core answers a source thread it does not have with `threadNotFound`; Node's `inheritFrom` throws its own text.
+      const forked = (await request(method, params).catch((error: unknown) => {
+        throw isThreadNotFound(error) ? new Error(`inheritFrom: session ${String(args[0]).trim()} was not found`) : error;
+      })) as { thread: { id: string }; messages: number; provider: unknown; model: unknown };
       return {
         sessionId: forked.thread.id,
         sourceSessionId: args[0],
@@ -330,10 +333,10 @@ export function createCapabilityLane({
       }
     },
     async getQuotaAutoResume() {
-      const config = protocol.snapshot().entries.find((entry) => entry.section === 'config')?.value as
-        | { quotaAutoResume?: unknown }
-        | undefined;
-      return config?.quotaAutoResume !== false;
+      // The core publishes each subtree of the `config` section as an entry of its own, keyed by the subtree's name; this
+      // switch's subtree is the boolean itself. Reading the section's first entry reads another subtree.
+      const held = protocol.snapshot().entries.find((entry) => entry.section === 'config' && entry.key === 'quotaAutoResume');
+      return held?.value !== false;
     },
     async setQuotaAutoResume(enabled) {
       await request('config/value/write', { path: 'quotaAutoResume', value: enabled });

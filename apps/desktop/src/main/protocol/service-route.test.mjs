@@ -98,7 +98,7 @@ const CASES = [
   ['cancelQuotaResume', ['t1'], [['thread/quotaResume/cancel', { threadId: 't1' }]]],
   ['stopShellJob', ['t1', 'j1'], [['thread/backgroundTerminals/terminate', { threadId: 't1', taskId: 'j1' }]]],
   ['releaseShellJob', ['t1', 'j1'], [['thread/backgroundTerminals/release', { threadId: 't1', taskId: 'j1' }]]],
-  ['setQuotaAutoResume', [false], [['config/value/write', { path: 'quotaResume.autoResume', value: false }]]],
+  ['setQuotaAutoResume', [false], [['config/value/write', { path: 'quotaAutoResume', value: false }]]],
   ['readAttachmentImage', ['d1', 99], [['blob/read', { digest: 'd1', length: 99 }]]],
   ['readAttachmentImage', ['d1'], [['blob/read', { digest: 'd1' }]]],
   ['readSessionTranscript', ['t1'], [['thread/read', { threadId: 't1', window: { lastItems: 512 } }]]],

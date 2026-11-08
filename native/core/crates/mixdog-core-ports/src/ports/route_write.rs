@@ -94,7 +94,7 @@ impl RouteWriter for LiveRouteWriter {
             .map_err(|e| PortError::Failed { capability: "providers".into(), message: e.message })?;
         let meta = match meta {
             Some(meta) => meta,
-            None => self.catalog.model_meta(&provider, &model),
+            None => self.catalog.model_meta_in(&provider, &model, config.get("providers").and_then(|providers| providers.get(provider.as_str()))),
         };
         // A rapid second resume or model change can replace the route while provider metadata is
         // loading; an older completion never overwrites it, nor does one whose session was replaced.

@@ -383,9 +383,15 @@ fn editor_settings(scopes: Vec<Value>, language: &str) -> Value {
 }
 
 /// `readScopedEditorSettings`: user settings, then the workspace file's, then the folder's.
-pub fn read_editor_settings(user_data: &Path, folder: &Path, rel: &str, workspace_file: Option<&Path>) -> WsResult<Value> {
+/// `user_markdown_view` is the user's Markdown default view as this core stores it (the config key
+/// `desktop.editor.markdownDefaultView`, where Node keeps `mixdog.markdown.defaultView` in the user settings file):
+/// the user scope carries it, so a workspace or folder setting still wins over it, as in Node.
+pub fn read_editor_settings(user_data: &Path, folder: &Path, rel: &str, workspace_file: Option<&Path>, user_markdown_view: Option<String>) -> WsResult<Value> {
     let scope = |path: PathBuf| -> WsResult<Value> { Ok(Value::Object(read_jsonc_file(&path)?.unwrap_or_default())) };
-    let user = scope(user_data.join("User").join("settings.json"))?;
+    let mut user = scope(user_data.join("User").join("settings.json"))?;
+    if let (Some(view), Some(map)) = (user_markdown_view, user.as_object_mut()) {
+        map.insert("mixdog.markdown.defaultView".to_owned(), Value::String(view));
+    }
     let workspace = match workspace_file {
         Some(file) => scope(lexical(file))?.get("settings").filter(|s| s.is_object()).cloned().unwrap_or_else(|| json!({})),
         None => json!({}),
