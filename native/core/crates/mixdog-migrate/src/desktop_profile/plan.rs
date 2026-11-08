@@ -173,11 +173,27 @@ fn set_aside_item(file: SourceFile) -> Result<ManifestItem> {
     item(&key, KindGroup::DesktopProfile, ItemKind::SetAside, Contract::Retain, vec![file], None)
 }
 
-/// `.desktop-session-metadata.json.<24hex>.tmp`, an interrupted atomic write.
+/// An interrupted write of the session-metadata file: `desktop-session-metadata.json.mixdog-tmp-<16 hex>` is what 1.4.5
+/// writes (`session-metadata-file.ts` publishes through the atomic writer). A profile that an older desktop build wrote also
+/// holds `.desktop-session-metadata.json.<24 hex>.tmp` (seen in the corpus profile); 1.4.5 neither writes nor reads it.
 fn is_session_metadata_tmp(name: &str) -> bool {
-    name.strip_prefix(".desktop-session-metadata.json.")
-        .and_then(|rest| rest.strip_suffix(".tmp"))
-        .is_some_and(|id| id.len() == 24 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+    crate::temp_files::atomic_publish_base(name) == Some(SESSION_METADATA_FILE)
+        || name
+            .strip_prefix(".")
+            .and_then(|rest| rest.strip_prefix(SESSION_METADATA_FILE))
+            .and_then(|rest| rest.strip_prefix('.'))
+            .and_then(|rest| rest.strip_suffix(".tmp"))
+            .is_some_and(|id| id.len() == 24 && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+}
+
+/// An interrupted write inside an editor directory: the atomic writer's temp in `editor-backups`, `state-<uuid>.tmp` in
+/// `editor-recovery`.
+fn is_editor_temp(kind: ItemKind, name: &str) -> bool {
+    match kind {
+        ItemKind::EditorBackups => crate::temp_files::atomic_publish_base(name).is_some(),
+        ItemKind::EditorRecovery => crate::temp_files::is_recovery_state(name),
+        _ => false,
+    }
 }
 
 /// Whether the desktop's reader accepts `file` (it parses and passes the check).
@@ -262,7 +278,11 @@ pub(super) fn plan(profile: &Path, sink: &mut PlanSink, sessions_converted: bool
         (ItemKind::EditorRecovery, "editor-recovery", false, "desktop/editor-recovery"),
     ] {
         debug_assert_eq!(preserve::source_dir(kind), Some(dir));
-        let files = sources(profile, sink, &files_under(profile, dir)?, secret)?;
+        // The writer of each directory (`editor-backups.ts:118`, `project-recovery-store.ts:338`) may have been cut before
+        // it published: that temp file is retired, not kept as the editor's data.
+        let (temps, kept): (Vec<String>, Vec<String>) = files_under(profile, dir)?.into_iter().partition(|path| is_editor_temp(kind, path.rsplit('/').next().unwrap_or(path)));
+        retired.extend(sources(profile, sink, &temps, secret)?);
+        let files = sources(profile, sink, &kept, secret)?;
         if !files.is_empty() {
             let target = Target::File {
                 root: Root::Data,

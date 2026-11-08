@@ -106,6 +106,7 @@ impl Journal {
         match end {
             ScanEnd::Clean => {}
             ScanEnd::Torn { offset } => {
+                durable::step(durable::Step::Truncate, path, &[]);
                 let file = OpenOptions::new()
                     .write(true)
                     .open(path)
@@ -229,8 +230,13 @@ impl Journal {
             }
         }
         let bytes = frame::encode(self.next_ordinal, &payload(&record));
+        let (first, second) = bytes.split_at(bytes.len() / 2);
         self.file
-            .write_all(&bytes)
+            .write_all(first)
+            .map_err(|e| Blocked::io("append", &self.path, e))?;
+        durable::step(durable::Step::Append, &self.path, &bytes);
+        self.file
+            .write_all(second)
             .map_err(|e| Blocked::io("append", &self.path, e))?;
         self.file
             .sync_data()

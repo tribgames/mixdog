@@ -1,0 +1,8 @@
+{
+  "toolBefore": [
+    {
+      "matcher": "*",
+      "command": "echo cut"
+    }
+  ]
+}

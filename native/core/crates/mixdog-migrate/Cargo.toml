@@ -7,6 +7,11 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The step hook of durable (and the store's publish hook under it): for this crate's own dev-dependencies, never a
+# production build.
+crash-hook = ["mixdog-store/crash-hook"]
+
 [dependencies]
 base64 = { workspace = true }
 icu_collator = { workspace = true }
@@ -30,6 +35,7 @@ tokio = { workspace = true, features = ["rt"] }
 uuid = { workspace = true }
 
 [dev-dependencies]
+mixdog-migrate = { workspace = true, features = ["crash-hook"] }
 async-trait = { workspace = true }
 mixdog-ai = { workspace = true }
 mixdog-rt = { workspace = true, features = ["test-support"] }

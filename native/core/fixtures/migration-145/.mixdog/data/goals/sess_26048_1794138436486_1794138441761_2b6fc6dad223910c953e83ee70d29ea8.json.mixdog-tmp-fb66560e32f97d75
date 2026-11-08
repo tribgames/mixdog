@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "goal": {
+    "id": "d948fd2b-2169-47bc-91be-66e941a081ce",
+    "sessionId": "sess_26048_1794138436486_1794138441761_2b6fc6dad223910c953e83ee70d29ea8",
+    "objective": "A goal whose write was cut",
+    "title": "A goal whose write was cut",
+    "objectiveRevision": 0,
+    "status": "active",
+    "blocker": "",
+    "failureReason": "",
+    "failureCount": 0,
+    "turnCount": 0,
+    "timeLimitMs": 0,
+    "timeUsedMs": 0,
+    "deadlineWarnedMs": 9007199254740991,
+    "warningRevision": 0,
+    "createdAt": 1794138446213,
+    "updatedAt": 1794138446213,
+    "lastStartedAt": 1794138446213,
+    "completedAt": null,
+    "archivedAt": null,
+    "liveAt": 1794138446215
+  }
+}

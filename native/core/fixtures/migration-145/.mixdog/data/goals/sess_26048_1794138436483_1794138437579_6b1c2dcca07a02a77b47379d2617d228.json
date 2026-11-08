@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "goal": {
+    "id": "02540e45-d02c-4151-8b1b-0938fe1f6059",
+    "sessionId": "sess_26048_1794138436483_1794138437579_6b1c2dcca07a02a77b47379d2617d228",
+    "objective": "Ship the recorded release",
+    "title": "Ship the recorded release",
+    "objectiveRevision": 0,
+    "status": "active",
+    "blocker": "",
+    "failureReason": "",
+    "failureCount": 0,
+    "turnCount": 0,
+    "timeLimitMs": 7200000,
+    "timeUsedMs": 0,
+    "deadlineWarnedMs": 9007199254740991,
+    "warningRevision": 0,
+    "createdAt": 1794138443070,
+    "updatedAt": 1794138443070,
+    "lastStartedAt": 1794138443070,
+    "completedAt": null,
+    "archivedAt": null,
+    "liveAt": 1794138443070
+  }
+}

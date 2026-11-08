@@ -31,6 +31,7 @@ use crate::framework::Wave;
 use crate::json;
 use crate::plan;
 use crate::plan::PlanSink;
+use crate::temp_files;
 
 /// What a preserved store consists of, relative to its root.
 enum Spec {
@@ -136,32 +137,16 @@ fn is_hex(text: &str, len: usize) -> bool {
     text.len() == len && text.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
-/// Interrupted-write leftovers that were never renamed (SM §11.2): `*.mixdog-tmp-*`,
-/// `.<name>.<24hex>.tmp`, `*.lock.<pid>.<hex>.tmp`, `<name>.json.<12hex>.tmp`.
-pub fn is_interrupted_write(name: &str) -> bool {
-    if name.contains(".mixdog-tmp-") {
-        return true;
-    }
-    let Some(stem) = name.strip_suffix(".tmp") else {
+/// `<blob dir>/<ab>/<64 hex>.mixdog-tmp-<16 hex>`: a blob whose write was cut (`src/runtime/attachments/store.mjs` publishes
+/// through the atomic writer).
+fn is_blob_leftover(rel: &str) -> bool {
+    let Some(rest) = rel.strip_prefix(mixdog_store::schema::blob::BLOB_DIR).and_then(|rest| rest.strip_prefix('/')) else {
         return false;
     };
-    let Some((head, tail)) = stem.rsplit_once('.') else {
+    let Some((shard, name)) = rest.split_once('/') else {
         return false;
     };
-    if name.starts_with('.') && is_hex(tail, 24) {
-        return true;
-    }
-    if head.ends_with(".json") && is_hex(tail, 12) {
-        return true;
-    }
-    if let Some((lock, pid)) = head.rsplit_once('.') {
-        return lock.ends_with(".lock")
-            && !pid.is_empty()
-            && pid.bytes().all(|b| b.is_ascii_digit())
-            && tail.bytes().all(|b| b.is_ascii_hexdigit())
-            && !tail.is_empty();
-    }
-    false
+    is_hex(shard, 2) && temp_files::atomic_publish_base(name).is_some_and(|base| is_hex(base, 64) && base.starts_with(shard))
 }
 
 /// Root-level retire patterns (besides exact names).
@@ -172,7 +157,7 @@ fn is_retired_pattern(name: &str) -> bool {
         || (name.ends_with("-oauth-models.json"))
         || (name.ends_with("-usage-cache.json"))
         || (name.starts_with("studio-models-") && name.ends_with(".json"))
-        || is_interrupted_write(name)
+        || temp_files::is_data_root_leftover(name)
 }
 
 /// The legacy `agent.compaction` keys the 1.4.5 desktop drops when auto-compaction is
@@ -350,7 +335,22 @@ impl StoresDriver {
             Spec::Dirs(dirs) => {
                 for dir in *dirs {
                     for rel in durable::walk_files(&base.join(dir))? {
-                        sources.push(sink.source(store.root, &format!("{dir}/{rel}"), false)?);
+                        let path = format!("{dir}/{rel}");
+                        // An interrupted write was never renamed, so it was never state (SM §11.2): it is retired,
+                        // not carried with the store it lies in.
+                        if store.root == D && temp_files::is_store_leftover(&path) {
+                            let source = sink.source(D, &path, false)?;
+                            sink.add_item(plan::item(
+                                &plan::retire_key(D, &path),
+                                KindGroup::Data,
+                                K::Retired,
+                                Contract::Retire,
+                                vec![source],
+                                None,
+                            )?)?;
+                        } else {
+                            sources.push(sink.source(store.root, &path, false)?);
+                        }
                     }
                 }
             }
@@ -370,6 +370,7 @@ impl StoresDriver {
 
     fn plan_blobs(&self, roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
         let mut sources = Vec::new();
+        let mut leftovers = Vec::new();
         let base = roots.data.join(mixdog_store::schema::blob::BLOB_DIR);
         for (shard, is_dir) in durable::list_dir(&base)? {
             if !is_dir || !is_hex(&shard, 2) {
@@ -379,8 +380,14 @@ impl StoresDriver {
                 if !is_dir && is_hex(&name, 64) && name.starts_with(&shard) {
                     let rel = format!("{}/{shard}/{name}", mixdog_store::schema::blob::BLOB_DIR);
                     sources.push(sink.source(D, &rel, false)?);
+                } else if !is_dir && is_blob_leftover(&format!("{}/{shard}/{name}", mixdog_store::schema::blob::BLOB_DIR)) {
+                    leftovers.push(format!("{}/{shard}/{name}", mixdog_store::schema::blob::BLOB_DIR));
                 }
             }
+        }
+        for rel in leftovers {
+            let source = sink.source(D, &rel, false)?;
+            sink.add_item(plan::item(&plan::retire_key(D, &rel), KindGroup::Data, K::Retired, Contract::Retire, vec![source], None)?)?;
         }
         if sources.is_empty() {
             return Ok(());
@@ -726,7 +733,9 @@ impl ItemDriver for StoresDriver {
             let rel = item.key.as_str().split_once("/data/").map_or("", |(_, r)| r);
             return RETIRED_FILES.contains(&rel)
                 || RETIRED_DIRS.contains(&rel)
-                || (!rel.contains('/') && is_retired_pattern(rel));
+                || (!rel.contains('/') && is_retired_pattern(rel))
+                || temp_files::is_store_leftover(rel)
+                || is_blob_leftover(rel);
         }
         handles(item.kind)
     }
@@ -867,18 +876,5 @@ mod tests {
         assert_eq!(moved_quota_config(&serde_json::json!({"quotaResume": {"note": 1}})), None);
         let moved = moved_quota_config(&off).unwrap();
         assert_eq!(moved_quota_config(&moved), None);
-    }
-
-    #[test]
-    fn interrupted_writes_are_recognized() {
-        for name in [
-            "a.json.0123456789ab.tmp",
-            ".x.json.0123456789abcdef01234567.tmp",
-            "x.lock.123.ab.tmp",
-            "gateway-session-routes.json.mixdog-tmp-ab12",
-        ] {
-            assert!(is_interrupted_write(name), "{name}");
-        }
-        assert!(!is_interrupted_write("notes.tmp"));
     }
 }

@@ -623,13 +623,22 @@ fn only_planned_names_are_enumerated() {
         "remote-hosts.json",
         "unknown.json",
         ".desktop-session-metadata.json.nothex.tmp",
+        "desktop-session-metadata.json.mixdog-tmp-nothex",
+        "desktop-session-metadata.json.mixdog-tmp-0123abcd",
     ] {
         files.push((name, b"x"));
     }
     files.push((".desktop-session-metadata.json.0123456789abcdef01234567.tmp", b"x"));
+    files.push(("desktop-session-metadata.json.mixdog-tmp-0123456789abcdef", b"x"));
     let run = Run::new(None, &files, &BTreeSet::new());
     let keys: Vec<_> = run.items().map(|item| item.key.as_str()).collect();
-    assert_eq!(keys, ["retire/profile/.desktop-session-metadata.json.0123456789abcdef01234567.tmp"]);
+    assert_eq!(
+        keys,
+        [
+            "retire/profile/.desktop-session-metadata.json.0123456789abcdef01234567.tmp",
+            "retire/profile/desktop-session-metadata.json.mixdog-tmp-0123456789abcdef"
+        ]
+    );
 }
 
 // ── the framework's own run: complete marker, crash matrix, rename failure ──────────

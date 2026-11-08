@@ -13,3 +13,4 @@ pub mod plan;
 pub mod run;
 pub mod session;
 pub mod stores;
+pub mod temp_files;

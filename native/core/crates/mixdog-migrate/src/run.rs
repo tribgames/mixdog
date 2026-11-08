@@ -192,6 +192,8 @@ impl Migrator {
     /// Runs (or resumes) the migration to its completion marker.
     pub fn run(&self) -> Result<Complete> {
         let data = &self.roots.data;
+        // A publication a kill cut leaves its tmp file here (the main and the late pass publish into this directory); it goes before the marker is read, and the run publishes the name again under a new tmp.
+        durable::sweep_tmp(&data.join(MANIFEST_PATH).parent().expect("the migration dir"))?;
         let Some(bytes) = durable::read_optional(&data.join(COMPLETE_PATH))? else {
             return self.pass(Pass::First);
         };

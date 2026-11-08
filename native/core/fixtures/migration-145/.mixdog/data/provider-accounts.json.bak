@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "providers": {
+    "openai-oauth": {
+      "accounts": [
+        {
+          "id": "default",
+          "label": "Account 1"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000000",
+          "label": "Work"
+        }
+      ],
+      "selectedId": "00000000-0000-4000-8000-000000000000",
+      "auto": false,
+      "policy": "manual"
+    },
+    "grok-oauth": {
+      "accounts": [
+        {
+          "id": "default",
+          "label": "Account 1"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000001",
+          "label": "Work"
+        }
+      ],
+      "selectedId": "00000000-0000-4000-8000-000000000001",
+      "auto": false,
+      "policy": "manual"
+    },
+    "antigravity-oauth": {
+      "accounts": [
+        {
+          "id": "default",
+          "label": "Account 1"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000002",
+          "label": "Work"
+        }
+      ],
+      "selectedId": "00000000-0000-4000-8000-000000000002",
+      "auto": false,
+      "policy": "manual"
+    },
+    "command-code-oauth": {
+      "accounts": [
+        {
+          "id": "default",
+          "label": "Account 1"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "label": "Work"
+        }
+      ],
+      "selectedId": "00000000-0000-4000-8000-000000000003",
+      "auto": false,
+      "policy": "manual"
+    },
+    "mimo-oauth": {
+      "accounts": [
+        {
+          "id": "default",
+          "label": "Account 1"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000004",
+          "label": "Work"
+        }
+      ],
+      "selectedId": "00000000-0000-4000-8000-000000000004",
+      "auto": false,
+      "policy": "manual"
+    },
+    "muse-code-oauth": {
+      "accounts": [
+        {
+          "id": "default",
+          "label": "Account 1"
+        },
+        {
+          "id": "00000000-0000-4000-8000-000000000005",
+          "label": "Work"
+        }
+      ],
+      "selectedId": "default",
+      "auto": true
+    }
+  }
+}

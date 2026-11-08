@@ -1,0 +1,8 @@
+{
+  "access_token": "fake-grok-access-2",
+  "refresh_token": "fake-grok-refresh-2",
+  "expires_at": 4102444800000,
+  "token_endpoint": null,
+  "user_id": "grok-user-2",
+  "email": "grok2@example.test"
+}

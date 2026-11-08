@@ -20,6 +20,8 @@ use std::fs::OpenOptions;
 use std::io::Read;
 use std::io::Write;
 use std::path::Path;
+#[cfg(feature = "crash-hook")]
+use std::sync::OnceLock;
 
 use mixdog_store::fsio;
 use sha2::Digest as _;
@@ -28,6 +30,74 @@ use sha2::Sha256;
 use crate::error::Blocked;
 use crate::error::Result;
 use crate::json::hex;
+
+/// The boundaries at which a mutating step of the migration can be cut, in the order the code takes them. A hook is called
+/// before the boundary's operation is done, with the disk exactly as a process killed there leaves it: nothing is simulated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Step {
+    /// A directory about to be created.
+    CreateDir,
+    /// A file about to be created (the tmp of a publication, a staged output): none of it exists yet.
+    Create,
+    /// The first half of a file's bytes written, the second not: a partial file.
+    Write,
+    /// All bytes written, the file not yet synced.
+    Sync,
+    /// The tmp or staged file synced, the rename that publishes it not yet done.
+    Rename,
+    /// Renamed, the parent directories not yet synced.
+    SyncDir,
+    /// One file about to be removed.
+    Remove,
+    /// The emptied directory tree about to be removed.
+    RemoveDir,
+    /// The first half of a journal frame appended, the second not: a torn tail.
+    Append,
+    /// The torn journal tail about to be cut off.
+    Truncate,
+    /// The derived index database about to be built in its stage directory.
+    Project,
+    /// The index database built, not yet synced.
+    Projected,
+    /// An SQLite transaction about to commit; a kill leaves its rollback journal.
+    SqliteCommit,
+}
+/// Test seam (`crash-hook` feature only): called at every [Step] boundary, with the path it concerns and the bytes the file will hold (empty when
+/// there are none). A test installs it in a child process that exits at the boundary it chooses.
+#[cfg(feature = "crash-hook")]
+pub type StepHook = fn(Step, &Path, &[u8]);
+
+#[cfg(feature = "crash-hook")]
+static STEP_HOOK: OnceLock<StepHook> = OnceLock::new();
+
+/// Installs the hook for the life of the process; a second installation is a bug of the caller.
+#[cfg(feature = "crash-hook")]
+pub fn set_step_hook(hook: StepHook) {
+    assert!(STEP_HOOK.set(hook).is_ok(), "the step hook is installed once");
+    // Every whole-file publication goes through the store's `publish_file_with`; its boundaries are steps too.
+    fsio::set_publish_hook(|at, path, bytes| {
+        let at = match at {
+            fsio::PublishStep::Create => Step::Create,
+            fsio::PublishStep::Write => Step::Write,
+            fsio::PublishStep::Sync => Step::Sync,
+            fsio::PublishStep::Rename => Step::Rename,
+            fsio::PublishStep::SyncDir => Step::SyncDir,
+        };
+        step(at, path, bytes);
+    });
+}
+
+/// Reports a step to the hook before it is taken.
+#[cfg(feature = "crash-hook")]
+pub fn step(step: Step, path: &Path, bytes: &[u8]) {
+    if let Some(hook) = STEP_HOOK.get() {
+        hook(step, path, bytes);
+    }
+}
+
+/// A production build has no hook: a step is not reported.
+#[cfg(not(feature = "crash-hook"))]
+pub fn step(_: Step, _: &Path, _: &[u8]) {}
 
 /// Syncs a file's data and metadata.
 pub fn sync_file(path: &Path) -> Result<()> {
@@ -46,16 +116,41 @@ pub fn sync_dir(path: &Path) -> Result<()> {
 
 /// Creates `path` and its missing ancestors durably.
 pub fn create_dir_all(path: &Path) -> Result<()> {
+    step(Step::CreateDir, path, &[]);
     fsio::create_dir_durable(path).map_err(Blocked::fsio)
 }
 
 /// Renames `from` to `to` (replacing a file `to`), then syncs both parents.
 pub fn durable_rename(from: &Path, to: &Path) -> Result<()> {
-    fsio::durable_rename(from, to).map_err(Blocked::fsio)
+    step(Step::Rename, to, &[]);
+    fsio::rename_replace(from, to).map_err(Blocked::fsio)?;
+    step(Step::SyncDir, to, &[]);
+    fsio::sync_rename_parents(from, to).map_err(Blocked::fsio)
 }
 
-/// Writes `bytes` whole to `path`: a synced temporary file renamed over it, parent synced.
+/// Writes `bytes` in two halves, so that the boundary between them is a real partial file.
+fn write_halves(file: &mut File, path: &Path, bytes: &[u8], midway: Step) -> Result<()> {
+    let (first, second) = bytes.split_at(bytes.len() / 2);
+    file.write_all(first).map_err(|e| Blocked::io("write", path, e))?;
+    step(midway, path, bytes);
+    file.write_all(second).map_err(|e| Blocked::io("write", path, e))
+}
+
+/// Writes `bytes` whole to `path`: a synced temporary file renamed over it, parent synced. The tmp is removed again when a
+/// step fails; one a kill leaves is deleted by [sweep_tmp] under the migration directory, and beside `path` by the next
+/// publication of that same name (a quarantine directory is outside the migration directory, and holds moved user files
+/// no sweep may touch).
 pub fn publish_file(path: &Path, bytes: &[u8]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        create_dir_all(parent)?;
+    }
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let stale = format!(".{name}.tmp-");
+    for (entry, is_dir) in list_dir(path.parent().expect("a published file has a parent"))? {
+        if !is_dir && entry.starts_with(&stale) && fsio::is_tmp_name(&entry) {
+            remove_file(&path.with_file_name(entry))?;
+        }
+    }
     fsio::publish_file_with(path, bytes, fsio::Access::Inherit).map_err(Blocked::fsio)
 }
 
@@ -73,14 +168,16 @@ pub fn write_synced(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
         create_dir_all(parent)?;
     }
+    step(Step::Create, path, bytes);
     let mut file = File::create(path).map_err(|e| Blocked::io("create", path, e))?;
-    file.write_all(bytes)
-        .map_err(|e| Blocked::io("write", path, e))?;
+    write_halves(&mut file, path, bytes, Step::Write)?;
+    step(Step::Sync, path, bytes);
     file.sync_all().map_err(|e| Blocked::io("sync", path, e))
 }
 
 /// Removes a file that may already be gone; syncs its parent when it removed one.
 pub fn remove_file(path: &Path) -> Result<bool> {
+    step(Step::Remove, path, &[]);
     match fs::remove_file(path) {
         Ok(()) => {
             if let Some(parent) = path.parent() {
@@ -93,8 +190,19 @@ pub fn remove_file(path: &Path) -> Result<bool> {
     }
 }
 
-/// Removes a directory tree that may already be gone.
+/// Removes a directory tree that may already be gone: its files one by one (each a boundary a kill can fall on), then the
+/// emptied tree.
 pub fn remove_dir_all(path: &Path) -> Result<()> {
+    for rel in walk_files(path)? {
+        let file = path.join(rel);
+        step(Step::Remove, &file, &[]);
+        match fs::remove_file(&file) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(Blocked::io("remove", &file, e)),
+        }
+    }
+    step(Step::RemoveDir, path, &[]);
     match fs::remove_dir_all(path) {
         Ok(()) => {
             if let Some(parent) = path.parent() {
@@ -164,6 +272,17 @@ pub fn hash_file(path: &Path) -> Result<(u64, String)> {
         hasher.update(&buf[..n]);
     }
     Ok((size, hex(&hasher.finalize())))
+}
+
+/// Deletes the tmp files of an interrupted `publish_file` under `dir`, at any depth (SM §7.4: a tmp is never
+/// published, only deleted). The migration creates every file there, so none is anyone's data.
+pub fn sweep_tmp(dir: &Path) -> Result<()> {
+    for rel in walk_files(dir)? {
+        if fsio::is_tmp_name(rel.rsplit('/').next().unwrap_or(&rel)) {
+            remove_file(&dir.join(&rel))?;
+        }
+    }
+    Ok(())
 }
 
 pub fn sha256_hex(bytes: &[u8]) -> String {

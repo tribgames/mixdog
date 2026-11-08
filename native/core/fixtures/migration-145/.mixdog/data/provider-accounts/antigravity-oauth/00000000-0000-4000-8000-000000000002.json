@@ -1,0 +1,9 @@
+{
+  "access_token": "fake-agy-access-2",
+  "refresh_token": "fake-agy-refresh-2",
+  "expires_at": 4102444800000,
+  "project_id": "proj-2",
+  "tier_id": "",
+  "email": "agy2@example.test",
+  "user_id": ""
+}
