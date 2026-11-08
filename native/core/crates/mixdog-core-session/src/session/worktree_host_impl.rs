@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
+use mixdog_core_api::CoreError;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_rt::CancellationToken;
@@ -168,6 +169,14 @@ impl WorkspaceHost for SessionWorkspaceHost {
             workspace,
             desktop_project,
             has_messages: self.runtime.has_messages(session_id),
+        })
+    }
+
+    async fn ensure_session(&self, session_id: &str) -> Result<(), ScmFailure> {
+        self.directory.seat_session(&ThreadId::from(session_id)).await.map_err(|error| match error {
+            // Node's `Error` from `prepareRoute`: its text alone.
+            CoreError::DomainError { message: Some(message), .. } => plain(message.to_string()),
+            other => port(other),
         })
     }
 

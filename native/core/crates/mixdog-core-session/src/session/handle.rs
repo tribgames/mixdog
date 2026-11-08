@@ -227,6 +227,12 @@ impl SessionHandle {
         Scope::new().cancel(&cancel).run(self.to_actor(req)).await.done().ok_or(mixdog_rt::GateCancelled).map_err(caller_cancelled)?
     }
 
+    /// `createCurrentSession` for this thread when it has no session yet.
+    async fn create_session(&self) -> Result<(), CoreError> {
+        let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
+        super::SessionDirectory::over(directory).seat_session(&self.id).await
+    }
+
     /// `turn/start` (`session-turns.mjs` `submitAdmitted`): the originals a composer staged for
     /// the message's images are claimed first, so staging limits can no longer take them; one
     /// that is gone (or cannot be claimed in time) is dropped from the message, leaving the
@@ -235,6 +241,8 @@ impl SessionHandle {
         // An admitted start (`admitted`, turn-gate.mjs): the idle-only delete refuses while one is
         // in its intake, and the thread refuses starts while that delete runs.
         let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
+        // A turn is a session's first use (`createCurrentSession('turn')`, `turn-prepare.mjs`).
+        self.create_session().await?;
         let _admitted = directory.gate().enter(&self.id).ok_or_else(|| self.closing())?;
         let cancel = req.ctx.cancel.clone();
         let in_order = self.submits.enter(&cancel).await.map_err(caller_cancelled)?;
@@ -638,6 +646,11 @@ impl ThreadHandle for SessionHandle {
             "thread/clear" => self.clear(req).await,
             "thread/fork" => self.fork(req).await,
             "turn/start" => self.turn_start(req).await,
+            // `goalControl` makes the session when there is none (`createCurrentSession('goal')`).
+            "thread/goal/set" | "thread/goal/clear" | "thread/goal/control" => {
+                self.create_session().await?;
+                self.to_actor(req).await
+            }
             "thread/delete" => self.delete(&req).await,
             "thread/revertTurnReview" => self.revert_turn_review(&req, false).await,
             "thread/revertTurnReviewFile" => self.revert_turn_review(&req, true).await,

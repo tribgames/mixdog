@@ -96,6 +96,9 @@ impl Inner {
         if input.carry_changes.as_deref().is_some_and(|c| !CARRY_CHOICES.contains(&c)) {
             return Err(plain(format!("carryChanges must be one of {}.", CARRY_CHOICES.join(", "))));
         }
+        if input.provision {
+            self.host.ensure_session(session).await?;
+        }
         let current = self.workspace(session)?;
         assert_revision(current.revision, input.expected_revision)?;
         if current.is_bound() {
@@ -146,6 +149,7 @@ impl Inner {
         own_turn: bool,
         cancel: &CancellationToken,
     ) -> Result<JsonValue, ScmFailure> {
+        self.host.ensure_session(session).await?;
         let current = self.workspace(session)?;
         if current.branch.as_deref() == Some(input.branch.as_str()) && current.worktree_id.is_some() {
             assert_revision(current.revision, input.expected_revision)?;

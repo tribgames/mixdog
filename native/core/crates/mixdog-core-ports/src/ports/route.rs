@@ -129,7 +129,12 @@ fn text<'a>(map: &'a Map<String, Value>, key: &str) -> &'a str {
 /// seated (a model on the header) and a conversation only ever exists on a seated route (rows). A record with neither is the
 /// reservation. Nothing is stored for it, so it never reaches a transcript, a listing or a migration.
 pub fn has_session(header: &Header, rows: &[Value]) -> bool {
-    !text(header, "model").is_empty() || !rows.is_empty()
+    header_names_session(header) || !rows.is_empty()
+}
+
+/// A header that names a model is a session on its own: [`has_session`] needs no rows for it.
+pub fn header_names_session(header: &Header) -> bool {
+    !text(header, "model").is_empty()
 }
 
 pub fn is_summary_anchor(message: &Value) -> bool {
@@ -381,6 +386,28 @@ impl SessionRoutes {
         self.pending.lock().expect("pending picks lock")
     }
 
+    /// [`has_session`] over the thread's record, its rows read only when the header does not decide.
+    async fn record_has_session(&self, thread: &ThreadId, header: &Header) -> Result<bool, PortError> {
+        let rows = if header_names_session(header) { Vec::new() } else { self.messages.messages(thread).await? };
+        Ok(has_session(header, &rows))
+    }
+
+    /// Whether the thread has its session (`getSession()?.id`).
+    pub async fn has_session(&self, thread: &ThreadId) -> Result<bool, PortError> {
+        let header = self.threads.header(thread).await?;
+        self.record_has_session(thread, &header).await
+    }
+
+    /// The session `createCurrentSession` builds (`materializeSession`): the created, empty thread takes the live route
+    /// onto its record, which is what makes it a session ([`has_session`]). The only way a thread gets one; a route change
+    /// ([`Self::follow`]) updates an existing session and creates none.
+    pub async fn seat(&self, thread: &ThreadId) -> Result<(), PortError> {
+        let header = self.threads.header(thread).await?;
+        self.update_in_place(thread, &header, false).await?;
+        self.session.invalidate_context_status(thread);
+        Ok(())
+    }
+
     /// What the adopted route does to the thread it was selected for (`followSession`).
     pub async fn follow(&self, thread: &ThreadId, options: &FollowOptions) -> Result<Followed, PortError> {
         // A selection addressed to a conversation belongs to the generation it was enqueued
@@ -390,6 +417,12 @@ impl SessionRoutes {
             return Ok(Followed::default());
         }
         let header = self.threads.header(thread).await?;
+        // `followSession` acts on `getSession()`: a runtime whose session is not created yet (a reservation) has nothing to
+        // follow, the route it holds is the one the session is created on ([`Self::seat`]).
+        if !self.record_has_session(thread, &header).await? {
+            self.pending_lock().remove(thread.as_str());
+            return Ok(Followed::default());
+        }
         let route = self.live.route(thread);
         let key = thread.as_str().to_owned();
         if options.defer_until_next_turn {
@@ -719,6 +752,21 @@ mod tests {
         let header = json!({"provider": "openai", "model": "gpt-a"});
         let (routes, calls) = routes(header, Vec::new(), live);
         routes.follow(&thread(), &FollowOptions::default()).await.unwrap();
+        assert_eq!(calls.all(), ["update \"claude-x\" cross=false", "surface anthropic", "statusline"]);
+    }
+
+    /// A route change acts on the session the runtime has (`followSession` over `getSession()`): a thread without one is
+    /// left without one, even for a selection addressed to it, and only creating the session ([`SessionRoutes::seat`])
+    /// puts the live route on its record.
+    #[tokio::test]
+    async fn a_route_change_creates_no_session_and_the_seat_does() {
+        let live = json!({"provider": "anthropic", "model": "claude-x"});
+        let (routes, calls) = routes(json!({"id": "t1", "cwd": "/w"}), Vec::new(), live);
+        let options = FollowOptions { apply_to_current_session: true, switch_established: true, ..FollowOptions::default() };
+        assert_eq!(routes.follow(&thread(), &options).await.unwrap(), Followed::default());
+        assert!(calls.all().is_empty(), "{:?}", calls.all());
+        assert!(!routes.has_session(&thread()).await.unwrap());
+        routes.seat(&thread()).await.unwrap();
         assert_eq!(calls.all(), ["update \"claude-x\" cross=false", "surface anthropic", "statusline"]);
     }
 

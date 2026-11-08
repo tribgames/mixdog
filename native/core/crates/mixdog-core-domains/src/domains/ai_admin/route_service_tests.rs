@@ -154,6 +154,14 @@ impl SessionFollow for Session {
         Ok(())
     }
 
+    async fn has_session(&self, _: &ThreadId) -> Result<bool, PortError> {
+        Ok(true)
+    }
+
+    async fn seat(&self, _: &ThreadId) -> Result<(), PortError> {
+        Ok(())
+    }
+
     // The conversation the recording addressed runs `continueSession`; a switch to another model
     // records a boundary (its clock reading is the recording's 0).
     async fn switch_now(&self, thread: &ThreadId) -> Result<Option<Value>, PortError> {

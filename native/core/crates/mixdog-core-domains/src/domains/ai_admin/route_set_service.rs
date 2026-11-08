@@ -69,6 +69,14 @@ impl SessionFollow for PreSessionAware {
     async fn switch_now(&self, thread: &ThreadId) -> Result<Option<Value>, PortError> {
         if pre_session(thread) { Ok(None) } else { self.inner.switch_now(thread).await }
     }
+
+    async fn has_session(&self, thread: &ThreadId) -> Result<bool, PortError> {
+        if pre_session(thread) { Ok(false) } else { self.inner.has_session(thread).await }
+    }
+
+    async fn seat(&self, thread: &ThreadId) -> Result<(), PortError> {
+        if pre_session(thread) { Ok(()) } else { self.inner.seat(thread).await }
+    }
 }
 
 pub struct RouteSetService {
