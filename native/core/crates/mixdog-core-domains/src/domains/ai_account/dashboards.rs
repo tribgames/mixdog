@@ -83,6 +83,17 @@ impl Dashboards {
     /// [`get`](Self::get) at the clock reading `now` (`Date.now()`): the sweep-reuse window and the dashboard's
     /// `checkedAt` are measured on it.
     pub async fn get_at(&self, options: &Value, sources: &dyn UsageSources, accounts: &AccountStore, now: i64) -> Result<Value, Failure> {
+        self.answer(options, sources, accounts, now, true).await
+    }
+
+    /// [`get_at`](Self::get_at) for the core's own reading (the `usage` section producer): it may reuse the cached dashboard
+    /// but never stores what it builds. Node's cache is filled only by a client's question, so a client's first plain question
+    /// builds and answers without `cached` even though the producer has already published a dashboard.
+    pub async fn read_at(&self, options: &Value, sources: &dyn UsageSources, accounts: &AccountStore, now: i64) -> Result<Value, Failure> {
+        self.answer(options, sources, accounts, now, false).await
+    }
+
+    async fn answer(&self, options: &Value, sources: &dyn UsageSources, accounts: &AccountStore, now: i64, remember: bool) -> Result<Value, Failure> {
         let refresh_usage = options.get("refresh") == Some(&Value::Bool(true));
         let force_setup = options.get("force") == Some(&Value::Bool(true))
             || (refresh_usage && options.get("refreshSetup") != Some(&Value::Bool(false)));
@@ -100,7 +111,15 @@ impl Dashboards {
                 }
             }
         }
-        self.build(options, refresh_usage, force_setup, sources, accounts, now).await
+        let dashboard = self.build(options, refresh_usage, force_setup, sources, accounts, now).await?;
+        if remember {
+            *self.cache() = Cache {
+                dashboard: Some(dashboard.clone()),
+                at: now,
+                live_at: (refresh_usage && scope_key(options).is_empty()).then_some(now),
+            };
+        }
+        Ok(dashboard)
     }
 
     async fn build(
@@ -112,7 +131,6 @@ impl Dashboards {
         accounts: &AccountStore,
         at: i64,
     ) -> Result<Value, Failure> {
-        let scope = scope_key(options);
         let setup = match self.setup.setup(force_setup, false).await {
             Ok(setup) => setup,
             // One unavailable keychain or provider must not take down the dashboard.
@@ -127,13 +145,7 @@ impl Dashboards {
             preview: false,
         };
         let config = self.setup.display_config().await.map_err(Failure::error)?;
-        let dashboard = create_usage_dashboard(&config, &setup, &dashboard_options, at, sources, accounts).await;
-        *self.cache() = Cache {
-            dashboard: Some(dashboard.clone()),
-            at,
-            live_at: (refresh_usage && scope.is_empty()).then_some(at),
-        };
-        Ok(dashboard)
+        Ok(create_usage_dashboard(&config, &setup, &dashboard_options, at, sources, accounts).await)
     }
 
     /// The courtesy rebuild after a redeem: the cache is dropped, then a refresh without a

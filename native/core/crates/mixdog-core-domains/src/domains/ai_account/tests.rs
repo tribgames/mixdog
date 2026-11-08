@@ -204,3 +204,59 @@ async fn provider_sign_in_feeds_publish_the_statuses_node_answered() {
         flows.cancel_all();
     }
 }
+struct EmptySetup;
+
+#[async_trait::async_trait]
+impl super::dashboards::SetupSource for EmptySetup {
+    async fn setup(&self, _: bool, _: bool) -> Result<Value, String> {
+        Ok(serde_json::json!({}))
+    }
+
+    async fn display_config(&self) -> Result<Value, String> {
+        Ok(serde_json::json!({}))
+    }
+}
+
+struct NoQuotas;
+
+#[async_trait::async_trait]
+impl super::usage::dashboard::UsageSources for NoQuotas {
+    async fn cached_oauth(&self, _: &str, _: bool) -> Option<Value> {
+        None
+    }
+
+    fn oauth_provider_ready(&self, _: &str) -> bool {
+        false
+    }
+
+    async fn fetch_oauth(&self, _: &str, _: bool) -> Result<Option<Value>, String> {
+        Ok(None)
+    }
+
+    async fn cached_api(&self, _: &str) -> Option<Value> {
+        None
+    }
+
+    async fn fetch_api(&self, _: &str, _: bool) -> Result<Option<Value>, String> {
+        Ok(None)
+    }
+}
+
+/// Node's dashboard cache is filled by a client's question only. The core's own reading for the `usage` section must not fill
+/// it: a client's first plain question builds and answers without `cached`, and only the next one is the cached answer.
+#[tokio::test]
+async fn the_producers_reading_does_not_seed_the_dashboard_cache() {
+    let dir = tempfile::tempdir().unwrap();
+    let tokens = mixdog_rt::testing::tokens();
+    let accounts = AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+    let dashboards = super::dashboards::Dashboards::new(std::sync::Arc::new(EmptySetup));
+    let question = serde_json::json!({ "refresh": true, "refreshSetup": false });
+
+    let produced = dashboards.read_at(&question, &NoQuotas, &accounts, 1_000).await.unwrap();
+    assert!(produced.get("cached").is_none(), "{produced}");
+    let first = dashboards.get_at(&serde_json::json!({}), &NoQuotas, &accounts, 2_000).await.unwrap();
+    assert!(first.get("cached").is_none(), "the producer's reading answered the client's first question: {first}");
+    let second = dashboards.get_at(&serde_json::json!({}), &NoQuotas, &accounts, 3_000).await.unwrap();
+    assert_eq!(second["cached"], true);
+    assert_eq!(second["cachedAt"], 2_000);
+}

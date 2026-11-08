@@ -117,7 +117,7 @@ pub struct DashboardReading {
 #[async_trait]
 impl SectionSource for DashboardReading {
     async fn read(&self, clock: &Clock) -> Result<Value, String> {
-        self.dashboards.get_at(&dashboard_question(), self.sources.as_ref(), &self.accounts, clock()).await.map_err(|failure| failure.message().to_owned())
+        self.dashboards.read_at(&dashboard_question(), self.sources.as_ref(), &self.accounts, clock()).await.map_err(|failure| failure.message().to_owned())
     }
 }
 
