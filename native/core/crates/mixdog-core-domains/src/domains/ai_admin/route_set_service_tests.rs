@@ -151,6 +151,30 @@ async fn a_request_naming_no_thread_writes_the_route_before_any_session() {
     assert_eq!(Value::Object(live), case["after"]["route"]);
 }
 
+/// The desktop's `setAgentRoute` called with no session reaches the core addressed to its control thread. Node's real
+/// `createAgentRouteApi` (`fixtures/control-session-actions`, recorded at the Node commit the manifest names) answers the
+/// agent's route, never the thread's.
+#[tokio::test]
+async fn route_set_for_an_agent_from_a_thread_answers_the_agents_route() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/control-session-actions/golden.json")).unwrap();
+    let route_case = route_cases().remove(0);
+    let cases = golden["agentRoutes"].as_array().unwrap();
+    assert!(!cases.is_empty());
+    for (i, case) in cases.iter().enumerate() {
+        let rig = build(&route_case, case).await;
+        let thread = ThreadId::from("control");
+        let route_before = rig.service.routes.writer.route(&thread);
+        let params = json!({ "threadId": "control", "agentId": case["agentId"], "route": case["request"] });
+        let got = value(&rig.service, request(ROUTE_SET, with_op(params, 1), Some(1))).await;
+        let label = format!("agent case {i}: {} {}", case["agentId"], case["request"]);
+        match case.get("error") {
+            Some(error) => assert_eq!(message(got.unwrap_err()), error.as_str().unwrap(), "{label}"),
+            None => assert_eq!(got.unwrap(), case["value"], "{label}"),
+        }
+        assert_eq!(rig.service.routes.writer.route(&thread), route_before, "{label}: the thread's own route is left as it was");
+    }
+}
+
 #[tokio::test]
 async fn route_set_for_an_agent_answers_what_set_agent_route_answers() {
     let route_case = route_cases().remove(0);

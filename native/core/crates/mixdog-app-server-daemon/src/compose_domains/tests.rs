@@ -369,9 +369,6 @@ impl mixdog_agent::compact::settings_service::CompactionHost for Quiet {
 
 #[async_trait]
 impl mixdog_core_config::workflow::WorkflowHost for Quiet {
-    async fn thread_mode_facts(&self, _: &str) -> Result<Value, CoreError> {
-        Ok(Value::Null)
-    }
     fn main_route(&self) -> Value {
         Value::Null
     }

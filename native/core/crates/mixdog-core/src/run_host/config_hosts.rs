@@ -86,7 +86,6 @@ pub type Env = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 pub struct ConfigHosts {
     pub config: Config,
-    pub headers: Arc<dyn ThreadHeaders>,
     pub routes: Arc<dyn LiveRoute>,
     pub gauge: Arc<dyn ContextStatusCache>,
     pub agents: Arc<dyn CustomAgentIds>,
@@ -134,20 +133,6 @@ fn catalog_row(facts: &dyn RouteFacts, provider: &str, model: &str) -> Option<Va
 
 #[async_trait]
 impl WorkflowHost for ConfigHosts {
-    async fn thread_mode_facts(&self, thread_id: &str) -> Result<Value, CoreError> {
-        let thread = ThreadId::from(thread_id);
-        let Some(header) = self.headers.header(&thread).await? else {
-            return Err(CoreError::ThreadNotFound { thread_id: thread });
-        };
-        let mut facts = Map::new();
-        for key in ["orchestrationMode", "pendingOrchestrationMode", "workflow"] {
-            if let Some(value) = header.get(key) {
-                facts.insert(key.to_owned(), value.clone());
-            }
-        }
-        Ok(Value::Object(facts))
-    }
-
     fn main_route(&self) -> Value {
         self.boot_route().map_or(Value::Null, Value::Object)
     }

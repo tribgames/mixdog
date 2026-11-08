@@ -1,0 +1,576 @@
+{
+  "domain": "control-session-actions",
+  "recorder": "benchmarks/rust-core/recorders/record-control-session-actions.mjs",
+  "modes": [
+    {
+      "name": "control-reserved",
+      "config": {},
+      "session": null,
+      "steps": [
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "balanced"
+        },
+        {
+          "action": "getConfiguredOrchestrationMode",
+          "args": [],
+          "value": "balanced"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "none"
+          ],
+          "value": {
+            "mode": "none",
+            "appliedToCurrentSession": true
+          }
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "none"
+        },
+        {
+          "action": "getConfiguredOrchestrationMode",
+          "args": [],
+          "value": "none"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "focused"
+          ],
+          "value": {
+            "mode": "focused",
+            "appliedToCurrentSession": true
+          }
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "focused"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "balanced"
+          ],
+          "value": {
+            "mode": "balanced",
+            "appliedToCurrentSession": true
+          }
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "balanced"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "parallel"
+          ],
+          "error": "orchestration mode must be one of none, focused, balanced, swarm"
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "balanced"
+        }
+      ]
+    },
+    {
+      "name": "control-reserved-stored-mode",
+      "config": {
+        "orchestrationMode": "swarm"
+      },
+      "session": null,
+      "steps": [
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "swarm"
+        },
+        {
+          "action": "getConfiguredOrchestrationMode",
+          "args": [],
+          "value": "swarm"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "none"
+          ],
+          "value": {
+            "mode": "none",
+            "appliedToCurrentSession": true
+          }
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "none"
+        },
+        {
+          "action": "getConfiguredOrchestrationMode",
+          "args": [],
+          "value": "none"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "focused"
+          ],
+          "value": {
+            "mode": "focused",
+            "appliedToCurrentSession": true
+          }
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "focused"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "balanced"
+          ],
+          "value": {
+            "mode": "balanced",
+            "appliedToCurrentSession": true
+          }
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "balanced"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "parallel"
+          ],
+          "error": "orchestration mode must be one of none, focused, balanced, swarm"
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "balanced"
+        }
+      ]
+    },
+    {
+      "name": "control-empty-session",
+      "config": {},
+      "session": {
+        "id": "sess_control",
+        "orchestrationMode": "balanced",
+        "messages": []
+      },
+      "steps": [
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "balanced"
+        },
+        {
+          "action": "getConfiguredOrchestrationMode",
+          "args": [],
+          "value": "balanced"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "none"
+          ],
+          "value": {
+            "mode": "none",
+            "appliedToCurrentSession": true
+          }
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "none"
+        },
+        {
+          "action": "getConfiguredOrchestrationMode",
+          "args": [],
+          "value": "none"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "focused"
+          ],
+          "value": {
+            "mode": "focused",
+            "appliedToCurrentSession": true
+          }
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "focused"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "balanced"
+          ],
+          "value": {
+            "mode": "balanced",
+            "appliedToCurrentSession": true
+          }
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "balanced"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "parallel"
+          ],
+          "error": "orchestration mode must be one of none, focused, balanced, swarm"
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "balanced"
+        }
+      ]
+    },
+    {
+      "name": "session-with-conversation",
+      "config": {
+        "orchestrationMode": "none"
+      },
+      "session": {
+        "id": "sess_talk",
+        "orchestrationMode": "swarm",
+        "pendingOrchestrationMode": "focused",
+        "messages": [
+          {
+            "role": "user",
+            "content": "hello"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "none"
+        },
+        {
+          "action": "getConfiguredOrchestrationMode",
+          "args": [],
+          "value": "none"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "none"
+          ],
+          "value": {
+            "mode": "none",
+            "appliedToCurrentSession": true
+          }
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "none"
+        },
+        {
+          "action": "getConfiguredOrchestrationMode",
+          "args": [],
+          "value": "none"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "focused"
+          ],
+          "value": {
+            "mode": "focused",
+            "appliedToCurrentSession": true
+          }
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "focused"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "balanced"
+          ],
+          "value": {
+            "mode": "balanced",
+            "appliedToCurrentSession": true
+          }
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "balanced"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "parallel"
+          ],
+          "error": "orchestration mode must be one of none, focused, balanced, swarm"
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "balanced"
+        }
+      ]
+    },
+    {
+      "name": "unknown-stored-mode",
+      "config": {
+        "orchestrationMode": "bogus"
+      },
+      "session": {
+        "id": "sess_a",
+        "orchestrationMode": "swarm",
+        "messages": []
+      },
+      "steps": [
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "balanced"
+        },
+        {
+          "action": "getConfiguredOrchestrationMode",
+          "args": [],
+          "value": "balanced"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "none"
+          ],
+          "value": {
+            "mode": "none",
+            "appliedToCurrentSession": true
+          }
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "none"
+        },
+        {
+          "action": "getConfiguredOrchestrationMode",
+          "args": [],
+          "value": "none"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "focused"
+          ],
+          "value": {
+            "mode": "focused",
+            "appliedToCurrentSession": true
+          }
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "focused"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "balanced"
+          ],
+          "value": {
+            "mode": "balanced",
+            "appliedToCurrentSession": true
+          }
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "balanced"
+        },
+        {
+          "action": "setOrchestrationMode",
+          "args": [
+            "parallel"
+          ],
+          "error": "orchestration mode must be one of none, focused, balanced, swarm"
+        },
+        {
+          "action": "getOrchestrationMode",
+          "args": [],
+          "value": "balanced"
+        }
+      ]
+    }
+  ],
+  "agentRoutes": [
+    {
+      "config": {},
+      "agentId": "maintainer",
+      "request": {
+        "provider": "custom-harness",
+        "model": "harness-model"
+      },
+      "meta": null,
+      "known": [
+        "openai",
+        "openai-oauth",
+        "anthropic",
+        "anthropic-oauth",
+        "gemini",
+        "custom-harness"
+      ],
+      "fastByProvider": {
+        "openai": false,
+        "openai-oauth": false,
+        "anthropic": false,
+        "anthropic-oauth": false,
+        "gemini": false,
+        "custom-harness": false
+      },
+      "oracle": {
+        "editorId": "maintainer",
+        "hidden": false,
+        "disabled0": false
+      },
+      "value": {
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "fast": false,
+        "modelParameters": {}
+      },
+      "after": {
+        "own": {
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "fast": false,
+          "modelParameters": {}
+        },
+        "disabled": false,
+        "config": {
+          "agents": {
+            "maintainer": {
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "fast": false,
+              "modelParameters": {}
+            }
+          },
+          "maintenance": {},
+          "presets": []
+        },
+        "saves": 1,
+        "reloads": 0,
+        "ensured": [
+          {
+            "custom-harness": {
+              "enabled": true
+            }
+          }
+        ],
+        "published": [
+          {
+            "id": "maintainer",
+            "route": {
+              "provider": "custom-harness",
+              "model": "harness-model",
+              "fast": false,
+              "modelParameters": {}
+            }
+          }
+        ]
+      },
+      "own0": null
+    },
+    {
+      "config": {
+        "agents": {
+          "maintainer": {
+            "provider": "custom-harness",
+            "model": "harness-model"
+          }
+        },
+        "disabledAgents": [
+          "maintainer"
+        ]
+      },
+      "agentId": "maintainer",
+      "request": {
+        "disabled": false
+      },
+      "meta": null,
+      "known": [
+        "openai",
+        "openai-oauth",
+        "anthropic",
+        "anthropic-oauth",
+        "gemini",
+        "custom-harness"
+      ],
+      "fastByProvider": {
+        "openai": false,
+        "openai-oauth": false,
+        "anthropic": false,
+        "anthropic-oauth": false,
+        "gemini": false,
+        "custom-harness": false
+      },
+      "oracle": {
+        "editorId": "maintainer",
+        "hidden": false,
+        "disabled0": true
+      },
+      "value": {
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "id": "maintainer",
+        "disabled": false,
+        "inherited": false
+      },
+      "after": {
+        "own": {
+          "provider": "custom-harness",
+          "model": "harness-model"
+        },
+        "disabled": false,
+        "config": {
+          "agents": {
+            "maintainer": {
+              "provider": "custom-harness",
+              "model": "harness-model"
+            }
+          },
+          "maintenance": {},
+          "presets": []
+        },
+        "saves": 1,
+        "reloads": 0,
+        "ensured": [],
+        "published": []
+      },
+      "own0": {
+        "provider": "custom-harness",
+        "model": "harness-model"
+      }
+    }
+  ]
+}

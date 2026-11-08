@@ -42,9 +42,6 @@ struct Host;
 
 #[async_trait]
 impl WorkflowHost for Host {
-    async fn thread_mode_facts(&self, _: &str) -> Result<Value, CoreError> {
-        Ok(json!({}))
-    }
     fn main_route(&self) -> Value {
         json!({})
     }
@@ -190,6 +187,43 @@ async fn the_settings_methods_match_node() {
             let root: serde_json::Map<String, Value> =
                 rig.config.full().iter().filter(|(k, _)| !matches!(k.as_str(), "agent" | "defaultsVersion")).map(|(k, v)| (k.clone(), v.clone())).collect();
             assert_eq!(Value::Object(root), step["root"], "{name} #{i} {method} root");
+        }
+    }
+}
+
+/// The desktop calls these with no session, so they reach the core addressed to its control thread (`threadId`). Node's
+/// `getOrchestrationMode` is the configured mode whatever session it is called on (`fixtures/control-session-actions`, the real
+/// `createStyleAndModeApi` over a session or none): a choice just saved is what the next read answers.
+#[tokio::test]
+async fn the_orchestration_mode_reads_back_what_node_reads_on_the_control_session() {
+    let path = fixtures().join("../control-session-actions/golden.json");
+    let golden: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    for scenario in golden["modes"].as_array().unwrap() {
+        let name = scenario["name"].as_str().unwrap();
+        let rig = rig(&json!({ "files": {}, "config": scenario["config"], "rootKeys": {}, "reach": true })).await;
+        for (i, step) in scenario["steps"].as_array().unwrap().iter().enumerate() {
+            let n = i as u64 + 1;
+            let action = step["action"].as_str().unwrap();
+            let got = match action {
+                "setOrchestrationMode" => {
+                    let params = json!({ "threadId": "control", "mode": step["args"][0] });
+                    value(&rig.service, request(method_of(action), with_op(params, n), Some(n))).await
+                }
+                _ => {
+                    let method = if action == "getOrchestrationMode" { "config/getOrchestrationMode" } else { "config/getConfiguredOrchestrationMode" };
+                    value(&*rig.service.workflow, request(method, json!({ "threadId": "control" }), None)).await
+                }
+            };
+            let got = match got {
+                Ok(v) => json!({ "value": v }),
+                Err(CoreError::DomainError { message: Some(message), detail: None, .. }) => json!({ "error": &*message }),
+                Err(other) => panic!("{name} #{i} {action}: {other:?}"),
+            };
+            let want = match step.get("error") {
+                Some(error) => json!({ "error": error }),
+                None => json!({ "value": step["value"] }),
+            };
+            assert_eq!(got, want, "{name} #{i} {action} {}", step["args"]);
         }
     }
 }

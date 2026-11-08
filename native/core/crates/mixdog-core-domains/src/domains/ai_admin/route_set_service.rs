@@ -168,7 +168,9 @@ impl RouteSetService {
     async fn route_set(&self, req: &CoreRequest) -> Result<Value, CoreError> {
         let params: RouteSetParams = decode(req)?;
         let selection = params.route.as_object().ok_or_else(|| invalid("route", "an object"))?;
-        if let Some(agent) = params.agent_id.as_deref().filter(|_| params.thread_id.is_none()) {
+        // An agent's route is the agent's, whatever thread the call is addressed to: Node's `setAgentRoute(agentId, route)` never reads
+        // the session it is called on, and the desktop addresses every call it makes with no session to its control thread.
+        if let Some(agent) = params.agent_id.as_deref() {
             return self.agents.set_agent_route(agent, selection).await.map_err(|m| failed(DOMAIN, m));
         }
         let thread = params.thread_id.unwrap_or_else(|| ThreadId::from(PRE_SESSION));

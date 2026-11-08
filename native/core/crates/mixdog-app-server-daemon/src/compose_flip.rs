@@ -697,7 +697,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     .map_err(|error| ComposeError::ComposeDomains(crate::compose_domains::ComposeDomainsError::Watch(mixdog_core_config::config::ConfigError::Io(std::io::Error::other(error)))))?;
     let config_hosts = compose_parts::config_hosts(ConfigHostsIn {
         config: config.clone(),
-        headers: late_headers.clone(),
         routes: routes.clone(),
         gauge: gauge.clone(),
         agents: agents.clone(), // flip-home: the shared Arc<AgentDefinitions> is also the home directory's
