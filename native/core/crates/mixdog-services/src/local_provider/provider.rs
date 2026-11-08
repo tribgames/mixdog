@@ -161,7 +161,7 @@ impl LocalProvider {
         let _ = self.tool_settings.set(settings);
     }
 
-    /// The tool-module settings, `None` while none is attached or it is gone.
+    /// The tool-module settings, `None` when no owner was attached or it is gone.
     pub async fn tool_settings(&self) -> Option<Value> {
         let owner = self.tool_settings.get()?.upgrade()?;
         Some(owner.tool_module_settings().await)
