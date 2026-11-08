@@ -269,23 +269,16 @@ test('a page result of another revision replaces the preview instead of mixing w
 
 test('an edited document refreshes after the change is seen twice, keeping the viewer mounted', async (t) => {
   surface(t, true);
-  const intervals = new Map();
-  let nextId = 1;
-  const original = [window.setInterval, window.clearInterval];
-  window.setInterval = (callback, ms) => {
-    if (ms !== 2500) return original[0].call(window, callback, ms);
-    intervals.set(nextId, callback);
-    return nextId++;
-  };
-  window.clearInterval = (id) => {
-    if (!intervals.delete(id)) original[1].call(window, id);
-  };
-  t.after(() => {
-    [window.setInterval, window.clearInterval] = original;
-  });
+  // The core's file watch pushes `fs/changed` for the editor's own watch id; there is no stat poll.
+  const watches = [];
+  const listeners = new Set();
   let disk = { mtimeMs: 1, size: 10 };
   const requests = [];
   const api = {
+    sections: {
+      call: async (method, params) => void watches.push([method, params]),
+      subscribeFsChanged: (listener) => (listeners.add(listener), () => void listeners.delete(listener)),
+    },
     statProjectFile: async () => ({ ...disk }),
     previewDocumentPages: async (_p, _r, _a, options) => {
       requests.push([...options.pages]);
@@ -293,7 +286,13 @@ test('an edited document refreshes after the change is seen twice, keeping the v
     },
   };
   const { root, session } = await mountSession(api, 'docs/report.docx');
-  const poll = () => act(async () => Promise.all([...intervals.values()].map((tick) => tick())));
+  const watchId = watches.find(([method]) => method === 'fs/watch')?.[1].watchId;
+  assert.ok(watchId, 'the open document is watched');
+  const poll = () =>
+    act(async () => {
+      for (const listener of [...listeners]) listener({ watchId: 'other', changedPaths: [] });
+      for (const listener of [...listeners]) listener({ watchId, changedPaths: ['C:/Project/demo/docs/report.docx'] });
+    });
   try {
     await poll();
     assert.deepEqual(requests, [[1]], 'an unchanged file costs no page request');

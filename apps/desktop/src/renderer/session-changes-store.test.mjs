@@ -113,6 +113,8 @@ test('switching the source reads that source: review, index, worktree and the la
       return status;
     },
     invokeCapability: async (request) => {
+      // The agent catalog is the core's `agents` section; the test host serves its first read through this capability.
+      if (request.capability === 'listAgents') return { value: [] };
       calls.push(['capability', request.capability, request.sessionId]);
       if (request.capability === 'getSessionReviewDiff') {
         return {
@@ -429,7 +431,7 @@ test('a cwd switch never renders the counts cached before the move, only the new
   );
 });
 
-test('only Git evidence refreshes: no reads on render, git-changed re-reads at the dock cadence, hidden pauses', async (t) => {
+test('only Git evidence refreshes: no reads on render, git-changed re-reads at once, a burst coalesces, hidden pauses', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
   let files = [reviewFile('a.ts')];
   let reads = 0;
@@ -450,20 +452,26 @@ test('only Git evidence refreshes: no reads on render, git-changed re-reads at t
   await render();
   await view.settle();
   assert.equal(reads, 1);
-  // Re-renders and time alone do not read (the safety lane is 30s).
+  // Re-renders and time alone do not read: nothing runs on a clock.
   await render();
   await view.settle(20_000);
   assert.equal(reads, 1);
   files = [reviewFile('a.ts'), reviewFile('b.ts', 0, 4)];
   await act(async () => view.window.dispatchEvent(new view.window.Event('mixdog:git-changed')));
-  await view.settle(124);
-  assert.equal(reads, 1, 'bursts debounce');
-  await view.settle(10);
-  assert.equal(reads, 2);
+  await view.settle();
+  assert.equal(reads, 2, 'Git evidence reads at once: no timer holds it back');
   assert.deepEqual(
     states.a.rows.map((row) => row.path),
     ['a.ts', 'b.ts']
   );
+  // A burst coalesces by single flight: the run in flight plus one trailing run, however many events.
+  await act(async () => {
+    for (let event = 0; event < 5; event += 1) {
+      view.window.dispatchEvent(new view.window.Event('mixdog:git-changed'));
+    }
+  });
+  await view.settle();
+  assert.equal(reads, 4, 'a burst costs one run and one trailing run');
   // Hidden: no evidence-driven or safety read.
   await act(async () => {
     visibility = 'hidden';
@@ -471,7 +479,7 @@ test('only Git evidence refreshes: no reads on render, git-changed re-reads at t
   });
   await act(async () => view.window.dispatchEvent(new view.window.Event('mixdog:git-changed')));
   await view.settle(60_000);
-  assert.equal(reads, 2);
+  assert.equal(reads, 4);
   assert.equal(await states.a.refresh(true), false, 'a hidden refresh is not adopted');
   // Visible again: it catches up at once.
   await act(async () => {
@@ -479,12 +487,12 @@ test('only Git evidence refreshes: no reads on render, git-changed re-reads at t
     view.document.dispatchEvent(new view.window.Event('visibilitychange'));
   });
   await view.settle();
-  assert.equal(reads, 3);
+  assert.equal(reads, 5);
   // Inactive: the watch is released.
   await render({ active: false });
   await act(async () => view.window.dispatchEvent(new view.window.Event('mixdog:git-changed')));
   await view.settle(60_000);
-  assert.equal(reads, 3);
+  assert.equal(reads, 5);
 });
 
 test('staged and unstaged count lines afresh on evidence and refresh; nothing re-reads on a clock', async (t) => {
@@ -1143,6 +1151,8 @@ test('a root that is not a repository falls back to the session diff', async (t)
       return { repository: false, root: '', base: '', files: [] };
     },
     invokeCapability: async (request) => {
+      // The agent catalog is the core's `agents` section; the test host serves its first read through this capability.
+      if (request.capability === 'listAgents') return { value: [] };
       capabilities.push(request.capability);
       return {
         value: {

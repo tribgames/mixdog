@@ -51,6 +51,8 @@ test('the composer offers only frequent commands and preserves direct command ex
       if (request.capability === 'getVoiceStatus') return { value: { installed: false } };
       // The composer reads its session's skills on its own; not a command.
       if (request.capability === 'skillsStatus') return { value: { skills: [] } };
+      // The agent catalog is the core's `agents` section; the test host serves its first read through this capability.
+      if (request.capability === 'listAgents') return { value: [] };
       calls.push([request.capability, request.args]);
       return { value: {} };
     },
