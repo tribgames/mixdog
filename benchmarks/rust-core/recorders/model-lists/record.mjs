@@ -97,11 +97,13 @@ for (const scenario of scenarios) {
   const result = JSON.parse(line.slice(7));
   if (result.failed) throw new Error(`${scenario.name}: ${result.failed}`);
   recorded.push({ name: scenario.name, agent: scenario.agent, ...(scenario.env ? { env: scenario.env } : {}), stub: scenario.stub ?? {}, calls: result.calls });
-  console.log(`${scenario.name} (stub hits: ${hits.splice(0).join(' ') || 'none'}): ${result.calls.map((c) => `${c.action}:${c.ok ? (Array.isArray(c.value) ? c.value.length : 'ok') : 'ERR ' + c.error}`).join(' ')}`);
+  console.log(`${scenario.name} (stub hits: ${hits.splice(0).join(' ') || 'none'}): ${result.calls.map((c) => `${c.action}${c.configure ? '(configure)' : ''}:${c.ok ? (Array.isArray(c.value) ? c.value.length : 'ok') : 'ERR ' + c.error}`).join(' ')}`);
 }
 stub.close();
 const OUT = join(HERE, '..', '..', '..', '..', 'native', 'core', 'fixtures', 'model-lists', 'node-model-lists.json');
 mkdirSync(dirname(OUT), { recursive: true });
 if (process.argv.includes('--keep')) console.log(`kept: ${RUN_ROOT}`);
 else rmSync(RUN_ROOT, { recursive: true, force: true });
-writeFileSync(OUT, JSON.stringify({ baseURL: '__BASE_URL__', seeds, scenarios: recorded }, null, 2).replaceAll(baseURL, '__BASE_URL__'));
+// `--only` re-records one scenario into the fixture and leaves the others as they were recorded.
+const kept = only ? JSON.parse(readFileSync(OUT, 'utf8')).scenarios.filter((s) => s.name !== only) : [];
+writeFileSync(OUT, JSON.stringify({ baseURL: '__BASE_URL__', seeds, scenarios: [...kept, ...recorded] }, null, 2).replaceAll(baseURL, '__BASE_URL__'));

@@ -18,7 +18,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use async_trait::async_trait;
 use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ProviderReadiness};
@@ -72,6 +72,10 @@ pub struct ListHost {
     warm: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
     /// A full load completed (`caches.providerModelsCache.models` is set).
     loaded: Arc<AtomicBool>,
+    /// `caches.providerModelsLoadSeq`: a load that began under an older one is not adopted.
+    seq: Arc<AtomicU64>,
+    /// The registry's catalog revision the cache was built under (`observedCatalogRevision`).
+    observed: Arc<AtomicU64>,
 }
 
 /// The loaded config's agent section and its providers.
@@ -88,7 +92,46 @@ impl ListHost {
         route: Arc<dyn Fn() -> Obj + Send + Sync>,
         initial: serde_json::Map<String, Value>,
     ) -> Self {
-        Self { readiness, effective, config, route, last: Arc::new(Mutex::new(initial)), warm: Arc::new(Mutex::new(None)), loaded: Arc::new(AtomicBool::new(false)) }
+        let observed = Arc::new(AtomicU64::new(readiness.catalog_revision()));
+        Self {
+            readiness,
+            effective,
+            config,
+            route,
+            last: Arc::new(Mutex::new(initial)),
+            warm: Arc::new(Mutex::new(None)),
+            loaded: Arc::new(AtomicBool::new(false)),
+            seq: Arc::new(AtomicU64::new(0)),
+            observed,
+        }
+    }
+
+    /// The provider-models cache is dropped and loads in flight are superseded
+    /// (`Object.assign(providerModelCaches, emptyModelCaches()); providerModelsLoadSeq += 1`).
+    fn invalidate(&self) {
+        self.seq.fetch_add(1, Ordering::SeqCst);
+        self.loaded.store(false, Ordering::SeqCst);
+    }
+
+    /// `syncCatalogRevision`: the cache goes when the registry's catalog moved on.
+    fn sync_revision(&self) {
+        let now = self.readiness.catalog_revision();
+        if self.observed.swap(now, Ordering::SeqCst) != now {
+            self.invalidate();
+        }
+    }
+
+    /// The sequence a load starts under.
+    fn begin(&self) -> u64 {
+        self.seq.load(Ordering::SeqCst)
+    }
+
+    /// `adoptProviderModelCache`: a load that is still current fills the cache.
+    fn adopt(&self, seq: u64) {
+        if self.seq.load(Ordering::SeqCst) == seq {
+            self.observed.store(self.readiness.catalog_revision(), Ordering::SeqCst);
+            self.loaded.store(true, Ordering::SeqCst);
+        }
     }
 
     /// The providers of the last load, in configuration order.
@@ -181,6 +224,9 @@ impl ModelListService {
     /// The catalog before the first read: a snapshot nothing was listed into (the compiled-in
     /// generation) is listed now, as Node's first full read loads every provider.
     pub async fn ready(&self, force: bool, provider: Option<&str>) {
+        // The revision is synced before the load begins, so a registration that moved it does not supersede this load.
+        let loaded = self.cache_loaded();
+        let seq = self.host.as_ref().map(ListHost::begin);
         if force {
             // `forceRefresh && provider` (`catalog-load.mjs` `prepare`): only the providers the
             // name matches are asked again.
@@ -188,21 +234,43 @@ impl ModelListService {
                 Some(provider) => self.catalog.refresh_matching(provider).await,
                 None => self.catalog.refresh().await,
             };
-            self.mark_loaded();
+            self.adopt(seq);
             return;
         }
-        let snapshot = self.catalog.snapshot();
-        if snapshot.generation == 0 && snapshot.status.is_empty() {
+        if !loaded {
             self.catalog.refresh_due().await;
         }
-        self.mark_loaded();
+        self.adopt(seq);
     }
 
     /// The authoritative load ran (`providerModelsCache.models` is an array). A refresh with no source
     /// publishes a new generation too, so the snapshot cannot say whether the providers were ever asked.
-    fn mark_loaded(&self) {
+    fn adopt(&self, seq: Option<u64>) {
+        if let (Some(host), Some(seq)) = (&self.host, seq) {
+            host.adopt(seq);
+        }
+    }
+
+    /// `Array.isArray(caches.providerModelsCache.models)` after `syncCatalogRevision()`. A host without a
+    /// provider registry has no cache of its own: the catalog is loaded once something was listed into it.
+    pub fn cache_loaded(&self) -> bool {
+        match &self.host {
+            Some(host) => {
+                host.sync_revision();
+                host.loaded.load(Ordering::SeqCst)
+            }
+            None => {
+                let snapshot = self.catalog.snapshot();
+                snapshot.generation != 0 || !snapshot.status.is_empty()
+            }
+        }
+    }
+
+    /// `invalidateProviderCaches()`: the shared catalog starts a new epoch and the cache above it is dropped.
+    pub fn invalidate(&self) {
+        self.catalog.invalidate_accounts();
         if let Some(host) = &self.host {
-            host.loaded.store(true, Ordering::Release);
+            host.invalidate();
         }
     }
 
@@ -234,7 +302,8 @@ impl ModelListService {
     pub async fn rows_for(&self, force: bool, quick: bool, provider: Option<&str>) -> Result<Vec<Value>, String> {
         if let Some(host) = &self.host {
             let snapshot = self.catalog.snapshot();
-            if quick && !force && !host.loaded.load(Ordering::Acquire) {
+            if quick && !force && !self.cache_loaded() {
+                let seq = host.begin();
                 // A quick read before any load answers from the profile and seeds the full load in
                 // the background (`warmProviderModelCache`); a failed warm is logged and leaves the
                 // cache empty, as its `onFailed` does (`provider-models.mjs`).
@@ -243,7 +312,7 @@ impl ModelListService {
                     match warm.prepare().await {
                         Ok(Some(_)) => {
                             catalog.refresh_due().await;
-                            warm.loaded.store(true, Ordering::Release);
+                            warm.adopt(seq);
                         }
                         Ok(None) => {}
                         Err(error) => tracing::warn!(%error, "[provider-models] the warm load failed"),

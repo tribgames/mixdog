@@ -162,7 +162,7 @@ impl CatalogFacts for Facts {
     /// `caches.providerModelsCache.models`: the flattened catalog, once something was listed into it.
     fn models_cache(&self) -> Option<Vec<Value>> {
         let snapshot = self.catalog.snapshot();
-        (snapshot.generation != 0 || !snapshot.status.is_empty()).then(|| self.list.cache_rows(&snapshot))
+        self.list.cache_loaded().then(|| self.list.cache_rows(&snapshot))
     }
 
     fn from_cache_rows(&self, rows: &[Value]) -> Vec<Value> {
