@@ -192,4 +192,43 @@ mod tests {
         assert!(list_params(&json!({"source": "codex", "limit": 0})).is_err());
         assert!(list_params(&json!({"source": "codex", "modifiedBefore": "x"})).is_err());
     }
+
+    struct Quiet;
+
+    #[async_trait]
+    impl super::super::jobs::ImportSessions for Quiet {
+        async fn imported_sessions(&self) -> Vec<(String, String)> {
+            Vec::new()
+        }
+        async fn session_exists(&self, _: &str) -> bool {
+            false
+        }
+        async fn prepare_lead(&self) -> Result<(), String> {
+            Ok(())
+        }
+        async fn create_imported_session(&self, _: super::super::jobs::ImportedSession) -> Result<String, String> {
+            Err("none".into())
+        }
+    }
+
+    /// The request's `params` are the arguments: `cancelConversationImport` of an unknown job
+    /// answers the `jobNotFound` code (`conversation-import/service.mjs` `importError('jobNotFound')`),
+    /// and a start with no `requestId` is refused for that field, not for a missing params object.
+    #[tokio::test]
+    async fn the_wire_params_reach_the_method() {
+        let discovery = Discovery::new(super::super::candidate::Env::from_process(), mixdog_rt::testing::tokens().maintenance_io);
+        let jobs = ImportJobs::new(discovery.clone(), Arc::new(Quiet), Limits::default());
+        let service = ImportService::new(discovery, jobs, Limits::default());
+        let call = |method: &'static str, params: Value| {
+            service.call(CoreRequest { method: Method(method), params, op: None, ctx: mixdog_core_api::CallContext::internal("test") })
+        };
+        match call("import/cancelConversationImport", json!({"opId": "o", "jobId": "no-such-job"})).await.err().unwrap() {
+            CoreError::DomainError { code, .. } => assert_eq!(code.as_deref(), Some("jobNotFound")),
+            other => panic!("{other:?}"),
+        }
+        match call("import/startConversationImport", json!({"opId": "o", "selection": {"ids": []}})).await.err().unwrap() {
+            CoreError::InvalidParams { path, .. } => assert_eq!(&*path, "params.requestId"),
+            other => panic!("{other:?}"),
+        }
+    }
 }

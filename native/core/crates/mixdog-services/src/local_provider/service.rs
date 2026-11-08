@@ -80,11 +80,10 @@ impl LocalProviderService {
     }
 
     /// What Node's settings methods answer after a change: `getToolModuleSettings()`.
-    async fn tool_settings_view(&self) -> Result<Value, ProviderError> {
-        match self.provider.tool_settings().await {
-            Some(settings) => Ok(settings),
-            None => self.settings_view().await,
-        }
+    async fn tool_settings_view(&self) -> Result<Value, CoreError> {
+        // The composition attaches the owner before it serves requests (`ToolModules::new`); the
+        // owner cannot be a constructor argument because it is built from this provider's host.
+        self.provider.tool_settings().await.ok_or_else(|| failed("localProvider", "tool-module settings are not attached"))
     }
 
     /// `startLocalProviderInstallation`: starts the job and tracks it in the background; a failure
@@ -262,6 +261,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let settings = Arc::new(Settings(Mutex::default()));
         let service = LocalProviderService::new(provider(dir.path()), settings.clone());
+        let owner: Arc<dyn super::super::provider::ToolSettings> = Arc::new(Owner);
+        service.provider.attach_tool_settings(Arc::downgrade(&owner));
 
         call(&service, "localProvider/setLocalProviderIdleTtl", json!({"opId": "o", "seconds": 600})).await.unwrap();
         assert_eq!(*settings.0.lock().unwrap(), vec![600]);
