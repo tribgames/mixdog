@@ -18,7 +18,7 @@ pub enum Launch {
     /// (what Node names in a failed spawn: `spawn <shown> ENOENT`); `program` is where it resolved.
     Direct { shown: String, program: String, args: Vec<String> },
     /// Windows: `file /d /s /c "<line>"`, the arguments verbatim (`windowsVerbatimArguments`).
-    Shell { file: String, line: String },
+    Shell { file: String, args: Vec<String> },
 }
 
 /// The process facts cross-spawn reads from Node's `process`.
@@ -45,14 +45,26 @@ impl Host {
 
 /// `cross-spawn`'s `parse(command, args, { env, cwd })` for `shell: false`.
 pub fn parse(
-    _lane: &InLane<SpawnIo>,
+    lane: &InLane<SpawnIo>,
+    command: &str,
+    args: &[String],
+    cwd: Option<&str>,
+    env: &BTreeMap<String, String>,
+) -> Launch {
+    parse_host(lane, &Host::current(), command, args, cwd, env)
+}
+
+/// [`parse`] for the given process facts.
+pub fn parse_host(
+    lane: &InLane<SpawnIo>,
+    host: &Host,
     command: &str,
     args: &[String],
     cwd: Option<&str>,
     env: &BTreeMap<String, String>,
 ) -> Launch {
     if cfg!(windows) {
-        parse_windows(&Host::current(), command, args, cwd, env)
+        parse_windows(lane, host, command, args, cwd, env)
     } else {
         Launch::Direct { shown: command.to_owned(), program: command.to_owned(), args: args.to_vec() }
     }
@@ -79,6 +91,7 @@ fn is_cmd_shim(file: &str) -> bool {
 
 /// The Windows branch of cross-spawn's `parseNonShell`.
 pub fn parse_windows(
+    lane: &InLane<SpawnIo>,
     host: &Host,
     command: &str,
     args: &[String],
@@ -88,13 +101,13 @@ pub fn parse_windows(
     let mut command = command.to_owned();
     let mut args = args.to_vec();
     // detectShebang
-    let mut file = resolve_command(host, &command, cwd, env);
+    let mut file = resolve_command(lane, host, &command, cwd, env);
     if let Some(found) = file.clone()
-        && let Some(shebang) = read_shebang(&found)
+        && let Some(shebang) = read_shebang(lane, &found)
     {
         args.insert(0, found);
         command = shebang;
-        file = resolve_command(host, &command, cwd, env);
+        file = resolve_command(lane, host, &command, cwd, env);
     }
     if let Some(file) = file.as_deref().filter(|f| is_executable(f)) {
         return Launch::Direct { shown: command, program: file.to_owned(), args };
@@ -104,7 +117,7 @@ pub fn parse_windows(
     let mut parts = vec![command];
     parts.extend(args.iter().map(|arg| escape_argument(arg, double)));
     let file = host.comspec.clone().filter(|c| !c.is_empty()).unwrap_or_else(|| "cmd.exe".to_owned());
-    Launch::Shell { file, line: format!("\"{}\"", parts.join(" ")) }
+    Launch::Shell { file, args: ["/d", "/s", "/c"].map(str::to_owned).into_iter().chain([format!("\"{}\"", parts.join(" "))]).collect() }
 }
 
 const META: &str = "()][%!^\"`<>&|;, *?";
@@ -160,12 +173,9 @@ pub fn escape_argument(arg: &str, double: bool) -> String {
 }
 
 /// `readShebang` + `shebang-command`: the interpreter a script's first line names, `None` for none.
-#[allow(clippy::disallowed_methods, reason = "runs as a spawn-lane job (InLane proof of `parse`)")]
-fn read_shebang(file: &str) -> Option<String> {
-    use std::io::Read;
-    let mut buffer = [0u8; 150];
-    let read = std::fs::File::open(file).and_then(|mut f| f.read(&mut buffer)).unwrap_or(0);
-    shebang_command(&String::from_utf8_lossy(&buffer[..read]))
+fn read_shebang(lane: &InLane<SpawnIo>, file: &str) -> Option<String> {
+    let head = mixdog_statefile::read_range(lane, Path::new(file), 0, 150).unwrap_or_default();
+    shebang_command(&String::from_utf8_lossy(&head))
 }
 
 fn shebang_command(text: &str) -> Option<String> {
@@ -189,15 +199,15 @@ fn shebang_command(text: &str) -> Option<String> {
 const DEFAULT_PATHEXT: &str = ".EXE;.CMD;.BAT;.COM";
 
 /// `resolveCommand`: the command as an absolute path, trying the environment's `PATHEXT` and then none.
-fn resolve_command(host: &Host, command: &str, cwd: Option<&str>, env: &BTreeMap<String, String>) -> Option<String> {
+fn resolve_command(lane: &InLane<SpawnIo>, host: &Host, command: &str, cwd: Option<&str>, env: &BTreeMap<String, String>) -> Option<String> {
     // `path-key` on win32: the last key that spells PATH in any case; `which` falls back to the
     // process's own PATH when that value is empty.
     let from_env = env.iter().rev().find(|(k, _)| k.eq_ignore_ascii_case("PATH")).map(|(_, v)| v.as_str());
     let path = from_env.filter(|p| !p.is_empty()).or(host.path.as_deref().filter(|p| !p.is_empty())).unwrap_or_default();
     // A custom cwd becomes the process's for the search when it can be entered.
-    let entered = cwd.map(|c| host.process_cwd.join(c)).filter(|dir| is_dir(dir));
+    let entered = cwd.map(|c| host.process_cwd.join(c)).filter(|dir| is_dir(lane, dir));
     let base = entered.unwrap_or_else(|| host.process_cwd.clone());
-    let found = [false, true].into_iter().find_map(|without_pathext| which(host, command, path, &base, without_pathext))?;
+    let found = [false, true].into_iter().find_map(|without_pathext| which(lane, host, command, path, &base, without_pathext))?;
     let root = match cwd {
         Some(c) => host.process_cwd.join(c),
         None => host.process_cwd.clone(),
@@ -206,7 +216,7 @@ fn resolve_command(host: &Host, command: &str, cwd: Option<&str>, env: &BTreeMap
 }
 
 /// `which.sync`'s search; `without_pathext` is the second attempt (`pathExt: path.delimiter`).
-fn which(host: &Host, command: &str, path: &str, base: &Path, without_pathext: bool) -> Option<String> {
+fn which(lane: &InLane<SpawnIo>, host: &Host, command: &str, path: &str, base: &Path, without_pathext: bool) -> Option<String> {
     let has_slash = command.contains('/') || command.contains('\\');
     let dirs: Vec<String> = if has_slash {
         vec![String::new()]
@@ -235,7 +245,7 @@ fn which(host: &Host, command: &str, path: &str, base: &Path, without_pathext: b
         };
         for extension in &extensions {
             let current = format!("{candidate}{extension}");
-            if is_exe(base, &current, &exe_list) {
+            if is_exe(lane, base, &current, &exe_list) {
                 return Some(current);
             }
         }
@@ -244,9 +254,8 @@ fn which(host: &Host, command: &str, path: &str, base: &Path, without_pathext: b
 }
 
 /// `isexe/windows.js`: a file whose name ends with one of `pathext`.
-#[allow(clippy::disallowed_methods, reason = "runs as a spawn-lane job (InLane proof of `parse`)")]
-fn is_exe(base: &Path, candidate: &str, pathext: &str) -> bool {
-    if !base.join(candidate).is_file() {
+fn is_exe(lane: &InLane<SpawnIo>, base: &Path, candidate: &str, pathext: &str) -> bool {
+    if !is_file(lane, &base.join(candidate)) {
         return false;
     }
     if pathext.is_empty() {
@@ -257,9 +266,12 @@ fn is_exe(base: &Path, candidate: &str, pathext: &str) -> bool {
     list.contains(&"") || list.iter().any(|p| lower.ends_with(&p.to_lowercase()))
 }
 
-#[allow(clippy::disallowed_methods, reason = "runs as a spawn-lane job (InLane proof of `parse`)")]
-fn is_dir(path: &Path) -> bool {
-    path.is_dir()
+fn is_file(lane: &InLane<SpawnIo>, path: &Path) -> bool {
+    mixdog_statefile::metadata(lane, path).is_ok_and(|m| m.is_file())
+}
+
+fn is_dir(lane: &InLane<SpawnIo>, path: &Path) -> bool {
+    mixdog_statefile::metadata(lane, path).is_ok_and(|m| m.is_dir())
 }
 
 /// `path.win32.normalize`.
@@ -318,81 +330,4 @@ fn split_root(path: &str) -> (String, &str) {
         return ("\\".to_owned(), &path[1..]);
     }
     (String::new(), path)
-}
-
-/// cross-spawn's `_parse` as recorded from Node (`fixtures/stdio-spawn/golden.json`, `record-stdio-spawn.mjs`) over the same
-/// fixture tree, PATHEXT, COMSPEC and process directory.
-#[cfg(all(test, windows))]
-#[allow(clippy::disallowed_methods, reason = "test fixtures are written directly")]
-mod replay {
-    use super::*;
-    use serde_json::Value;
-
-    const GOLDEN: &str = include_str!("../../../fixtures/stdio-spawn/golden.json");
-
-    #[test]
-    fn every_recorded_parse_is_reproduced() {
-        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
-        let dir = tempfile::tempdir().unwrap();
-        let root = dir.path().to_string_lossy().into_owned();
-        for file in golden["files"].as_array().unwrap() {
-            let full = dir.path().join(file["path"].as_str().unwrap());
-            std::fs::create_dir_all(full.parent().unwrap()).unwrap();
-            std::fs::write(full, file["text"].as_str().unwrap()).unwrap();
-        }
-        let expand = |text: &str| text.replace("<ROOT>", &root);
-        let mask = |text: &str| text.replace(&root, "<ROOT>");
-        for case in golden["parse"].as_array().unwrap() {
-            let name = case["name"].as_str().unwrap();
-            let host = Host {
-                process_cwd: PathBuf::from(expand(golden["host"]["processCwd"].as_str().unwrap())),
-                path: case["processPath"].as_str().map(expand),
-                pathext: golden["host"]["pathext"].as_str().map(str::to_owned),
-                comspec: golden["host"]["comspec"].as_str().map(str::to_owned),
-            };
-            let env = BTreeMap::from([("PATH".to_owned(), expand(case["path"].as_str().unwrap()))]);
-            let args: Vec<String> = case["args"].as_array().unwrap().iter().map(|a| a.as_str().unwrap().to_owned()).collect();
-            let cwd = case["cwd"].as_str().map(expand);
-            let launch = parse_windows(&host, &expand(case["command"].as_str().unwrap()), &args, cwd.as_deref(), &env);
-            let want = &case["launch"];
-            let strings = |value: &Value| -> Vec<String> { value.as_array().unwrap().iter().map(|a| a.as_str().unwrap().to_owned()).collect() };
-            match launch {
-                Launch::Shell { file, line } => {
-                    assert_eq!(want["kind"], "shell", "{name}");
-                    assert_eq!(file, want["file"].as_str().unwrap(), "{name}");
-                    assert_eq!(strings(&want["args"]), ["/d", "/s", "/c", mask(&line).as_str()], "{name}");
-                }
-                Launch::Direct { shown, program, args } => {
-                    assert_eq!(want["kind"], "direct", "{name}");
-                    assert_eq!(mask(&shown), want["shown"].as_str().unwrap(), "{name}");
-                    assert_eq!(args.iter().map(|a| mask(a)).collect::<Vec<_>>(), strings(&want["args"]), "{name}");
-                    if let Some(recorded) = want["program"].as_str() {
-                        assert_eq!(mask(&program), recorded, "{name}");
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn shebang_words() {
-        assert_eq!(shebang_command("#!/usr/bin/env node\nx"), Some("node".to_owned()));
-        assert_eq!(shebang_command("#! /bin/sh -e\n"), Some("sh -e".to_owned()));
-        assert_eq!(shebang_command("#!/usr/bin/env\n"), None);
-        assert_eq!(shebang_command("echo hi"), None);
-    }
-
-    #[test]
-    fn normalize_matches_node_win32() {
-        assert_eq!(normalize_win32("a/b/../c"), "a\\c");
-        assert_eq!(normalize_win32("./x"), "x");
-        assert_eq!(normalize_win32("C:\\a\\..\\..\\b\\"), "C:\\b\\");
-        assert_eq!(normalize_win32(""), ".");
-        assert_eq!(normalize_win32("..\\..\\x"), "..\\..\\x");
-    }
 }

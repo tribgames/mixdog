@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 12184,
+      "bytes": 12061,
       "path": "golden.json",
-      "sha256": "133f7aa9cfa83123536cf204ac3c5e68a15eea0437e7480587a724deacd71a3f"
+      "sha256": "fcd94e3b041b8fe39ea03db4b6a864501e8c4aa7fe73324cd2f2060213ff20b7"
     }
   ],
   "product": {
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-stdio-spawn.mjs",
   "set": "stdio-spawn",
-  "totalBytes": 12184
+  "totalBytes": 12061
 }

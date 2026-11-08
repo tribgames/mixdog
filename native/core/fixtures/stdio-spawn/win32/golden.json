@@ -439,7 +439,6 @@
           "process.stderr.write('fatal: out of cheese\\n'); process.exit(1);"
         ]
       },
-      "localeBound": false,
       "failure": "MCP error -32000: Connection closed\n--- server stderr (tail) ---\nfatal: out of cheese"
     },
     {
@@ -448,7 +447,6 @@
         "type": "stdio",
         "command": "harness-no-such-command"
       },
-      "localeBound": true,
       "failure": "MCP error -32000: Connection closed\n--- server stderr (tail) ---\n'harness-no-such-command'��(��) ���� �Ǵ� �ܺ� ����, ������ �� �ִ� ���α׷�, �Ǵ�\r\n��ġ ������ �ƴմϴ�."
     },
     {
@@ -462,7 +460,6 @@
         ],
         "cwd": "<ROOT>/missing"
       },
-      "localeBound": false,
       "failure": "spawn node ENOENT"
     },
     {
@@ -476,7 +473,6 @@
         ],
         "startupTimeoutMs": 2500
       },
-      "localeBound": false,
       "failure": "MCP server \"never-answers\" startup exceeded 2500ms budget — raise per-server \"startupTimeoutSec\"/\"startupTimeoutMs\" or env MIXDOG_MCP_STARTUP_TIMEOUT_MS\n--- server stderr (tail) ---\nstill installing deps..."
     },
     {
@@ -486,10 +482,9 @@
         "command": "node",
         "args": [
           "-e",
-          "\nlet buffered = '';\nconst send = (message) => process.stdout.write(JSON.stringify(message) + '\\n');\nprocess.stdin.on('data', (chunk) => {\n  buffered += chunk;\n  for (let end = buffered.indexOf('\\n'); end >= 0; end = buffered.indexOf('\\n')) {\n    const message = JSON.parse(buffered.slice(0, end));\n    buffered = buffered.slice(end + 1);\n    if (message.method === 'initialize') {\n      send({ jsonrpc: '2.0', id: message.id, result: { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'crashy', version: '1' } } });\n    } else if (message.method === 'tools/list') {\n      send({ jsonrpc: '2.0', id: message.id, result: { tools: [] } });\n      setTimeout(() => { process.stderr.write('crashing on purpose\\n'); process.exit(1); }, 200);\n    }\n  }\n});"
+          "\nlet buffered = '';\nconst send = (message, written) => process.stdout.write(JSON.stringify(message) + '\\n', written);\nprocess.stdin.on('data', (chunk) => {\n  buffered += chunk;\n  for (let end = buffered.indexOf('\\n'); end >= 0; end = buffered.indexOf('\\n')) {\n    const message = JSON.parse(buffered.slice(0, end));\n    buffered = buffered.slice(end + 1);\n    if (message.method === 'initialize') {\n      send({ jsonrpc: '2.0', id: message.id, result: { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'crashy', version: '1' } } });\n    } else if (message.method === 'tools/list') {\n      send({ jsonrpc: '2.0', id: message.id, result: { tools: [] } }, () => {\n        process.stderr.write('crashing on purpose\\n', () => process.exit(1));\n      });\n    }\n  }\n});"
         ]
       },
-      "localeBound": false,
       "failure": null,
       "status": {
         "connected": false,

@@ -5,18 +5,18 @@
 //    PATHEXT, COMSPEC and the process's directory are set to the values written in the recording.
 //  - `connect`: the real `connectMcpServers` / `getMcpServerStatus` (client.mjs, the SDK's stdio transport) over servers that
 //    cannot start, exit before they answer, never answer, or answer and then die: the failure text each ends with.
-// Windows only: the unresolved-command case is cmd.exe's own message, in the language of the machine that recorded it.
+// Each platform records its own set under native/core/fixtures/stdio-spawn/<process.platform>/: on Windows the unresolved command is
+// cmd.exe's own message (in the language of the machine that recorded it), elsewhere a plain spawn error.
 //
 //   node benchmarks/rust-core/recorders/record-stdio-spawn.mjs --tree <git clone at b6f10295a with node_modules>
 //
-// Output: native/core/fixtures/stdio-spawn/golden.json (+ MANIFEST.json).
+// Output: native/core/fixtures/stdio-spawn/<platform>/golden.json (+ MANIFEST.json).
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { setTimeout as sleep } from 'node:timers/promises';
-if (process.platform !== 'win32') throw new Error('the recording is of the Windows branch of cross-spawn: run it on Windows');
+const WINDOWS = process.platform === 'win32';
 // Import-time sweeps delete real user data: every user dir is a fresh temp dir first.
 const sandbox = realpathSync(mkdtempSync(join(tmpdir(), 'stdio-spawn-')));
 for (const key of ['APPDATA', 'LOCALAPPDATA', 'HOME', 'USERPROFILE', 'MIXDOG_DESKTOP_USER_DATA', 'MIXDOG_DATA_DIR', 'MIXDOG_HOME', 'MIXDOG_CONFIG_DIR', 'MIXDOG_RUNTIME_ROOT']) {
@@ -28,7 +28,7 @@ const { FIXTURES_ROOT, REPO_ROOT, commitStage, importFrom, parseArgs, resolveTre
 
 const tree = resolveTree(parseArgs());
 const NODE_COMMIT = execFileSync('git', ['rev-parse', 'b6f10295a2f698afc85332467192de28500bd146^{commit}'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
-const finalDir = join(FIXTURES_ROOT, 'stdio-spawn');
+const finalDir = join(FIXTURES_ROOT, 'stdio-spawn', process.platform);
 const stage = stageSet(finalDir);
 const crossSpawn = createRequire(join(tree, 'package.json'))('cross-spawn');
 
@@ -53,7 +53,7 @@ const FILES = [
   { path: 'work/node_modules/.bin/shim.cmd', text: '' },
 ];
 const ARGS = ['--flag', 'a b', 'say "hi"', 'C:\\dir\\', 'back\\"slash', '%PATH%', '^&|<>', '', 'trail\\\\', 'x"', '\\"', '(paren)!', 'tick`', 'wild*?', 'semi;comma,'];
-const BIN = `${ROOT}\\bin`;
+const BIN = join(ROOT, 'bin');
 const CASES = [
   { name: 'exe-by-name', command: 'tool', args: ['a'], path: BIN },
   { name: 'exe-with-extension', command: 'tool.exe', args: ['a b'], path: BIN },
@@ -73,8 +73,8 @@ const CASES = [
   { name: 'custom-cwd-missing', command: 'tool', args: [], path: BIN, cwd: '{root}/missing' },
   { name: 'quoted-path-entry', command: 'tool', args: [], path: `"${BIN}"` },
   { name: 'path-empty-falls-back-to-process', command: 'tool', args: [], path: '', processPath: BIN },
-  { name: 'cmd-shim-double-escape', command: '{root}\\work\\node_modules\\.bin\\shim.cmd', args: ['a&b', 'say "hi"', 'plain'], path: BIN },
-  { name: 'command-with-spaces', command: '{root}\\program files\\x y', args: ['z'], path: BIN },
+  { name: 'cmd-shim-double-escape', command: join('{root}', 'work', 'node_modules', '.bin', 'shim.cmd'), args: ['a&b', 'say "hi"', 'plain'], path: BIN },
+  { name: 'command-with-spaces', command: join('{root}', 'program files', 'x y'), args: ['z'], path: BIN },
 ];
 const expand = (text) => text.split('{root}').join(ROOT);
 for (const file of FILES) {
@@ -84,8 +84,10 @@ for (const file of FILES) {
 }
 const realPathext = process.env.PATHEXT;
 const realComspec = process.env.COMSPEC;
-process.env.PATHEXT = PATHEXT;
-process.env.COMSPEC = COMSPEC;
+if (WINDOWS) {
+  process.env.PATHEXT = PATHEXT;
+  process.env.COMSPEC = COMSPEC;
+}
 const realPath = process.env.PATH;
 const processCwd = join(ROOT, 'work');
 process.chdir(processCwd);
@@ -105,13 +107,15 @@ const parse = CASES.map((c) => {
     processPath: c.processPath ? mask(c.processPath) : null,
     launch: shell
       ? { kind: 'shell', file: parsed.command, args: parsed.args.map(mask) }
-      : { kind: 'direct', shown: mask(parsed.command), args: parsed.args.map(mask), ...(c.viaShebang ? {} : { program: mask(parsed.file) }) },
+      : { kind: 'direct', shown: mask(parsed.command), args: parsed.args.map(mask), ...(typeof parsed.file === 'string' && !c.viaShebang ? { program: mask(parsed.file) } : {}) },
   };
 });
 process.env.PATH = realPath;
 process.chdir(sandbox);
-process.env.PATHEXT = realPathext;
-process.env.COMSPEC = realComspec;
+if (WINDOWS) {
+  process.env.PATHEXT = realPathext;
+  process.env.COMSPEC = realComspec;
+}
 
 // ---- connect: the real client over servers that do not simply work -----------------------------------------------------
 const orch = 'src/runtime/agent/orchestrator/';
@@ -120,7 +124,7 @@ const EXIT_WITH_STDERR = "process.stderr.write('fatal: out of cheese\\n'); proce
 const NEVER_ANSWERS = "process.stderr.write('still installing deps...\\n'); setInterval(() => {}, 1000);";
 const ANSWERS_THEN_DIES = `
 let buffered = '';
-const send = (message) => process.stdout.write(JSON.stringify(message) + '\\n');
+const send = (message, written) => process.stdout.write(JSON.stringify(message) + '\\n', written);
 process.stdin.on('data', (chunk) => {
   buffered += chunk;
   for (let end = buffered.indexOf('\\n'); end >= 0; end = buffered.indexOf('\\n')) {
@@ -129,18 +133,29 @@ process.stdin.on('data', (chunk) => {
     if (message.method === 'initialize') {
       send({ jsonrpc: '2.0', id: message.id, result: { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'crashy', version: '1' } } });
     } else if (message.method === 'tools/list') {
-      send({ jsonrpc: '2.0', id: message.id, result: { tools: [] } });
-      setTimeout(() => { process.stderr.write('crashing on purpose\\n'); process.exit(1); }, 200);
+      send({ jsonrpc: '2.0', id: message.id, result: { tools: [] } }, () => {
+        process.stderr.write('crashing on purpose\\n', () => process.exit(1));
+      });
     }
   }
 });`;
 const SERVERS = [
   { name: 'exits-with-stderr', entry: { type: 'stdio', command: 'node', args: ['-e', EXIT_WITH_STDERR] } },
-  { name: 'unresolved-command', entry: { type: 'stdio', command: 'harness-no-such-command' }, localeBound: true },
+  { name: 'unresolved-command', entry: { type: 'stdio', command: 'harness-no-such-command' } },
   { name: 'missing-cwd', entry: { type: 'stdio', command: 'node', args: ['-e', '0'], cwd: '{root}/missing' } },
   { name: 'never-answers', entry: { type: 'stdio', command: 'node', args: ['-e', NEVER_ANSWERS], startupTimeoutMs: 2500 } },
   { name: 'answers-then-dies', entry: { type: 'stdio', command: 'node', args: ['-e', ANSWERS_THEN_DIES] }, afterReady: true },
 ];
+// The SDK runs `client.onclose` (which marks the server disconnected) from `Protocol._onclose`: resolve after it, so the
+// status is read at the close itself rather than polled for.
+const { Protocol } = await importFrom(tree, 'node_modules/@modelcontextprotocol/sdk/dist/esm/shared/protocol.js');
+let onSdkClose = () => {};
+const sdkOnclose = Protocol.prototype._onclose;
+Protocol.prototype._onclose = function onclose(...args) {
+  const result = sdkOnclose.apply(this, args);
+  onSdkClose();
+  return result;
+};
 let scope = 0;
 const connect = [];
 for (const server of SERVERS) {
@@ -148,19 +163,19 @@ for (const server of SERVERS) {
   const scopeId = `stdio-spawn-${scope}`;
   const entry = { ...server.entry, ...(server.entry.cwd ? { cwd: expand(server.entry.cwd) } : {}) };
   let failure = null;
+  const closed = new Promise((resolve) => {
+    onSdkClose = resolve;
+  });
   try {
     await connectMcpServers({ [server.name]: entry }, { scopeId });
   } catch (error) {
     if (error.failures?.length !== 1) throw error;
     failure = error.failures[0].msg;
   }
-  const outcome = { name: server.name, entry: JSON.parse(JSON.stringify(server.entry).split('{root}').join('<ROOT>')), localeBound: server.localeBound === true, failure };
+  const outcome = { name: server.name, entry: JSON.parse(JSON.stringify(server.entry).split('{root}').join('<ROOT>')), failure };
   if (server.afterReady) {
     if (failure !== null) throw new Error(`${server.name} must connect: ${failure}`);
-    for (let waited = 0; getMcpServerStatus(scopeId)[0].connected; waited += 25) {
-      if (waited > 10_000) throw new Error('the server did not die');
-      await sleep(25);
-    }
+    await closed;
     const [row] = getMcpServerStatus(scopeId);
     outcome.status = { connected: row.connected, error: row.error };
   } else if (failure === null) throw new Error(`${server.name} must fail to connect`);
@@ -171,7 +186,7 @@ for (const server of SERVERS) {
 writeJson(join(stage, 'golden.json'), {
   domain: 'stdio-spawn',
   recorder: 'benchmarks/rust-core/recorders/record-stdio-spawn.mjs',
-  host: { pathext: PATHEXT, comspec: COMSPEC, processCwd: '<ROOT>/work' },
+  host: { pathext: WINDOWS ? PATHEXT : null, comspec: WINDOWS ? COMSPEC : null, processCwd: '<ROOT>/work' },
   files: FILES,
   parse,
   connect,
