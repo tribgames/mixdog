@@ -156,9 +156,10 @@ pub(crate) fn sidebar_flag(header: &mixdog_store::schema::record::Header, key: &
 pub const AUTO_DELETE_REASON: &str = "desktop-auto-delete";
 
 /// Whether the thread's turn holds what Node's ask lock is held for (`tryAcquireSessionLock`
-/// refuses): a turn runs, starts or settles.
+/// refuses): a turn runs, starts or settles, other than a completion wake (Node wakes only its
+/// current session, so no ask lock is held for one; `idle_refusal` still refuses it as `busy`).
 fn ask_lock_held(directory: &super::directory::DirInner, thread: &ThreadId) -> bool {
-    directory.loaded_handle(thread).is_some_and(|handle| handle.cell.run.load().is_some() || handle.cell.turn_held.load(SeqCst))
+    directory.loaded_handle(thread).is_some_and(|handle| handle.cell.turn_held.load(SeqCst))
 }
 
 /// What `idleRefusal` reads of the thread before its record: the live state of the session.
@@ -410,3 +411,4 @@ pub(crate) async fn delete_session(
     after_delete(&deps, id);
     Ok(true)
 }
+

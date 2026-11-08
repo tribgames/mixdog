@@ -438,6 +438,9 @@ struct RunSlot {
     input_item: mixdog_core_api::ids::ItemId,
     /// An automatic Goal turn (`promptSource === 'goal-continuation'`).
     automatic: bool,
+    /// A completion wake. Node wakes only the session it has current, so a wake of any other
+    /// thread has no Node counterpart holding the ask lock (see [`Actor::ask_lock_held`]).
+    wake: bool,
     /// Tool results the turn committed (its tool cards).
     tool_calls: u64,
     cancel: mixdog_agent::cancel::Cancel,
@@ -981,7 +984,7 @@ impl SessionActor {
                 else => break,
             }
             self.pump();
-            self.cell.turn_held.store(self.turn_held(), SeqCst);
+            self.cell.turn_held.store(self.ask_lock_held(), SeqCst);
             self.cell.turn_pending.store(self.turn_pending(), SeqCst);
             self.cell.ui_busy.store(self.ui_busy(), SeqCst);
             self.cell.compacting.store(self.compactions > 0, SeqCst);
@@ -2874,6 +2877,13 @@ impl SessionActor {
     /// A turn runs, is starting or is settling: what Node's ask lock is held for.
     fn turn_held(&self) -> bool {
         self.run.is_some() || self.starting || self.settling
+    }
+
+    /// What Node's ask lock is held for: [`Self::turn_held`] but for a completion wake, which Node
+    /// runs only for its current session (`notification-bus.mjs:50`); the idle delete still
+    /// refuses such a run as `busy` from the run itself.
+    fn ask_lock_held(&self) -> bool {
+        self.run.as_ref().is_some_and(|run| !run.wake) || self.starting || self.settling
     }
 
     /// A turn is about to start (a dequeued Goal entry is checked, a quota resume is pending):
@@ -4873,6 +4883,7 @@ impl SessionActor {
             route_meta: super::live_end::route_meta(self.acked.header.get("provider").and_then(Value::as_str).unwrap_or_default(), self.acked.header.get("model").and_then(Value::as_str).unwrap_or_default()),
             input_item: input_iid.clone(),
             automatic: super::goal_lane::automatic(&input_body),
+            wake,
             tool_calls: 0,
             cancel: cancel.clone(),
             input: input_tx,
