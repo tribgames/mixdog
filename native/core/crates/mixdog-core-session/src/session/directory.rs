@@ -216,6 +216,13 @@ pub struct SessionDirectory {
     inner: Arc<DirInner>,
 }
 
+impl SessionDirectory {
+    /// The directory a thread's handle reaches back to (it holds the shared state, [`SessionHandle::directory`]).
+    pub(super) fn over(inner: Arc<DirInner>) -> Self {
+        Self { inner }
+    }
+}
+
 /// Counts a create while it runs.
 struct CreateInFlight<'a>(&'a std::sync::atomic::AtomicUsize);
 
@@ -595,16 +602,20 @@ impl SessionDirectory {
     }
 
     /// `createCurrentSession` for a thread that has none yet (a control session started before any model was chosen): the
-    /// route the config now resolves to is readied and seated on its record, as a started task's is. A thread that has its
-    /// session, or is not there, is left alone; a config that still names no model leaves it without one.
-    async fn seat_session(&self, id: &ThreadId) -> Result<(), CoreError> {
+    /// route it holds is readied and seated on its record, as a started task's is. This is what every Node trigger of a
+    /// session does - a turn, a goal, `selectBranch` and a provisioning `requestWorktree`, an inherit into the thread - and
+    /// the route change that only moves the route is none. A thread that has its session, or is not there, is left alone;
+    /// a route that names no model is refused as `prepareRoute` refuses it (the start, which Node's reservation catches,
+    /// is the one place that takes it as it is).
+    pub(super) async fn seat_session(&self, id: &ThreadId) -> Result<(), CoreError> {
         let Some(header) = self.try_stored_header(id).await? else { return Ok(()) };
-        if mixdog_core_ports::ports::route::has_session(&header, &self.rows_of(id.as_str()).await?) {
+        let rows = if mixdog_core_ports::ports::route::header_names_session(&header) { Vec::new() } else { self.rows_of(id.as_str()).await? };
+        if mixdog_core_ports::ports::route::has_session(&header, &rows) {
             return Ok(());
         }
         let refused = |message: String| mixdog_core_base::support::failed("route", message);
         let routes = &self.inner.deps.new_route;
-        routes.adopt_control(id).await.map_err(&refused)?;
+        routes.adopt(id, None).await.map_err(&refused)?;
         routes.seat(id).await.map_err(&refused)
     }
 

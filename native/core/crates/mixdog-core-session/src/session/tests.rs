@@ -1120,12 +1120,12 @@ async fn an_inherit_creates_the_heirs_session_before_the_source_is_looked_up() {
     struct Route(Steps);
     #[async_trait::async_trait]
     impl super::NewThreadRoute for Route {
-        async fn adopt(&self, _: &ThreadId, _: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
-            panic!("an inherit starts no thread")
-        }
-        async fn adopt_control(&self, thread: &ThreadId) -> Result<serde_json::Map<String, Value>, String> {
-            lock(&self.0).push(json!(["adoptControl", thread]));
+        async fn adopt(&self, thread: &ThreadId, draft: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
+            lock(&self.0).push(json!(["adopt", thread, draft]));
             Ok(serde_json::Map::new())
+        }
+        async fn adopt_control(&self, _: &ThreadId) -> Result<serde_json::Map<String, Value>, String> {
+            panic!("an inherit starts no thread")
         }
         async fn seat(&self, thread: &ThreadId) -> Result<(), String> {
             lock(&self.0).push(json!(["seat", thread]));
@@ -1146,7 +1146,7 @@ async fn an_inherit_creates_the_heirs_session_before_the_source_is_looked_up() {
     deps.new_route = Arc::new(Route(steps.clone()));
     let reopened = SessionDirectory::new(Arc::new(deps));
     for (when, directory) in [("before a restart", &directory), ("after a restart", &reopened)] {
-        for (heir, expected) in [("sess_control", vec![json!(["adoptControl", "sess_control"]), json!(["seat", "sess_control"])]), ("sess_seated", Vec::new())] {
+        for (heir, expected) in [("sess_control", vec![json!(["adopt", "sess_control", Value::Null]), json!(["seat", "sess_control"])]), ("sess_seated", Vec::new())] {
             // A request naming no source (empty or whitespace) is refused before the reservation is touched (`inheritFrom`
             // checks the source id first), the same way every time.
             lock(&steps).clear();
@@ -1163,6 +1163,52 @@ async fn an_inherit_creates_the_heirs_session_before_the_source_is_looked_up() {
             assert_eq!(*lock(&steps), expected, "{when} {heir}");
         }
     }
+}
+
+/// A thread that has no session yet (the control session, started before any model was chosen) gets it from a turn
+/// (`createCurrentSession('turn')`), and a route with no model refuses that turn as `prepareRoute` does; a thread that has
+/// its session is not seated again.
+#[tokio::test(start_paused = true)]
+async fn a_turn_creates_the_session_of_a_thread_that_has_none() {
+    type Steps = Arc<Mutex<Vec<Value>>>;
+    struct Route(Steps, Result<(), String>);
+    #[async_trait::async_trait]
+    impl super::NewThreadRoute for Route {
+        async fn adopt(&self, thread: &ThreadId, _: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
+            lock(&self.0).push(json!(["adopt", thread]));
+            self.1.clone().map(|()| serde_json::Map::new())
+        }
+        async fn adopt_control(&self, _: &ThreadId) -> Result<serde_json::Map<String, Value>, String> {
+            panic!("a turn starts no thread")
+        }
+        async fn seat(&self, thread: &ThreadId) -> Result<(), String> {
+            lock(&self.0).push(json!(["seat", thread]));
+            Ok(())
+        }
+    }
+    let rig = Rig::new();
+    let header = |value: Value| value.as_object().cloned().expect("header");
+    async fn turn(directory: &SessionDirectory, id: &str) -> Result<Reply, CoreError> {
+        let handle = directory.open_handle(&ThreadId::from(id), &CallContext::internal("test")).await.expect("open");
+        handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-turn", "input": { "prompt": "hi" } }), "op-turn")).await
+    }
+    let steps: Steps = Arc::default();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_route = Arc::new(Route(steps.clone(), Err("No model selected. Choose a model with /model first.".to_owned())));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    directory.create_with_id(ThreadId::from("sess_control"), header(json!({ "cwd": "/ws" })), json!({})).await.expect("create");
+    directory.create_with_id(ThreadId::from("sess_seated"), header(json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model" })), json!({})).await.expect("create");
+    let refused = turn(&directory, "sess_control").await.err().expect("no model, no turn");
+    assert!(format!("{refused:?}").contains("No model selected. Choose a model with /model first."), "{refused:?}");
+    assert_eq!(*lock(&steps), [json!(["adopt", "sess_control"])], "a refused route is not seated");
+    lock(&steps).clear();
+    turn(&directory, "sess_seated").await.expect("a thread with its session starts its turn");
+    assert!(lock(&steps).is_empty(), "{:?}", lock(&steps));
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_route = Arc::new(Route(steps.clone(), Ok(())));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    turn(&directory, "sess_control").await.expect("the turn starts");
+    assert_eq!(*lock(&steps), [json!(["adopt", "sess_control"]), json!(["seat", "sess_control"])]);
 }
 
 /// A route the adoption refuses (a default with no model, as Node's `prepareRoute` throws) fails

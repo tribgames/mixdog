@@ -674,7 +674,6 @@ mod tests {
     /// the Node real-turn harness run): the header names the route, Auto effort stays unrecorded.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_seated_thread_carries_the_route_fields_node_recorded() {
-        use mixdog_core_ports::ports::route::FollowOptions;
         use mixdog_core_ports::ports::route::SessionRoutes;
         use crate::session::thread_state::SessionThreads;
         let golden: Value = serde_json::from_str(include_str!("route_goldens/node_create_route.json")).expect("golden");
@@ -696,8 +695,7 @@ mod tests {
         );
         let live = Live(obj(golden["route"].clone()));
         let routes = SessionRoutes::new(threads.clone(), threads.clone(), Arc::new(adapter), Arc::new(live));
-        let seat = FollowOptions { apply_to_current_session: true, lease: Some(0), ..FollowOptions::default() };
-        routes.follow(&thread, &seat).await.expect("seat");
+        routes.seat(&thread).await.expect("seat");
         let header = threads.header(&thread).await.expect("header");
         for (key, want) in golden["header"].as_object().expect("recorded header fields") {
             assert_eq!(header.get(key), Some(want), "{key}");

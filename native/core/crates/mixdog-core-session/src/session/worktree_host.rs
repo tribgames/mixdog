@@ -90,6 +90,10 @@ pub trait WorkspaceHost: Send + Sync + 'static {
     /// The hosted session, or `None`.
     fn session(&self, session_id: &str) -> Option<SessionView>;
 
+    /// `ensureSession`: the runtime's session is created when it has none (`createCurrentSession('workspace')`); a route
+    /// that names no model refuses.
+    async fn ensure_session(&self, session_id: &str) -> Result<(), ScmFailure>;
+
     /// Publish `workspace` as the session's in-memory record only (the in-flight marker, then
     /// the stored record again); nothing is saved.
     fn set_workspace(&self, session_id: &str, workspace: Option<Value>);
