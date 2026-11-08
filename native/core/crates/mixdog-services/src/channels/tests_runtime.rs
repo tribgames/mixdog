@@ -14,13 +14,14 @@ use mixdog_protocol::DomainErrorDetail;
 use mixdog_rt::testing::tokens;
 use mixdog_store::state::CoreState;
 use serde_json::{Value, json};
+use tokio_util::sync::CancellationToken;
 
 use super::admin::{AdminDeps, AdminError, ChannelAdmin};
 use super::bridge::BridgeCalls;
 use super::call::CallDispatch;
 use super::ports::{
-    AgentRuntime, AutomationServices, ChannelSettings, ProbeError, ProbeResponse, PublicBase, WebhookPatch, WebhookProbe,
-    WebhookSettings,
+    AgentRuntime, AutomationServices, ChannelSettings, ProbeError, ProbeResponse, PublicBase, WebhookAutomation, WebhookListener,
+    WebhookPatch, WebhookProbe, WebhookSettings,
 };
 use super::running::RunningWork;
 use super::runtime::ChannelRuntime;
@@ -33,6 +34,8 @@ use crate::bots::{
 use crate::scheduler::{
     Schedule, ScheduleError, ScheduleRecords, ScheduleStatus, ScheduleStore, Scheduler, StateScheduleStore, SystemClock,
 };
+use crate::webhooks::lifecycle::{TunnelStarter, WebhookServer};
+use crate::webhooks::relay::{RelayTunnelStarter, hook_public_base};
 use crate::webhooks::signature::{Headers, hmac_hex};
 use crate::webhooks::{EndpointRecord, EndpointRecords, StateWebhookStore, WebhookConfig, WebhookService, WebhookStore};
 
@@ -128,6 +131,10 @@ struct Env {
 }
 
 async fn env() -> Env {
+    env_with(false).await
+}
+
+async fn env_with(channel_start_disabled: bool) -> Env {
     let dir = tempfile::tempdir().unwrap();
     let (state, _) = CoreState::open(tokens().sqlite_writer_thread, tokens().interactive_io, &dir.path().join("core.sqlite")).unwrap();
     let schedules = Arc::new(StateScheduleStore::new(state.clone(), Arc::new(SystemClock)));
@@ -162,6 +169,7 @@ async fn env() -> Env {
         probe: probe.clone(),
         clock: Arc::new(SystemClock),
         local_tz: Tz::UTC,
+        channel_start_disabled,
     });
     Env { host, admin, runtime, routines, schedules, webhooks, settings, services, agent, probe, base, work, _dir: dir }
 }
@@ -637,4 +645,139 @@ async fn a_bridge_call_runs_once_per_op_and_a_reused_op_with_another_payload_con
     let reply = svc.call(request("channel/call", json!({"name": "reply", "args": {}}), Some("op-2"))).await.unwrap();
     let Reply::Value(unknown) = reply else { panic!("not a value") };
     assert_eq!(unknown, json!({"content": [{"type": "text", "text": "unknown tool: reply"}], "isError": true}));
+}
+
+/// Node's boot check (`scheduleAutomationAutostart`, `channel-start.test.mjs` / `prewarm.channels.test.mjs`):
+/// enabled automation starts the runtime on its own, nothing enabled starts nothing, and
+/// `MIXDOG_DISABLE_CHANNEL_START` or a close in progress starts nothing either.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_boot_check_starts_the_runtime_for_enabled_automation_without_an_admin_call() {
+    let e = env().await;
+    let open = CancellationToken::new();
+    e.admin.start_active_automation(&open).await;
+    assert!(!e.runtime.automation_running(), "nothing is enabled");
+
+    e.schedules.upsert(&Schedule { enabled: false, ..sched("off") }).await.unwrap();
+    e.admin.start_active_automation(&open).await;
+    assert!(!e.runtime.automation_running(), "a disabled schedule is not automation");
+
+    e.schedules.upsert(&sched("on")).await.unwrap();
+    let closing = CancellationToken::new();
+    closing.cancel();
+    e.admin.start_active_automation(&closing).await;
+    assert!(!e.runtime.automation_running(), "a close in progress starts nothing");
+
+    e.admin.start_active_automation(&open).await;
+    assert!(e.runtime.automation_running());
+    assert_eq!(e.services.log.lock().unwrap().clone(), vec!["sync:false".to_string()]);
+    assert_eq!(e.runtime.scheduler().status().iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["on"]);
+    e.runtime.stop_owned_runtime("test").await.unwrap();
+
+    let hook = env().await;
+    hook.webhooks.upsert(&EndpointRecord { name: "hook".into(), owner_agent_id: "lead".into(), enabled: true, ..Default::default() }).await.unwrap();
+    hook.admin.start_active_automation(&open).await;
+    assert!(hook.runtime.automation_running(), "an enabled webhook starts it too");
+    hook.runtime.stop_owned_runtime("test").await.unwrap();
+
+    let disabled = env_with(true).await;
+    disabled.schedules.upsert(&sched("on")).await.unwrap();
+    disabled.admin.start_active_automation(&open).await;
+    assert!(!disabled.runtime.automation_running(), "MIXDOG_DISABLE_CHANNEL_START");
+    disabled.admin.save_schedule(&recurring("saved")).await.unwrap();
+    assert!(!disabled.runtime.automation_running(), "a save does not start it either");
+}
+
+/// The enabling call has started the runtime when it returns.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn enabling_a_webhook_has_started_the_runtime_when_the_call_returns() {
+    let e = env().await;
+    e.admin.save_webhook(&json!({"name": "gh", "instructions": "x", "enabled": false})).await.unwrap();
+    e.admin.set_webhook_enabled("gh", true).await.unwrap();
+    assert!(e.runtime.automation_running(), "the start has finished when the call returns");
+    e.runtime.stop_owned_runtime("test").await.unwrap();
+}
+
+/// What the daemon wires around the webhook server: a loopback listener (ephemeral port) that
+/// starts the relay tunnel once it is bound.
+struct LoopbackServer {
+    service: Arc<WebhookService>,
+    tunnels: Arc<dyn TunnelStarter>,
+    server: tokio::sync::Mutex<Option<WebhookServer>>,
+}
+
+#[async_trait]
+impl WebhookListener for LoopbackServer {
+    async fn start(&self, _: &WebhookSettings) -> Result<(), String> {
+        let mut server = WebhookServer::new(self.service.clone(), self.tunnels.clone(), 0);
+        server.start().await?;
+        let replaced = self.server.lock().await.replace(server);
+        if let Some(mut old) = replaced {
+            old.stop().await;
+        }
+        Ok(())
+    }
+    async fn stop(&self) -> Result<(), String> {
+        let server = self.server.lock().await.take();
+        if let Some(mut server) = server {
+            server.stop().await;
+        }
+        Ok(())
+    }
+}
+
+/// `readHookPublicBase()`: the base of the identity file, `None` until a tunnel wrote one.
+struct IdentityFileBase {
+    data_dir: std::path::PathBuf,
+    relay: String,
+}
+
+#[async_trait]
+impl PublicBase for IdentityFileBase {
+    async fn hook_public_base(&self) -> Result<Option<String>, String> {
+        let Ok(bytes) = tokio::fs::read(self.data_dir.join("relay-hook-device.json")).await else { return Ok(None) };
+        let identity: Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        hook_public_base(&self.relay, identity["deviceId"].as_str().unwrap_or_default()).map(Some)
+    }
+}
+
+/// The saved webhook's first readback: the tunnel's identity file must exist when the save returns
+/// (the desktop shows `publicUrl` as the webhook endpoint URL), with the real receiver, relay
+/// tunnel and a real data directory. The relay is a loopback port nobody listens on, so the leg
+/// only logs and retries.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn saving_a_webhook_leaves_the_hook_identity_and_the_setup_shows_the_public_url() {
+    let e = env().await;
+    let data = tempfile::tempdir().unwrap();
+    let relay = "ws://127.0.0.1:9";
+    let service = Arc::new(WebhookService::new(
+        e.webhooks.clone(),
+        Arc::new(HomeWebhookDispatch::new(e.routines.clone(), e.webhooks.clone(), None, e.work.clone())),
+        WebhookConfig::default(),
+        e.work.clone(),
+        Arc::new(|| 0),
+    ));
+    let tunnels = Arc::new(RelayTunnelStarter::new(tokens().durability_io, data.path().to_path_buf(), Some(relay.into())));
+    let listener = Arc::new(LoopbackServer { service: service.clone(), tunnels, server: tokio::sync::Mutex::new(None) });
+    let automation = Arc::new(WebhookAutomation::new(e.settings.clone(), service, listener));
+    let scheduler = Scheduler::new(e.schedules.clone(), Arc::new(HomeScheduleRunner::new(e.routines.clone())), Arc::new(SystemClock), e.work.clone(), Tz::UTC, Vec::new());
+    let runtime = ChannelRuntime::new(scheduler, e.schedules.clone(), automation, e.agent.clone());
+    let admin = ChannelAdmin::new(AdminDeps {
+        schedules: e.schedules.clone(),
+        webhooks: e.webhooks.clone(),
+        routines: e.routines.clone(),
+        runtime: runtime.clone(),
+        settings: e.settings.clone(),
+        base: Arc::new(IdentityFileBase { data_dir: data.path().to_path_buf(), relay: relay.into() }),
+        probe: e.probe.clone(),
+        clock: Arc::new(SystemClock),
+        local_tz: Tz::UTC,
+        channel_start_disabled: false,
+    });
+
+    assert_eq!(admin.get_channel_setup().await.unwrap()["webhook"]["publicUrl"], Value::Null, "a read creates no identity");
+    admin.save_webhook(&json!({"name": "gh", "instructions": "x"})).await.unwrap();
+    let stored: Value = serde_json::from_slice(&tokio::fs::read(data.path().join("relay-hook-device.json")).await.unwrap()).unwrap();
+    let id = stored["deviceId"].as_str().unwrap();
+    assert_eq!(admin.get_channel_setup().await.unwrap()["webhook"]["publicUrl"], format!("http://127.0.0.1:9/hook/{id}"));
+    runtime.stop_owned_runtime("test").await.unwrap();
 }

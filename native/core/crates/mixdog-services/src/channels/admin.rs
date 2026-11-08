@@ -10,6 +10,7 @@ use std::time::Duration;
 use chrono::{DateTime, SecondsFormat, Utc};
 use chrono_tz::Tz;
 use serde_json::{Map, Value, json};
+use tokio_util::sync::CancellationToken;
 
 use super::ports::{ChannelSettings, ProbeError, PublicBase, WebhookPatch, WebhookProbe, is_truthy};
 use super::runtime::ChannelRuntime;
@@ -76,6 +77,8 @@ pub struct AdminDeps {
     pub clock: Arc<dyn Clock>,
     /// The zone a schedule without one runs in.
     pub local_tz: Tz,
+    /// `envFlag('MIXDOG_DISABLE_CHANNEL_START')`: the runtime is never started on its own.
+    pub channel_start_disabled: bool,
 }
 
 pub struct ChannelAdmin {
@@ -397,15 +400,33 @@ impl ChannelAdmin {
         });
     }
 
-    /// The first automation created while the app is already running: the boot-time start
-    /// check has passed, so start the runtime now (a no-op when it is up).
-    fn ensure_automation(&self) {
-        let runtime = Arc::clone(&self.d.runtime);
-        tokio::spawn(async move {
-            if let Err(error) = runtime.start_automation().await {
-                tracing::warn!("mixdog channels: automation start failed: {error}");
-            }
-        });
+    /// `onChannelStartTimer` / `scheduleAutomationAutostart` once their delay has run: only enabled
+    /// schedules or webhooks start the runtime (a no-op when it is up), and
+    /// `MIXDOG_DISABLE_CHANNEL_START` or a close in progress starts nothing. The daemon calls it
+    /// once it is serving, which is the boot-time start check.
+    pub async fn start_active_automation(&self, closing: &CancellationToken) {
+        if self.d.channel_start_disabled || closing.is_cancelled() {
+            return;
+        }
+        if !self.has_active_automation().await || closing.is_cancelled() {
+            return;
+        }
+        if let Err(error) = self.d.runtime.start_automation().await {
+            tracing::warn!("mixdog channels: automation start failed: {error}");
+        }
+    }
+
+    /// Automation saved while the app is already running: the boot-time start check has passed,
+    /// so run it again now. Node starts it on a timer after the save returns; here the save waits
+    /// for it, so the relay identity the start persists is already there for the next read of the
+    /// channel setup (the start only binds the listener and spawns the relay leg).
+    async fn ensure_automation(&self) {
+        if self.d.channel_start_disabled {
+            return;
+        }
+        if let Err(error) = self.d.runtime.start_automation().await {
+            tracing::warn!("mixdog channels: automation start failed: {error}");
+        }
     }
 
     pub async fn set_webhook_config(&self, patch: &Value) -> Done {
@@ -504,7 +525,7 @@ impl ChannelAdmin {
     pub async fn save_schedule(&self, entry: &Value) -> Done {
         let saved = self.save_schedule_row(entry).await?;
         self.reload_soon();
-        self.ensure_automation();
+        self.ensure_automation().await;
         Ok(saved)
     }
 
@@ -586,7 +607,7 @@ impl ChannelAdmin {
         self.d.schedules.set_enabled(&id, enabled).await?.ok_or_else(|| format!("schedule \"{id}\" does not exist"))?;
         self.reload_soon();
         if enabled {
-            self.ensure_automation();
+            self.ensure_automation().await;
         }
         Ok(json!({"name": id, "enabled": enabled}))
     }
@@ -596,7 +617,7 @@ impl ChannelAdmin {
     pub async fn save_webhook(&self, entry: &Value) -> Done {
         let saved = self.save_webhook_row(entry).await?;
         self.reload_soon();
-        self.ensure_automation();
+        self.ensure_automation().await;
         Ok(saved)
     }
 
@@ -679,7 +700,7 @@ impl ChannelAdmin {
         self.d.webhooks.set_enabled(&id, enabled).await?.ok_or_else(|| format!("webhook \"{id}\" does not exist"))?;
         self.reload_soon();
         if enabled {
-            self.ensure_automation();
+            self.ensure_automation().await;
         }
         Ok(json!({"name": id, "enabled": enabled}))
     }

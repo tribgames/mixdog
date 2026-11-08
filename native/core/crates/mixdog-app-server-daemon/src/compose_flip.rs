@@ -1138,6 +1138,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         probe: Arc::new(mixdog_services::channels::ports::ReqwestProbe::new(reqwest::Client::new())),
         clock: channel_clock.clone(),
         local_tz,
+        channel_start_disabled: mixdog_services::memory::cycles::config::env_flag((b.env)("MIXDOG_DISABLE_CHANNEL_START").as_deref(), false),
     });
     // The effects' channel cell: the stack exists now (it was the cycle with `definitions`).
     agent_channels.bind(Arc::new(crate::domain_seams::agent_effects::ServiceChannels { admin: channel_admin.clone(), runtime: channel_runtime.clone() })).map_err(|_| ComposeError::AlreadyBound("agent channels"))?;
@@ -2154,6 +2155,11 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .bind(Arc::new(mixdog_core_session::session::setup_ui::SessionSetupUi::new(directory.clone())))
         .map_err(|_| ComposeError::AlreadyBound("setup ui"))?;
     model_warmup.start(); // the boot's scheduleProviderModelWarmup() (session.mjs:121): after the model list, the gates and the wakes exist
+    // The boot's scheduleAutomationAutostart() (session.mjs:126) without its 1.5 s timer: the compose has finished, so probe once and start enabled automation now.
+    tokio::spawn({
+        let (admin, closing) = (channel_admin.clone(), close_requested.clone());
+        async move { admin.start_active_automation(&closing).await }
+    });
     setup_warmup.schedule_default(); // the boot's scheduleProviderSetupWarmup() (session.mjs:122), default 300 ms
     // The pool's directory-side cells (true cycles, bound once, in `verify_bound`): the dispatcher is built from the very values the turn's own gate takes (`policy`, `connectors`, the resolver, `HostGateEnv`, the bus dispatch).
     late_dispatcher
