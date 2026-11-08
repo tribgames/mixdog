@@ -1,7 +1,7 @@
 // One window's view of its connection's protocol link: the section mirror, the closed list of detail calls, and the
 // scoped feeds the window opened (a file watch, the ports list). A scoped feed lives as long as the window that asked
 // for it: closing the window releases it (desktop-services.md §2.1, §6.6 viewer scope).
-import { isRendererProtocolMethod, SECTIONS_IPC, type DesktopSectionsPush } from '../../shared/contract-sections';
+import { isRendererProtocolMethod, isScopedSectionFeed, SECTIONS_IPC, type DesktopSectionsPush } from '../../shared/contract-sections';
 import type { IpcHandle } from '../ipc';
 import type { ProtocolConnection, ProtocolWindow } from './connection';
 import { coreErrorForWindow } from './core-error';
@@ -10,7 +10,7 @@ import { loginUpdateOf } from './login-feed';
 interface WindowIpcOptions {
   connection: Pick<
     ProtocolConnection,
-    'snapshot' | 'attach' | 'call' | 'viewPorts' | 'watchFiles' | 'unwatchFiles' | 'loginFeed'
+    'snapshot' | 'attach' | 'call' | 'viewPorts' | 'watchFiles' | 'unwatchFiles' | 'watchFeed' | 'unwatchFeed' | 'loginFeed'
   >;
   handle: IpcHandle;
   /** Delivers to this window; false when it is gone. */
@@ -31,6 +31,16 @@ export function registerProtocolWindowIpc({ connection, handle, send, removeHand
     if (!isRendererProtocolMethod(method)) throw new Error('This core method is not available to the window.');
     if (method === 'system/ports/subscribe' || method === 'system/ports/unsubscribe') {
       return connection.viewPorts(window, method === 'system/ports/subscribe');
+    }
+    if (method === 'feed/subscribe' || method === 'feed/unsubscribe') {
+      const feedId = (params as { feedId?: unknown } | null)?.feedId;
+      if (!isScopedSectionFeed(feedId)) throw new Error('This feed is not available to the window.');
+      // A feed that carries sections is the connection's to follow: the window gets its sections in its mirror.
+      return (method === 'feed/subscribe' ? connection.watchFeed(window, feedId) : connection.unwatchFeed(window, feedId)).catch(
+        (error: unknown) => {
+          throw coreErrorForWindow(error);
+        }
+      );
     }
     const watchId = (params as { watchId?: unknown } | null)?.watchId;
     if ((method === 'fs/watch' || method === 'fs/unwatch') && typeof watchId === 'string') {

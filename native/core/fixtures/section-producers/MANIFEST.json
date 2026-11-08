@@ -1,11 +1,16 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-section-producers.mjs --tree <git clone of the Node repo at b6f10295a2f698afc85332467192de28500bd146, with node_modules>",
-  "fileCount": 1,
+  "command": "node --experimental-test-module-mocks benchmarks/rust-core/recorders/record-section-producers.mjs --tree <git clone of the Node repo at b6f10295a2f698afc85332467192de28500bd146, with node_modules>",
+  "fileCount": 2,
   "files": [
     {
       "bytes": 53248,
       "path": "agent-pool.json",
       "sha256": "714e8604a4b73b2e5b81220e84a243e8118d38ef87913465ca46a90ea8a038d0"
+    },
+    {
+      "bytes": 7132,
+      "path": "media-jobs.json",
+      "sha256": "58e73fe14ad9a5ef51e63f5fb19e85db506a2f896140dbb63057d010ee111740"
     }
   ],
   "product": {
@@ -26,5 +31,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-section-producers.mjs",
   "set": "section-producers",
-  "totalBytes": 53248
+  "totalBytes": 60380
 }

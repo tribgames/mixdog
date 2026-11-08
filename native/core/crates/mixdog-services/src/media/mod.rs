@@ -59,6 +59,7 @@ pub mod generator;
 #[cfg(test)]
 mod generator_tests;
 pub mod renditions;
+pub mod section;
 pub mod service;
 pub mod store;
 pub mod tool;

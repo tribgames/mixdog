@@ -42,6 +42,9 @@ export type DesktopSectionsPush =
   | { readonly kind: 'replace'; readonly stage: 'begin' }
   | { readonly kind: 'replace'; readonly stage: 'chunk'; readonly entries: readonly DesktopSectionEntry[] }
   | { readonly kind: 'replace'; readonly stage: 'commit' }
+  /** A scoped feed the window watches could not be restored after a reconnect, for a reason other than the core not
+   *  holding it (that one is a removal of its sections). Its held sections stay. */
+  | { readonly kind: 'feedError'; readonly feedId: string; readonly message: string }
   | { readonly kind: 'status'; readonly status: DesktopProtocolStatus };
 
 /** The only core methods a renderer may call. Each is a detail read the pushed state does not carry (stubs, history). */
@@ -55,11 +58,18 @@ export const RENDERER_PROTOCOL_METHODS = [
   'account/getOAuthProviderLoginStatus',
   'github/login/status',
   'media/getMediaJob',
+  // A scoped feed that carries sections (`SCOPED_SECTION_FEED_PREFIXES`); main folds what it delivers into the mirror.
+  'feed/subscribe',
+  'feed/unsubscribe',
   'system/ports/subscribe',
   'system/ports/unsubscribe',
   'fs/watch',
   'fs/unwatch',
 ] as const;
+/** The scoped feeds a window may watch for their sections (`media:<jobId>` carries section `mediaJobs`). */
+export const SCOPED_SECTION_FEED_PREFIXES = ['media:'] as const;
+export const isScopedSectionFeed = (feedId: unknown): feedId is string =>
+  typeof feedId === 'string' && SCOPED_SECTION_FEED_PREFIXES.some((prefix) => feedId.startsWith(prefix));
 export type RendererProtocolMethod = (typeof RENDERER_PROTOCOL_METHODS)[number];
 
 export const SECTIONS_IPC = {

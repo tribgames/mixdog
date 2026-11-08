@@ -11,8 +11,11 @@
 //! owner registered through [`ScopedRoutes`].
 
 mod routes;
+mod scoped;
 
 pub use routes::RouteGuard;
+pub use scoped::ScopedSection;
+pub use scoped::ScopedSections;
 pub use routes::ScopedRouteTable;
 pub use routes::StateRuntime;
 
@@ -68,6 +71,8 @@ type Entries = HashMap<SectionKey, Entry>;
 pub struct SectionFeedState {
     feed: Arc<dyn Feed>,
     stamp: Stamp,
+    /// A scoped feed's snapshot is the `feed/snapshot` of its sections, not the app's `app/snapshot`.
+    scoped: bool,
     inner: Mutex<Inner>,
 }
 
@@ -134,11 +139,21 @@ impl<T: Serialize + ?Sized> ToJsonString for T {
 impl SectionFeedState {
     /// Sections of `feed`, whose only producer this is. Starts empty at the feed's position.
     pub fn new(feed: Arc<dyn Feed>) -> Self {
+        Self::on(feed, false)
+    }
+
+    /// Sections of a scoped feed (`media:<jobId>`, …), created with [`scoped_empty_view`].
+    pub fn scoped(feed: Arc<dyn Feed>) -> Self {
+        Self::on(feed, true)
+    }
+
+    fn on(feed: Arc<dyn Feed>, scoped: bool) -> Self {
         let at = feed.position();
         let stamp = Stamp::new(&feed.feed_id(), &at.epoch);
         Self {
             feed,
             stamp,
+            scoped,
             inner: Mutex::new(Inner {
                 seq: at.seq,
                 entries: Arc::new(Entries::new()),
@@ -199,10 +214,17 @@ impl StatePublisher for SectionFeedState {
         let mut entries = (*inner.entries).clone();
         entries.insert(slot, entry);
         let entries = Arc::new(entries);
-        let view = Arc::new(SectionsView {
-            stamp: self.stamp.clone(),
-            entries: entries.clone(),
-        });
+        let view: Arc<dyn FeedView> = if self.scoped {
+            Arc::new(ScopedSectionsView {
+                id: self.feed.feed_id(),
+                entries: entries.clone(),
+            })
+        } else {
+            Arc::new(SectionsView {
+                stamp: self.stamp.clone(),
+                entries: entries.clone(),
+            })
+        };
         let frame = FeedFrame {
             seq,
             bytes: Bytes::from(bytes),
@@ -246,6 +268,50 @@ impl FeedView for SectionsView {
         self.stamp.close(&mut out, at.seq);
         Bytes::from(out)
     }
+}
+
+/// The snapshot of a scoped feed: `feed/snapshot` whose state holds the feed's sections, each in
+/// the shape of a section notification's params.
+struct ScopedSectionsView {
+    id: FeedId,
+    entries: Arc<Entries>,
+}
+
+impl FeedView for ScopedSectionsView {
+    fn encode_snapshot(
+        &self,
+        _lane: &InLane<CpuInteractive>,
+        at: FeedPosition,
+        _window: &Window,
+    ) -> Bytes {
+        let mut live: Vec<(&SectionKey, &Entry)> = self
+            .entries
+            .iter()
+            .filter(|(_, e)| e.change != SectionChange::Removed)
+            .collect();
+        live.sort_by(|a, b| (a.0.0.wire(), &a.0.1).cmp(&(b.0.0.wire(), &b.0.1)));
+        let mut out = Vec::with_capacity(256);
+        out.extend_from_slice(br#"{"method":"feed/snapshot","params":{"feedId":"#);
+        out.extend_from_slice(self.id.to_json_string().as_bytes());
+        out.extend_from_slice(br#","state":{"sections":["#);
+        for (i, ((section, key), entry)) in live.into_iter().enumerate() {
+            if i > 0 {
+                out.push(b',');
+            }
+            update_json(&mut out, *section, key, entry);
+        }
+        out.extend_from_slice(b"]}},");
+        Stamp::new(&self.id, &at.epoch).close(&mut out, at.seq);
+        Bytes::from(out)
+    }
+}
+
+/// The initial read model of a scoped feed that carries sections: no section yet.
+pub fn scoped_empty_view(id: &FeedId) -> Arc<dyn FeedView> {
+    Arc::new(ScopedSectionsView {
+        id: id.clone(),
+        entries: Arc::new(Entries::new()),
+    })
 }
 
 /// The read model of a feed that has published nothing yet: a snapshot with no sections. The

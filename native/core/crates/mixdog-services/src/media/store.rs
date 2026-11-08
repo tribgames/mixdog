@@ -61,11 +61,26 @@ pub enum Located {
     Special(Value),
 }
 
+/// The clock and the id source of the media domain: the stamps of a job and the ids of its jobs and
+/// assets. Production draws the system's; a test supplies its own, as the Node recording does.
+#[derive(Clone)]
+pub struct Marks {
+    pub now: Arc<dyn Fn() -> i64 + Send + Sync>,
+    pub id: Arc<dyn Fn() -> String + Send + Sync>,
+}
+
+impl Default for Marks {
+    fn default() -> Self {
+        Self { now: Arc::new(now_ms), id: Arc::new(|| uuid::Uuid::new_v4().to_string()) }
+    }
+}
+
 pub struct MediaStore {
     dir: PathBuf,
     lock: Mutex<()>,
     /// Every store call of an async path runs on this lane (see [`MediaStore::run`]).
     lane: DurabilityIo,
+    marks: Marks,
 }
 
 fn extension_for(mime: &str) -> &'static str {
@@ -181,7 +196,16 @@ fn has_array(key: &'static str) -> impl Fn(&Value) -> bool {
 
 impl MediaStore {
     pub fn new(data_dir: &Path, lane: DurabilityIo) -> Self {
-        Self { dir: data_dir.join("media"), lock: Mutex::new(()), lane }
+        Self::with_marks(data_dir, lane, Marks::default())
+    }
+
+    pub fn with_marks(data_dir: &Path, lane: DurabilityIo, marks: Marks) -> Self {
+        Self { dir: data_dir.join("media"), lock: Mutex::new(()), lane, marks }
+    }
+
+    /// The clock and ids the jobs over this store stamp with.
+    pub fn marks(&self) -> &Marks {
+        &self.marks
     }
 
     /// Runs one store operation as a job on the durability lane. The methods below read and
@@ -263,10 +287,10 @@ impl MediaStore {
     /// Persists one generated artifact and returns its index entry.
     pub fn save_asset(&self, kind: &str, lane: &str, model: &str, prompt: &str, options: Value, mime: &str, bytes: &[u8], meta: Map<String, Value>) -> Result<Value, MediaError> {
         let mut entry = json!({
-            "id": uuid::Uuid::new_v4().to_string(),
+            "id": (self.marks.id)(),
             "kind": kind, "lane": lane, "model": model,
             "prompt": mixdog_js::slice_utf16(prompt, 4000),
-            "options": options, "mime": mime, "bytes": bytes.len(), "createdAt": now_ms(),
+            "options": options, "mime": mime, "bytes": bytes.len(), "createdAt": (self.marks.now)(),
         });
         for (k, v) in meta {
             entry[k] = v;
