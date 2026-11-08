@@ -53,6 +53,9 @@ mod imp {
     /// Kill-and-wait rounds of a cancel before it reports what is left (`KILL_ROUNDS` of `lib/shell-descendants.mjs`).
     const KILL_ROUNDS: usize = 3;
 
+    /// `TERMINATION_RECHECK_MS`: how often a job that cannot be asked or watched is asked again.
+    const RECHECK: std::time::Duration = std::time::Duration::from_millis(5_000);
+
     /// How long one round waits for the job to empty.
     const KILL_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 
@@ -221,17 +224,25 @@ mod imp {
             self.signal().is_some()
         }
 
-        /// Completes when no process of the job is running; wakes on the port's message.
+        /// Completes when the job is seen empty; wakes on the port's message. A job that cannot be asked, or that
+        /// cannot be watched, is not empty: no message will announce its end, so it is asked again every
+        /// `RECHECK`, as Node does where it has no exit event (`TERMINATION_RECHECK_MS`).
         pub(crate) async fn wait_gone(&self) {
-            let Some(notify) = self.signal() else { return };
+            let Some(notify) = self.signal() else {
+                while self.observe() != super::Seen::Gone {
+                    tokio::time::sleep(RECHECK).await;
+                }
+                return;
+            };
             loop {
                 let mut notified = std::pin::pin!(notify.notified());
                 // Registered before the count is read, so the last exit in between is not missed.
                 notified.as_mut().enable();
-                if !self.occupied() {
-                    return;
+                match self.observe() {
+                    super::Seen::Gone => return,
+                    super::Seen::Running { .. } => notified.await,
+                    super::Seen::Unknown => tokio::time::sleep(RECHECK).await,
                 }
-                notified.await;
             }
         }
 
@@ -314,8 +325,7 @@ mod imp {
         /// `pid` is our own child, just spawned and not yet reaped: the one moment its start token is
         /// known to be its own.
         pub(crate) fn adopt(&self, pid: u32) {
-            let token = OsReader::identity(pid).ok().flatten();
-            let _ = self.tree.set(Tree::new(OsReader, OsSignals, TokioClock, pid, token));
+            let _ = self.tree.set(Tree::new(OsReader, OsSignals, TokioClock, pid, OsReader::identity(pid)));
         }
 
         /// The root has been reaped: its pid and group id are free for reuse from now on.
