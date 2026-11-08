@@ -23,10 +23,10 @@ function openSignInPage(url: unknown) {
 
 type OAuthLoginFlowOptions = {
   run: PanelContext['run'];
-  /** Names the status/cancel run keys. */
+  /** Names the cancel run key. */
   keyId: string;
-  statusCapability: Parameters<PanelContext['run']>[0];
   cancelCapability: Parameters<PanelContext['run']>[0];
+  /** Shown when the flow's pushed progress cannot be followed any more. */
   statusError: string;
   /** Runs once when the flow reports `complete`; resolves to an error message
    *  when the refreshed data could not be read, otherwise undefined. */
@@ -69,16 +69,41 @@ export function useOAuthLoginFlow(options: OAuthLoginFlowOptions) {
   const remote = options.remote ?? isRemoteHostRenderer();
   useEffect(() => {
     if (!flowId || flowState !== 'pending') return undefined;
+    const sections = window.mixdogDesktop?.sections;
+    // A client without the pushed feed (a remote device) would wait for progress that never comes.
+    if (!sections) {
+      setError(latest.current.statusError);
+      return undefined;
+    }
     let cancelled = false;
-    // Progress is pushed on the flow's scoped feed (`login:<flowId>`, `login/updated`; desktop-services.md §15 P8).
-    const unsubscribe = window.mixdogDesktop?.sections?.subscribeLoginUpdated((update) => {
-      if (cancelled || update.flowId !== flowId) return;
-      const nextFlow = record(update.state);
+    const fail = () => setError(latest.current.statusError);
+    const adopt = (state: unknown) => {
+      const nextFlow = record(state);
       setFlow((current) => mergeFlowStatus(current, { flowId, ...nextFlow }));
+    };
+    // Progress is pushed on the flow's scoped feed (`login:<flowId>`, `login/updated`; desktop-services.md §15 P8). A
+    // feed that cannot deliver any more ends the wait with the status-failure notice, as a failed status read did.
+    const stopUpdates = sections.subscribeLoginUpdated((update) => {
+      if (!cancelled && update.flowId === flowId) adopt(update.state);
     });
+    const stopLost = sections.subscribeLoginFeedLost((lost) => {
+      if (!cancelled && lost.flowId === flowId) fail();
+    });
+    // What the feed delivered, or lost, before the listeners above existed.
+    sections.loginFeed(flowId).then(
+      (held) => {
+        if (cancelled) return;
+        if (held.lost) fail();
+        else if (held.state) adopt(held.state);
+      },
+      () => {
+        if (!cancelled) fail();
+      }
+    );
     return () => {
       cancelled = true;
-      unsubscribe?.();
+      stopUpdates();
+      stopLost();
     };
   }, [flowId, flowState]);
   useEffect(() => {

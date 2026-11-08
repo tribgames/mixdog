@@ -1101,6 +1101,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             crate::mcp_surface::UrlOpener::new(b.tokens.spawn_io, (b.env)("SystemRoot").or_else(|| (b.env)("WINDIR")), crate::mcp_surface::UrlOpener::is_wsl(&b.env)),
             surface_generation.clone(),
         ),
+        scoped_feeds: b.scoped_feeds.clone(),
         bridges: bridges.clone(),
         hooks: hook_status.clone(),
         hook_observer: hook_log.clone(),
@@ -2693,7 +2694,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     );
     builder.register(mixdog_core_domains::domains::ai_account::account::AccountService::new(
         provider_admin.clone(),
-        mixdog_core_domains::domains::ai_account::flows::OAuthFlows::new(std::time::Duration::from_millis(mixdog_core_domains::domains::ai_account::flows::DEFAULT_FLOW_TTL_MS)),
+        mixdog_core_domains::domains::ai_account::flows::OAuthFlows::new(
+            std::time::Duration::from_millis(mixdog_core_domains::domains::ai_account::flows::DEFAULT_FLOW_TTL_MS),
+            Arc::new(mixdog_core_api::feed_publisher::LoginFeeds::new(b.scoped_feeds.clone())),
+        ),
         ledger_source.clone(),
         custom_providers,
         web_search_models.clone(),

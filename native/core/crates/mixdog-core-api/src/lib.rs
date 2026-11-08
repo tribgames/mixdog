@@ -16,6 +16,7 @@ pub mod call;
 pub mod domain;
 pub mod error;
 pub mod feed;
+pub mod feed_publisher;
 pub mod handle;
 pub mod host;
 pub mod ids;

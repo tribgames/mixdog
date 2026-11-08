@@ -1,0 +1,454 @@
+{
+  "domain": "login-status",
+  "recorder": "benchmarks/rust-core/recorders/record-login-status.mjs",
+  "authUrl": "https://auth.example/authorize?state=s&code_challenge_method=S256",
+  "mcp": [
+    {
+      "name": "complete",
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "callback"
+        },
+        {
+          "do": "authorized"
+        },
+        {
+          "do": "resolve",
+          "outcome": {
+            "connected": true
+          }
+        }
+      ],
+      "started": {
+        "flowId": "<flow>",
+        "state": "pending",
+        "url": "https://auth.example/authorize?state=s&code_challenge_method=S256"
+      },
+      "statuses": [
+        {
+          "flowId": "<flow>",
+          "state": "pending",
+          "step": "browser",
+          "url": "https://auth.example/authorize?state=s&code_challenge_method=S256"
+        },
+        {
+          "flowId": "<flow>",
+          "state": "pending",
+          "step": "connecting",
+          "url": "https://auth.example/authorize?state=s&code_challenge_method=S256"
+        },
+        {
+          "flowId": "<flow>",
+          "state": "pending",
+          "step": "tools",
+          "url": "https://auth.example/authorize?state=s&code_challenge_method=S256"
+        },
+        {
+          "flowId": "<flow>",
+          "state": "complete"
+        }
+      ]
+    },
+    {
+      "name": "failed",
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "resolve",
+          "outcome": {
+            "connected": false,
+            "error": "access_denied"
+          }
+        }
+      ],
+      "started": {
+        "flowId": "<flow>",
+        "state": "pending",
+        "url": "https://auth.example/authorize?state=s&code_challenge_method=S256"
+      },
+      "statuses": [
+        {
+          "flowId": "<flow>",
+          "state": "pending",
+          "step": "browser",
+          "url": "https://auth.example/authorize?state=s&code_challenge_method=S256"
+        },
+        {
+          "flowId": "<flow>",
+          "state": "failed",
+          "error": "access_denied"
+        }
+      ]
+    },
+    {
+      "name": "cancelled",
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "cancel"
+        }
+      ],
+      "started": {
+        "flowId": "<flow>",
+        "state": "pending",
+        "url": "https://auth.example/authorize?state=s&code_challenge_method=S256"
+      },
+      "statuses": [
+        {
+          "flowId": "<flow>",
+          "state": "pending",
+          "step": "browser",
+          "url": "https://auth.example/authorize?state=s&code_challenge_method=S256"
+        },
+        {
+          "flowId": "<flow>",
+          "state": "cancelled"
+        }
+      ]
+    },
+    {
+      "name": "timeout",
+      "steps": [
+        {
+          "do": "launch"
+        },
+        {
+          "do": "deadline"
+        }
+      ],
+      "started": {
+        "flowId": "<flow>",
+        "state": "pending",
+        "url": "https://auth.example/authorize?state=s&code_challenge_method=S256"
+      },
+      "statuses": [
+        {
+          "flowId": "<flow>",
+          "state": "pending",
+          "step": "browser",
+          "url": "https://auth.example/authorize?state=s&code_challenge_method=S256"
+        },
+        {
+          "flowId": "<flow>",
+          "state": "failed",
+          "error": "MCP OAuth sign-in timed out",
+          "reason": "timeout"
+        }
+      ]
+    },
+    {
+      "name": "stored-credentials",
+      "steps": [
+        {
+          "do": "settled"
+        }
+      ],
+      "started": {
+        "flowId": "<flow>",
+        "state": "complete"
+      },
+      "statuses": [
+        {
+          "flowId": "<flow>",
+          "state": "complete"
+        }
+      ]
+    }
+  ],
+  "provider": [
+    {
+      "name": "callback-complete",
+      "start": {
+        "url": "https://auth.example/authorize?x=1"
+      },
+      "steps": [
+        {
+          "do": "callback",
+          "result": true
+        }
+      ],
+      "started": {
+        "flowId": "<flow>",
+        "provider": "openai-oauth",
+        "url": "https://auth.example/authorize?x=1",
+        "manualUrl": null,
+        "userCode": null,
+        "state": "pending",
+        "completed": false,
+        "error": null,
+        "manualCodeSupported": false
+      },
+      "statuses": [
+        {
+          "flowId": "<flow>",
+          "provider": "openai-oauth",
+          "url": "https://auth.example/authorize?x=1",
+          "manualUrl": null,
+          "userCode": null,
+          "state": "complete",
+          "completed": true,
+          "error": null,
+          "manualCodeSupported": false
+        }
+      ]
+    },
+    {
+      "name": "callback-without-result",
+      "start": {
+        "url": "https://auth.example/authorize?x=1"
+      },
+      "steps": [
+        {
+          "do": "callback",
+          "result": null
+        }
+      ],
+      "started": {
+        "flowId": "<flow>",
+        "provider": "openai-oauth",
+        "url": "https://auth.example/authorize?x=1",
+        "manualUrl": null,
+        "userCode": null,
+        "state": "pending",
+        "completed": false,
+        "error": null,
+        "manualCodeSupported": false
+      },
+      "statuses": [
+        {
+          "flowId": "<flow>",
+          "provider": "openai-oauth",
+          "url": "https://auth.example/authorize?x=1",
+          "manualUrl": null,
+          "userCode": null,
+          "state": "failed",
+          "completed": false,
+          "error": "OAuth login did not complete.",
+          "manualCodeSupported": false
+        }
+      ]
+    },
+    {
+      "name": "callback-rejected",
+      "start": {
+        "url": "https://auth.example/authorize?x=1"
+      },
+      "steps": [
+        {
+          "do": "reject",
+          "message": "token exchange rejected"
+        }
+      ],
+      "started": {
+        "flowId": "<flow>",
+        "provider": "openai-oauth",
+        "url": "https://auth.example/authorize?x=1",
+        "manualUrl": null,
+        "userCode": null,
+        "state": "pending",
+        "completed": false,
+        "error": null,
+        "manualCodeSupported": false
+      },
+      "statuses": [
+        {
+          "flowId": "<flow>",
+          "provider": "openai-oauth",
+          "url": "https://auth.example/authorize?x=1",
+          "manualUrl": null,
+          "userCode": null,
+          "state": "failed",
+          "completed": false,
+          "error": "token exchange rejected",
+          "manualCodeSupported": false
+        }
+      ]
+    },
+    {
+      "name": "cancelled",
+      "start": {
+        "url": "https://auth.example/authorize?x=1"
+      },
+      "steps": [
+        {
+          "do": "cancel"
+        }
+      ],
+      "started": {
+        "flowId": "<flow>",
+        "provider": "openai-oauth",
+        "url": "https://auth.example/authorize?x=1",
+        "manualUrl": null,
+        "userCode": null,
+        "state": "pending",
+        "completed": false,
+        "error": null,
+        "manualCodeSupported": false
+      },
+      "statuses": [
+        {
+          "flowId": "<flow>",
+          "provider": "openai-oauth",
+          "url": "https://auth.example/authorize?x=1",
+          "manualUrl": null,
+          "userCode": null,
+          "state": "cancelled",
+          "completed": false,
+          "error": null,
+          "manualCodeSupported": false
+        }
+      ]
+    },
+    {
+      "name": "superseded",
+      "start": {
+        "url": "https://auth.example/authorize?x=1"
+      },
+      "steps": [
+        {
+          "do": "supersede"
+        }
+      ],
+      "started": {
+        "flowId": "<flow>",
+        "provider": "openai-oauth",
+        "url": "https://auth.example/authorize?x=1",
+        "manualUrl": null,
+        "userCode": null,
+        "state": "pending",
+        "completed": false,
+        "error": null,
+        "manualCodeSupported": false
+      },
+      "statuses": [
+        {
+          "flowId": "<flow>",
+          "provider": "openai-oauth",
+          "url": "https://auth.example/authorize?x=1",
+          "manualUrl": null,
+          "userCode": null,
+          "state": "cancelled",
+          "completed": false,
+          "error": "Superseded by a newer OAuth login.",
+          "manualCodeSupported": false
+        }
+      ]
+    },
+    {
+      "name": "expired",
+      "start": {
+        "url": "https://auth.example/authorize?x=1"
+      },
+      "steps": [
+        {
+          "do": "expire"
+        }
+      ],
+      "started": {
+        "flowId": "<flow>",
+        "provider": "openai-oauth",
+        "url": "https://auth.example/authorize?x=1",
+        "manualUrl": null,
+        "userCode": null,
+        "state": "pending",
+        "completed": false,
+        "error": null,
+        "manualCodeSupported": false
+      },
+      "statuses": [
+        {
+          "flowId": "<flow>",
+          "provider": "openai-oauth",
+          "url": "https://auth.example/authorize?x=1",
+          "manualUrl": null,
+          "userCode": null,
+          "state": "expired",
+          "completed": false,
+          "error": "OAuth login expired.",
+          "manualCodeSupported": false
+        }
+      ]
+    },
+    {
+      "name": "pasted-code",
+      "start": {
+        "url": "https://auth.example/authorize?x=1",
+        "manualUrl": "https://auth.example/manual"
+      },
+      "steps": [
+        {
+          "do": "code",
+          "code": "abc"
+        }
+      ],
+      "started": {
+        "flowId": "<flow>",
+        "provider": "openai-oauth",
+        "url": "https://auth.example/authorize?x=1",
+        "manualUrl": "https://auth.example/manual",
+        "userCode": null,
+        "state": "pending",
+        "completed": false,
+        "error": null,
+        "manualCodeSupported": true
+      },
+      "statuses": [
+        {
+          "flowId": "<flow>",
+          "provider": "openai-oauth",
+          "url": "https://auth.example/authorize?x=1",
+          "manualUrl": "https://auth.example/manual",
+          "userCode": null,
+          "state": "complete",
+          "completed": true,
+          "error": null,
+          "manualCodeSupported": true
+        }
+      ]
+    },
+    {
+      "name": "device-code",
+      "start": {
+        "url": "https://auth.example/device",
+        "userCode": "ABCD-1234"
+      },
+      "steps": [
+        {
+          "do": "callback",
+          "result": true
+        }
+      ],
+      "started": {
+        "flowId": "<flow>",
+        "provider": "openai-oauth",
+        "url": "https://auth.example/device",
+        "manualUrl": null,
+        "userCode": "ABCD-1234",
+        "state": "pending",
+        "completed": false,
+        "error": null,
+        "manualCodeSupported": false
+      },
+      "statuses": [
+        {
+          "flowId": "<flow>",
+          "provider": "openai-oauth",
+          "url": "https://auth.example/device",
+          "manualUrl": null,
+          "userCode": "ABCD-1234",
+          "state": "complete",
+          "completed": true,
+          "error": null,
+          "manualCodeSupported": false
+        }
+      ]
+    }
+  ]
+}

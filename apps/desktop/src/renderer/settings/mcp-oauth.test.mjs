@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { beforeEach } from 'node:test';
 
 import React, { act } from 'react';
 import { installTestDom } from '../test-support/test-dom.mjs';
@@ -18,7 +18,44 @@ globalThis.Event = window.Event;
 window.HTMLElement.prototype.attachEvent = () => {};
 window.HTMLElement.prototype.detachEvent = () => {};
 window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
-window.mixdogDesktop = { setTitleBarDimmed() {}, rendererDiagnostic() {} };
+// The core's `login:<flowId>` feed as the preload hands it to the window: pushed updates, a loss, and the read of
+// what the connection holds of the feed (its last state, whether it was lost) that the window makes once it listens.
+function loginFeed() {
+  const updates = new Set();
+  const losses = new Set();
+  const feed = {
+    held: { state: null, lost: false },
+    readFails: false,
+    sections: {
+      subscribeLoginUpdated(listener) {
+        updates.add(listener);
+        return () => updates.delete(listener);
+      },
+      subscribeLoginFeedLost(listener) {
+        losses.add(listener);
+        return () => losses.delete(listener);
+      },
+      async loginFeed() {
+        if (feed.readFails) throw new Error('The window lost its connection.');
+        return structuredClone(feed.held);
+      },
+    },
+    push(flowId, state) {
+      for (const listener of [...updates]) listener({ flowId, state });
+    },
+    lose(flowId) {
+      for (const listener of [...losses]) listener({ flowId });
+    },
+    reset() {
+      feed.held = { state: null, lost: false };
+      feed.readFails = false;
+    },
+  };
+  return feed;
+}
+const feed = loginFeed();
+beforeEach(() => feed.reset());
+window.mixdogDesktop = { setTitleBarDimmed() {}, rendererDiagnostic() {}, sections: feed.sections };
 
 // react-dom reads the DOM capabilities once at load (text input events), so it loads after the test DOM exists.
 const { createRoot } = await import('react-dom/client');
@@ -119,7 +156,6 @@ test('mcpErrorSummary words a refused connection without naming a provider', () 
 test('a sign-in required server connects through the login wait dialog and refreshes when done', async () => {
   const calls = [];
   let refreshed = 0;
-  let polls = 0;
   const view = await mountMcp({
     servers: [server({ authRequired: true, status: 'sign-in required' })],
     refreshExtensions: async () => {
@@ -129,10 +165,6 @@ test('a sign-in required server connects through the login wait dialog and refre
       calls.push([capability, args]);
       if (capability === 'getMcpServerConfig') return { name: 'cloudflare', config: server().config };
       if (capability === 'beginMcpOAuthLogin') return { flowId: 'f1', state: 'pending', url: 'https://auth.test/x' };
-      if (capability === 'getMcpOAuthLoginStatus') {
-        polls += 1;
-        return { flowId: 'f1', state: 'complete' };
-      }
     },
   });
   try {
@@ -167,8 +199,9 @@ test('a sign-in required server connects through the login wait dialog and refre
     });
     assert.deepEqual(written, ['https://auth.test/x']);
     assert.ok(dialog.querySelector('[aria-label="Copied"]'), 'copy feedback');
+    // The browser sign-in finishes: the core pushes the flow's completed status on its feed.
+    await act(async () => feed.push('f1', { flowId: 'f1', state: 'complete' }));
     await waitFor(() => document.querySelector('.settings-oauth-dialog') === null);
-    assert.equal(polls, 1);
     assert.equal(refreshed, 1, 'MCP data re-reads once the login completed');
     assert.equal(document.querySelector('.settings-oauth-dialog'), null);
   } finally {
@@ -208,7 +241,6 @@ test('a failed login shows its error in the wait dialog', async () => {
     async run(capability) {
       if (capability === 'getMcpServerConfig') return { name: 'cloudflare', config: server().config };
       if (capability === 'beginMcpOAuthLogin') return { flowId: 'f3', state: 'pending' };
-      if (capability === 'getMcpOAuthLoginStatus') return { flowId: 'f3', state: 'failed', error: 'access_denied' };
     },
   });
   try {
@@ -216,6 +248,7 @@ test('a failed login shows its error in the wait dialog', async () => {
     await act(async () => {
       document.querySelector('.extensions-mcp-dialog .extensions-action').click();
     });
+    await act(async () => feed.push('f3', { flowId: 'f3', state: 'failed', error: 'access_denied' }));
     await waitFor(() =>
       /Failed/.test(document.querySelector('.settings-oauth-dialog .settings-oauth-wait')?.textContent ?? '')
     );
@@ -223,6 +256,101 @@ test('a failed login shows its error in the wait dialog', async () => {
     assert.ok(dialog, 'the dialog stays open on failure');
     assert.match(dialog.querySelector('.settings-oauth-wait').textContent, /Failed/);
     assert.match(dialog.textContent, /access_denied/);
+  } finally {
+    await view.cleanup();
+  }
+});
+
+// A sign-in the wait dialog cannot follow any more must not leave it waiting: it shows the status-failure notice.
+const feedFailures = {
+  'the feed was lost while the dialog waits': {
+    flowId: 'f5',
+    before: () => {},
+    after: () => act(async () => feed.lose('f5')),
+  },
+  'the feed was already lost when the dialog started to listen': {
+    flowId: 'f6',
+    before: () => {
+      feed.held = { state: null, lost: true };
+    },
+    after: async () => {},
+  },
+  'the connection could not be asked for the feed': {
+    flowId: 'f7',
+    before: () => {
+      feed.readFails = true;
+    },
+    after: async () => {},
+  },
+};
+
+for (const [name, failure] of Object.entries(feedFailures)) {
+  test(`the wait dialog shows the status-failure notice when ${name}`, async () => {
+    failure.before();
+    const view = await mountMcp({
+      servers: [server({ authRequired: true })],
+      async run(capability) {
+        if (capability === 'getMcpServerConfig') return { name: 'cloudflare', config: server().config };
+        if (capability === 'beginMcpOAuthLogin') return { flowId: failure.flowId, state: 'pending', url: 'https://auth.test/x' };
+      },
+    });
+    try {
+      await openEditor('cloudflare');
+      await act(async () => {
+        document.querySelector('.extensions-mcp-dialog .extensions-action').click();
+      });
+      await failure.after();
+      const dialog = document.querySelector('.settings-oauth-dialog');
+      assert.ok(dialog, 'the dialog stays open so the sign-in can be cancelled or pasted');
+      assert.match(dialog.textContent, /OAuth status could not be checked\./);
+    } finally {
+      await view.cleanup();
+    }
+  });
+}
+
+test('a client without the pushed feed shows the status-failure notice instead of waiting', async () => {
+  const { sections } = window.mixdogDesktop;
+  delete window.mixdogDesktop.sections;
+  const view = await mountMcp({
+    servers: [server({ authRequired: true })],
+    async run(capability) {
+      if (capability === 'getMcpServerConfig') return { name: 'cloudflare', config: server().config };
+      if (capability === 'beginMcpOAuthLogin') return { flowId: 'f8', state: 'pending', url: 'https://auth.test/x' };
+    },
+  });
+  try {
+    await openEditor('cloudflare');
+    await act(async () => {
+      document.querySelector('.extensions-mcp-dialog .extensions-action').click();
+    });
+    assert.match(document.querySelector('.settings-oauth-dialog').textContent, /OAuth status could not be checked\./);
+  } finally {
+    await view.cleanup();
+    window.mixdogDesktop.sections = sections;
+  }
+});
+
+test('a status the feed delivered before the dialog listened completes the sign-in', async () => {
+  let refreshed = 0;
+  feed.held = { state: { flowId: 'f10', state: 'complete' }, lost: false };
+  const view = await mountMcp({
+    servers: [server({ authRequired: true })],
+    refreshExtensions: async () => {
+      refreshed += 1;
+    },
+    async run(capability) {
+      if (capability === 'getMcpServerConfig') return { name: 'cloudflare', config: server().config };
+      if (capability === 'beginMcpOAuthLogin') return { flowId: 'f10', state: 'pending', url: 'https://auth.test/x' };
+    },
+  });
+  try {
+    await openEditor('cloudflare');
+    await act(async () => {
+      document.querySelector('.extensions-mcp-dialog .extensions-action').click();
+    });
+    await waitFor(() => document.querySelector('.settings-oauth-dialog') === null);
+    assert.equal(refreshed, 1);
   } finally {
     await view.cleanup();
   }
@@ -300,7 +428,6 @@ for (const [variant, enter] of Object.entries(awayVariants)) {
     };
     const calls = [];
     let refreshed = 0;
-    let polls = 0;
     const view = await mountMcp({
       servers: [server({ authRequired: true, status: 'sign-in required' })],
       refreshExtensions: async () => {
@@ -310,11 +437,6 @@ for (const [variant, enter] of Object.entries(awayVariants)) {
         calls.push([capability, args]);
         if (capability === 'getMcpServerConfig') return { name: 'cloudflare', config: server().config };
         if (capability === 'beginMcpOAuthLogin') return { flowId: 'f9', state: 'pending', url: 'https://auth.test/x' };
-        if (capability === 'getMcpOAuthLoginStatus') {
-          // The first poll omits the sign-in url; the next one fails.
-          polls += 1;
-          return polls === 1 ? { flowId: 'f9', state: 'pending' } : undefined;
-        }
         if (capability === 'completeMcpOAuthLogin') {
           if (args[1] === 'nonsense') {
             throw new Error(
@@ -343,14 +465,16 @@ for (const [variant, enter] of Object.entries(awayVariants)) {
         'Paste the final redirect URL or code'
       );
       assert.ok(dialog.querySelector('[aria-label="Open again"]'));
-      await waitFor(() => polls >= 2);
-      assert.ok(polls >= 2);
+      // The first pushed status omits the sign-in url; then the feed is lost.
+      await act(async () => feed.push('f9', { flowId: 'f9', state: 'pending' }));
       assert.equal(
         dialog.querySelector('.settings-oauth-host').textContent,
         'auth.test',
         'a status without url keeps the link'
       );
       assert.ok(dialog.querySelector('[aria-label="Open again"]'));
+      assert.doesNotMatch(dialog.textContent, /OAuth status could not be checked\./);
+      await act(async () => feed.lose('f9'));
       assert.match(dialog.textContent, /OAuth status could not be checked\./);
       const paste = dialog.querySelector('form.settings-oauth-code input[name="code"]');
       assert.ok(paste);

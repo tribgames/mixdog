@@ -126,6 +126,8 @@ pub struct GlueInputs {
     pub env: Env,
     pub surface: Arc<dyn McpSurface>,
     pub health: Arc<AccountHealth>,
+    /// Where the sign-in flows publish their `login:<flowId>` feeds.
+    pub login_feeds: Arc<mixdog_core_api::feed_publisher::LoginFeeds>,
 }
 
 /// The name Node gives a connect failure that names no server (connect.mjs:124).
@@ -209,7 +211,7 @@ impl McpGlue {
     pub fn new(inputs: GlueInputs) -> Arc<Self> {
         inputs.hub.set_oauth_env(inputs.oauth_env.clone());
         Arc::new_cyclic(|me| Self {
-            logins: McpLogins::new(Arc::new(Bridge(me.clone()))),
+            logins: McpLogins::new(Arc::new(Bridge(me.clone())), inputs.login_feeds),
             scopes: ScopeRuntime::new(inputs.hub.clone(), Arc::new(GlueConfigs { glue: me.clone() })),
             hub: inputs.hub,
             config: inputs.config,

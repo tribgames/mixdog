@@ -10,6 +10,7 @@ mod extension_suite;
 mod golden_suite;
 mod hookscope_suite;
 mod http_suite;
+mod login_feed_suite;
 mod mcp_suite;
 mod mcpapi_suite;
 mod mcpfault_suite;

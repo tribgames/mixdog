@@ -11,7 +11,30 @@ installTestDom(null, {
   expose: ['navigator', 'HTMLElement', 'MouseEvent', 'KeyboardEvent', 'Event'],
 });
 window.matchMedia ??= () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+// The core's `login:<flowId>` feed as the preload hands it to the window: pushed updates, a loss, and the read of
+// what the connection holds of the feed that the window makes once it listens.
+const updates = new Set();
+const losses = new Set();
+const feed = {
+  push: (flowId, state) => updates.forEach((listener) => listener({ flowId, state })),
+  lose: (flowId) => losses.forEach((listener) => listener({ flowId })),
+};
 window.mixdogDesktop = {
+  sections: {
+    // The page's capabilities are served by the test's own daemon, not by a core connection.
+    core: async () => false,
+    snapshot: async () => ({ status: 'ready', entries: [] }),
+    subscribe: () => () => undefined,
+    subscribeLoginUpdated(listener) {
+      updates.add(listener);
+      return () => updates.delete(listener);
+    },
+    subscribeLoginFeedLost(listener) {
+      losses.add(listener);
+      return () => losses.delete(listener);
+    },
+    loginFeed: async () => ({ state: null, lost: false }),
+  },
   getQuotaAutoResume: async () => true,
   setQuotaAutoResume: async (next) => next,
   openExternal: async () => undefined,
@@ -23,7 +46,7 @@ const PROVIDER = 'openai-oauth';
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // The daemon as the Providers page sees it: one GPT sign-in that completes
-// after the first status poll. `holdSetup` parks the provider-setup read the
+// when its feed pushes the completed status. `holdSetup` parks the provider-setup read the
 // completed flow refreshes, so the completed step stays on screen.
 function daemon({ accounts }) {
   const state = { accounts, complete: false, holdSetup: false, held: [], cancels: 0, setupReads: 0 };
@@ -37,9 +60,6 @@ function daemon({ accounts }) {
         return { selectedId: state.accounts[0]?.id ?? null, auto: true, accounts: structuredClone(state.accounts) };
       case 'beginOAuthProviderLogin':
         return { flowId: 'flow-1', state: 'pending', url: 'https://auth.test/authorize' };
-      case 'getOAuthProviderLoginStatus':
-        state.complete = true;
-        return { flowId: 'flow-1', state: 'complete' };
       case 'cancelOAuthProviderLogin':
         state.cancels += 1;
         return {};
@@ -94,9 +114,11 @@ async function openCompletedSignIn(t, { accounts }) {
   host.state.holdSetup = true;
   await click(add);
   assert.ok(dialog(), 'the sign-in dialog opened');
-  // The status poll reports the browser sign-in done; the refresh of the
+  // The core pushes the browser sign-in done on the flow's feed; the refresh of the
   // provider setup that follows is still running (held), so the dialog stays.
-  await settle(900);
+  host.state.complete = true;
+  await act(async () => feed.push('flow-1', { flowId: 'flow-1', state: 'complete' }));
+  await settle(30);
   assert.ok(host.state.complete, 'the sign-in completed');
   assert.ok(dialog(), 'the completed step is on screen while the provider data refreshes');
   assert.match(dialog().querySelector('.settings-oauth-wait').textContent, /Complete/);
@@ -159,3 +181,25 @@ for (const [name, dismiss] of Object.entries(dismissals)) {
     assert.ok(document.querySelector('[data-account-id="a1"]'), 'the list shows the new account');
   });
 }
+
+test('a lost feed ends the wait with the status-failure notice and the sign-in can still be cancelled', async (t) => {
+  const host = daemon({ accounts: [] });
+  const root = createRoot(document.querySelector('main'));
+  t.after(async () => {
+    host.release();
+    await act(async () => root.unmount());
+  });
+  await act(async () =>
+    root.render(React.createElement(CapabilitySettings, { api: host.api, category: 'providers', active: true }))
+  );
+  await settle(50);
+  await click(document.querySelector('button[aria-label="Add account"]'));
+  assert.ok(dialog(), 'the sign-in dialog opened');
+  assert.doesNotMatch(dialog().textContent, /OAuth status could not be checked\./);
+  await act(async () => feed.lose('flow-1'));
+  assert.match(dialog().textContent, /OAuth status could not be checked\./);
+  assert.equal(footerClose().textContent, 'Cancel');
+  await click(footerClose());
+  assert.equal(dialog(), null);
+  assert.equal(host.state.cancels, 1, 'closing the waiting dialog cancels the flow on the core');
+});

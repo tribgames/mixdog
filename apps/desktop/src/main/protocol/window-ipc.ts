@@ -5,9 +5,13 @@ import { isRendererProtocolMethod, SECTIONS_IPC, type DesktopSectionsPush } from
 import type { IpcHandle } from '../ipc';
 import type { ProtocolConnection, ProtocolWindow } from './connection';
 import { coreErrorForWindow } from './core-error';
+import { loginUpdateOf } from './login-feed';
 
 interface WindowIpcOptions {
-  connection: Pick<ProtocolConnection, 'snapshot' | 'attach' | 'call' | 'viewPorts' | 'watchFiles' | 'unwatchFiles'>;
+  connection: Pick<
+    ProtocolConnection,
+    'snapshot' | 'attach' | 'call' | 'viewPorts' | 'watchFiles' | 'unwatchFiles' | 'loginFeed'
+  >;
   handle: IpcHandle;
   /** Delivers to this window; false when it is gone. */
   send(channel: string, value: unknown): boolean;
@@ -22,6 +26,7 @@ export function registerProtocolWindowIpc({ connection, handle, send, removeHand
 
   handle(SECTIONS_IPC.core, () => true);
   handle(SECTIONS_IPC.snapshot, () => connection.snapshot());
+  handle(SECTIONS_IPC.loginFeed, (_event, flowId) => connection.loginFeed(String(flowId)));
   handle(SECTIONS_IPC.call, async (_event, method, params) => {
     if (!isRendererProtocolMethod(method)) throw new Error('This core method is not available to the window.');
     if (method === 'system/ports/subscribe' || method === 'system/ports/unsubscribe') {
@@ -49,10 +54,12 @@ export function registerProtocolWindowIpc({ connection, handle, send, removeHand
         if (typeof watchId === 'string' && watchId.startsWith(prefix)) {
           send(SECTIONS_IPC.fsChanged, { ...(params as object), watchId: watchId.slice(prefix.length) });
         }
-      } else if (method === 'login/updated') {
-        send(SECTIONS_IPC.loginUpdated, params);
+      } else {
+        const login = loginUpdateOf(method, params);
+        if (login) send(SECTIONS_IPC.loginUpdated, login);
       }
     },
+    loginFeedLost: (flowId) => void send(SECTIONS_IPC.loginFeedLost, { flowId }),
   };
   const detach = connection.attach(window);
 
@@ -64,6 +71,7 @@ export function registerProtocolWindowIpc({ connection, handle, send, removeHand
     detach();
     removeHandler(SECTIONS_IPC.core);
     removeHandler(SECTIONS_IPC.snapshot);
+    removeHandler(SECTIONS_IPC.loginFeed);
     removeHandler(SECTIONS_IPC.call);
   };
 }
