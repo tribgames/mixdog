@@ -383,6 +383,261 @@ test('a reconnect sends the live file watches and the ports subscription again, 
   ]);
 });
 
+test('reopen replaces the client: the old one is closed and silenced, the windows get the new store, the feeds are sent again', async () => {
+  const first = fakeClient();
+  const second = fakeClient();
+  second.subscribeApp = async () => {
+    second.store.set('config', null, 3, { theme: 'new' });
+    second.store.emit({ type: 'appSnapshot' });
+  };
+  let closedFirst = false;
+  first.close = async () => void (closedFirst = true);
+  const clients = [first, second];
+  const loop = manual();
+  const connection = createProtocolConnection({ open: async () => clients.shift(), defer: loop.defer });
+  await connection.start();
+  const pushes = [];
+  const window = { push: (p) => pushes.push(p), notification() {} };
+  connection.attach(window);
+  await connection.watchFiles(window, { watchId: 'w1:a', path: '/p', recursive: true });
+  await connection.viewPorts(window, true);
+  first.store.set('config', null, 1, { theme: 'old' });
+  loop.run();
+  // The first client ended for good (a refused version): its status is the library's terminal one.
+  first.emit({ type: 'status', status: { state: 'closed', reason: { kind: 'versionRefused' } } });
+  assert.equal(connection.status, 'closed');
+  pushes.length = 0;
+
+  await connection.reopen();
+  loop.run();
+  assert.equal(closedFirst, true);
+  assert.equal(connection.status, 'ready');
+  assert.deepEqual(second.calls, [
+    { method: 'fs/watch', params: { watchId: 'w1:a', path: '/p', recursive: true } },
+    { method: 'system/ports/subscribe', params: {} },
+  ]);
+  assert.deepEqual(replacedEntries(pushes).map((e) => [e.section, e.revision]), [['config', 3]]);
+  assert.deepEqual(
+    pushes.filter((p) => p.kind === 'status').map((p) => p.status),
+    ['reconnecting', 'ready'],
+    'the windows are told the client is gone, then the new one\'s status'
+  );
+  await connection.call('x/y', {});
+  assert.equal(second.calls.at(-1).method, 'x/y');
+  // The old client no longer reaches the windows.
+  pushes.length = 0;
+  first.store.set('config', null, 99, 'stale');
+  first.emit({ type: 'status', status: { state: 'ready' } });
+  loop.run();
+  assert.deepEqual(pushes, []);
+});
+
+test('a reopen whose handshake fails leaves nothing half-open: the next reopen starts clean and whenSynced follows it', async () => {
+  const good = fakeClient();
+  const bad = fakeClient();
+  bad.subscribeApp = async () => {
+    throw new Error('refused');
+  };
+  const again = fakeClient();
+  const clients = [good, bad, again];
+  const connection = createProtocolConnection({ open: async () => clients.shift() });
+  await connection.start();
+  const pushes = [];
+  connection.attach({ push: (p) => pushes.push(p), notification() {}, loginFeedLost() {} });
+  await assert.rejects(connection.reopen(), /refused/);
+  await assert.rejects(connection.whenSynced(), /refused/);
+  await assert.rejects(connection.call('x/y', {}), /not open/);
+  assert.equal(connection.status, 'closed', 'nothing serves after the failed open');
+  assert.deepEqual(pushes.filter((p) => p.kind === 'status').map((p) => p.status), ['reconnecting', 'closed']);
+  await connection.reopen();
+  await connection.whenSynced();
+  await connection.call('x/y', {});
+  assert.equal(again.calls.at(-1).method, 'x/y');
+  await connection.close();
+  await assert.rejects(connection.reopen(), /closed/);
+});
+/** A client whose open and app subscription the test settles by hand. */
+function gatedClients(count) {
+  const gates = Array.from({ length: count }, () => {
+    const gate = { client: fakeClient(), closed: 0 };
+    gate.opened = new Promise((resolve) => (gate.open = () => resolve(gate.client)));
+    gate.subscribed = new Promise((resolve) => (gate.subscribe = resolve));
+    gate.client.close = async () => void (gate.closed += 1);
+    return gate;
+  });
+  return gates;
+}
+const turn = () => new Promise((resolve) => setImmediate(resolve));
+
+test('a reopen that begins while another is in flight supersedes it: the older client is closed unused, nothing stale applies, both callers get the newest outcome', async () => {
+  const [first, a, b, c, d] = gatedClients(5);
+  first.open();
+  first.subscribe();
+  const gates = [first, a, b, c, d];
+  let opens = 0;
+  const connection = createProtocolConnection({
+    open: () => gates[opens++].opened,
+  });
+  for (const gate of gates) gate.client.subscribeApp = () => gate.subscribed;
+  await connection.start();
+  const pushes = [];
+  const notes = [];
+  const raw = [];
+  connection.attach({ push: (p) => pushes.push(p), notification: (method) => notes.push(method), loginFeedLost() {} });
+  connection.onEvent((event) => raw.push(event.type));
+
+  // The older reopen is still opening when the newer begins.
+  const older = connection.reopen();
+  await turn();
+  assert.equal(opens, 2);
+  const newer = connection.reopen();
+  await turn();
+  assert.equal(opens, 3);
+  a.open();
+  await turn();
+  assert.equal(a.closed, 1, 'the superseded open is closed as soon as it arrives');
+  b.subscribe();
+  b.open();
+  await Promise.all([older, newer]);
+  assert.equal(first.closed, 1);
+  assert.equal(b.closed, 0);
+  assert.equal(connection.status, 'ready');
+  // Events of every client but the owner are dropped.
+  pushes.length = 0;
+  raw.length = 0;
+  for (const stale of [first, a]) {
+    stale.client.store.set('config', null, 99, 'stale');
+    stale.client.emit({ type: 'status', status: { state: 'reconnecting' } });
+    stale.client.emit({ type: 'notification', notification: { method: 'fs/changed', params: {} } });
+  }
+  assert.deepEqual([pushes, notes, raw], [[], [], []]);
+  assert.equal(connection.status, 'ready');
+
+  // A reopen whose app subscription is pending when the next begins: the next one closes it, and its late answer does nothing.
+  const third = connection.reopen();
+  await turn();
+  c.open();
+  await turn();
+  const fourth = connection.reopen();
+  await turn();
+  assert.equal(c.closed, 1, 'the superseded client was bound but unfinished: it is released');
+  c.subscribe();
+  await turn();
+  assert.equal(connection.status, 'reconnecting', 'the late answer of a superseded client does not make the connection ready');
+  await connection.close();
+  d.open();
+  // A closed connection ends every reopen still in flight.
+  await Promise.all([third, fourth]);
+  assert.deepEqual([first, a, b, c, d].map((gate) => gate.closed), [1, 1, 1, 1, 1], 'every client ends closed');
+});
+
+test('a reopen superseded by close never leaves a client open', async () => {
+  const [first, a] = gatedClients(2);
+  first.open();
+  first.subscribe();
+  const gates = [first, a];
+  let opens = 0;
+  const connection = createProtocolConnection({ open: () => gates[opens++].opened });
+  for (const gate of gates) gate.client.subscribeApp = () => gate.subscribed;
+  await connection.start();
+  const reopening = connection.reopen();
+  await turn();
+  await connection.close();
+  a.open();
+  await reopening;
+  assert.equal(a.closed, 1);
+  assert.equal(first.closed, 1);
+});
+
+test('a reopen drops the sign-in feeds it cannot carry: they are lost, and a feed of the new client starts clean', async () => {
+  const first = fakeClient();
+  const second = fakeClient();
+  const clients = [first, second];
+  const connection = createProtocolConnection({ open: async () => clients.shift() });
+  await connection.start();
+  const lost = [];
+  connection.attach({ push() {}, notification() {}, loginFeedLost: (flowId) => lost.push(flowId) });
+  first.call = async (method) => (method === 'mcp/beginMcpOAuthLogin' ? { flowId: 'f1' } : {});
+  await connection.call('mcp/beginMcpOAuthLogin', {});
+  assert.deepEqual(connection.loginFeed('f1'), { state: null, lost: false });
+  await connection.reopen();
+  assert.deepEqual(lost, ['f1'], 'told through the same path as a dropped link');
+  assert.equal(connection.loginFeed('f1').lost, true);
+  assert.deepEqual(second.calls, [], 'nothing of the old client\'s feeds is sent to the new one');
+});
+
+test('replaced listeners are told once the new client is attached, not for the first start', async () => {
+  const clients = [fakeClient(), fakeClient()];
+  const connection = createProtocolConnection({ open: async () => clients.shift() });
+  const told = [];
+  const remove = connection.onReplaced(() => told.push(connection.status));
+  await connection.start();
+  assert.deepEqual(told, []);
+  await connection.reopen();
+  assert.deepEqual(told, ['ready']);
+  remove();
+});
+
+test('ensureOpen leaves a client the automatic recovery restored alone: no second client, no rejected call, no lost feed', async () => {
+  const first = fakeClient();
+  const clients = [first, fakeClient()];
+  let opened = 0;
+  let closed = 0;
+  first.close = async () => void (closed += 1);
+  const connection = createProtocolConnection({ open: async () => (opened += 1, clients.shift()) });
+  await connection.start();
+  const lost = [];
+  connection.attach({ push() {}, notification() {}, loginFeedLost: (flowId) => lost.push(flowId) });
+  // The link dropped and the library's own redial restored it, as the user's Reconnect was dialing.
+  first.emit({ type: 'status', status: { state: 'reconnecting' } });
+  first.emit({ type: 'status', status: { state: 'ready' } });
+  first.call = async (method) => (method === 'mcp/beginMcpOAuthLogin' ? { flowId: 'f1' } : {});
+  await connection.call('mcp/beginMcpOAuthLogin', {});
+  let release;
+  first.call = () => new Promise((resolve) => (release = resolve));
+  const pending = connection.call('x/y', {});
+  await connection.ensureOpen();
+  release('answer');
+  assert.equal(await pending, 'answer');
+  assert.equal(opened, 1);
+  assert.equal(closed, 0);
+  assert.deepEqual(lost, []);
+  assert.equal(connection.loginFeed('f1').lost, false);
+});
+
+test('ensureOpen joins a reopen in flight and reopens a client that is not ready', async () => {
+  const first = fakeClient();
+  const clients = [first, fakeClient(), fakeClient()];
+  let opened = 0;
+  const connection = createProtocolConnection({ open: async () => (opened += 1, clients.shift()) });
+  await connection.start();
+  first.emit({ type: 'status', status: { state: 'reconnecting' } });
+  await Promise.all([connection.ensureOpen(), connection.ensureOpen()]);
+  assert.equal(opened, 2, 'not ready: one reopen, which the second ensureOpen joined');
+  const before = opened;
+  await connection.ensureOpen();
+  assert.equal(opened, before, 'ready now: nothing is opened');
+});
+
+test('an event of a client a listener has just replaced writes nothing: the reopen\'s status stands', async () => {
+  const first = fakeClient();
+  const clients = [first, fakeClient()];
+  const connection = createProtocolConnection({ open: async () => clients.shift() });
+  await connection.start();
+  const pushes = [];
+  connection.attach({ push: (p) => pushes.push(p), notification() {} });
+  let reopened = null;
+  connection.onEvent(() => {
+    reopened ??= connection.reopen();
+  });
+  pushes.length = 0;
+  first.emit({ type: 'status', status: { state: 'closed' } });
+  assert.equal(connection.status, 'reconnecting', 'the superseded event did not write closed over the reopen');
+  await reopened;
+  assert.equal(connection.status, 'ready');
+  assert.equal(pushes.some((p) => p.kind === 'status' && p.status === 'closed'), false);
+});
+
 test('a watch answered after its window closed is still released, and is not restored later', async () => {
   const client = fakeClient();
   const answers = [];

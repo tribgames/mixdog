@@ -48,7 +48,9 @@ export interface DesktopTransport {
 }
 
 interface DesktopServiceClientOptions {
-  connect(): DesktopTransport;
+  /** The Node service leg. Absent for a connection whose core serves every method (`serviceLane`): there is nothing
+   *  to start, and `start()` settles at once. Removed with the Node lane at K1. */
+  connect?(): DesktopTransport;
   sessionOptions(): SerializableDesktopServiceOptions;
   initialSnapshot?: SessionSnapshot;
   /** The connection's core, when it has one: session capabilities are requests of that core, not calls of the Node
@@ -205,6 +207,7 @@ export class DesktopServiceClient implements DesktopService {
       return Promise.reject(new Error('Mixdog desktop service client is disposed.'));
     }
     if (this.terminalError) return Promise.reject(this.terminalError);
+    if (!this.options.connect) return Promise.resolve();
     if (this.readyPromise) return this.readyPromise;
     this.readyPromise = new Promise<void>((resolve, reject) => {
       this.readyResolve = resolve;
@@ -295,7 +298,7 @@ export class DesktopServiceClient implements DesktopService {
     }
     let transport: DesktopTransport;
     try {
-      transport = this.options.connect();
+      transport = this.options.connect!();
     } catch (error) {
       const failure = error instanceof Error ? error : new Error(String(error));
       this.rejectStartup(failure);

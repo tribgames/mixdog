@@ -600,10 +600,6 @@ const connectionDependencies: DesktopConnectionDependencies = {
         }),
     });
   },
-  isProviderAllowed: (connection, provider) => {
-    const allowed = allowedProvidersForHost(connection.id);
-    return allowed === null || allowed.includes(provider);
-  },
   allowedProviders: (connection) => allowedProvidersForHost(connection.id),
   operationHost: () => ({
     pcNotificationsSupported: () => Promise.resolve(Notification.isSupported()),

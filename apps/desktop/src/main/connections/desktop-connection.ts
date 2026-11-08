@@ -4,7 +4,7 @@
 // credentials.
 import type { DesktopConnectionNotice, SessionSnapshot } from '../../shared/contract';
 import type { DesktopServerPort } from '../../shared/contract-server-ports';
-import { DEFAULT_STARTUP_TIMEOUT_MS, DesktopServiceClient } from '../desktop-service-client';
+import { DesktopServiceClient } from '../desktop-service-client';
 import type { SerializableDesktopServiceOptions } from '../desktop-service-contract';
 import type { DesktopTerminalHost } from '../ipc-terminal';
 import {
@@ -16,18 +16,11 @@ import {
 } from '../model-proxy-host';
 import { SessionTransport } from '../session-transport';
 import { describeConnectFailure } from '../ssh/connect-failure';
-import { REMOTE_INSTALL_TIMEOUT_MS, REMOTE_PROBE_TIMEOUT_MS } from '../ssh/remote-bootstrap';
+import { RemoteBootstrapError } from '../ssh/remote-bootstrap';
 import { RemoteSession, type RemoteDaemonConnector, type RemoteSessionConfig } from '../ssh/remote-session';
 import { parseSshTarget } from '../ssh/ssh-command';
 import { currentSshContext, runWithSshContext, type SshHostSettings, type SshModelLogin } from '../ssh/ssh-context';
-import {
-  ConnectionLink,
-  LINK_STABLE_RESET_MS,
-  RECONNECT_BASE_DELAY_MS,
-  reconnectDelayCapMs,
-  remoteClientGraceMs,
-  type LinkFailure,
-} from './connection-link';
+import { ConnectionLink, remoteClientGraceMs, type LinkFailure } from './connection-link';
 import type { ConnectionIdentity, ConnectionProgress } from './contract';
 import { createReattachReport } from './reattach-report';
 import type { ServerPortForwards } from './server-port-forwards';
@@ -35,25 +28,21 @@ import { createServiceTerminalHost } from './terminal-host';
 import { createCapabilityLane } from '../protocol/capability-route';
 import { withSectionCapabilities } from '../protocol/section-capability-lane';
 import { createOperationLane } from '../protocol/desktop-operation-route';
+import { createServiceLane } from '../protocol/service-route';
 import type { OperationHost } from '../protocol/section-reads';
 import type { ProtocolConnection } from '../protocol/connection';
 import { createCoreModelProxy } from '../protocol/model-proxy-relay';
 
 /** How long a server's tunnel may take to accept its first connection. */
 export const REMOTE_TUNNEL_READY_TIMEOUT_MS = 90_000;
-/** A server connection's whole startup: the longest bootstrap (probe, then an
- *  upload with an npm install and a daemon start), the tunnel coming up, and
- *  the same handshake budget this PC's daemon gets. A first install must not
- *  be cut short by the client's startup deadline. */
-export const REMOTE_STARTUP_TIMEOUT_MS =
-  REMOTE_PROBE_TIMEOUT_MS + REMOTE_INSTALL_TIMEOUT_MS + REMOTE_TUNNEL_READY_TIMEOUT_MS + DEFAULT_STARTUP_TIMEOUT_MS;
 
 export interface DesktopConnection extends ConnectionIdentity {
   /** The ssh destination; null for this PC. */
   readonly target: string | null;
   readonly client: DesktopServiceClient;
   /** This process's one protocol connection to the connection's core: pushed sections, detail calls, host role.
-   *  Null for a target whose core endpoint is not wired yet (server tunnels). */
+   *  A server's session is carried by it entirely (its endpoint is the ssh tunnel); null only for a target whose
+   *  core endpoint is not wired yet (this PC's, until K1). */
   readonly protocol: ProtocolConnection | null;
   /** The current ssh session; reopening after a terminal failure replaces it. */
   readonly remote: RemoteSession | null;
@@ -105,9 +94,6 @@ export interface DesktopConnectionDependencies {
   /** The protocol connection of `connection`'s core, or null when its endpoint is not available. A server's
    *  endpoint is its SSH tunnel, reached through `connector`; this PC's has none. */
   createProtocol?(connection: ConnectionIdentity, connector: RemoteDaemonConnector | null): ProtocolConnection | null;
-  /** The host's provider consent: may this server's turns use `provider`
-   *  with this PC's sign-in? Absent, or a host without a list: all may. */
-  isProviderAllowed?(connection: ConnectionIdentity, provider: string): boolean;
   /** What only this process answers for the renderer's desktop operations: `pcNotificationsSupported`,
    *  `readDisplayPreferences`, `hostName` (protocol/section-reads.ts `OperationHost`). */
   operationHost?(): Partial<Omit<OperationHost, 'emitDesktopEvent'>>;
@@ -209,13 +195,13 @@ async function reopenRemote(
 const bindingModelLogin = (binding: RemoteBinding | null): SshModelLogin =>
   binding?.config.modelLogin === 'server' ? 'server' : 'pc';
 
-/** What the server window shows about its link, driven by the service client's
- *  diagnostics and by the ssh session's own actions. */
+/** What the server window shows about its link, driven by the protocol connection's status (`followCore`) and by
+ *  the ssh session's own actions. */
 function createConnectionLink(
   spec: DesktopConnectionSpec,
   graceMs: number,
   binding: RemoteBinding,
-  client: DesktopServiceClient
+  retryService: () => void
 ): ConnectionLink {
   const session = (): RemoteSession => binding.session;
   return new ConnectionLink({
@@ -229,7 +215,7 @@ function createConnectionLink(
       probe: (timeoutMs) => session().probeHealth(timeoutMs),
       resetTunnel: () => underSettings(binding, () => session().resetTunnel()),
       reviveTunnel: () => underSettings(binding, () => session().reviveTunnel()),
-      retryService: () => void client.retryNow().catch(() => {}),
+      retryService,
       stoppedBy: () => {
         const failure = session().stoppedBy;
         return failure ? describeLinkFailure(failure, spec.target ?? '') : null;
@@ -254,6 +240,7 @@ function createServerPanels({
   client,
   protocol,
   emitNotice,
+  retryService,
 }: {
   spec: DesktopConnectionSpec;
   deps: DesktopConnectionDependencies;
@@ -261,17 +248,19 @@ function createServerPanels({
   graceMs: number;
   binding: RemoteBinding;
   client: DesktopServiceClient;
-  protocol: ProtocolConnection | null;
+  protocol: ProtocolConnection;
   emitNotice(notice: DesktopConnectionNotice): void;
+  /** Have the core connection attach now instead of waiting out the library's redial delay. */
+  retryService(): void;
 }): ServerPanels {
   const ports = deps.createPortForwards?.(identity, binding.config.target) ?? null;
   // The server's listening ports are the core's pushed `ports` section (sampled only while a window views them).
   if (ports) {
-    protocol?.watchSection('ports', (entry) => {
+    protocol.watchSection('ports', (entry) => {
       if (Array.isArray(entry?.value)) ports.update(entry.value as DesktopServerPort[]);
     });
   }
-  const link = createConnectionLink(spec, graceMs, binding, client);
+  const link = createConnectionLink(spec, graceMs, binding, retryService);
   const reattach = createReattachReport({
     sources: {
       subscribeSessions: (listener) => client.subscribeSessions(listener),
@@ -283,36 +272,87 @@ function createServerPanels({
   return { link, ports, reattach };
 }
 
-/** One service diagnostic's effect on the link. */
-function feedLink(link: ConnectionLink, event: string, client: DesktopServiceClient, target: string): void {
-  if (LINK_LOST_EVENTS.has(event)) link.serviceLost();
-  else if (LINK_RESTORED_EVENTS.has(event)) link.serviceRestored();
-  else if (event === 'desktop-transport-terminal' && client.terminalFailure) {
-    link.terminal(describeLinkFailure(client.terminalFailure, target));
-  }
+/** The core refused this desktop's `initialize` for its version (the library's terminal `versionRefused`). Nothing
+ *  a retry changes: the session stops, with the words the old compatibility probe gave. */
+function versionRefusal(detail: unknown, display: string): RemoteBootstrapError | null {
+  const refused = detail as { kind?: unknown; reason?: unknown; serverVersion?: unknown; clientVersion?: unknown } | null;
+  if (refused?.kind !== 'versionRefused') return null;
+  const server = String(refused.serverVersion || 'unknown');
+  const client = String(refused.clientVersion || 'unknown');
+  return refused.reason === 'clientOutdated'
+    ? new RemoteBootstrapError(
+        'client-outdated',
+        `This Mixdog (${client}) is older than the core on ${display} (${server}). Update Mixdog on this PC.`
+      )
+    : new RemoteBootstrapError(
+        'protocol-mismatch',
+        `The Mixdog core on ${display} (${server}) is incompatible with this desktop (${client}). ` +
+          'Reconnect: Mixdog installs the version that matches this desktop on the server.'
+      );
 }
 
-/** What the service client's callbacks reach: the transport it is on, and the
- *  server panels once they exist (the client's callbacks only run after start()). */
+/** What the service client's callbacks reach: the transport it is on (this PC's only). */
 interface ClientLive {
   transport: SessionTransport | null;
-  panels: ServerPanels | null;
 }
 
-function createServiceClient({
-  spec,
+/** A server's link follows its protocol connection: the library redials a dropped socket by itself (through the
+ *  connector, which re-reads the server), so what the link needs from here is the state, not a retry. */
+function followCore({
   deps,
   identity,
   binding,
-  graceMs,
+  panels,
+  protocol,
+}: {
+  deps: DesktopConnectionDependencies;
+  identity: ConnectionIdentity;
+  binding: RemoteBinding;
+  panels: ServerPanels;
+  protocol: ProtocolConnection;
+}): { attached(): void; stop(): void } {
+  let generation = 0;
+  const attached = (): void => {
+    generation += 1;
+    // The core always serves terminals; no per-server capability remains to ask.
+    panels.link.setTerminalsAvailable(true);
+    panels.link.serviceRestored();
+    // Attached (first time or again): the saved forwards run again.
+    void panels.ports?.restore().catch(() => undefined);
+    deps.onServiceReady?.(identity, { generation });
+  };
+  const stop = protocol.onEvent((event) => {
+    if (event.type !== 'status') return;
+    const status = (event as { status: { state: string; reason?: unknown } }).status;
+    if (status.state === 'ready') {
+      deps.onDiagnostic?.(identity, 'core-link-restored', {});
+      attached();
+    } else if (status.state === 'reconnecting') {
+      // The next dial re-reads the server (the core may be another one by then, or gone) instead of reusing the
+      // cached token and port.
+      binding.connector.invalidate();
+      deps.onDiagnostic?.(identity, 'core-link-lost', {});
+      panels.link.serviceLost();
+    } else {
+      const refusal = versionRefusal(status.reason, binding.connector.display);
+      if (!refusal) return;
+      binding.connector.fail(refusal);
+      panels.link.terminal(describeLinkFailure(refusal, binding.config.target));
+    }
+  });
+  return { attached, stop };
+}
+
+function createServiceClient({
+  deps,
+  identity,
+  binding,
   live,
   protocol,
 }: {
-  spec: DesktopConnectionSpec;
   deps: DesktopConnectionDependencies;
   identity: ConnectionIdentity;
   binding: RemoteBinding | null;
-  graceMs: number;
   live: ClientLive;
   protocol: ProtocolConnection | null;
 }): DesktopServiceClient {
@@ -321,6 +361,8 @@ function createServiceClient({
     // The capabilities the sections replaced are answered from the connection's sections (section-capability-lane.ts).
     ...(protocol
       ? {
+          // A server's whole service is core requests (service-route.ts): it has no Node service to start.
+          ...(binding ? { serviceLane: createServiceLane({ protocol, snapshot: () => client.getSnapshot() }) } : {}),
           capabilityLane: withSectionCapabilities({
             lane: createCapabilityLane({ protocol }),
             protocol,
@@ -334,42 +376,19 @@ function createServiceClient({
           }),
         }
       : {}),
-    connect: () => {
-      live.transport = new SessionTransport(
-        deps.moduleUrl(),
-        process.cwd(),
-        null,
-        deps.environmentReady(),
-        binding?.connector ?? null
-      );
-      return live.transport;
-    },
-    // First remote boot uploads the service bundle and may start the daemon;
-    // its restarts follow the link's ladder, inside the server's grace.
+    // This PC's Node service, until K1. A server connection has none: its client starts at once.
     ...(binding
-      ? {
-          startupTimeoutMs: REMOTE_STARTUP_TIMEOUT_MS,
-          restartBaseDelayMs: RECONNECT_BASE_DELAY_MS,
-          restartMaxDelayMs: reconnectDelayCapMs(graceMs),
-          restartStableMs: LINK_STABLE_RESET_MS,
-        }
-      : {}),
+      ? {}
+      : {
+          connect: () => {
+            live.transport = new SessionTransport(deps.moduleUrl(), process.cwd(), null, deps.environmentReady());
+            return live.transport;
+          },
+        }),
     sessionOptions: () => deps.sessionOptions(),
     ...(deps.initialSnapshot ? { initialSnapshot: deps.initialSnapshot() } : {}),
-    onDiagnostic: (event, data) => {
-      if (live.panels) feedLink(live.panels.link, event, client, spec.target ?? '');
-      deps.onDiagnostic?.(identity, event, data);
-    },
-    onServiceReady: (context) => {
-      if (live.panels && binding) {
-        // The core always serves terminals; no per-server capability remains to ask.
-        live.panels.link.setTerminalsAvailable(true);
-        live.panels.link.serviceRestored();
-      }
-      // Attached (first time or again): the saved forwards run again.
-      void live.panels?.ports?.restore().catch(() => undefined);
-      deps.onServiceReady?.(identity, context);
-    },
+    onDiagnostic: (event, data) => deps.onDiagnostic?.(identity, event, data),
+    onServiceReady: (context) => deps.onServiceReady?.(identity, context),
   });
   return client;
 }
@@ -430,12 +449,6 @@ function createConnectionModelProxy({
     // this PC's providers is described to it and no call runs on its sign-ins.
     serving: () => !serverLogins(),
   };
-  // Server connections only: this PC's own daemon uses its own sign-ins.
-  if (spec.kind === 'ssh') {
-    if (deps.isProviderAllowed) {
-      proxyOptions.isProviderAllowed = (provider) => Boolean(deps.isProviderAllowed?.(identity, provider));
-    }
-  }
   if (reattach) {
     proxyOptions.onCallSettled = (event: ModelProxyCallSettled) => {
       reattach.onModelCall(event);
@@ -457,14 +470,50 @@ export function createDesktopConnection(
   const binding = spec.kind === 'ssh' ? bindRemote(spec, options) : null;
   const graceMs = spec.graceMs ?? remoteClientGraceMs(deps.remoteGraceMs);
   const protocol = deps.createProtocol?.(identity, binding?.connector ?? null) ?? null;
-  const live: ClientLive = { transport: null, panels: null };
-  const client = createServiceClient({ spec, deps, identity, binding, graceMs, live, protocol });
+  if (binding && !protocol) throw new Error('A server connection is carried by its core connection: it needs createProtocol.');
+  const live: ClientLive = { transport: null };
+  const client = createServiceClient({ deps, identity, binding, live, protocol });
   const notices = new Set<(notice: DesktopConnectionNotice) => void>();
   const emitNotice = (notice: DesktopConnectionNotice): void => {
     for (const listener of notices) listener(notice);
   };
-  const panels = binding ? createServerPanels({ spec, deps, identity, graceMs, binding, client, protocol, emitNotice }) : null;
-  live.panels = panels;
+  const panels =
+    binding && protocol
+      ? createServerPanels({
+          spec,
+          deps,
+          identity,
+          graceMs,
+          binding,
+          client,
+          protocol,
+          emitNotice,
+          retryService: () => void attachCore((core) => core.reopen()).catch(() => undefined),
+        })
+      : null;
+  const follow = binding && protocol && panels ? followCore({ deps, identity, binding, panels, protocol }) : null;
+  /** The user's own dial (inside their ssh context, so it may prompt): bootstrap and tunnel now, so a failure reaches
+   *  them. The protocol connection's next dial then finds the server's core already attached. */
+  const dialNow = (remote: RemoteBinding): Promise<unknown> =>
+    remote.connector.connect((line) => deps.onDiagnostic?.(identity, 'remote-daemon-log', { detail: line }));
+  /** Opens (start) or replaces (reopen) this connection's protocol client, then marks the core attached. The
+   *  library ends its client for good on a refused version, so a user's reconnect, a new model login or a restarted
+   *  core gets a new client against the server as it is now. The only owner of the client's lifetime is the
+   *  protocol connection. */
+  const attachCore = async (open: (core: ProtocolConnection) => Promise<void>): Promise<void> => {
+    try {
+      if (protocol) await open(protocol);
+    } catch (error) {
+      const refusal = binding ? versionRefusal((error as { detail?: unknown } | null)?.detail, binding.connector.display) : null;
+      if (!refusal) throw error;
+      binding?.connector.fail(refusal);
+      throw refusal;
+    }
+    if (panels && follow) {
+      panels.link.start();
+      follow.attached();
+    }
+  };
   const serverLogins = (): boolean => bindingModelLogin(binding) === 'server';
   const modelProxy = createConnectionModelProxy({
     spec,
@@ -520,7 +569,8 @@ export function createDesktopConnection(
       // it is busy, and every window attaches to the new one.
       await reopenRemote(binding, true);
       panels.link.reopening();
-      await client.reattach();
+      await dialNow(binding);
+      await attachCore((core) => core.reopen());
     },
     terminals: createServiceTerminalHost(client),
     ports: panels?.ports ?? null,
@@ -545,32 +595,38 @@ export function createDesktopConnection(
     },
     async start() {
       await client.start();
-      // The core is serving once the service attached; windows read sections from here on.
-      await protocol?.start();
-      if (panels && binding) {
-        panels.link.setTerminalsAvailable(true);
-        panels.link.start();
-      }
+      // The core is serving once its connection is open (a server's: bootstrap, tunnel, initialize); windows read
+      // sections from here on.
+      await attachCore((core) => core.start());
     },
     stopped() {
-      return Boolean(client.terminalFailure || binding?.session.stoppedBy);
+      return Boolean(binding?.session.stoppedBy);
     },
     async reconnect() {
       if (!panels || !binding || disposal) return;
-      if (!client.terminalFailure && !binding.session.stoppedBy) {
+      if (!binding.session.stoppedBy) {
+        // Not stopped: only an outage needs the user's retry (a live link, or a sleeping PC, is left alone). The
+        // library's redial waits out its ladder, so the core connection is opened now, as the user's own dial.
+        const { status } = panels.link.view().state;
+        if (status !== 'reconnecting' && status !== 'lost') return;
         panels.link.retry();
+        await dialNow(binding);
+        // The automatic recovery may have attached a client while the dial ran: that one stays.
+        await attachCore((core) => core.ensureOpen());
         return;
       }
       const attempted = currentSshContext()?.settings;
       await reopenRemote(binding);
       panels.link.reopening();
-      await client.reattach();
+      await dialNow(binding);
+      await attachCore((core) => core.reopen());
       // A user's attempt authenticated with these: later reconnects keep them.
       if (attempted) binding.settings = attempted;
     },
     dispose() {
       disposal ??= (async () => {
         await endLogins(true);
+        follow?.stop();
         panels?.link.dispose();
         panels?.reattach.dispose();
         await panels?.ports?.dispose().catch(() => undefined);
@@ -588,15 +644,6 @@ export function createDesktopConnection(
     },
   };
 }
-
-/** The service lost its stream, its daemon or its transport. */
-const LINK_LOST_EVENTS = new Set([
-  'session-stream-reconnecting',
-  'session-daemon-reconnecting',
-  'desktop-transport-exit',
-]);
-/** The service is attached again. */
-const LINK_RESTORED_EVENTS = new Set(['session-stream-reconnected', 'session-daemon-reconnected']);
 
 /** A refused host key or login can only be confirmed again where servers are
  *  managed: Settings → Connection in this PC's window. */

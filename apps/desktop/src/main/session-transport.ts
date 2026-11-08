@@ -5,8 +5,6 @@ import { errorParams } from '../shared/coded-error';
 import { sessionClientModuleUrl } from './desktop-support';
 import type { DesktopServiceInbound, DesktopServiceOutbound } from './desktop-service-protocol';
 import type { DesktopTransport } from './desktop-service-client';
-import { RemoteBootstrapError } from './ssh/remote-bootstrap';
-import type { RemoteDaemonConnector, RemoteDaemonEndpoint } from './ssh/remote-session';
 
 interface AttachedDaemon {
   call(
@@ -30,7 +28,7 @@ export interface InTreeDaemonStop {
   stopped: boolean;
   inTree: number[];
   discoveryPid: number | null;
-  request: 'sent' | 'failed' | 'no-discovery' | 'not-in-tree' | 'none' | 'remote' | 'unsupported';
+  request: 'sent' | 'failed' | 'no-discovery' | 'not-in-tree' | 'none' | 'unsupported';
   error: string | null;
   elapsedMs: number;
 }
@@ -54,22 +52,10 @@ interface SessionClientModule {
   /** Update install: close new-work admission on the in-tree daemon and read
    *  its running count in one daemon-side step, or release that hold. */
   holdInTreeDaemon?(options?: { release?: boolean; ttlMs?: number }): Promise<InTreeDaemonHold>;
-  /** Health + protocol verdict for an explicit discovery; reads no files. */
-  probeSessionCompatibility(
-    discovery: Record<string, unknown>,
-    options?: { timeoutMs?: number }
-  ): Promise<{
-    health: Record<string, unknown> | null;
-    compatibility: { status: string; protocol?: number; revision?: number; version?: string } | null;
-  }>;
   attachSession(options: {
     discovery: Record<string, unknown>;
     cwd?: string;
     clientKind?: 'desktop' | 'session';
-    /** Lease-based liveness over a tunnel: heartbeats, no local pid checks. */
-    remote?: boolean;
-    readDiscovery?: () => Record<string, unknown> | null;
-    pidAlive?: (pid: number) => boolean;
     onFrame?: (frame: Record<string, unknown>) => void;
     onFatal?: (reason: string) => void;
     onStreamDisconnect?: (details: Record<string, unknown>) => void;
@@ -77,8 +63,6 @@ interface SessionClientModule {
     log?: (line: string) => void;
   }): Promise<AttachedDaemon>;
 }
-
-const REMOTE_HEALTH_TIMEOUT_MS = 5_000;
 
 type DesktopInitOptions = Extract<DesktopServiceInbound, { kind: 'init' }>['options'];
 type SessionClientLoader = (options: DesktopInitOptions) => Promise<SessionClientModule>;
@@ -148,10 +132,7 @@ export class SessionTransport implements DesktopTransport {
     private readonly loadClientModule: SessionClientLoader | null = null,
     /** Settles once this process's environment is final: a daemon spawned
      *  here inherits it for its whole life. */
-    private readonly environmentReady: Promise<unknown> = Promise.resolve(),
-    /** Remote mode: the daemon runs on an ssh server behind a tunnel. A local
-     *  daemon is never spawned or attached while this is set. */
-    private readonly remote: RemoteDaemonConnector | null = null
+    private readonly environmentReady: Promise<unknown> = Promise.resolve()
   ) {}
 
   on(event: string, listener: (...args: any[]) => void): unknown {
@@ -267,23 +248,10 @@ export class SessionTransport implements DesktopTransport {
   private async connectDaemon(daemonModule: SessionClientModule, options: DesktopInitOptions): Promise<AttachedDaemon> {
     const attempt = ++this.connectAttempt;
     this.viewSyncSupported = false;
-    const remote = this.remote;
-    let discovery: Record<string, unknown>;
     const moduleUrl = this.moduleUrl;
     const initOptions = options;
-    let cwd = this.cwd;
-    if (remote) {
-      const endpoint = await this.measureBootPhase(
-        'remote-connect',
-        () => remote.connect((line) => this.emit('diagnostic', 'remote-daemon-log', { detail: line, attempt })),
-        { attempt }
-      );
-      await this.checkRemoteCompatibility(daemonModule, remote, endpoint, attempt);
-      discovery = { ...endpoint.discovery };
-      cwd = endpoint.cwd;
-    } else {
-      discovery = await this.ensureLocalDaemon(daemonModule, attempt);
-    }
+    const cwd = this.cwd;
+    const discovery = await this.ensureLocalDaemon(daemonModule, attempt);
     let attached: AttachedDaemon | null = null;
     let fatalDuringAttach = '';
     try {
@@ -294,15 +262,6 @@ export class SessionTransport implements DesktopTransport {
             discovery,
             cwd,
             clientKind: 'desktop',
-            ...(remote
-              ? {
-                  remote: true,
-                  // The daemon's pid lives on the server; its liveness is the
-                  // lease, and replacement shows up as a new remote discovery.
-                  readDiscovery: () => remote.currentDiscovery() as Record<string, unknown> | null,
-                  pidAlive: () => true,
-                }
-              : {}),
             onFrame: (frame) => {
               if (frame?.type !== 'desktop-event') return;
               if (String(frame.desktopId || '') !== this.desktopId) return;
@@ -381,47 +340,6 @@ export class SessionTransport implements DesktopTransport {
     }
   }
 
-  /** The tunnel reaches a daemon this desktop cannot replace: refuse a
-   *  different protocol with an actionable message, attach otherwise. */
-  private async checkRemoteCompatibility(
-    daemonModule: SessionClientModule,
-    remote: RemoteDaemonConnector,
-    endpoint: RemoteDaemonEndpoint,
-    attempt: number
-  ): Promise<void> {
-    const { health, compatibility } = await this.measureBootPhase(
-      'remote-health',
-      () => daemonModule.probeSessionCompatibility({ ...endpoint.discovery }, { timeoutMs: REMOTE_HEALTH_TIMEOUT_MS }),
-      { attempt }
-    );
-    if (!health || !compatibility) {
-      remote.invalidate();
-      throw Object.assign(new Error(`The Mixdog daemon on ${remote.display} does not answer through the ssh tunnel.`), {
-        daemonTransportError: true,
-      });
-    }
-    if (compatibility.status === 'compatible' || compatibility.status === 'daemon-newer') return;
-    if (compatibility.status === 'client-newer') {
-      // Only the server's own install can replace its daemon; an older
-      // build still serves the attach, so report the skew and continue.
-      this.emit('diagnostic', 'remote-daemon-older', {
-        attempt,
-        daemonVersion: String(compatibility.version || ''),
-        coreVersion: endpoint.coreVersion,
-      });
-      return;
-    }
-    // Retrying reaches the same daemon: stop until the server is updated.
-    const mismatch = new RemoteBootstrapError(
-      'protocol-mismatch',
-      `The Mixdog daemon on ${remote.display} (mixdog ${compatibility.version || endpoint.coreVersion || 'unknown'}, ` +
-        `session protocol ${compatibility.protocol ?? 'unknown'}) is incompatible with this desktop. ` +
-        'Reconnect: Mixdog installs the version that matches this desktop on the server.'
-    );
-    remote.fail(mismatch);
-    throw mismatch;
-  }
-
   /** Spawn-or-attach the machine-local daemon, waiting out an older build
    *  that is still draining. */
   private async ensureLocalDaemon(
@@ -498,12 +416,7 @@ export class SessionTransport implements DesktopTransport {
       reason,
       oldPid: Number((failedClient as AttachedDaemon & { pid?: number }).pid) || 0,
       oldPort: Number((failedClient as AttachedDaemon & { port?: number }).port) || 0,
-      ...(this.remote ? { remote: this.remote.display } : {}),
     };
-    // Remote: the old token and pid may be gone with the server's daemon.
-    // Reconnecting re-reads the server and waits on the tunnel supervisor;
-    // connectDaemon never falls back to a local daemon.
-    this.remote?.invalidate();
     this.emit('diagnostic', 'session-daemon-reconnecting', previous);
     const recovery = (async () => {
       await failedClient.close('desktop daemon replaced').catch(() => {});
@@ -699,12 +612,12 @@ export class SessionTransport implements DesktopTransport {
    *  forked into its own tree exits with the app, so let it shut down — and
    *  stop the PostgreSQL it started — before that happens. */
   async stopInTreeDaemon(timeoutMs: number): Promise<InTreeDaemonStop> {
-    if (this.remote || !this.daemonModule?.stopInTreeDaemon) {
+    if (!this.daemonModule?.stopInTreeDaemon) {
       return {
         stopped: false,
         inTree: [],
         discoveryPid: null,
-        request: this.remote ? 'remote' : 'unsupported',
+        request: 'unsupported',
         error: null,
         elapsedMs: 0,
       };
@@ -712,10 +625,9 @@ export class SessionTransport implements DesktopTransport {
     return this.daemonModule.stopInTreeDaemon({ timeoutMs });
   }
 
-  /** Update install: a remote or unsupported transport has no in-tree daemon
-   *  this install would kill, so there is nothing to hold. */
+  /** An unsupported transport has no in-tree daemon this install would kill, so there is nothing to hold. */
   async holdInTreeDaemon(options: { release?: boolean; ttlMs?: number } = {}): Promise<InTreeDaemonHold> {
-    if (this.remote || !this.daemonModule?.holdInTreeDaemon) return { status: 'none', busy: 0, error: null };
+    if (!this.daemonModule?.holdInTreeDaemon) return { status: 'none', busy: 0, error: null };
     return this.daemonModule.holdInTreeDaemon(options);
   }
 }
