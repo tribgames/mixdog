@@ -1,0 +1,1352 @@
+{
+  "domain": "agent-pool-section-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-section-producers.mjs",
+  "base": 1800000000000,
+  "stallWarnMs": {
+    "lead": 600000,
+    "worker": 300000
+  },
+  "cases": [
+    {
+      "name": "two workers, one finishes, one is withdrawn",
+      "steps": [
+        {
+          "now": 1800000000000,
+          "running": [
+            "w1",
+            "w2"
+          ],
+          "files": {
+            "agentIndex": "{\"version\":2,\"workers\":[{\"sessionId\":\"w1\",\"tag\":\"alpha\",\"agent\":\"worker\",\"status\":\"running\",\"ownerSessionId\":\"lead_1\",\"parentSessionId\":\"lead_1\",\"title\":\"Task alpha\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:50:00.000Z\",\"createdAt\":\"2027-01-15T07:48:20.000Z\",\"updatedAt\":\"2027-01-15T07:59:59.000Z\"},{\"sessionId\":\"w2\",\"tag\":\"beta\",\"agent\":\"worker\",\"status\":\"running\",\"ownerSessionId\":\"lead_1\",\"parentSessionId\":\"lead_1\",\"title\":\"Task beta\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:50:00.000Z\",\"createdAt\":\"2027-01-15T07:48:20.000Z\",\"updatedAt\":\"2027-01-15T07:59:59.000Z\"}],\"tombstones\":{}}",
+            "leadIndex": "{\"version\":2,\"workers\":[{\"sessionId\":\"lead_1\",\"status\":\"running\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:00:00.000Z\",\"createdAt\":\"2027-01-15T07:00:00.000Z\",\"updatedAt\":\"2027-01-15T07:59:55.000Z\"}]}",
+            "headers": {
+              "lead_1": "{\"id\":\"lead_1\",\"owner\":\"lead\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"title\":\"Lead\",\"messages\":[]}",
+              "w1": "{\"id\":\"w1\",\"owner\":\"agent\",\"agent\":\"worker\",\"sourceType\":\"agent\",\"ownerSessionId\":\"lead_1\",\"messages\":[],\"title\":\"Task alpha\"}",
+              "w2": "{\"id\":\"w2\",\"owner\":\"agent\",\"agent\":\"worker\",\"sourceType\":\"agent\",\"ownerSessionId\":\"lead_1\",\"messages\":[],\"title\":\"Task beta\"}"
+            }
+          },
+          "entries": {
+            "w1": {
+              "stage": "streaming",
+              "lastProgressAt": 1799999998000,
+              "lastStreamDeltaAt": 1799999998000,
+              "requestSentAt": 1799999998000,
+              "lastTransportAt": 1799999998000,
+              "taskWaits": 0
+            },
+            "w2": {
+              "stage": "tool_running",
+              "lastProgressAt": 1799999996000,
+              "lastStreamDeltaAt": 1799999996000,
+              "requestSentAt": 1799999996000,
+              "lastTransportAt": 1799999996000,
+              "taskWaits": 0
+            }
+          },
+          "live": {
+            "w1": {
+              "totalInputTokens": 10,
+              "totalOutputTokens": 5,
+              "totalToolCalls": 2,
+              "todo": {
+                "phases": [
+                  {
+                    "name": "Plan",
+                    "tasks": [
+                      {
+                        "content": "write it",
+                        "status": "completed"
+                      },
+                      {
+                        "content": "test it",
+                        "status": "in_progress"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "awaiting": [],
+          "ledger": {},
+          "listed": [
+            {
+              "tag": "lead:lead_1",
+              "sessionId": "lead_1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": null,
+              "agent": "lead",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:00:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:00:00.000Z",
+              "updatedAt": "2027-01-15T07:59:55.000Z",
+              "idleSince": "2027-01-15T07:59:55.000Z",
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "alpha",
+              "sessionId": "w1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task alpha",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "running",
+              "stage": "running",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": null,
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "beta",
+              "sessionId": "w2",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task beta",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "running",
+              "stage": "running",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": null,
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            }
+          ],
+          "rows": [
+            {
+              "tag": "lead:lead_1",
+              "sessionId": "lead_1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": null,
+              "agent": "lead",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:00:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:00:00.000Z",
+              "updatedAt": "2027-01-15T07:59:55.000Z",
+              "idleSince": "2027-01-15T07:59:55.000Z",
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "alpha",
+              "sessionId": "w1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task alpha",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "running",
+              "stage": "running",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": null,
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": {
+                "inputTokens": 10,
+                "outputTokens": 5,
+                "totalTokens": 15
+              },
+              "toolCalls": 2,
+              "todo": {
+                "completed": 1,
+                "total": 2,
+                "current": "test it"
+              },
+              "progressAt": 1799999998000,
+              "progressStage": "streaming",
+              "progressTool": null,
+              "stallWarnMs": 300000
+            },
+            {
+              "tag": "beta",
+              "sessionId": "w2",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task beta",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "running",
+              "stage": "running",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": null,
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null,
+              "progressAt": 1799999996000,
+              "progressStage": "tool_running",
+              "progressTool": null,
+              "stallWarnMs": 300000
+            }
+          ]
+        },
+        {
+          "now": 1800000001000,
+          "running": [
+            "w1"
+          ],
+          "files": {
+            "agentIndex": "{\"version\":2,\"workers\":[{\"sessionId\":\"w1\",\"tag\":\"alpha\",\"agent\":\"worker\",\"status\":\"running\",\"ownerSessionId\":\"lead_1\",\"parentSessionId\":\"lead_1\",\"title\":\"Task alpha\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:50:00.000Z\",\"createdAt\":\"2027-01-15T07:48:20.000Z\",\"updatedAt\":\"2027-01-15T07:59:59.000Z\"},{\"sessionId\":\"w2\",\"tag\":\"beta\",\"agent\":\"worker\",\"status\":\"running\",\"ownerSessionId\":\"lead_1\",\"parentSessionId\":\"lead_1\",\"title\":\"Task beta\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:50:00.000Z\",\"createdAt\":\"2027-01-15T07:48:20.000Z\",\"updatedAt\":\"2027-01-15T07:59:59.000Z\"}],\"tombstones\":{}}",
+            "leadIndex": "{\"version\":2,\"workers\":[{\"sessionId\":\"lead_1\",\"status\":\"running\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:00:00.000Z\",\"createdAt\":\"2027-01-15T07:00:00.000Z\",\"updatedAt\":\"2027-01-15T07:59:55.000Z\"}]}",
+            "headers": {
+              "lead_1": "{\"id\":\"lead_1\",\"owner\":\"lead\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"title\":\"Lead\",\"messages\":[]}",
+              "w1": "{\"id\":\"w1\",\"owner\":\"agent\",\"agent\":\"worker\",\"sourceType\":\"agent\",\"ownerSessionId\":\"lead_1\",\"messages\":[]}",
+              "w2": "{\"id\":\"w2\",\"owner\":\"agent\",\"agent\":\"worker\",\"sourceType\":\"agent\",\"ownerSessionId\":\"lead_1\",\"messages\":[]}"
+            }
+          },
+          "entries": {
+            "w1": {
+              "stage": "streaming",
+              "lastProgressAt": 1799999999500,
+              "lastStreamDeltaAt": 1799999999500,
+              "requestSentAt": 1799999999500,
+              "lastTransportAt": 1799999999500,
+              "taskWaits": 0
+            }
+          },
+          "live": {
+            "w1": {
+              "totalInputTokens": 30,
+              "totalOutputTokens": 9,
+              "totalToolCalls": 3,
+              "todo": {
+                "phases": [
+                  {
+                    "name": "Plan",
+                    "tasks": [
+                      {
+                        "content": "write it",
+                        "status": "completed"
+                      },
+                      {
+                        "content": "test it",
+                        "status": "in_progress"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "awaiting": [],
+          "ledger": {},
+          "listed": [
+            {
+              "tag": "lead:lead_1",
+              "sessionId": "lead_1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": null,
+              "agent": "lead",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:00:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:00:00.000Z",
+              "updatedAt": "2027-01-15T07:59:55.000Z",
+              "idleSince": "2027-01-15T07:59:55.000Z",
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "alpha",
+              "sessionId": "w1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task alpha",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "running",
+              "stage": "running",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": null,
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "beta",
+              "sessionId": "w2",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task beta",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": "2027-01-15T07:59:59.000Z",
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            }
+          ],
+          "rows": [
+            {
+              "tag": "lead:lead_1",
+              "sessionId": "lead_1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": null,
+              "agent": "lead",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:00:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:00:00.000Z",
+              "updatedAt": "2027-01-15T07:59:55.000Z",
+              "idleSince": "2027-01-15T07:59:55.000Z",
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "alpha",
+              "sessionId": "w1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task alpha",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "running",
+              "stage": "running",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": null,
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": {
+                "inputTokens": 30,
+                "outputTokens": 9,
+                "totalTokens": 39
+              },
+              "toolCalls": 3,
+              "todo": {
+                "completed": 1,
+                "total": 2,
+                "current": "test it"
+              },
+              "progressAt": 1799999999500,
+              "progressStage": "streaming",
+              "progressTool": null,
+              "stallWarnMs": 300000
+            },
+            {
+              "tag": "beta",
+              "sessionId": "w2",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task beta",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": "2027-01-15T07:59:59.000Z",
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            }
+          ]
+        },
+        {
+          "now": 1800000002000,
+          "running": [
+            "w1"
+          ],
+          "files": {
+            "agentIndex": "{\"version\":2,\"workers\":[{\"sessionId\":\"w1\",\"tag\":\"alpha\",\"agent\":\"worker\",\"status\":\"running\",\"ownerSessionId\":\"lead_1\",\"parentSessionId\":\"lead_1\",\"title\":\"Task alpha\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:50:00.000Z\",\"createdAt\":\"2027-01-15T07:48:20.000Z\",\"updatedAt\":\"2027-01-15T07:59:59.000Z\"},{\"sessionId\":\"w2\",\"tag\":\"beta\",\"agent\":\"worker\",\"status\":\"running\",\"ownerSessionId\":\"lead_1\",\"parentSessionId\":\"lead_1\",\"title\":\"Task beta\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:50:00.000Z\",\"createdAt\":\"2027-01-15T07:48:20.000Z\",\"updatedAt\":\"2027-01-15T07:59:59.000Z\"}],\"tombstones\":{}}",
+            "leadIndex": "{\"version\":2,\"workers\":[{\"sessionId\":\"lead_1\",\"status\":\"running\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:00:00.000Z\",\"createdAt\":\"2027-01-15T07:00:00.000Z\",\"updatedAt\":\"2027-01-15T07:59:55.000Z\"}]}",
+            "headers": {
+              "lead_1": "{\"id\":\"lead_1\",\"owner\":\"lead\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"title\":\"Lead\",\"messages\":[]}",
+              "w1": "{\"id\":\"w1\",\"owner\":\"agent\",\"agent\":\"worker\",\"sourceType\":\"agent\",\"ownerSessionId\":\"lead_1\",\"messages\":[]}",
+              "w2": "{\"id\":\"w2\",\"owner\":\"agent\",\"agent\":\"worker\",\"sourceType\":\"agent\",\"ownerSessionId\":\"lead_1\",\"messages\":[]}"
+            }
+          },
+          "entries": {
+            "w1": {
+              "stage": "streaming",
+              "lastProgressAt": 1799999999500,
+              "lastStreamDeltaAt": 1799999999500,
+              "requestSentAt": 1799999999500,
+              "lastTransportAt": 1799999999500,
+              "taskWaits": 0
+            }
+          },
+          "live": {
+            "w1": {
+              "totalInputTokens": 30,
+              "totalOutputTokens": 9,
+              "totalToolCalls": 3,
+              "todo": {
+                "phases": [
+                  {
+                    "name": "Plan",
+                    "tasks": [
+                      {
+                        "content": "write it",
+                        "status": "completed"
+                      },
+                      {
+                        "content": "test it",
+                        "status": "in_progress"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "awaiting": [],
+          "ledger": {},
+          "listed": [
+            {
+              "tag": "lead:lead_1",
+              "sessionId": "lead_1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": null,
+              "agent": "lead",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:00:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:00:00.000Z",
+              "updatedAt": "2027-01-15T07:59:55.000Z",
+              "idleSince": "2027-01-15T07:59:55.000Z",
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "alpha",
+              "sessionId": "w1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task alpha",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "running",
+              "stage": "running",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": null,
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "beta",
+              "sessionId": "w2",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task beta",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": "2027-01-15T07:59:59.000Z",
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            }
+          ],
+          "rows": [
+            {
+              "tag": "lead:lead_1",
+              "sessionId": "lead_1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": null,
+              "agent": "lead",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:00:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:00:00.000Z",
+              "updatedAt": "2027-01-15T07:59:55.000Z",
+              "idleSince": "2027-01-15T07:59:55.000Z",
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "alpha",
+              "sessionId": "w1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task alpha",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "running",
+              "stage": "running",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": null,
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": {
+                "inputTokens": 30,
+                "outputTokens": 9,
+                "totalTokens": 39
+              },
+              "toolCalls": 3,
+              "todo": {
+                "completed": 1,
+                "total": 2,
+                "current": "test it"
+              },
+              "progressAt": 1799999999500,
+              "progressStage": "streaming",
+              "progressTool": null,
+              "stallWarnMs": 300000
+            },
+            {
+              "tag": "beta",
+              "sessionId": "w2",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task beta",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": "2027-01-15T07:59:59.000Z",
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            }
+          ]
+        },
+        {
+          "now": 1800000003000,
+          "running": [
+            "w1"
+          ],
+          "files": {
+            "agentIndex": "{\"version\":2,\"workers\":[{\"sessionId\":\"w1\",\"tag\":\"alpha\",\"agent\":\"worker\",\"status\":\"running\",\"ownerSessionId\":\"lead_1\",\"parentSessionId\":\"lead_1\",\"title\":\"Task alpha\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:50:00.000Z\",\"createdAt\":\"2027-01-15T07:48:20.000Z\",\"updatedAt\":\"2027-01-15T07:59:59.000Z\"},{\"sessionId\":\"w2\",\"tag\":\"beta\",\"agent\":\"worker\",\"status\":\"completed\",\"ownerSessionId\":\"lead_1\",\"parentSessionId\":\"lead_1\",\"title\":\"Task beta\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:50:00.000Z\",\"createdAt\":\"2027-01-15T07:48:20.000Z\",\"updatedAt\":\"2027-01-15T07:59:59.000Z\",\"finishedAt\":\"2027-01-15T08:00:02.500Z\"}],\"tombstones\":{}}",
+            "leadIndex": "{\"version\":2,\"workers\":[{\"sessionId\":\"lead_1\",\"status\":\"running\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:00:00.000Z\",\"createdAt\":\"2027-01-15T07:00:00.000Z\",\"updatedAt\":\"2027-01-15T07:59:55.000Z\"}]}",
+            "headers": {
+              "lead_1": "{\"id\":\"lead_1\",\"owner\":\"lead\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"title\":\"Lead\",\"messages\":[]}",
+              "w1": "{\"id\":\"w1\",\"owner\":\"agent\",\"agent\":\"worker\",\"sourceType\":\"agent\",\"ownerSessionId\":\"lead_1\",\"messages\":[]}",
+              "w2": "{\"id\":\"w2\",\"owner\":\"agent\",\"agent\":\"worker\",\"sourceType\":\"agent\",\"ownerSessionId\":\"lead_1\",\"messages\":[]}"
+            }
+          },
+          "entries": {
+            "w1": {
+              "stage": "streaming",
+              "lastProgressAt": 1799999999600,
+              "lastStreamDeltaAt": 1799999999600,
+              "requestSentAt": 1799999999600,
+              "lastTransportAt": 1799999999600,
+              "taskWaits": 0
+            }
+          },
+          "live": {},
+          "awaiting": [],
+          "ledger": {},
+          "listed": [
+            {
+              "tag": "lead:lead_1",
+              "sessionId": "lead_1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": null,
+              "agent": "lead",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:00:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:00:00.000Z",
+              "updatedAt": "2027-01-15T07:59:55.000Z",
+              "idleSince": "2027-01-15T07:59:55.000Z",
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "alpha",
+              "sessionId": "w1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task alpha",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "running",
+              "stage": "running",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": null,
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "beta",
+              "sessionId": "w2",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task beta",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "completed",
+              "stage": "completed",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": "2027-01-15T07:59:59.000Z",
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            }
+          ],
+          "rows": [
+            {
+              "tag": "lead:lead_1",
+              "sessionId": "lead_1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": null,
+              "agent": "lead",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:00:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:00:00.000Z",
+              "updatedAt": "2027-01-15T07:59:55.000Z",
+              "idleSince": "2027-01-15T07:59:55.000Z",
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "alpha",
+              "sessionId": "w1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task alpha",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "running",
+              "stage": "running",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": null,
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null,
+              "progressAt": 1799999999600,
+              "progressStage": "streaming",
+              "progressTool": null,
+              "stallWarnMs": 300000
+            },
+            {
+              "tag": "beta",
+              "sessionId": "w2",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task beta",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "completed",
+              "stage": "completed",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": "2027-01-15T07:59:59.000Z",
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            }
+          ]
+        },
+        {
+          "now": 1800000004000,
+          "running": [],
+          "files": {
+            "agentIndex": "{\"version\":2,\"workers\":[{\"sessionId\":\"w2\",\"tag\":\"beta\",\"agent\":\"worker\",\"status\":\"completed\",\"ownerSessionId\":\"lead_1\",\"parentSessionId\":\"lead_1\",\"title\":\"Task beta\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:50:00.000Z\",\"createdAt\":\"2027-01-15T07:48:20.000Z\",\"updatedAt\":\"2027-01-15T07:59:59.000Z\",\"finishedAt\":\"2027-01-15T08:00:02.500Z\"}],\"tombstones\":{}}",
+            "leadIndex": "{\"version\":2,\"workers\":[{\"sessionId\":\"lead_1\",\"status\":\"running\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:00:00.000Z\",\"createdAt\":\"2027-01-15T07:00:00.000Z\",\"updatedAt\":\"2027-01-15T07:59:55.000Z\"}]}",
+            "headers": {
+              "lead_1": "{\"id\":\"lead_1\",\"owner\":\"lead\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"title\":\"Lead\",\"messages\":[]}",
+              "w2": "{\"id\":\"w2\",\"owner\":\"agent\",\"agent\":\"worker\",\"sourceType\":\"agent\",\"ownerSessionId\":\"lead_1\",\"messages\":[]}"
+            }
+          },
+          "entries": {},
+          "live": {},
+          "awaiting": [],
+          "ledger": {},
+          "listed": [
+            {
+              "tag": "lead:lead_1",
+              "sessionId": "lead_1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": null,
+              "agent": "lead",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:00:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:00:00.000Z",
+              "updatedAt": "2027-01-15T07:59:55.000Z",
+              "idleSince": "2027-01-15T07:59:55.000Z",
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "beta",
+              "sessionId": "w2",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task beta",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "completed",
+              "stage": "completed",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": "2027-01-15T07:59:59.000Z",
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            }
+          ],
+          "rows": [
+            {
+              "tag": "lead:lead_1",
+              "sessionId": "lead_1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": null,
+              "agent": "lead",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:00:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:00:00.000Z",
+              "updatedAt": "2027-01-15T07:59:55.000Z",
+              "idleSince": "2027-01-15T07:59:55.000Z",
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "beta",
+              "sessionId": "w2",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task beta",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "completed",
+              "stage": "completed",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": "2027-01-15T07:59:59.000Z",
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a worker is cancelled, then comes back working",
+      "steps": [
+        {
+          "now": 1800000000000,
+          "running": [
+            "w1"
+          ],
+          "files": {
+            "agentIndex": "{\"version\":2,\"workers\":[{\"sessionId\":\"w1\",\"tag\":\"alpha\",\"agent\":\"worker\",\"status\":\"running\",\"ownerSessionId\":\"lead_1\",\"parentSessionId\":\"lead_1\",\"title\":\"Task alpha\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:50:00.000Z\",\"createdAt\":\"2027-01-15T07:48:20.000Z\",\"updatedAt\":\"2027-01-15T07:59:59.000Z\"}],\"tombstones\":{}}",
+            "leadIndex": "{\"version\":2,\"workers\":[{\"sessionId\":\"lead_1\",\"status\":\"running\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:00:00.000Z\",\"createdAt\":\"2027-01-15T07:00:00.000Z\",\"updatedAt\":\"2027-01-15T07:59:55.000Z\"}]}",
+            "headers": {
+              "lead_1": "{\"id\":\"lead_1\",\"owner\":\"lead\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"title\":\"Lead\",\"messages\":[]}",
+              "w1": "{\"id\":\"w1\",\"owner\":\"agent\",\"agent\":\"worker\",\"sourceType\":\"agent\",\"ownerSessionId\":\"lead_1\",\"messages\":[]}"
+            }
+          },
+          "entries": {
+            "w1": {
+              "stage": "requesting",
+              "lastProgressAt": 1799999999900,
+              "lastStreamDeltaAt": 1799999999900,
+              "requestSentAt": 1799999999900,
+              "lastTransportAt": 1799999999900,
+              "taskWaits": 0
+            }
+          },
+          "live": {},
+          "awaiting": [],
+          "ledger": {},
+          "listed": [
+            {
+              "tag": "lead:lead_1",
+              "sessionId": "lead_1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": null,
+              "agent": "lead",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:00:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:00:00.000Z",
+              "updatedAt": "2027-01-15T07:59:55.000Z",
+              "idleSince": "2027-01-15T07:59:55.000Z",
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "alpha",
+              "sessionId": "w1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task alpha",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "running",
+              "stage": "running",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": null,
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            }
+          ],
+          "rows": [
+            {
+              "tag": "lead:lead_1",
+              "sessionId": "lead_1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": null,
+              "agent": "lead",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:00:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:00:00.000Z",
+              "updatedAt": "2027-01-15T07:59:55.000Z",
+              "idleSince": "2027-01-15T07:59:55.000Z",
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "alpha",
+              "sessionId": "w1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task alpha",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "running",
+              "stage": "running",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": null,
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null,
+              "progressAt": 1799999999900,
+              "progressStage": "requesting",
+              "progressTool": null,
+              "stallWarnMs": 300000
+            }
+          ]
+        },
+        {
+          "now": 1800000001000,
+          "running": [],
+          "files": {
+            "agentIndex": "{\"version\":2,\"workers\":[{\"sessionId\":\"w1\",\"tag\":\"alpha\",\"agent\":\"worker\",\"status\":\"cancelled\",\"ownerSessionId\":\"lead_1\",\"parentSessionId\":\"lead_1\",\"title\":\"Task alpha\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:50:00.000Z\",\"createdAt\":\"2027-01-15T07:48:20.000Z\",\"updatedAt\":\"2027-01-15T07:59:59.000Z\",\"cancelledAt\":\"2027-01-15T08:00:00.900Z\"}],\"tombstones\":{}}",
+            "leadIndex": "{\"version\":2,\"workers\":[{\"sessionId\":\"lead_1\",\"status\":\"running\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:00:00.000Z\",\"createdAt\":\"2027-01-15T07:00:00.000Z\",\"updatedAt\":\"2027-01-15T07:59:55.000Z\"}]}",
+            "headers": {
+              "lead_1": "{\"id\":\"lead_1\",\"owner\":\"lead\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"title\":\"Lead\",\"messages\":[]}",
+              "w1": "{\"id\":\"w1\",\"owner\":\"agent\",\"agent\":\"worker\",\"sourceType\":\"agent\",\"ownerSessionId\":\"lead_1\",\"messages\":[]}"
+            }
+          },
+          "entries": {},
+          "live": {},
+          "awaiting": [],
+          "ledger": {},
+          "listed": [
+            {
+              "tag": "lead:lead_1",
+              "sessionId": "lead_1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": null,
+              "agent": "lead",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:00:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:00:00.000Z",
+              "updatedAt": "2027-01-15T07:59:55.000Z",
+              "idleSince": "2027-01-15T07:59:55.000Z",
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "alpha",
+              "sessionId": "w1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task alpha",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "cancelled",
+              "stage": "cancelled",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": "2027-01-15T07:59:59.000Z",
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            }
+          ],
+          "rows": [
+            {
+              "tag": "lead:lead_1",
+              "sessionId": "lead_1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": null,
+              "agent": "lead",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:00:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:00:00.000Z",
+              "updatedAt": "2027-01-15T07:59:55.000Z",
+              "idleSince": "2027-01-15T07:59:55.000Z",
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "alpha",
+              "sessionId": "w1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task alpha",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "cancelled",
+              "stage": "cancelled",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": "2027-01-15T07:59:59.000Z",
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            }
+          ]
+        },
+        {
+          "now": 1800000002000,
+          "running": [
+            "w1"
+          ],
+          "files": {
+            "agentIndex": "{\"version\":2,\"workers\":[{\"sessionId\":\"w1\",\"tag\":\"alpha\",\"agent\":\"worker\",\"status\":\"running\",\"ownerSessionId\":\"lead_1\",\"parentSessionId\":\"lead_1\",\"title\":\"Task alpha\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:50:00.000Z\",\"createdAt\":\"2027-01-15T07:48:20.000Z\",\"updatedAt\":\"2027-01-15T07:59:59.000Z\",\"turnStartedAt\":\"2027-01-15T08:00:01.900Z\"}],\"tombstones\":{}}",
+            "leadIndex": "{\"version\":2,\"workers\":[{\"sessionId\":\"lead_1\",\"status\":\"running\",\"provider\":\"openai\",\"model\":\"gpt\",\"startedAt\":\"2027-01-15T07:00:00.000Z\",\"createdAt\":\"2027-01-15T07:00:00.000Z\",\"updatedAt\":\"2027-01-15T07:59:55.000Z\"}]}",
+            "headers": {
+              "lead_1": "{\"id\":\"lead_1\",\"owner\":\"lead\",\"agent\":\"lead\",\"sourceType\":\"lead\",\"title\":\"Lead\",\"messages\":[]}",
+              "w1": "{\"id\":\"w1\",\"owner\":\"agent\",\"agent\":\"worker\",\"sourceType\":\"agent\",\"ownerSessionId\":\"lead_1\",\"messages\":[]}"
+            }
+          },
+          "entries": {
+            "w1": {
+              "stage": "connecting",
+              "lastProgressAt": 1799999999950,
+              "lastStreamDeltaAt": 1799999999950,
+              "requestSentAt": 1799999999950,
+              "lastTransportAt": 1799999999950,
+              "taskWaits": 0
+            }
+          },
+          "live": {},
+          "awaiting": [],
+          "ledger": {},
+          "listed": [
+            {
+              "tag": "lead:lead_1",
+              "sessionId": "lead_1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": null,
+              "agent": "lead",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:00:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:00:00.000Z",
+              "updatedAt": "2027-01-15T07:59:55.000Z",
+              "idleSince": "2027-01-15T07:59:55.000Z",
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "alpha",
+              "sessionId": "w1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task alpha",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "running",
+              "stage": "running",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": "2027-01-15T08:00:01.900Z",
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": null,
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            }
+          ],
+          "rows": [
+            {
+              "tag": "lead:lead_1",
+              "sessionId": "lead_1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": null,
+              "agent": "lead",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "unknown",
+              "stage": "unknown",
+              "startedAt": "2027-01-15T07:00:00.000Z",
+              "turnStartedAt": null,
+              "createdAt": "2027-01-15T07:00:00.000Z",
+              "updatedAt": "2027-01-15T07:59:55.000Z",
+              "idleSince": "2027-01-15T07:59:55.000Z",
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null
+            },
+            {
+              "tag": "alpha",
+              "sessionId": "w1",
+              "ownerSessionId": "lead_1",
+              "parentSessionId": "lead_1",
+              "title": "Task alpha",
+              "agent": "worker",
+              "provider": "openai",
+              "model": "gpt",
+              "effort": null,
+              "fast": false,
+              "status": "running",
+              "stage": "running",
+              "startedAt": "2027-01-15T07:50:00.000Z",
+              "turnStartedAt": "2027-01-15T08:00:01.900Z",
+              "createdAt": "2027-01-15T07:48:20.000Z",
+              "updatedAt": "2027-01-15T07:59:59.000Z",
+              "idleSince": null,
+              "reapAt": null,
+              "cwd": null,
+              "clientHostPid": null,
+              "taskId": null,
+              "usage": null,
+              "toolCalls": null,
+              "progressAt": 1799999999950,
+              "progressStage": "connecting",
+              "progressTool": null,
+              "stallWarnMs": 300000
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

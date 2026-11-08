@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
-import { installTestDom } from './test-support/test-dom.mjs';
+import { installTestDom, toolModulesSource } from './test-support/test-dom.mjs';
 import { TurnChangesContext } from './TurnChangesCard.tsx';
 import { PreviewedTurnChangesCard, ToolVisualizeCards } from './transcript-visualize-card.tsx';
 import { resetTurnChangesCache } from './turn-changes-model.ts';
 import { versionProducedAt } from '../shared/visualize.ts';
 import { linkedLocalPaths } from './markdown-plugins.ts';
-import { agentPoolStore, refreshAgentPool } from './agent-activity-model.ts';
+import { preloadAgentPool } from './agent-activity-model.ts';
+import { sectionStoreFor } from './section-store.ts';
 import {
   noteVisualizeCards,
   resetVisualizeCardMemory,
@@ -353,18 +354,23 @@ async function mountTurn(
     rootId: 'root',
   });
   const commands = [];
+  // The core the window is connected to: the agent pool reaches the renderer as the `agentPool` section it pushes.
+  const core = toolModulesSource();
   dom.window.mixdogDesktop = {
+    sections: core.sections,
     invokeCapability: async () => ({
       value: { status: 'ready', checkpointId: 'cp', revision: 1, root: ROOT, files, canUndo: true, canReapply: false },
     }),
     visualizeCommand: async (command) => {
       commands.push(command);
     },
-    // A fresh list per read, so a test can take a row out and read it again.
-    ...(pool ? { listAgentPool: async () => [...pool] } : {}),
   };
   // The agent pool names a sub-agent's owner (the app preloads it at boot).
-  if (pool) await refreshAgentPool(agentPoolStore(dom.window.mixdogDesktop));
+  if (pool) {
+    core.publishSection('agentPool', [...pool]);
+    preloadAgentPool(dom.window.mixdogDesktop);
+    await sectionStoreFor(dom.window.mixdogDesktop).ready();
+  }
   t.after(() => resyncVisualizeStates([]));
   const turnItems = items ?? [
     { id: 't1', kind: 'tool', name: 'apply_patch', args: {}, result: 'ok', status: 'done', completedAt: 10 },
@@ -396,7 +402,7 @@ async function mountTurn(
     act(async () => {
       node.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
     });
-  return { commands, q, qa, click, render, root };
+  return { commands, q, qa, click, render, root, core };
 }
 
 const settle = (ms = 30) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
@@ -550,9 +556,8 @@ test("a finished sub-agent's card keeps the owner the host stamped once its pool
   ];
   const view = await mountTurn(t, { files: [], items, sessionId: 'sub-1', pool });
   assert.equal(view.q('.transcript-visualize-tile').dataset.visualizeCard, 'open');
-  // The sub-agent finished: its row leaves the pool.
-  pool.length = 0;
-  await act(async () => refreshAgentPool(agentPoolStore(window.mixdogDesktop)));
+  // The sub-agent finished: the core pushes the pool without its row.
+  await act(async () => view.core.publishSection('agentPool', []));
   await settle();
   const tile = view.q('.transcript-visualize-tile');
   assert.equal(tile.dataset.visualizeCard, 'open', 'still the tab in the owner panel, not closed');

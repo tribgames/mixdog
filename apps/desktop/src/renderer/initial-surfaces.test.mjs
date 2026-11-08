@@ -311,8 +311,9 @@ test('Workflow stays out of the row for a single pack, without reserving a slot,
 
 test('agent data arriving before the session catalog cannot announce no running agents', async (t) => {
   const view = harness(t);
-  const request = Promise.withResolvers();
-  window.mixdogDesktop.listAgentPool = () => request.promise;
+  // The pool is the core's pushed `agentPool` section (desktop-services.md §15 P6): the app snapshot carries it.
+  const sections = pushedSections();
+  Object.defineProperty(window.mixdogDesktop, 'sections', { value: sections.source, configurable: true });
   const { AgentActivityPane } = await import('./AgentActivityPane.tsx');
   const { resetMixyStatus } = await import('./mixy-identity.ts');
   // A profile with Mixy (the host's answer): she is listed once ready.
@@ -320,7 +321,7 @@ test('agent data arriving before the session catalog cannot announce no running 
   t.after(() => resetMixyStatus());
   const props = { active: false, sessions: [], sessionsReady: false };
   await view.render(React.createElement(AgentActivityPane, props));
-  await view.settle(() => request.resolve([]));
+  await view.settle(() => sections.load([sections.entry('agentPool', [])]));
   assert.ok(view.host.querySelector('[aria-busy="true"]'));
   assert.doesNotMatch(view.host.textContent, /No agents/);
   await view.render(React.createElement(AgentActivityPane, { ...props, sessionsReady: true }));

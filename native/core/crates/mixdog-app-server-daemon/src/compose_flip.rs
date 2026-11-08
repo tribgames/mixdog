@@ -2181,7 +2181,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // owners over the whole job table (Node's task registry is process-wide, so no filter by loaded sessions). The pool is read by `AgentHomeService`.
     let shell_jobs = Arc::new(mixdog_core::run_host::shell_jobs::ShellJobs(b.exec.clone()));
     late_agent_status.bind(Arc::new(mixdog_core_session::session::agent_registry::status_rows::AgentToolStatus::new(agent_registry.clone(), job_board.clone(), directory.clone(), shell_jobs.clone(), clock.clone()))).map_err(ComposeError::AlreadyBound)?;
-    let agent_pool = mixdog_core_agents::agents::AgentPool::new(
+    let agent_pool = Arc::new(mixdog_core_agents::agents::AgentPool::new(
         Arc::new(mixdog_core::run_host::pool_inputs::RegistryPoolStore::new(agent_registry.clone(), threads.clone())),
         Arc::new(mixdog_core::run_host::pool_inputs::DirectoryPoolLive::new(
             directory.clone(),
@@ -2192,8 +2192,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             mixdog_core::run_host::group_usage_tokens::GroupUsageTokens::new(ledger_source.clone(), Arc::new({ let activity = activity.clone(); move || activity.everyone() })),
             b.env.clone(),
         )),
-    );
-    let _ = &agent_pool;
+    ));
+    // The `agentPool` section: the rows `agent/pool/list` answers, re-listed on every agent status signal (the pool is shared with `AgentHomeService`, whose idle stamps it keeps).
+    mixdog_core_agents::agents::pool_section::spawn_pool_section(agent_pool.clone(), activity.changed(), state.publisher.clone(), b.cancel.clone());
     // ---- 10b. the post-directory domain stage: the two seams that read the directory ----
     let composed = compose_domains_post(
         &domain_inputs,

@@ -450,11 +450,12 @@ fn required_agent_param(params: &Value) -> Result<String, CoreError> {
 pub struct AgentHomeService {
     homes: AgentHomeSessions,
     memory: AgentMemoryHost,
-    pool: AgentPool,
+    /// Shared with the `agentPool` section's task: Node's idle stamps live in one pool.
+    pool: Arc<AgentPool>,
 }
 
 impl AgentHomeService {
-    pub fn new(homes: AgentHomeSessions, memory: AgentMemoryHost, pool: AgentPool) -> Self {
+    pub fn new(homes: AgentHomeSessions, memory: AgentMemoryHost, pool: Arc<AgentPool>) -> Self {
         Self { homes, memory, pool }
     }
 
