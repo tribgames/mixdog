@@ -283,6 +283,10 @@ mod tests {
     use crate::compose::ComposeConfig;
     use crate::compose::compose;
 
+    // The server's own minimal-params generator, over the same checked-in schema.
+    #[path = "../../../../mixdog-app-server/src/tests/sample.rs"]
+    mod sample;
+
     /// The core, composed over the router the server will use as its host channel.
     async fn core(dir: &std::path::Path) -> (Arc<ComposedCore>, Arc<Outgoing>) {
         let outgoing = Outgoing::new();
@@ -335,6 +339,56 @@ mod tests {
         let started = reply(&mut halves, 1).await;
         assert!(started.get("result").is_some(), "{started}");
         shutdown.run().await;
+    }
+
+    /// `compose` refuses to start while a domain method of the table is unclaimed, but the `thread` and `turn` namespaces are not claimed by
+    /// domains: the server, the session directory and the session actor answer them, and nothing at startup checks that every row of the
+    /// table reaches one of those handlers. Each row is sent over the wire to a loaded thread; a row no handler takes comes back as
+    /// `methodNotFound`, as `capabilityUnavailable` "unclaimed", or as the session layer's `invalidParams` on `method` (its fallthrough arms).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+    async fn every_thread_and_turn_method_of_the_table_reaches_a_handler() {
+        let _one = crate::compose_test_support::exclusive().await;
+        let dir = tempfile::tempdir().unwrap();
+        crate::compose_test_support::seed_default_model(crate::compose_test_support::data_dir());
+        let (core, outgoing) = core(dir.path()).await;
+        let (connector, shutdown) = serve_in_process(core, outgoing).unwrap();
+        let mut halves = connector.open(&Target { id: "in-process".into() }).await.unwrap();
+        let initialize = serde_json::json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{
+            "clientInfo":{"name":"test","version":env!("CARGO_PKG_VERSION"),"kind":"cli"},"capabilities":{}}});
+        halves.writer.send(initialize.to_string()).await.unwrap();
+        assert!(reply(&mut halves, 0).await.get("result").is_some());
+        let start = serde_json::json!({"jsonrpc":"2.0","id":1,"method":"thread/start","params":{"opId":"op-1","kind":"task"}});
+        halves.writer.send(start.to_string()).await.unwrap();
+        let started = reply(&mut halves, 1).await;
+        let thread = started["result"]["thread"]["id"].as_str().unwrap_or_else(|| panic!("{started}")).to_owned();
+
+        // The thread's own delete goes last, so every other row meets a live thread.
+        let methods = || mixdog_app_protocol::CLIENT_METHODS.iter().filter(|spec| matches!(spec.method.split('/').next(), Some("thread" | "turn")) && spec.method != "thread/start");
+        let ordered = methods().filter(|spec| spec.method != "thread/delete").chain(methods().filter(|spec| spec.method == "thread/delete"));
+        let samples = sample::Samples::new();
+        let mut unserved = Vec::new();
+        for (id, spec) in (2u64..).zip(ordered) {
+            // The schema's minimal valid params, so the server's decode passes and the request reaches the handler; the thread and op id are this
+            // test's. `threadId` is optional on some rows, and a request that names none is not addressed to a loaded thread.
+            let mut params = samples.params(spec.method);
+            params["threadId"] = serde_json::json!(thread);
+            if params.get("opId").is_some() {
+                params["opId"] = serde_json::json!(format!("op-{id}"));
+            }
+            let request = serde_json::json!({"jsonrpc":"2.0","id":id,"method":spec.method,"params":params});
+            halves.writer.send(request.to_string()).await.unwrap();
+            let answer = reply(&mut halves, id).await;
+            let data = &answer["error"]["data"];
+            let refused = answer["error"]["code"] == -32601
+                || (data["reason"] == "capabilityUnavailable" && data["detail"] == "unclaimed")
+                || (data["reason"] == "invalidParams" && data["path"] == "method");
+            if refused {
+                unserved.push(format!("{}: {answer}", spec.method));
+            }
+        }
+        shutdown.run().await;
+        assert!(unserved.is_empty(), "table methods no handler serves: {unserved:#?}");
     }
 
     struct Source(mpsc::Receiver<JsonRpcMessage>);
