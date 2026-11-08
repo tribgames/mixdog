@@ -17,7 +17,6 @@ export { resolveWindowConnection } from './routing';
 export { createConnectionIpcRouter, type ConnectionIpcRouter, type WindowIpcScope } from './ipc-router';
 export { SSH_UNSUPPORTED_CHANNELS, connectionFeatureGate, remotePickerRequired } from './feature-gates';
 export {
-  REMOTE_STARTUP_TIMEOUT_MS,
   REMOTE_TUNNEL_READY_TIMEOUT_MS,
   createDesktopConnection,
   type DesktopConnection,

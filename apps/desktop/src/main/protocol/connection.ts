@@ -83,6 +83,19 @@ export interface LoginFeedState {
 
 export interface ProtocolConnection {
   start(): Promise<void>;
+  /** Replaces the client with a new one opened against the endpoint as it is now (the client library's terminal
+   *  states, a refused version or a closed client, end its redial loop for good; a dial that follows the user's
+   *  reconnect or a restarted core must not reuse it). The windows, watches and port views stay; they are sent the
+   *  new client's whole store and the scoped feeds again. Rejects with the handshake's own error. A reopen while
+   *  another is in flight supersedes it: the older one's client is closed unused and its caller gets the newest
+   *  reopen's outcome. The followed sign-in flows end as lost (their feeds do not survive the client). */
+  reopen(): Promise<void>;
+  /** The user's reconnect: leaves a live (`ready`) client alone, joins a start or reopen in flight, and otherwise
+   *  reopens. A client the automatic recovery restored meanwhile is neither closed nor its calls rejected. */
+  ensureOpen(): Promise<void>;
+  /** Called after a reopen has attached the new client: whatever a caller subscribed through `call` (the resumed
+   *  threads) belongs to the old client and is sent again here. Returns the removal. */
+  onReplaced(listener: () => void): () => void;
   readonly status: DesktopProtocolStatus;
   snapshot(): DesktopSectionsSnapshot;
   /** Settles when the connect handshake (`start`: open, `initialize`, the app subscription) has folded the first
@@ -150,16 +163,45 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
   let client: ConnectionClient | null = null;
   let relay: SectionRelay | null = null;
   let status: DesktopProtocolStatus = 'reconnecting';
+  let closedByOwner = false;
+  // The owner of the client's lifetime is the newest open or reopen: every client it opened, and every handler of
+  // that client, checks it still holds this number before it touches anything here.
+  let epoch = 0;
+  let newest: Promise<void> | null = null;
+  // The start or reopen that has not settled yet; `ensureOpen` joins it instead of opening another client.
+  let inflight: Promise<void> | null = null;
+  const track = (run: Promise<void>): Promise<void> => {
+    inflight = run;
+    const settled = (): void => {
+      if (inflight === run) inflight = null;
+    };
+    run.then(settled, settled);
+    return run;
+  };
+  const replacedListeners = new Set<() => void>();
   let lastActivityAt = Number.NEGATIVE_INFINITY;
   let unsubscribeClient: (() => void) | null = null;
   let resolveSynced!: () => void;
   let rejectSynced!: (error: unknown) => void;
-  const synced = new Promise<void>((resolve, reject) => {
-    resolveSynced = resolve;
-    rejectSynced = reject;
-  });
-  // A failed handshake reaches every reader that awaits `whenSynced`; one nobody awaits must not be an unhandled rejection.
-  synced.catch(() => undefined);
+  let synced!: Promise<void>;
+  let syncedSettled = true;
+  /** One promise per handshake: a failed one stays rejected for its readers, the next handshake gets a fresh one. */
+  const pendingSync = (): void => {
+    if (!syncedSettled) return;
+    syncedSettled = false;
+    synced = new Promise<void>((resolve, reject) => {
+      resolveSynced = resolve;
+      rejectSynced = reject;
+    });
+    // A failed handshake reaches every reader that awaits `whenSynced`; one nobody awaits must not be an unhandled rejection.
+    synced.catch(() => undefined);
+  };
+  const settleSynced = (error?: unknown): void => {
+    syncedSettled = true;
+    if (error === undefined) resolveSynced();
+    else rejectSynced(error);
+  };
+  pendingSync();
 
   const broadcast = (push: DesktopSectionsPush): void => {
     for (const window of [...windows]) window.push(push);
@@ -273,10 +315,37 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
     await connected().call(isViewed ? 'system/ports/subscribe' : 'system/ports/unsubscribe', {});
   };
 
-  const handshake = async (): Promise<void> => {
+  /** Drops the current client and everything bound to it; the windows and their registrations stay. They are told
+   *  `next`, since the relay that told them the client's status goes with it. The followed sign-in flows are lost:
+   *  their feeds ended with the client, and unsubscribing first keeps its closing from reaching them. */
+  const release = async (next: DesktopProtocolStatus): Promise<void> => {
+    unsubscribeClient?.();
+    unsubscribeStore?.();
+    relay?.dispose();
+    unsubscribeClient = null;
+    unsubscribeStore = null;
+    relay = null;
+    awaitingAppSnapshot = false;
+    for (const [flowId, feed] of loginFeeds) loseLoginFeed(flowId, feed);
+    const closing = client;
+    client = null;
+    if (status !== next) {
+      status = next;
+      broadcast({ kind: 'status', status });
+    }
+    await closing?.close().catch(() => undefined);
+  };
+
+  /** Opens a client for the owner `mine`. False when a newer owner took over meanwhile (the client is closed). */
+  const handshake = async (mine: number): Promise<boolean> => {
     const opened = await open();
+    if (mine !== epoch) {
+      await opened.close().catch(() => undefined);
+      return false;
+    }
     client = opened;
     status = toStatus(opened.status.state);
+    const owns = (): boolean => mine === epoch && client === opened;
     relay = createSectionRelay({
       store: opened.store,
       sectionNames: SECTION_NAMES,
@@ -284,6 +353,7 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
       ...(defer ? { defer } : {}),
     });
     unsubscribeStore = opened.store.subscribe((change) => {
+      if (!owns()) return;
       if (change.type === 'appSnapshot' && awaitingAppSnapshot) {
         awaitingAppSnapshot = false;
         relay?.reconnected();
@@ -300,7 +370,10 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
       for (const watcher of [...(sectionWatchers.get(change.section) ?? [])]) watcher(entry);
     });
     unsubscribeClient = opened.on((event) => {
+      if (!owns()) return;
       for (const listener of [...eventListeners]) listener(event);
+      // A listener may have reopened: this client is superseded then, and its event must not write over the new state.
+      if (!owns()) return;
       if (event.type === 'status') {
         const next = toStatus((event as { status: { state: string } }).status.state);
         const wasReady = status === 'ready';
@@ -326,6 +399,21 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
       }
     });
     await opened.subscribeApp();
+    return mine === epoch;
+  };
+  /** What a caller superseded by a newer open gets: that open's outcome. */
+  const supersededBy = async (): Promise<void> => {
+    await newest;
+  };
+  const connect = async (mine: number): Promise<void> => {
+    try {
+      if (!(await handshake(mine))) await supersededBy();
+    } catch (error) {
+      if (mine !== epoch) return supersededBy();
+      // A client left half-opened would make the next start believe the connection exists; nothing serves now.
+      await release('closed');
+      throw error;
+    }
   };
 
   return {
@@ -333,15 +421,54 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
       return status;
     },
     whenSynced: () => synced,
-    async start() {
-      if (client) return;
-      try {
-        await handshake();
-      } catch (error) {
-        rejectSynced(error);
-        throw error;
-      }
-      resolveSynced();
+    start() {
+      if (client) return Promise.resolve();
+      if (inflight) return inflight;
+      const mine = ++epoch;
+      return track(
+        (async (): Promise<void> => {
+          try {
+            await connect(mine);
+          } catch (error) {
+            if (mine === epoch) settleSynced(error);
+            throw error;
+          }
+          if (mine === epoch) settleSynced();
+        })()
+      );
+    },
+    ensureOpen() {
+      if (inflight) return inflight;
+      if (client && status === 'ready') return Promise.resolve();
+      return this.reopen();
+    },
+    reopen() {
+      if (closedByOwner) return Promise.reject(new Error('The core connection is closed.'));
+      const mine = ++epoch;
+      pendingSync();
+      const run = (async (): Promise<void> => {
+        await release('reconnecting');
+        if (mine !== epoch) return supersededBy();
+        // The windows hold the old client's store: they are sent the new one once its app snapshot is folded.
+        awaitingAppSnapshot = true;
+        try {
+          await connect(mine);
+        } catch (error) {
+          if (mine === epoch) settleSynced(error);
+          throw error;
+        }
+        if (mine !== epoch) return;
+        relay?.status(status);
+        if (client) restoreScopedFeeds(client);
+        settleSynced();
+        for (const listener of [...replacedListeners]) listener();
+      })();
+      newest = run;
+      return track(run);
+    },
+    onReplaced(listener) {
+      replacedListeners.add(listener);
+      return () => void replacedListeners.delete(listener);
     },
     snapshot: () => (relay ? relay.snapshot(status) : { status, entries: [] as DesktopSectionEntry[] }),
     attach(window) {
@@ -418,6 +545,10 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
       windows.clear();
       loginFeeds.clear();
       feedWatches.clear();
+      replacedListeners.clear();
+      closedByOwner = true;
+      epoch += 1;
+      newest = null;
       const closing = client;
       client = null;
       relay = null;

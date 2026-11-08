@@ -219,6 +219,72 @@ test('setVisibleSessions resumes the new visible threads and unsubscribes the on
   ]);
 });
 
+test('a replaced core client gets the visible threads resumed again; one it refuses is dropped and resumed by the next visible set', async () => {
+  const calls = [];
+  let replaced;
+  let refuse = false;
+  const service = createServiceLane({
+    protocol: {
+      call: async (method, params) => {
+        calls.push({ method, params });
+        if (refuse && method === 'thread/resume' && params.threadId === 'b') throw new Error('gone');
+        return { ok: true };
+      },
+      onReplaced: (listener) => (replaced = listener),
+    },
+    snapshot: () => HELD,
+  });
+  await service.call('setVisibleSessions', [['a', 'b'], 1]);
+  calls.length = 0;
+  refuse = true;
+  replaced();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(
+    calls.map((call) => [call.method, call.params.threadId]),
+    [['thread/resume', 'a'], ['thread/resume', 'b']],
+    'every thread the old client carried is resumed on the new one'
+  );
+  calls.length = 0;
+  refuse = false;
+  await service.call('setVisibleSessions', [['a', 'b'], 2]);
+  assert.deepEqual(calls.map((call) => [call.method, call.params.threadId]), [['thread/resume', 'b']], 'the refused one is resumed by the next set; a is not sent twice');
+});
+
+test('a replacement resume refused after the thread was hidden and shown again leaves the newer state alone', async () => {
+  const calls = [];
+  let replaced;
+  let rejectStale;
+  let holdNext = false;
+  const service = createServiceLane({
+    protocol: {
+      call: async (method, params) => {
+        calls.push({ method, params });
+        if (holdNext && method === 'thread/resume') {
+          holdNext = false;
+          return new Promise((_, reject) => (rejectStale = reject));
+        }
+        return { ok: true };
+      },
+      onReplaced: (listener) => (replaced = listener),
+    },
+    snapshot: () => HELD,
+  });
+  await service.call('setVisibleSessions', [['a'], 1]);
+  holdNext = true;
+  replaced();
+  await service.call('setVisibleSessions', [[], 2]);
+  await service.call('setVisibleSessions', [['a'], 3]);
+  rejectStale(new Error('gone'));
+  await new Promise((resolve) => setImmediate(resolve));
+  calls.length = 0;
+  await service.call('setVisibleSessions', [[], 4]);
+  assert.deepEqual(
+    calls.map((call) => [call.method, call.params.threadId]),
+    [['thread/unsubscribe', 'a']],
+    'the stale rejection did not drop the newer resume, so hiding the thread still unsubscribes it'
+  );
+});
+
 test('searchProjectFiles starts a consumer once per root and only re-queries after', async () => {
   const { calls, service } = lane();
   await service.call('searchProjectFiles', ['/p', 'a', 50, false, false, 'mention']);

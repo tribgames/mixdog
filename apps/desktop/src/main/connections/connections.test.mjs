@@ -7,16 +7,11 @@ import { DESKTOP_IPC } from '../../shared/contract.ts';
 import { waitUntil } from '../bounded-wait.mjs';
 import { ipcErrorFromEnvelope } from '../../shared/coded-error.ts';
 import { registerDesktopIpc } from '../ipc.ts';
-import {
-  REMOTE_ENSURE_TIMEOUT_MS,
-  REMOTE_INSTALL_TIMEOUT_MS,
-  REMOTE_PROBE_TIMEOUT_MS,
-  RemoteBootstrapError,
-} from '../ssh/remote-bootstrap.ts';
+import { RemoteBootstrapError } from '../ssh/remote-bootstrap.ts';
 import { SshTargetError } from '../ssh/ssh-command.ts';
+import { fakeProtocol } from './fake-core-protocol.mjs';
 import {
   ConnectionPool,
-  REMOTE_STARTUP_TIMEOUT_MS,
   REMOTE_TUNNEL_READY_TIMEOUT_MS,
   SSH_UNSUPPORTED_CHANNELS,
   WindowRouteRegistry,
@@ -470,14 +465,7 @@ test("this PC's window comes back while a server window stays open", async () =>
   await assert.rejects(failing({ id: 'local' }), /renderer failed/);
 });
 
-test("a server connection's startup deadline outlasts a first install", async () => {
-  // Probe, then the longest ensure run (upload + npm install + daemon start),
-  // then the tunnel: the client must not give up before the bootstrap would.
-  const bootstrapWorstCase =
-    REMOTE_PROBE_TIMEOUT_MS +
-    Math.max(REMOTE_INSTALL_TIMEOUT_MS, REMOTE_ENSURE_TIMEOUT_MS) +
-    REMOTE_TUNNEL_READY_TIMEOUT_MS;
-  assert.ok(REMOTE_STARTUP_TIMEOUT_MS > bootstrapWorstCase, `${REMOTE_STARTUP_TIMEOUT_MS} <= ${bootstrapWorstCase}`);
+test("a server connection has no Node service leg; this PC's still has one", async () => {
   const deps = {
     moduleUrl: () => 'file:///daemon.cjs',
     environmentReady: () => Promise.resolve(),
@@ -493,6 +481,8 @@ test("a server connection's startup deadline outlasts a first install", async ()
       throw new Error('unused');
     },
     appVersion: '0.0.0',
+    createProtocol: () => fakeProtocol(),
+    localProtocol: () => fakeProtocol(),
   };
   const server = createDesktopConnection(
     { id: 'srv-8', kind: 'ssh', name: 'Box', target: 'root@127.0.0.1:2223' },
@@ -500,9 +490,12 @@ test("a server connection's startup deadline outlasts a first install", async ()
   );
   const local = createDesktopConnection({ id: 'local', kind: 'local', name: 'PC' }, deps);
   try {
-    assert.equal(server.client.options.startupTimeoutMs, REMOTE_STARTUP_TIMEOUT_MS);
+    assert.equal(server.client.options.connect, undefined, 'the server is served by its core connection alone');
+    assert.equal(typeof server.client.options.serviceLane?.call, 'function');
+    assert.equal(server.transport(), null);
     assert.equal(server.remote.config.tunnelReadyTimeoutMs, REMOTE_TUNNEL_READY_TIMEOUT_MS);
-    assert.equal(local.client.options.startupTimeoutMs, undefined, "this PC's daemon keeps the default deadline");
+    assert.equal(typeof local.client.options.connect, 'function');
+    assert.equal(local.client.options.serviceLane, undefined);
   } finally {
     await Promise.all([server.dispose(), local.dispose()]);
   }
@@ -543,6 +536,8 @@ test('a server connection hands onProgress to its RemoteSession and detaches cle
         throw new Error('unused');
       },
       appVersion: '0.0.0',
+      createProtocol: () => fakeProtocol(),
+      localProtocol: () => fakeProtocol(),
     },
     { onProgress }
   );

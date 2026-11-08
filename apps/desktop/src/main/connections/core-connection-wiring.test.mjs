@@ -4,34 +4,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createDesktopConnection } from './desktop-connection.ts';
+import { fakeProtocol } from './fake-core-protocol.mjs';
 import { createCoreModelProxy } from '../protocol/model-proxy-relay.ts';
-
-function fakeProtocol(entries = []) {
-  const listeners = new Set();
-  const protocol = {
-    sent: [],
-    calls: [],
-    closed: 0,
-    snapshot: () => ({ status: 'ready', entries }),
-    onEvent: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
-    emit: (event) => listeners.forEach((listener) => listener(event)),
-    respond(id, answer) {
-      this.sent.push(['respond', id, answer]);
-    },
-    notify(method, params) {
-      this.sent.push(['notify', method, params]);
-    },
-    call(method, params) {
-      return new Promise((resolve, reject) => this.calls.push({ method, params, resolve, reject }));
-    },
-    watchSection: () => () => {},
-    start: async () => {},
-    async close() {
-      this.closed += 1;
-    },
-  };
-  return protocol;
-}
 
 const execute = (protocol, id, call = { method: 'send', provider: 'openai' }) =>
   protocol.emit({ type: 'serverRequest', request: { id, method: 'model/proxy/execute', params: { call } } });

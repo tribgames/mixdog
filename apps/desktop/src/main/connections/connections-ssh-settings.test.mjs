@@ -4,6 +4,7 @@ import test, { after } from 'node:test';
 import { setServerPayloadResolver } from '../ssh/remote-install-payload.ts';
 import { currentSshContext, runWithSshContext } from '../ssh/ssh-context.ts';
 import { createDesktopConnection } from './index.ts';
+import { fakeProtocol } from './fake-core-protocol.mjs';
 
 // The bootstrap resolves the runtime payload before its first ssh. The real
 // one needs the desktop build's generated server lockfile (out/server/deps),
@@ -34,16 +35,27 @@ const deps = {
 /** The settings ssh runs under when the transport dials a connection made under `made`, from a caller running under `again` (none: a reconnect the user or the link ladder starts). */
 async function dialSpawns(made, again) {
   const spawned = [];
+  let connector = null;
   const connection = runWithSshContext(made, () =>
-    createDesktopConnection({ id: 'srv-key', kind: 'ssh', name: 'Box', target: 'root@127.0.0.1:2223' }, deps)
+    createDesktopConnection(
+      { id: 'srv-key', kind: 'ssh', name: 'Box', target: 'root@127.0.0.1:2223' },
+      {
+        ...deps,
+        createProtocol: (_identity, dialer) => {
+          connector = dialer;
+          return fakeProtocol();
+        },
+        localProtocol: () => fakeProtocol(),
+      }
+    )
   );
   try {
     connection.remote.config.spawnImpl = () => {
       spawned.push(currentSshContext()?.settings);
       throw new Error('stop here');
     };
-    // What every (re)attach dials through: the connection's connector.
-    const dial = () => connection.client.options.connect().remote.connect(() => {});
+    // What every (re)attach dials through: the connection's connector, which its protocol connection resolves by.
+    const dial = () => connector.connect(() => {});
     await (again ? runWithSshContext(again, dial) : dial()).catch(() => undefined);
     return spawned;
   } finally {

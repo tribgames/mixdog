@@ -1,7 +1,7 @@
 // A server on its own logins (the saved server's "Server accounts"): this PC
 // serves none of its model calls, its quota reads stay on the server, and a
 // changed choice reaches the attached connection. A server on this PC's
-// logins is served exactly as before.
+// logins is served exactly as before (its calls run on this PC's core).
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -11,6 +11,8 @@ import { createServerLoginHandlers } from '../ssh/ssh-ipc-server-logins.ts';
 import { waitUntil } from '../bounded-wait.mjs';
 import { createModelProxyHost } from '../model-proxy-host.ts';
 import { ConnectionPool, createConnectionManager, createDesktopConnection } from './index.ts';
+import { fakeProtocol } from './fake-core-protocol.mjs';
+import { RemoteSession } from '../ssh/remote-session.ts';
 import {
   encodeModelProxyWire,
   MODEL_PROXY_OPERATIONS,
@@ -19,7 +21,7 @@ import {
 
 const SNAPSHOT = { requests: [{ id: 'call-1' }], cancelled: [] };
 
-const deps = (loads) => ({
+const deps = (loads, server, local) => ({
   moduleUrl: () => 'file:///unused.mjs',
   environmentReady: () => Promise.resolve(),
   sessionOptions: () => ({
@@ -35,11 +37,27 @@ const deps = (loads) => ({
     throw new Error('not in this test');
   },
   appVersion: '0.0.0',
+  createProtocol: () => server,
+  localProtocol: () => local,
 });
 
-/** A server connection whose daemon operations are recorded, never sent. */
+const execute = (protocol, id) =>
+  protocol.emit({ type: 'serverRequest', request: { id, method: 'model/proxy/execute', params: { call: { method: 'send', provider: 'openai' } } } });
+
+/** The dial that ends a changed model login or a reconnect (a real one would run ssh), for the test's length. */
+function dialing(t, connect) {
+  const original = RemoteSession.prototype.connect;
+  RemoteSession.prototype.connect = connect;
+  t.after(() => {
+    RemoteSession.prototype.connect = original;
+  });
+}
+
+/** A server connection over fake core connections: its own, and this PC's where its model calls run. */
 function serverConnection(t, modelLogin) {
   const loads = [];
+  const server = fakeProtocol();
+  const local = fakeProtocol();
   const connection = createDesktopConnection(
     {
       id: `srv-${modelLogin ?? 'pc'}`,
@@ -48,15 +66,10 @@ function serverConnection(t, modelLogin) {
       target: 'root@127.0.0.1:2223',
       ...(modelLogin ? { modelLogin } : {}),
     },
-    deps(loads)
+    deps(loads, server, local)
   );
-  const operations = [];
-  connection.client.invokeDesktopOperation = async (operation, args) => {
-    operations.push([operation, args]);
-    return null;
-  };
   t.after(() => connection.dispose());
-  return { connection, operations, loads };
+  return { connection, server, local, loads };
 }
 
 /** Resolves once the promise chains already started have run out: a macrotask
@@ -69,23 +82,26 @@ test("a server on its own logins is served nothing from this PC; one on this PC'
   const own = serverConnection(t, 'server');
   assert.equal(own.connection.modelLogin, 'server');
   assert.equal(own.connection.link.view().modelLogin, 'server');
-  assert.equal(own.connection.modelProxy.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, SNAPSHOT), true);
+  execute(own.server, 1);
   await quiesced();
-  assert.deepEqual(own.operations, [], 'no claim, no provider list, no call');
+  assert.deepEqual(own.local.calls, [], 'no call runs on this PC');
+  assert.deepEqual(own.server.sent, []);
   assert.deepEqual(own.loads, [], "this PC's provider runtime is never loaded");
 
   const pc = serverConnection(t);
   assert.equal(pc.connection.modelLogin, 'pc');
   assert.equal(pc.connection.link.view().modelLogin, 'pc');
-  pc.connection.modelProxy.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, SNAPSHOT);
-  await waitUntil(() => pc.operations.length > 0, 'the advertised call to be claimed');
-  assert.ok(pc.operations.length > 0, 'the advertised call is claimed');
-  assert.ok(pc.operations.every(([, args]) => JSON.stringify(args).includes('call-1')));
+  execute(pc.server, 1);
+  assert.deepEqual(
+    pc.local.calls.map((call) => call.method),
+    ['modelProxy/run'],
+    'the advertised call runs on this PC'
+  );
 });
 
 test("a watch of the server's own logins ends on a changed model login or a disconnect, once", async (t) => {
   const own = serverConnection(t, 'server');
-  own.connection.client.reattach = async () => undefined;
+  dialing(t, async () => undefined);
   const ended = [];
   own.connection.onModelLoginEnd('server', () => ended.push('mode'));
   const kept = own.connection.onModelLoginEnd('server', () => ended.push('unsubscribed'));
@@ -120,9 +136,9 @@ test('a pending login without a forward is cancelled on the old attachment even 
           : null,
     };
   };
-  own.connection.client.reattach = async () => {
+  dialing(t, async () => {
     throw new Error('the daemon did not restart');
-  };
+  });
   const host = { id: 'srv', name: 'Box', target: 'root@127.0.0.1:2223', lastConnectedAt: 1 };
   const handlers = createServerLoginHandlers({
     store: async () => ({ get: () => host }),
@@ -281,27 +297,18 @@ test('a call running when the model login changes is aborted and its answer stay
   proxy.host.dispose();
 });
 
-test("switching a connection to server accounts revokes the claim this PC's mode left out", async (t) => {
+test("switching a connection to server accounts revokes the call this PC's mode left out", async (t) => {
   const pc = serverConnection(t);
-  pc.connection.client.reattach = async () => undefined;
-  let release;
-  const sent = [];
-  pc.connection.client.invokeDesktopOperation = (operation) => {
-    if (operation !== MODEL_PROXY_OPERATIONS.claim) {
-      sent.push(operation);
-      return Promise.resolve(null);
-    }
-    return new Promise((resolve) => {
-      release = () => resolve({ payload: encodeModelProxyWire({ method: 'providerConfig' }) });
-    });
-  };
-  pc.connection.modelProxy.handleDesktopEvent(MODEL_PROXY_REQUEST_EVENT, SNAPSHOT);
-  await waitUntil(() => typeof release === 'function', 'the call to be claimed in PC mode');
+  dialing(t, async () => undefined);
+  execute(pc.server, 1);
+  assert.equal(pc.local.calls.length, 1, 'the call runs on this PC while it serves');
   await pc.connection.applyModelLogin('server');
-  release();
-  await quiesced();
+  assert.equal(
+    pc.local.sent.filter(([, method]) => method === 'modelProxy/cancel').length,
+    1,
+    'the running call is cancelled on this PC'
+  );
   assert.deepEqual(pc.loads, [], "this PC's provider runtime is never loaded");
-  assert.deepEqual(sent, []);
 });
 
 test('a changed model login reaches only the attached server connection', async () => {

@@ -197,7 +197,7 @@ export function createServiceLane({
   protocol,
   snapshot,
 }: {
-  protocol: Pick<ProtocolConnection, 'call'>;
+  protocol: Pick<ProtocolConnection, 'call'> & Partial<Pick<ProtocolConnection, 'onReplaced'>>;
   snapshot(): SessionSnapshot;
 }): ServiceLane {
   const send = ({ method, params }: ServiceRequest): Promise<unknown> =>
@@ -205,7 +205,18 @@ export function createServiceLane({
       throw coreErrorForWindow(error);
     });
   // The threads this process resumed (`setVisibleSessions` names the visible set; the core feeds only those).
-  const resumed = new Set<string>();
+  // Each entry's token is that resume's own: a replacement's rejection that arrives after the thread was hidden and
+  // shown again finds another token and leaves the newer state alone.
+  const resumed = new Map<string, object>();
+  // A replaced client has none of the threads' subscriptions: they are resumed on it again, so a visible thread's
+  // stream goes on. One the core refuses is dropped from the set; the next `setVisibleSessions` resumes it.
+  protocol.onReplaced?.(() => {
+    for (const [threadId, token] of [...resumed]) {
+      void send({ method: 'thread/resume', params: { threadId, window: tail(undefined) } }).catch(() => {
+        if (resumed.get(threadId) === token) resumed.delete(threadId);
+      });
+    }
+  });
   const searching = new Map<string, string>();
   return {
     async call<T>(method: string, args: unknown[], signal?: AbortSignal): Promise<T> {
@@ -214,7 +225,7 @@ export function createServiceLane({
       if (method === 'setVisibleSessions') {
         const [ids] = args as [string[]];
         const visible = new Set(ids);
-        for (const threadId of [...resumed]) {
+        for (const threadId of [...resumed.keys()]) {
           if (visible.has(threadId)) continue;
           resumed.delete(threadId);
           await send({ method: 'thread/unsubscribe', params: { threadId } });
@@ -222,7 +233,7 @@ export function createServiceLane({
         for (const threadId of visible) {
           if (resumed.has(threadId)) continue;
           await send({ method: 'thread/resume', params: { threadId, window: tail(undefined) } });
-          resumed.add(threadId);
+          resumed.set(threadId, {});
         }
         return true as T;
       }

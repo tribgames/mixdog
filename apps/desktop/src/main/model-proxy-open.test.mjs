@@ -7,6 +7,7 @@ import test from 'node:test';
 
 import { DESKTOP_IPC } from '../shared/contract.ts';
 import { createDesktopConnection } from './connections/index.ts';
+import { fakeProtocol } from './connections/fake-core-protocol.mjs';
 import { createModelProxyHost } from './model-proxy-host.ts';
 import { parseHostSettings } from './ssh/ssh-host-store.ts';
 import {
@@ -99,6 +100,8 @@ test('a server connection has no grant to trust, view or keep alive', async (t) 
       }),
       loadModelProxyRuntime: async () => fakeRuntime(usageProvider(1)),
       appVersion: '0.0.0',
+      createProtocol: () => fakeProtocol(),
+      localProtocol: () => fakeProtocol(),
     }
   );
   t.after(() => connection.dispose());
