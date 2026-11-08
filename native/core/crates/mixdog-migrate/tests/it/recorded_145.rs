@@ -16,9 +16,7 @@ use mixdog_migrate::run::MigrateOptions;
 use mixdog_migrate::session::target::read_sessions;
 use serde_json::Value;
 
-#[path = "../support/recorded_145.rs"]
-mod harness;
-use harness::*;
+use crate::recorded_145_support::*;
 
 /// The header keys 1.4.5 recorded that the migrated session does not carry, each with the decision that drops it:
 /// `_providerPrefixGuardState` is the cache-prefix guard the strict loader drops (store-migration §11.4.1,
@@ -31,7 +29,7 @@ fn dropped_header_key(key: &str, value: &Value) -> bool {
 fn every_session_reads_back_as_1_4_5_answered() {
     let (copy, complete) = migrated();
     assert_eq!(complete.kinds.data.quarantined_unexpected, 0);
-    let folded = read_sessions(&copy.roots, &complete.manifest_sha256).expect("the migrated sessions fold");
+    let folded = read_sessions(&copy.roots(), &complete.manifest_sha256).expect("the migrated sessions fold");
     let answers = answers();
     let threads = answers["threads"].as_object().expect("threads");
     assert_eq!(folded.len(), threads.len(), "one session per 1.4.5 session");
@@ -69,7 +67,7 @@ const RECOVERY_STAMPED: [&str; 4] = ["updatedAt", "lastUsedAt", "transcriptEpoch
 #[test]
 fn the_interrupted_session_carries_what_the_crash_left_and_1_4_5_stamped_on_recovery() {
     let (copy, complete) = migrated();
-    let folded = read_sessions(&copy.roots, &complete.manifest_sha256).expect("fold");
+    let folded = read_sessions(&copy.roots(), &complete.manifest_sha256).expect("fold");
     let answers = answers();
     let id = answers["ids"]["crashed"].as_str().expect("crashed id");
     let fixture = fixture_dir().join(".mixdog/data");
@@ -96,7 +94,7 @@ fn the_interrupted_session_carries_what_the_crash_left_and_1_4_5_stamped_on_reco
 #[test]
 fn a_queued_message_is_still_queued_for_its_thread() {
     let (copy, complete) = migrated();
-    let folded = read_sessions(&copy.roots, &complete.manifest_sha256).expect("fold");
+    let folded = read_sessions(&copy.roots(), &complete.manifest_sha256).expect("fold");
     let answers = answers();
     let lead = answers["ids"]["lead"].as_str().expect("lead");
     let queue = &folded[lead].queue;
@@ -119,7 +117,7 @@ fn a_queued_message_is_still_queued_for_its_thread() {
 fn the_settings_read_back_as_1_4_5_answered() {
     let (copy, _) = migrated();
     let answers = answers();
-    let now: Value = serde_json::from_slice(&durable::read(&copy.roots.data.join("mixdog-config.json")).expect("config")).expect("json");
+    let now: Value = serde_json::from_slice(&durable::read(&copy.roots().data.join("mixdog-config.json")).expect("config")).expect("json");
     let was = answers["config"]["file"].as_object().expect("the recorded config");
     for (key, value) in was {
         if key != "quotaResume" {
@@ -150,7 +148,7 @@ fn removed_by_contract(rel: &str, answers: &Value) -> bool {
 #[test]
 fn the_1_4_5_files_left_behind_are_the_ones_the_decisions_name() {
     let (copy, _) = migrated();
-    let after = tree_digest(&copy.roots);
+    let after = tree_digest(&copy.roots());
     let recorded = recorded_files();
     let answers = answers();
     for (rel, sha) in &recorded {
@@ -179,7 +177,7 @@ fn the_1_4_5_files_left_behind_are_the_ones_the_decisions_name() {
 #[test]
 fn every_temp_file_format_a_killed_1_4_5_writer_left_is_retired() {
     let (copy, _) = migrated();
-    let after = tree_digest(&copy.roots);
+    let after = tree_digest(&copy.roots());
     let recorded = recorded_files();
     let answers = answers();
     let leftovers = answers["leftovers"].as_array().expect("leftovers");
@@ -212,7 +210,7 @@ fn every_temp_file_format_a_killed_1_4_5_writer_left_is_retired() {
 #[test]
 fn a_set_aside_record_is_kept_whole_in_quarantine() {
     let (copy, complete) = migrated();
-    let after = tree_digest(&copy.roots);
+    let after = tree_digest(&copy.roots());
     let recorded = recorded_files();
     let answers = answers();
     let aside = answers["setAside"].as_array().expect("setAside");
@@ -233,16 +231,16 @@ fn a_set_aside_record_is_kept_whole_in_quarantine() {
 #[test]
 fn the_migration_runs_once_and_a_later_start_changes_nothing() {
     let copy = copy();
-    let first = migrate(&copy.roots);
-    let tree = tree_digest(&copy.roots);
-    assert!(durable::is_file(&copy.roots.data.join("migration/complete.json")));
+    let first = migrate(&copy.roots());
+    let tree = tree_digest(&copy.roots());
+    assert!(durable::is_file(&copy.roots().data.join("migration/complete.json")));
     // A second start of the same daemon, and a start by a fresh migrator, both find the marker.
-    assert_eq!(migrate(&copy.roots), first);
-    assert_eq!(tree_digest(&copy.roots), tree, "a later start rewrote the data");
+    assert_eq!(migrate(&copy.roots()), first);
+    assert_eq!(tree_digest(&copy.roots()), tree, "a later start rewrote the data");
     // A 1.4.5 file that appears afterwards is not the migration's to convert (no compatibility reads).
-    durable::write_synced(&copy.roots.data.join("quota-resume.json.late"), b"{}").expect("write");
-    assert_eq!(migrate(&copy.roots), first);
-    assert!(durable::is_file(&copy.roots.data.join("quota-resume.json.late")));
+    durable::write_synced(&copy.roots().data.join("quota-resume.json.late"), b"{}").expect("write");
+    assert_eq!(migrate(&copy.roots()), first);
+    assert!(durable::is_file(&copy.roots().data.join("quota-resume.json.late")));
 }
 
 // ── Crash safety ──────────────────────────────────────────────────────────────────────────────────────────────

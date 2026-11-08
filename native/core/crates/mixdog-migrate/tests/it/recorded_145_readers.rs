@@ -13,9 +13,7 @@ use mixdog_ledger::stats::UsageStatsOptions;
 use mixdog_ledger::writer::UsageWriter;
 use serde_json::Value;
 
-#[path = "../support/recorded_145.rs"]
-mod harness;
-use harness::*;
+use crate::recorded_145_support::*;
 
 /// The recording ran offline: 1.4.5 had no price catalog, so a record is priced as it was stored or not at all.
 struct NoCatalog;
@@ -32,7 +30,7 @@ impl Pricer for NoCatalog {
 
 fn open_migrated_ledger(copy: &Copy) -> UsageLedger {
     let tokens = mixdog_rt::testing::tokens();
-    let path = copy.roots.data.join("usage").join("ledger.sqlite");
+    let path = copy.roots().data.join("usage").join("ledger.sqlite");
     let writer = UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).expect("the migrated ledger opens");
     let reader = UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
     let refresher = UsageRefresher::new(Arc::new(NoCatalog), tokens.cpu_bulk);
