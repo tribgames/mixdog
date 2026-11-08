@@ -207,25 +207,16 @@ const startedThreadId = (started: unknown): string => {
 export function createCapabilityLane({
   protocol,
 }: {
-  protocol: Pick<ProtocolConnection, 'call' | 'snapshot' | 'onEvent' | 'noteUserInput' | 'respond'>;
+  protocol: Pick<ProtocolConnection, 'call' | 'snapshot' | 'noteUserInput' | 'respond' | 'pendingServerRequests'>;
 }): CapabilityLane {
   const request = (method: string, params: unknown): Promise<unknown> =>
     protocol.call(method, params).catch((error: unknown) => {
       throw coreErrorForWindow(error);
     });
-  // The approvals the core is waiting on, as the client library's `pendingServerRequests` holds them: added when the core asks,
-  // removed when it resolves the ask, all dropped with the socket (the core asks again after a reconnect).
-  const pendingApprovals = new Map<string, unknown>();
-  protocol.onEvent((event) => {
-    if (event.type === 'serverRequest') {
-      const asked = (event as { request: { id: unknown; method: string } }).request;
-      if (asked.method.startsWith('item/')) pendingApprovals.set(JSON.stringify(asked.id), asked);
-    } else if (event.type === 'serverRequestResolved') {
-      pendingApprovals.delete(JSON.stringify((event as { params: { requestId?: unknown } }).params.requestId));
-    } else if (event.type === 'status' && (event as { status: { state: string } }).status.state !== 'ready') {
-      pendingApprovals.clear();
-    }
-  });
+  // The approvals the core is waiting on are the live client's own `pendingServerRequests` (added when the core asks, removed when
+  // it resolves the ask, all dropped with the socket), read when needed: nothing is cached here, so a request of a closed or replaced
+  // connection is never offered and an answer never crosses connections.
+  const pendingApprovals = (): unknown[] => protocol.pendingServerRequests().filter((asked) => asked.method.startsWith('item/'));
   let control: Promise<string> | null = null;
   const controlThread = (): Promise<string> => {
     if (control) return control;
@@ -273,7 +264,7 @@ export function createCapabilityLane({
     const hostShellJobs = protocol.snapshot().entries.find((entry) => entry.section === 'hostShellJobs')?.value;
     return desktopSessionState(
       sessionReducer.initial(read as Parameters<typeof sessionReducer.initial>[0]),
-      [...pendingApprovals.values()] as Parameters<typeof desktopSessionState>[1],
+      pendingApprovals() as Parameters<typeof desktopSessionState>[1],
       hostShellJobs as Parameters<typeof desktopSessionState>[2]
     ) as unknown as SessionSnapshot;
   };
@@ -333,7 +324,7 @@ export function createCapabilityLane({
       }
     },
     async resolveToolApproval(sessionId, id, decision) {
-      const asked = [...pendingApprovals.values()].find((candidate) => {
+      const asked = pendingApprovals().find((candidate) => {
         const { id: requestId } = candidate as { id: string | number };
         return String(requestId) === id && approvalSurface(candidate as Parameters<typeof approvalSurface>[0]) === sessionId;
       }) as { id: string | number } | undefined;

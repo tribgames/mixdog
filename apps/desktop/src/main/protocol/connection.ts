@@ -38,6 +38,9 @@ export interface ConnectionClient {
   notify(method: string, params: unknown): void;
   subscribeApp(): Promise<void>;
   respond(id: string | number, answer: ServerRequestAnswer): void;
+  /** The server requests this client's core is waiting on: added when it asks, removed when it resolves the ask, all
+   *  dropped with the socket. */
+  pendingServerRequests(): ReadonlyArray<{ readonly id: string | number; readonly method: string; readonly params: unknown }>;
   /** One binary X17 frame; present when the library's transport supports the host media lane. */
   sendBinary?(frame: Uint8Array): void;
   on(listener: (event: ConnectionClientEvent) => void): () => void;
@@ -132,6 +135,9 @@ export interface ProtocolConnection {
   onEvent(listener: (event: ConnectionClientEvent) => void): () => void;
   notify(method: string, params: unknown): void;
   respond(id: string | number, answer: ServerRequestAnswer): void;
+  /** What the live client's core is asking now; none while no client is open. The set belongs to the client, so a
+   *  request of a closed or replaced client is never in it and an answer never crosses clients. */
+  pendingServerRequests(): ReturnType<ConnectionClient['pendingServerRequests']>;
   sendBinary(frame: Uint8Array): void;
   /** The user operated this app (`input` event). Sends `client/activity` unless one went out within the minute. */
   noteUserInput(at: number): void;
@@ -526,6 +532,7 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
     },
     notify: (method, params) => connected().notify(method, params),
     respond: (id, answer) => connected().respond(id, answer),
+    pendingServerRequests: () => client?.pendingServerRequests() ?? [],
     sendBinary(frame) {
       const send = connected().sendBinary;
       if (!send) throw new Error('This connection has no media lane.');

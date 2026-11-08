@@ -66,10 +66,13 @@ function recordingLane(answer = async () => ({ ok: true })) {
   const states = new Map();
   const world = { starts: 0, failStarts: 0, shell: [], inputs: [], responses: [] };
   const listeners = new Set();
+  // The live client's pending set (the library client's: added on ask, removed on resolve, dropped with the socket).
+  const pending = [];
   const protocol = {
     snapshot: () => ({ status: 'ready', entries: world.shell }),
     noteUserInput: (at) => world.inputs.push(at),
     respond: (id, answer) => world.responses.push({ id, answer }),
+    pendingServerRequests: () => pending,
     onEvent: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -92,7 +95,12 @@ function recordingLane(answer = async () => ({ ok: true })) {
       return answer(method, params);
     },
   };
-  const emit = (event) => listeners.forEach((listener) => listener(event));
+  const emit = (event) => {
+    if (event.type === 'serverRequest') pending.push(event.request);
+    else if (event.type === 'serverRequestResolved') pending.splice(0, pending.length, ...pending.filter((r) => r.id !== event.params.requestId));
+    else if (event.type === 'status' && event.status.state !== 'ready') pending.length = 0;
+    listeners.forEach((listener) => listener(event));
+  };
   return { calls, all, states, world, emit, lane: createCapabilityLane({ protocol }) };
 }
 // The 14 `mcp/*` actions: `[capability, positional args, params without threadId]`. The names are the fields of the
@@ -517,6 +525,7 @@ test("a connection with a core endpoint routes its client's capabilities through
     },
     snapshot: () => ({ status: 'ready', entries: [] }),
     onEvent: () => () => {},
+    pendingServerRequests: () => [],
     close: async () => {},
   };
   const connection = createDesktopConnection(
