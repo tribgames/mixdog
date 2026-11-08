@@ -77,7 +77,10 @@ fn env_with(turn_review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReview
         releases: mixdog_workspace::release::FolderReleases::new(),
     })
     .unwrap();
-    futures_block(service.catalog().add(&root.to_string_lossy(), &CancellationToken::new(), None)).unwrap();
+    // Registered as a row: `project/create` also leaves `.mixdog/project.id` in the folder, which
+    // the recorded folder listings of this project do not have.
+    let row = mixdog_store::state::ProjectRow { path: root.to_string_lossy().into_owned(), alias: None, hidden: false, hidden_rank: None, last_used_at: None };
+    futures_block(state.write(move |tx| tx.put_project(&row))).unwrap();
     Env { _dir: dir, root, service, state, limits }
 }
 
@@ -270,6 +273,62 @@ async fn a_registry_change_and_its_op_row_commit_in_one_transaction() {
     env.service.call(with_op("project/create", json!({ "path": other.to_string_lossy() }), op)).await.unwrap();
     assert_eq!(env.state.op("project", op).await.unwrap().unwrap().state, mixdog_store::state::OpRowState::Applied);
     assert_eq!(env.state.projects().await.unwrap().len(), 2);
+}
+
+/// Node's `addProject` / `touchProjectSelected` leave `<project>/.mixdog/project.id` (memory
+/// classification reads only that); the `markers` of the recorded registry cases, replayed through
+/// `project/create` and, for a project registered without one, `project/touch`.
+#[tokio::test(flavor = "multi_thread")]
+async fn project_create_and_touch_leave_the_project_id_marker_node_leaves() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/store/registry/projects-registry.json")).unwrap();
+    let env = env();
+    let base = env.root.parent().unwrap().join("markers");
+    let mut checked = 0;
+    for case in golden["cases"].as_array().unwrap() {
+        let expected = case["markers"].as_object().unwrap();
+        if expected.is_empty() {
+            continue;
+        }
+        let name = case["name"].as_str().unwrap();
+        for phase in ["create", "touch"] {
+            let root = base.join(phase).join(name);
+            for sub in case["dirs"].as_array().unwrap() {
+                std::fs::create_dir_all(root.join(sub.as_str().unwrap())).unwrap();
+            }
+            let root_text = root.to_string_lossy().into_owned();
+            for op in case["ops"].as_array().unwrap().iter().filter(|op| op["op"] == "add") {
+                let raw = op["path"].as_str().unwrap().replace("<ABS>", &root_text);
+                if raw.is_empty() {
+                    continue;
+                }
+                let path = if std::path::Path::new(&raw).is_absolute() { raw } else { root.join(raw).to_string_lossy().into_owned() };
+                if phase == "create" {
+                    call(&env, "project/create", json!({ "path": path })).await.unwrap();
+                } else {
+                    let real = canonical(std::path::Path::new(&path)).unwrap().to_string_lossy().into_owned();
+                    env.state
+                        .write(move |tx| {
+                            tx.put_project(&mixdog_store::state::ProjectRow {
+                                path: real,
+                                alias: None,
+                                hidden: false,
+                                hidden_rank: None,
+                                last_used_at: None,
+                            })
+                        })
+                        .await
+                        .unwrap();
+                    call(&env, "project/touch", json!({ "path": path })).await.unwrap();
+                }
+            }
+            for (sub, text) in expected {
+                let marker = std::fs::read_to_string(root.join(sub).join(".mixdog").join("project.id")).unwrap_or_default();
+                assert_eq!(marker, text.as_str().unwrap(), "{name} ({phase}): marker of {sub}");
+                checked += 1;
+            }
+        }
+    }
+    assert_eq!(checked, 6, "three recorded markers, each through create and touch");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -776,7 +835,9 @@ async fn recorded_project_file_operations_replay_identically() {
             ("dir/inner.txt", b"inner\n"),
         ],
     );
-    env.service.catalog().add(&pf.to_string_lossy(), &CancellationToken::new(), None).await.unwrap();
+    // A row, not `project/create`: the recorded listing of this folder has no `.mixdog/project.id`.
+    let row = mixdog_store::state::ProjectRow { path: pf.to_string_lossy().into_owned(), alias: None, hidden: false, hidden_rank: None, last_used_at: None };
+    env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
     replay(&env, &corpus("files"), &pf.to_string_lossy(), "files").await;
 }
 

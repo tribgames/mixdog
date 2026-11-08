@@ -389,8 +389,9 @@ fn now_ms() -> i64 {
 
 /// `ensureProjectIdMarker`: `<project>/.mixdog/project.id` holds the project's id so the registry
 /// and memory classification agree. An existing marker with data is kept; nothing is created
-/// for a missing folder, an empty name or `common`. Best effort: a failure is swallowed.
-fn ensure_project_id_marker<L: WriteLane>(lane: &InLane<L>, abs: &str, name: &str) {
+/// for a missing folder, an empty name or `common`. Best effort: a failure is swallowed. Shared by
+/// [`Registry`] and the core's project catalog (`project/create`, `project/touch`).
+pub fn ensure_project_id_marker<L: WriteLane>(lane: &InLane<L>, abs: &str, name: &str) {
     let _ = try_marker(lane, abs, name);
 }
 
