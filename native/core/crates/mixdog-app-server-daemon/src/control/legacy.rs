@@ -18,6 +18,11 @@ pub const UPDATE_TEXT: &str = "A new version is required. Please update to conti
 pub struct Legacy {
     pub pid: u32,
     pub version: String,
+    /// The run and build identity the discovery file names (`core.instanceId`, `core.build`): a
+    /// desktop that probed the core compares them, so a process that reused the pid is refused.
+    /// Not `buildHash`: that name would let the 1.4.5 SSH installer classify the core.
+    pub instance_id: String,
+    pub build: String,
     pub update_text: String,
 }
 
@@ -29,6 +34,8 @@ struct Health<'a> {
     protocol: u32,
     revision: u32,
     version: &'a str,
+    instance_id: &'a str,
+    build: &'a str,
     package_version: String,
     clients: u32,
     busy: u32,
@@ -50,6 +57,8 @@ impl Legacy {
                 protocol: LEGACY_PROTOCOL,
                 revision: LEGACY_REVISION,
                 version: &self.version,
+                instance_id: &self.instance_id,
+                build: &self.build,
                 package_version: format!("{} \u{2014} {}", self.version, self.update_text),
                 clients: 0,
                 busy: 0,
@@ -68,7 +77,13 @@ mod tests {
     use super::*;
 
     fn legacy() -> Legacy {
-        Legacy { pid: 42, version: "1.4.6".into(), update_text: "Update Mixdog.".into() }
+        Legacy {
+            pid: 42,
+            version: "1.4.6".into(),
+            instance_id: "inst-1".into(),
+            build: "dev".into(),
+            update_text: "Update Mixdog.".into(),
+        }
     }
 
     #[test]
@@ -80,7 +95,7 @@ mod tests {
             json,
             serde_json::json!({
                 "status": "ok", "pid": 42, "protocol": 1, "revision": 2147483647,
-                "version": "1.4.6", "packageVersion": "1.4.6 \u{2014} Update Mixdog.",
+                "version": "1.4.6", "instanceId": "inst-1", "build": "dev", "packageVersion": "1.4.6 \u{2014} Update Mixdog.",
                 "clients": 0, "busy": 0
             })
         );

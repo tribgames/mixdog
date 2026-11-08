@@ -191,9 +191,20 @@ test('a local file error before ssh runs is terminal; network and ssh-spawn erro
   assert.ok(!isTerminalRemoteError(errno('ENOENT', 'spawn ssh')));
 });
 
+const DISCOVERY_TOKEN = 'session-secret-1';
 const phases = (events) => events.map((event) => event.phase);
 
-/** Tunnel stand-in: the forwarded control port answers /health as the probed core. */
+/** No request carries the session token: not in the URL, any header, or the body. */
+function assertNoTokenSent(requests) {
+  const token = DISCOVERY_TOKEN;
+  for (const request of requests) {
+    assert.ok(!request.url.includes(token), 'token in the URL');
+    assert.ok(!Object.values(request.headers).some((value) => String(value).includes(token)), 'token in a header');
+    assert.ok(!request.body.includes(token), 'token in the body');
+  }
+}
+
+/** Tunnel stand-in: the forwarded control port answers /health as the probed core and records every request it gets. */
 function liveTunnel(health = {}) {
   const spawnImpl = () => {
     const child = new EventEmitter();
@@ -208,13 +219,22 @@ function liveTunnel(health = {}) {
     };
     return child;
   };
-  const control = createServer((_req, res) => res.end(JSON.stringify({ status: 'ok', pid: 4242, version: '1.4.6', busy: 0, ...health })));
+  const requests = [];
+  const control = createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      requests.push({ url: req.url, headers: req.headers, body: Buffer.concat(chunks).toString('utf8') });
+      res.end(JSON.stringify({ status: 'ok', pid: 4242, instanceId: 'i-1', busy: 0, ...health }));
+    });
+  });
   control.listen(0, '127.0.0.1');
   control.unref();
   after(() => control.close());
   const listening = once(control, 'listening');
   let asked = 0;
   return {
+    requests,
     spawnImpl,
     portAccepts: async () => true,
     // First the RPC end (nothing listens there in the test), then the control end.
@@ -255,18 +275,24 @@ test('a server without the install reports install before start', async () => {
 
 test('another process answering behind the forward stops the connection before a token is sent', async () => {
   const ssh = scriptedSsh([result()]);
-  const session = remoteSession(ssh, { tunnel: liveTunnel({ pid: 777 }) });
+  const tunnel = liveTunnel({ pid: 777 });
+  const session = remoteSession(ssh, { tunnel });
   await assert.rejects(session.connect(() => {}), (error) => error instanceof SshError && /Another process answered/.test(error.message));
   await assert.rejects(session.connect(() => {}), /Another process answered/);
+  assert.ok(tunnel.requests.length > 0, 'the fixture saw the health probe');
+  assertNoTokenSent(tunnel.requests);
   assert.equal(ssh.calls.length, 1, 'no second probe after a terminal failure');
   assert.equal(session.currentDiscovery(), null);
   await session.close();
 });
 
-test('the same pid answering as another build stops the connection before a token is sent', async () => {
+test('a reused pid answering as another run stops the connection before a token is sent', async () => {
   const ssh = scriptedSsh([result()]);
-  const session = remoteSession(ssh, { tunnel: liveTunnel({ version: '1.4.7' }) });
+  const tunnel = liveTunnel({ instanceId: 'i-2' });
+  const session = remoteSession(ssh, { tunnel });
   await assert.rejects(session.connect(() => {}), (error) => error instanceof SshError && /Another process answered/.test(error.message));
+  assert.ok(tunnel.requests.length > 0, 'the fixture saw the health probe');
+  assertNoTokenSent(tunnel.requests);
   assert.equal(session.currentDiscovery(), null);
   await session.close();
 });

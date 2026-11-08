@@ -29,7 +29,13 @@ fn start(fx: &Fixture) -> (ControlServer, String) {
     let server = ControlServer::start(
         ControlConfig {
             token: token.clone(),
-            legacy: Legacy { pid: 4242, version: "1.4.6".into(), update_text: TEXT.into() },
+            legacy: Legacy {
+                pid: 4242,
+                version: "1.4.6".into(),
+                instance_id: "inst-1".into(),
+                build: "dev".into(),
+                update_text: TEXT.into(),
+            },
         },
         Arc::clone(&fx.lifecycle),
     )
@@ -72,6 +78,8 @@ fn legacy_clients_get_the_fixed_health_and_a_426_everywhere_else() {
     assert_eq!(health["protocol"], 1);
     assert_eq!(health["revision"], 2_147_483_647u64);
     assert_eq!(health["pid"], 4242);
+    assert_eq!(health["instanceId"], "inst-1");
+    assert_eq!(health["build"], "dev");
     assert!(health.get("buildHash").is_none());
     assert!(health["packageVersion"].as_str().unwrap().contains(TEXT));
     for (method, path) in [("POST", "/client/register"), ("GET", "/events"), ("POST", "/upgrade"), ("POST", "/stop"), ("POST", "/install-hold"), ("POST", "/shutdown"), ("POST", "/call")] {

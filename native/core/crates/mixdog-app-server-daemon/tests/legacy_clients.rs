@@ -76,7 +76,13 @@ fn real_1_4_5_clients_get_the_update_text_and_never_stop_the_core() {
     let server = ControlServer::start(
         ControlConfig {
             token: new_token(),
-            legacy: Legacy { pid: std::process::id(), version: "1.4.6".into(), update_text: UPDATE_TEXT.into() },
+            legacy: Legacy {
+                pid: std::process::id(),
+                version: "1.4.6".into(),
+                instance_id: "gate10".into(),
+                build: "dev".into(),
+                update_text: UPDATE_TEXT.into(),
+            },
         },
         Arc::clone(&lifecycle),
     )
