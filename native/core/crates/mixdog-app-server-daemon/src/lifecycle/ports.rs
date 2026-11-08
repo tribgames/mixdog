@@ -15,6 +15,9 @@ use super::model::Running;
 pub trait CorePort: Send + Sync {
     /// Publish `core/drain` on the app feed.
     fn drain_notice(&self, notice: &DrainNotice);
+    /// The core serves (the boot's `set_serving` or a `cancelDrain`): publish the `core` section as `serving`, replacing a
+    /// `draining` a client's attach snapshot would otherwise keep. Default: nothing to publish.
+    fn serving(&self) {}
     /// Publish `core/health{stalledMs}`; `0` means the runtime is answering again.
     fn health(&self, stalled_ms: u64);
     /// Publish `lane.health{lane, wedged}` when a lane's count of workers stuck past their

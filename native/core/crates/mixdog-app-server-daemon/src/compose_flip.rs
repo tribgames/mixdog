@@ -1197,7 +1197,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             move |session: &str, inner: Arc<dyn mixdog_core_api::domain::computer::ComputerBackend>| {
                 Arc::new(mixdog_core_session::session::secret_input::RedactingComputerBackend::new(inner, mixdog_core_api::ids::ThreadId::from(session), fill.clone())) as Arc<dyn mixdog_core_api::domain::computer::ComputerBackend>
             }
-        }))
+        }), pre.state.publisher.clone())
         .await;
     late_computer_hosts.bind(computer_pool.clone()).map_err(|_| ComposeError::AlreadyBound("computer hosts"))?;
     // Directory-side inputs of the pool, bound after `TurnPath::new` (true cycles, `flip-brief.md`): the `call_tool` dispatcher resolves through the pool it sits in, the session catalog reads the surface

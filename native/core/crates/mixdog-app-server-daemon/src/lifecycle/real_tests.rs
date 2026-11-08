@@ -165,6 +165,31 @@ fn health_and_the_drain_reach_the_app_feed_sections() {
 }
 
 #[test]
+fn serving_replaces_a_draining_core_section_with_the_serving_state() {
+    use crate::lifecycle::CorePort;
+    let f = fixture();
+    f.core.drain_notice(&DrainNotice {
+        drain_id: "d1".into(),
+        reason: DrainReason::Quit,
+        running: Vec::new(),
+        confirm_token: "tok".into(),
+    });
+    f.core.serving();
+    let sections = f.sections.0.lock().unwrap();
+    let states: Vec<mixdog_app_protocol::v1::CoreState> = sections
+        .iter()
+        .map(|(section, value)| {
+            assert_eq!(*section, SectionName::Core);
+            serde_json::from_value(value.clone()).unwrap()
+        })
+        .collect();
+    assert_eq!(
+        states,
+        [mixdog_app_protocol::v1::CoreState::Draining { reason: DrainReason::Quit }, mixdog_app_protocol::v1::CoreState::Serving]
+    );
+}
+
+#[test]
 fn work_without_a_thread_is_listed_with_null_ids() {
     let f = fixture();
     let mut shell = work(9);

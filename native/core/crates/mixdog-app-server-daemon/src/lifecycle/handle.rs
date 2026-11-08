@@ -25,6 +25,7 @@ use super::model::Blocked;
 use super::model::ClientKind;
 use super::model::CommandError;
 use super::model::CoreStatus;
+use super::model::DiscoveryPhase;
 use super::model::Effect;
 use super::model::FenceReason;
 use super::model::Migration;
@@ -324,7 +325,12 @@ impl Lifecycle {
 
     fn run(self: &Arc<Self>, effect: Effect) {
         match effect {
-            Effect::Discovery(state) => self.ports.discovery.publish(&state),
+            Effect::Discovery(state) => {
+                self.ports.discovery.publish(&state);
+                if state.phase == DiscoveryPhase::Serving {
+                    self.ports.core.serving();
+                }
+            }
             Effect::DrainNotice(notice) => self.ports.core.drain_notice(&notice),
             Effect::CancelRunning(running) => self.ports.core.cancel_running(&running),
             Effect::ReleaseDecision { pid } => self.ports.core.release_decision(pid),

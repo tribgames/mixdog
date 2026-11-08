@@ -327,13 +327,40 @@ pub struct ProcessComputerBackend {
     /// The session reached the helper and has not been aborted or released
     /// (`hostBoundComputerSessions`, `client.mjs:367`).
     bound: AtomicBool,
+    observer: Option<Arc<dyn ExecutionObserver>>,
+}
+
+/// Told when this session's visible execution opens and closes: the edges of `executing`, which the
+/// computer-use pill follows (`beginCommand` / `endExecution` of Node's coordinator).
+pub trait ExecutionObserver: Send + Sync {
+    /// An action ran with no execution open. `observe_only` is the backend's setting.
+    fn began(&self, observe_only: bool);
+    /// The open execution ended: `execution_end`, an abort, a release or a cancelled call.
+    fn ended(&self);
 }
 
 impl ProcessComputerBackend {
+    /// Reports the execution's edges to `observer`.
+    pub fn with_observer(mut self, observer: Arc<dyn ExecutionObserver>) -> Self {
+        self.observer = Some(observer);
+        self
+    }
+
+    fn close_execution(&self) -> bool {
+        let was_open = self.executing.swap(false, Ordering::SeqCst);
+        if was_open {
+            if let Some(observer) = &self.observer {
+                observer.ended();
+            }
+        }
+        was_open
+    }
+
     /// The helper runs under `manager`; it starts on the first action and restarts after a
     /// timeout or cancellation.
     pub fn new(config: ComputerConfig, manager: Arc<dyn ProcessManager>) -> Self {
         Self {
+            observer: None,
             config,
             manager,
             host: Mutex::new(None),
@@ -356,7 +383,7 @@ impl ProcessComputerBackend {
     /// process releases the input it held. True once the cleanup confirmed (exit 0); then the
     /// session no longer owns state in the helper. A cancelled `computer` call does this itself.
     pub async fn abort_session(&self) -> bool {
-        self.executing.store(false, Ordering::SeqCst);
+        self.close_execution();
         let confirmed = self.retire().await;
         if confirmed {
             self.bound.store(false, Ordering::SeqCst);
@@ -371,7 +398,7 @@ impl ProcessComputerBackend {
     /// ends the session instead (`session-lifecycle.ts` `confirmed === false`). False when there
     /// was nothing to end or the fallback abort did not confirm.
     pub async fn end_execution(&self) -> bool {
-        if !self.executing.swap(false, Ordering::SeqCst) {
+        if !self.close_execution() {
             return false;
         }
         if !locked(&self.host).as_ref().is_some_and(|host| host.alive.load(Ordering::SeqCst)) {
@@ -1044,7 +1071,11 @@ impl ComputerBackend for ProcessComputerBackend {
         validate(request.action, input).map_err(|reason| ComputerError::InvalidInput { reason })?;
         // `trackComputerSession` (`client.mjs:366-371`) runs for each command sent.
         self.bound.store(true, Ordering::SeqCst);
-        self.executing.store(true, Ordering::SeqCst);
+        if !self.executing.swap(true, Ordering::SeqCst) {
+            if let Some(observer) = &self.observer {
+                observer.began(self.config.observe_only);
+            }
+        }
         let mut command = host_command(request.action, input);
         let name = text(&command, "action").to_string();
         // While a typed secret's field may hold focus no capture leaves the host: a read is
@@ -1257,6 +1288,131 @@ mod tests {
         assert_eq!(outcomes[0].1.as_ref().unwrap().get("text"), Some(&json!("a")));
         assert_eq!(outcomes[1].0, 2);
         assert!(outcomes[1].1.as_ref().unwrap_err().starts_with("computer_host_exited"));
+    }
+
+    type Feeds = Mutex<HashMap<String, tokio::sync::mpsc::UnboundedSender<ProcessEvent>>>;
+
+    /// A helper that answers every request line `ok` (except a `hang`) and a cleanup run that exits 0, with no OS
+    /// process behind it: the backend's own launch, write and reply code runs, on every platform.
+    #[derive(Default)]
+    struct Answering {
+        senders: Feeds,
+        receivers: Mutex<HashMap<String, tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>>>,
+        seq: AtomicU64,
+    }
+
+    struct Feed(tokio::sync::mpsc::UnboundedReceiver<ProcessEvent>);
+
+    #[async_trait]
+    impl EventSource<ProcessEvent> for Feed {
+        async fn next(&mut self) -> Option<ProcessEvent> {
+            self.0.recv().await
+        }
+    }
+
+    impl Answering {
+        fn emit(&self, handle: &ProcessHandle, event: impl FnOnce(u64) -> ProcessEvent) {
+            let seq = self.seq.fetch_add(1, Ordering::SeqCst);
+            let sender = locked(&self.senders).get(&handle.0).cloned().expect("a spawned handle");
+            sender.send(event(seq)).expect("the pump is listening");
+        }
+
+        fn exit(seq: u64, killed: Option<mixdog_core_api::domain::process::KillReason>) -> ProcessEvent {
+            use mixdog_core_api::domain::process::ExitStatus;
+            use mixdog_core_api::domain::process::ProcessExit;
+            ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(0), killed } }
+        }
+    }
+
+    #[async_trait]
+    impl ProcessManager for Answering {
+        async fn spawn(&self, request: SpawnRequest) -> Result<mixdog_core_api::domain::process::SpawnedProcess, ProcessError> {
+            let (send, receive) = tokio::sync::mpsc::unbounded_channel();
+            locked(&self.senders).insert(request.handle.0.clone(), send);
+            locked(&self.receivers).insert(request.handle.0.clone(), receive);
+            if !request.stdin_piped {
+                self.emit(&request.handle, |seq| Self::exit(seq, None));
+            }
+            Ok(mixdog_core_api::domain::process::SpawnedProcess { handle: request.handle, pid: 1 })
+        }
+
+        fn subscribe(&self, handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+            let receive = locked(&self.receivers).remove(&handle.0).ok_or(ProcessError::UnknownHandle)?;
+            Ok(Box::new(Feed(receive)))
+        }
+
+        async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
+            let request: Value = serde_json::from_slice(&bytes).expect("a request line");
+            if request["action"] != "hang" {
+                let reply = format!("{RESPONSE_MARKER}{}\n", json!({"id": request["id"], "ok": true, "result": {"text": "ok"}}));
+                self.emit(handle, |seq| ProcessEvent::Output { seq, stream: OutputStream::Stdout, bytes: reply.into_bytes() });
+            }
+            Ok(())
+        }
+
+        fn close_stdin(&self, _: &ProcessHandle) -> Result<(), ProcessError> {
+            Err(ProcessError::StdinClosed)
+        }
+
+        fn resize_pty(&self, _: &ProcessHandle, _: mixdog_core_api::domain::process::PtySize) -> Result<(), ProcessError> {
+            Err(ProcessError::NotPty)
+        }
+
+        fn kill(&self, handle: &ProcessHandle) -> Result<(), ProcessError> {
+            self.emit(handle, |seq| Self::exit(seq, Some(mixdog_core_api::domain::process::KillReason::Requested)));
+            Ok(())
+        }
+
+        fn list(&self) -> Vec<mixdog_core_api::domain::process::ProcessInfo> {
+            Vec::new()
+        }
+    }
+
+    #[derive(Default)]
+    struct Edges(Mutex<Vec<String>>);
+
+    impl ExecutionObserver for Edges {
+        fn began(&self, observe_only: bool) {
+            locked(&self.0).push(format!("began:{observe_only}"));
+        }
+        fn ended(&self) {
+            locked(&self.0).push("ended".into());
+        }
+    }
+
+    /// The edges of an open execution, which the computer pill follows, with a helper that starts and answers: the
+    /// first action opens it (a second inside it does not), and `execution_end`, an abort, a release and a
+    /// cancelled call each close it once. Runs on Windows too: the helper is the manager's seam, not a shell script.
+    #[tokio::test]
+    async fn the_execution_edges_of_a_started_helper_reach_the_observer() {
+        let edges = Arc::new(Edges::default());
+        let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), Arc::new(Answering::default())).with_observer(edges.clone());
+        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+        let seen = || std::mem::take(&mut *locked(&edges.0));
+
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        assert!(backend.status().active, "the helper started and answered");
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        assert_eq!(seen(), ["began:false"], "the second action runs inside the open execution");
+        assert!(backend.end_execution().await);
+        assert_eq!(seen(), ["ended"]);
+        assert!(!backend.end_execution().await);
+        assert_eq!(seen(), Vec::<String>::new(), "nothing was open");
+
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        assert!(backend.abort_session().await);
+        assert_eq!(seen(), ["began:false", "ended"]);
+
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        assert!(backend.release_session().await);
+        assert_eq!(seen(), ["began:false", "ended"]);
+
+        backend.run(read(), CancellationToken::new()).await.unwrap();
+        let cancel = CancellationToken::new();
+        let receive = backend.send(input(json!({"action":"hang"})), &cancel).await.unwrap();
+        cancel.cancel();
+        assert_eq!(backend.wait_reply(receive, &cancel).await, Err(ComputerError::Cancelled));
+        assert_eq!(seen(), ["began:false", "ended"], "a cancelled call aborts the session");
     }
 
     #[cfg(unix)]

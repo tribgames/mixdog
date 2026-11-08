@@ -458,9 +458,9 @@ test('a phone gesture runs end to end through the host channel, in order, off th
 test('the pill snapshot carries cleanupState, so an idle one neither stops nor sticks', () => {
   const source = createComputerPillSource(() => 5);
   assert.equal(source.snapshot().cleanupState, 'ready');
-  source.apply({ active: false, observeOnly: false, controller: null, sessionThreadId: null, cleanupState: 'failed' });
+  source.apply({ active: false, observeOnly: false, controller: null, sessionThreadId: null, sessions: [], cleanupState: 'failed' });
   assert.equal(source.snapshot().cleanupState, 'failed');
-  source.apply({ active: false, observeOnly: false, controller: null, sessionThreadId: null });
+  source.apply({ active: false, observeOnly: false, controller: null, sessionThreadId: null, sessions: [] });
   assert.equal(source.snapshot().cleanupState, 'ready');
 });
 
@@ -468,10 +468,27 @@ test('the computer pill source turns section values into snapshots', () => {
   const source = createComputerPillSource(() => 5);
   const seen = [];
   const off = source.subscribe((snapshot) => seen.push(snapshot));
-  source.apply({ active: true, observeOnly: false, controller: 'agent', sessionThreadId: 'th1' });
-  source.apply({ active: false, observeOnly: false, controller: null, sessionThreadId: null });
+  source.apply({ active: true, observeOnly: false, controller: 'agent', sessionThreadId: 'th1', sessions: [{ sessionThreadId: 'th1', observeOnly: false }] });
+  source.apply({ active: false, observeOnly: false, controller: null, sessionThreadId: null, sessions: [] });
   off();
-  source.apply({ active: true, observeOnly: true, controller: null, sessionThreadId: 'th2' });
+  source.apply({ active: true, observeOnly: true, controller: null, sessionThreadId: 'th2', sessions: [{ sessionThreadId: 'th2', observeOnly: true }] });
   assert.deepEqual(seen.map((s) => [s.revision, s.presentSessionIds]), [[1, ['th1']], [2, []]]);
   assert.equal(seen[0].activities[0].sessionId, 'th1');
+});
+
+test('the computer pill source keeps every open session, oldest first', () => {
+  const source = createComputerPillSource(() => 5);
+  source.apply({
+    active: true,
+    observeOnly: true,
+    controller: null,
+    sessionThreadId: 'thB',
+    sessions: [
+      { sessionThreadId: 'thA', observeOnly: false },
+      { sessionThreadId: 'thB', observeOnly: true },
+    ],
+  });
+  const snapshot = source.snapshot();
+  assert.deepEqual(snapshot.presentSessionIds, ['thA', 'thB']);
+  assert.deepEqual(snapshot.activities.map((a) => [a.sessionId, a.action]), [['thA', 'control'], ['thB', 'observe']]);
 });

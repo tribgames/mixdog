@@ -186,6 +186,15 @@ pub struct RemotePairCode {
     pub expires_at: i64,
 }
 
+/// One session's open execution in `computer`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct ComputerSessionSection {
+    pub session_thread_id: crate::ThreadId,
+    pub observe_only: bool,
+}
+
 /// Section value of `computer` (SPEC R40).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
@@ -194,6 +203,9 @@ pub struct ComputerSection {
     pub active: bool,
     pub observe_only: bool,
     pub controller: Option<String>,
+    /// Every session with an open execution, oldest first (the overlay draws one activity per session,
+    /// `overlay/model.ts`); `active`, `observeOnly` and `sessionThreadId` describe the latest of them.
+    pub sessions: Vec<ComputerSessionSection>,
     pub session_thread_id: Option<crate::ThreadId>,
 }
 

@@ -11,6 +11,8 @@ export interface ComputerSectionValue {
   observeOnly: boolean;
   controller: string | null;
   sessionThreadId: string | null;
+  /** Every session with an open execution, oldest first; the overlay draws one activity each. */
+  sessions: { sessionThreadId: string; observeOnly: boolean }[];
   cleanupState?: 'pending' | 'failed' | 'ready';
 }
 
@@ -19,35 +21,31 @@ export function snapshotFromComputerSection(
   section: ComputerSectionValue,
   now: number
 ): ComputerUseSnapshot {
-  const sessionId = section.active ? section.sessionThreadId : null;
+  const sessions = section.active ? section.sessions : [];
   return {
     revision,
     userControlActive: false,
     // Carried as the coordinator's snapshot carries it; a section without a
     // latch is settled, as an idle coordinator is ('ready').
     cleanupState: section.cleanupState ?? 'ready',
-    activities: sessionId
-      ? [
-          {
-            sessionId,
-            action: section.observeOnly ? 'observe' : 'control',
-            target: '',
-            mode: 'background',
-            phase: 'active_background',
-            startedAt: now,
-            updatedAt: now,
-          },
-        ]
-      : [],
+    activities: sessions.map((session) => ({
+      sessionId: session.sessionThreadId,
+      action: session.observeOnly ? 'observe' : 'control',
+      target: '',
+      mode: 'background',
+      phase: 'active_background',
+      startedAt: now,
+      updatedAt: now,
+    })),
     cursors: [],
-    presentSessionIds: sessionId ? [sessionId] : [],
+    presentSessionIds: sessions.map((session) => session.sessionThreadId),
     targetLeases: [],
   };
 }
 
 export function createComputerPillSource(now: () => number = Date.now) {
   let revision = 0;
-  let current = snapshotFromComputerSection(revision, { active: false, observeOnly: false, controller: null, sessionThreadId: null }, now());
+  let current = snapshotFromComputerSection(revision, { active: false, observeOnly: false, controller: null, sessionThreadId: null, sessions: [] }, now());
   const listeners = new Set<(snapshot: ComputerUseSnapshot) => void>();
   return {
     snapshot: (): ComputerUseSnapshot => current,
