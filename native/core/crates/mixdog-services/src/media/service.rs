@@ -9,12 +9,14 @@ use mixdog_core_api::service::Admit;
 use mixdog_core_api::{CoreError, CoreRequest, DomainService, Reply};
 use serde_json::{Value, json};
 
+use mixdog_core_base::support::{coded, failed};
 use mixdog_protocol::ThreadId;
 
 use super::jobs::MediaJobs;
 use super::renditions::StillRenditions;
 use super::store::{MediaError, MediaStore};
 use super::variants;
+use crate::params;
 use crate::tidy::process::{Processes, RunOptions};
 
 const OPENER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
@@ -33,7 +35,9 @@ fn domain(code: &str) -> CoreError {
 impl From<MediaError> for CoreError {
     fn from(e: MediaError) -> Self {
         match e {
-            MediaError::Invalid(message) => CoreError::InvalidParams { path: "params".into(), expected: message.into() },
+            // Node's `Error`/`TypeError` text is what the window shows; `invalidParams` would drop it.
+            MediaError::Invalid(message) => failed("media", message),
+            MediaError::BoardNotFound => failed("media", e.to_string()),
             other => domain(other.code()),
         }
     }
@@ -86,8 +90,8 @@ impl MediaService {
         Self { store, jobs, processes, renditions }
     }
 
-    async fn dispatch(&self, method: &str, request: &Value) -> Result<Value, CoreError> {
-        let params = request.get("params").filter(|p| p.is_object()).cloned().unwrap_or_else(|| json!({}));
+    async fn dispatch(&self, method: &str, wire: &Value) -> Result<Value, CoreError> {
+        let params = params::object(wire).cloned().unwrap_or_else(|| json!({}));
         // What the store and the jobs take: the object Node's method receives (`setMediaPin(input)`).
         let args = wire_args(method, &params);
         let text = |k: &str| params.get(k).and_then(Value::as_str).unwrap_or("");
@@ -106,7 +110,7 @@ impl MediaService {
             "media/setMediaPin" => Ok(store.run(move |s| s.set_pin(&owned)).await??),
             "media/getMediaJob" => Ok(self.jobs.get(id).unwrap_or(Value::Null)),
             "media/listMediaLanes" => Ok(self.jobs.lanes().await),
-            "media/startMediaJob" => self.jobs.start(&args).await.map_err(|f| domain(f.code.as_deref().unwrap_or("MEDIA_FAILED"))),
+            "media/startMediaJob" => self.jobs.start(&args).await.map_err(|f| coded("media", f.code.as_deref().unwrap_or("MEDIA_FAILED"), f.message)),
             "media/cancelMediaJob" => Ok(self.jobs.cancel(id)),
             "media/listMediaAssets" => Ok(store
                 .run(move |s| {
@@ -258,4 +262,64 @@ mod tests {
             let params = json!({"id": "a", "name": "n"});
             assert_eq!(wire_args(method, &params), params, "{method}: params are read as they come");
         }
+    }
+
+    struct NoLanes;
+
+    #[async_trait]
+    impl super::super::jobs::MediaGenerator for NoLanes {
+        async fn resolve(&self, lane: &str, _: &str, _: &str) -> Result<super::super::jobs::ResolvedMedia, super::super::jobs::MediaFailure> {
+            Err(super::super::jobs::MediaFailure::new(format!("unknown media lane \"{lane}\""), "MEDIA_LANE_UNKNOWN"))
+        }
+        async fn generate(&self, _: super::super::jobs::GenerationRequest) -> Result<super::super::jobs::GeneratedMedia, super::super::jobs::MediaFailure> {
+            unreachable!("no lane resolves")
+        }
+        async fn lanes(&self) -> Value {
+            json!([])
+        }
+    }
+
+    async fn call(service: &MediaService, method: &'static str, params: Value) -> Result<Reply, CoreError> {
+        let request = CoreRequest { method: Method(method), params, op: None, ctx: mixdog_core_api::CallContext::internal("test") };
+        service.call(request).await
+    }
+
+    fn value(reply: Result<Reply, CoreError>) -> Value {
+        match reply.unwrap() {
+            Reply::Value(v) => v,
+            _ => panic!("not a value"),
+        }
+    }
+
+    fn message(reply: Result<Reply, CoreError>) -> (Option<String>, String) {
+        match reply.err().unwrap() {
+            CoreError::DomainError { code, message, .. } => (code.map(|c| c.to_string()), message.map(|m| m.to_string()).unwrap_or_default()),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// The request's `params` are the method's arguments (`CoreRequest::params`, not a nested
+    /// `params` member), and a failure answers Node's message. Texts are Node's (`store.mjs`,
+    /// `lanes.mjs`).
+    #[tokio::test]
+    async fn the_wire_params_reach_the_method() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(MediaStore::new(dir.path(), mixdog_rt::testing::tokens().durability_io));
+        let jobs = MediaJobs::new(store.clone(), Arc::new(NoLanes), None);
+        let host = super::super::renditions::tests::scripted(super::super::renditions::tests::webp("AQID"), std::time::Duration::ZERO);
+        let renditions = StillRenditions::new(Arc::new(mixdog_exthost::ExtImageCodec::new(host)), mixdog_rt::testing::tokens().durability_io, store.renditions_dir());
+        let service = MediaService::new(store, jobs, Processes::for_tests(), renditions);
+
+        let board = value(call(&service, "media/createMediaBoard", json!({"opId": "o", "name": "Harness Board"})).await);
+        assert_eq!(board["name"], "Harness Board");
+        let renamed = value(call(&service, "media/renameMediaBoard", json!({"opId": "o", "id": board["id"], "name": "Renamed"})).await);
+        assert_eq!(renamed["name"], "Renamed");
+        assert_eq!(value(call(&service, "media/cancelMediaJob", json!({"opId": "o", "id": "j"})).await)["id"], "j");
+        assert_eq!(value(call(&service, "media/deleteMediaAsset", json!({"opId": "o", "id": "a"})).await)["id"], "a");
+        assert_eq!(message(call(&service, "media/renameMediaBoard", json!({"opId": "o", "id": "nope", "name": "Renamed"})).await), (None, "board not found".to_owned()));
+        let start = json!({"opId": "o", "input": {"kind": "image", "prompt": "harness", "lane": "harness-no-such-lane"}});
+        assert_eq!(
+            message(call(&service, "media/startMediaJob", start).await),
+            (Some("MEDIA_LANE_UNKNOWN".to_owned()), "unknown media lane \"harness-no-such-lane\"".to_owned())
+        );
     }}

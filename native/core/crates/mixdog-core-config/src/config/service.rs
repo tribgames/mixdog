@@ -30,6 +30,7 @@ use super::ConfigEdit;
 use super::ConfigError;
 use super::PUBLISHED_SUBTREES;
 use super::Settings;
+use mixdog_core_base::support::failed;
 use mixdog_core_base::support::wrong_method;
 use crate::tool_modules::ToolModules;
 use crate::tool_modules::ToolModulesError;
@@ -227,7 +228,7 @@ async fn settings_call(settings: &Settings, method: &str, params: &Value) -> Res
         "config/setReactionsEnabled" => settings.set_reactions_enabled(&arg("enabled")).await,
         "config/setAiSessionTitles" => settings.set_ai_session_titles(&arg("enabled")).await,
         "config/setCacheWarmingEnabled" => settings.set_cache_warming_enabled(&arg("enabled")).await,
-        "config/setSystemShell" => settings.set_system_shell(&arg("command")).await,
+        "config/setSystemShell" => settings.set_system_shell(&arg("input")).await,
         "config/setDeveloperOption" => settings.set_developer_option(&arg("id"), &arg("enabled")).await,
         "config/saveStarterGuideState" => settings.save_starter_guide_state(&arg("state")).await,
         "config/getBotOrder" => return Ok(settings.bot_order()),
@@ -295,12 +296,11 @@ pub(super) fn core_error(error: ConfigError) -> CoreError {
     }
 }
 
-/// The setters throw `TypeError` for a bad argument and `Error` for a failed step.
+/// The setters throw `TypeError` for a bad argument and `Error` for a failed step. A `TypeError`
+/// reaches the window as its message, which `invalidParams` would not carry.
 fn tool(result: Result<Value, ToolModulesError>) -> Result<Value, CoreError> {
     result.map_err(|error| match error {
-        ToolModulesError::InvalidArgument(message) => {
-            CoreError::InvalidParams { path: "params".into(), expected: message.into() }
-        }
+        ToolModulesError::InvalidArgument(message) => failed("config", message),
         ToolModulesError::Failed(_) => CoreError::DomainError {
             domain: "config".into(),
             code: Some("settingFailed".into()),
