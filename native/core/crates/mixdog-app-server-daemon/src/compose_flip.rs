@@ -491,9 +491,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     // The provider setup chain (wp-ai-svc-23/-25): oauth providers -> gatherer -> cached setup -> dashboards -> effects -> refresh.
     let oauth_providers = mixdog_core_domains::domains::ai_account::production::oauth_providers(&oauth_wiring); // the same Vec `ProviderAdmin` holds
     // wp-ai-svc-27: ONE tracked secret store. The vault goes over it (`AnnouncingStore`, below, at the config-setup seam) and the status holder reads it, so the retry
-    // probe notes its outcome. The desktop notice raise is a no-op while the daemon has no notice channel (Node's `?.raise?.()` is optional too).
+    // probe notes its outcome. The desktop notice raise is the daemon's `notice` section (`DesktopNotices`, the one built at the top of this function).
     let secret_changes = mixdog_core_config::config::secret_changes::SecretChanges::open(config.clone()).await;
-    let (keychain_store, keychain_tracker) = mixdog_secrets::default_store_with_status(b.tokens.durability_io, &b.data_dir, Arc::new(|| {}));
+    let (keychain_store, keychain_tracker) = tracked_secret_store(b.tokens.durability_io, &b.data_dir, &desktop_notices);
     let keychain_live: Arc<dyn mixdog_core_domains::domains::ai_account::setup_cache::KeychainLive> =
         Arc::new(mixdog_core_domains::domains::ai_account::keychain_live::HolderLive::new(keychain_tracker, keychain_store.clone(), b.tokens.durability_io, b.data_dir.clone()));
     // The catalog service's own failure store (never a second one: refresh records into it and `invalidate_accounts` clears it).
@@ -2407,8 +2407,9 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         room_runner.clone(),
         domain_inputs.scopes.scopes("room").map_err(ComposeError::ComposeDomains)?,
     )))?;
-    // A room member's tool approval (wp-session-36): `directory.member_approval(&member)` / `directory.answer_member_approval(..)` and `RoomSummaries::publish_room` exist, but no
-    // port of the rooms stack calls them (`RoomDaemon` has no approval method in flip-rooms-4..15, and the wire section for the decorated view is a Lead decision): not wired.
+    // A room member's tool approval (wp-session-36) is wired through the ports above: `SessionRoomApprovals` is `RoomPorts.approvals` (`answer_member_approval`) and publishes the
+    // decorated view (`RoomSummaries::publish_room`, `thread/roomView/updated`), `DirectoryRoomDaemon::read_snapshot` carries `member_approval` as the snapshot's `toolApproval`, and
+    // `late_room_members` hands a resolved approval back to the rooms. A client answers the member's request as the response to its server request (P §8.3), not through a room method.
     // The workspaces (wp-session-32): the project registry is the concrete `WorkspaceService`; `ProjectConnectors` and the agent connector API share ONE
     // `ConnectorCatalog`; `SessionWorkspaces` is one value for the project service, the thread scm service, `ThreadSettingsParts` and the git tool.
     let project_registry: Arc<dyn mixdog_core_session::project::service::Registry> = workspace.clone();
@@ -2624,8 +2625,6 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(mixdog_exthost::ExtImageCodec::new(b.ext_host.clone())),
         domain_inputs.scopes.scopes("thread").map_err(ComposeError::ComposeDomains)?,
     )))?;
-    // `ThreadSwitches` is still open (wp-session).
-    let _ = &memory;
     // ---- the services whose constructors the tree and the draft both have (registration-inventory.md; flip-brief.md "Unregistered services") ----
     // memory (`memory/recall`, `memory/memoryControl`): the memory stack's service over the stored sessions it recalls from.
     builder.register(Arc::new(memory.service(Arc::new(mixdog_core_ports::ports::memory_source::SessionRecallSource::new(
@@ -2804,6 +2803,16 @@ fn prompt_config_slice(root: &serde_json::Map<String, serde_json::Value>) -> ser
     serde_json::json!({ "outputStyle": pick("outputStyle", false), "profile": pick("profile", true), "instructionFiles": pick("instructionFiles", true) })
 }
 
+/// The tracked secret store whose keychain failures raise the `secret-storage-failed` desktop notice (`keychain-cjs.cjs` `_noticeSecretStoreFailure` →
+/// `raiseDesktopNotice('secret-storage', 'secret-storage-failed')`), through the `notice` section.
+fn tracked_secret_store(
+    io: mixdog_rt::DurabilityIo,
+    data_dir: &std::path::Path,
+    notices: &Arc<mixdog_core_domains::notify::desktop_notice::DesktopNotices>,
+) -> (Arc<dyn mixdog_secrets::SecretStore>, Arc<mixdog_secrets::StatusTracker>) {
+    mixdog_secrets::default_store_with_status(io, data_dir, notices.secret_storage_failed())
+}
+
 /// `builtinSkillNamesFor` (`turn-tool-cards.mjs:39-55`): the built-in skills' names, trimmed and lower-cased, from the skill catalog's current list. The read is sync (a live
 /// turn asks while it commits a batch), so it takes the catalog's cached list; a cold or stale list is `None` ("the status could not be read"), as the trait says.
 pub struct CatalogBuiltinSkills(pub Arc<mixdog_mcp::skill_catalog::SkillCatalog>);
@@ -2826,5 +2835,38 @@ impl mixdog_workspace::grants::SessionCatalog for CatalogSessions {
             .await
             .map(|row| row.is_some())
             .map_err(|error| mixdog_workspace::error::WsError::new(mixdog_workspace::error::Reason::Io, error.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mixdog_core_api::mock::MockStatePublisher;
+    use mixdog_core_api::state::SectionChange;
+    use mixdog_protocol::SectionName;
+
+    /// A keychain failure on the daemon's tracked secret store reaches the `notice` section as the notice Node's holder raises
+    /// (`fixtures/desktop-notice/golden.json`, `keychainSteps` "failure": `raiseDesktopNotice('secret-storage', 'secret-storage-failed')`).
+    #[test]
+    fn a_keychain_failure_on_the_tracked_secret_store_raises_the_desktop_notice() {
+        let golden: serde_json::Value = serde_json::from_str(include_str!("../../../fixtures/desktop-notice/golden.json")).unwrap();
+        let step = golden["keychainSteps"].as_array().unwrap().iter().find(|step| step["step"] == "failure").unwrap();
+        let publisher = Arc::new(MockStatePublisher::default());
+        let notices = mixdog_core_domains::notify::desktop_notice::DesktopNotices::new(publisher.clone());
+        let dir = tempfile::tempdir().unwrap();
+        let (_store, tracker) = tracked_secret_store(mixdog_rt::testing::tokens().durability_io, dir.path(), &notices);
+        tracker.note_failure("storage exploded", mixdog_secrets::FailureCode::Other);
+        let delivered: Vec<serde_json::Value> = publisher
+            .published()
+            .into_iter()
+            .map(|(section, key, change)| {
+                assert_eq!(section, SectionName::Notice);
+                let SectionChange::Set(bytes) = change else { panic!("a raise sets the entry") };
+                let notice: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                assert_eq!(key.as_deref(), notice["key"].as_str());
+                notice
+            })
+            .collect();
+        assert_eq!(serde_json::Value::Array(delivered), step["delivered"]);
     }
 }

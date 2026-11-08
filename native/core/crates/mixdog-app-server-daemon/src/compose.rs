@@ -601,7 +601,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
         shell_path,
         Arc::new(ConfiguredShell::default()),
         skill_runtime,
-        ext_host.clone(),
+        crate::exec::ExecHosts { ext_pool: ext_host.clone(), processes: local_processes.clone() },
     );
     let shell_control = Arc::new(mixdog_tools::exec::ShellControl::new(exec.runtime.clone(), process_manager.clone()));
     let id = FeedId::from("app");

@@ -123,6 +123,24 @@ pub trait SurvivorWatch: Send + Sync {
     async fn kill(&self, handle: &ProcessHandle) -> bool;
 }
 
+/// The process layer's own observation (`mixdog_spawn::survivors`), which lists a command's
+/// survivors from its job object or process group and reports them gone from the operating
+/// system's events; the method for method mapping that module documents.
+#[async_trait::async_trait]
+impl SurvivorWatch for mixdog_spawn::survivors::ProcessSurvivors {
+    fn survivors(&self, handle: &ProcessHandle) -> Option<Survivors> {
+        mixdog_spawn::survivors::ProcessSurvivors::survivors(self, handle).map(|report| Survivors { reachable: report.reachable })
+    }
+
+    async fn wait_gone(&self, handle: &ProcessHandle) {
+        mixdog_spawn::survivors::ProcessSurvivors::wait_gone(self, handle).await;
+    }
+
+    async fn kill(&self, handle: &ProcessHandle) -> bool {
+        mixdog_spawn::survivors::ProcessSurvivors::kill(self, handle).await
+    }
+}
+
 /// The lane tokens the shell and task tools run their file work on.
 #[derive(Clone, Copy)]
 pub struct IoLanes {
