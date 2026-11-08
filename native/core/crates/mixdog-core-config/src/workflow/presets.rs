@@ -223,6 +223,31 @@ pub(crate) fn route_of_candidate(config: &Obj, candidate: &Value) -> Result<Opti
     route_from_preset(config, candidate)
 }
 
+/// The agents whose routes `summarizeWorkflowRoutes` reads, by the slot they fill.
+pub(crate) const SUMMARY_AGENTS: [(&str, &str); 2] = [("agent", "worker"), ("memory", "maintainer")];
+
+/// What the bot store answered for the agents of [`SUMMARY_AGENTS`] (`AgentRoutes::store_bot_route`): the agent and its
+/// route, `None` for a store bot with none. An agent that is no store bot is absent.
+pub(crate) type BotRoutes = Vec<(String, Option<Value>)>;
+
+impl Effective {
+    /// A store bot's route lives with the bot, never in the config (`configuredAgentRouteCandidates` asks the bot store
+    /// first): its answer replaces the config's, and a bot without a route has none.
+    pub(crate) fn with_bot_routes(mut self, bots: &BotRoutes) -> Self {
+        for (id, route) in bots {
+            match route {
+                Some(route) => {
+                    self.agents.insert(id.clone(), route.clone());
+                }
+                None => {
+                    self.agents.shift_remove(id);
+                }
+            }
+        }
+        self
+    }
+}
+
 /// `summarizeWorkflowRoutes(config)`: the Lead route of the default preset, the worker route as
 /// `agent`, the maintainer route as `memory`.
 pub(crate) fn summarize_workflow_routes(effective: &Effective) -> Result<Value, String> {
@@ -231,7 +256,7 @@ pub(crate) fn summarize_workflow_routes(effective: &Effective) -> Result<Value, 
     if let Some(lead) = route_from_preset(&effective.config, &default)? {
         out.insert("lead".into(), lead);
     }
-    for (slot, id) in [("agent", "worker"), ("memory", "maintainer")] {
+    for (slot, id) in SUMMARY_AGENTS {
         if let Some(route) = agent_route(effective, id)? {
             out.insert(slot.into(), route);
         }

@@ -21,7 +21,7 @@ pub trait WorkflowFacts: Send + Sync {
     /// `getWebSearchRoute()`.
     fn web_search_route(&self) -> Result<Value, PortError>;
     /// `getOnboardingStatus()`.
-    fn onboarding(&self) -> Result<Value, PortError>;
+    async fn onboarding(&self) -> Result<Value, PortError>;
     /// `listWorkflows()`.
     async fn workflows(&self) -> Result<Value, PortError>;
 }
@@ -57,7 +57,7 @@ impl StatusReader for WorkflowStatus {
                 Ok(json!({ "route": route, "enabled": enabled }))
             }
             "onboarding" => {
-                let status = self.facts.onboarding()?;
+                let status = self.facts.onboarding().await?;
                 Ok(Value::Object(if truthy(Some(&status)) { status.as_object().cloned().unwrap_or_default() } else { Map::new() }))
             }
             "workflow" => {

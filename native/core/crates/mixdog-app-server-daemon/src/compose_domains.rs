@@ -319,7 +319,7 @@ pub async fn compose_domains_pre(inputs: &DomainInputs) -> Result<PreDomains, Co
     let watcher = ConfigWatcher::start(config.clone()).map_err(ComposeDomainsError::Watch)?;
     let local = local::build(inputs, &config).await?;
     let tool_modules = ToolModules::new(config.clone(), local.tool_modules_host.clone(), state.publisher.clone(), inputs.cancel.clone());
-    let settings = Settings::new(config.clone(), inputs.seams.settings_effects.clone(), inputs.env.clone());
+    let settings = Settings::new(config.clone(), inputs.seams.settings_effects.clone(), inputs.env.clone()).with_data_dir(inputs.paths.data_dir.clone());
     let output_styles = OutputStyles::new(config.clone(), inputs.paths.package_root.join("src").join("output-styles"), &inputs.paths.data_dir);
     services.push(Arc::new(ConfigService::new(config.clone(), tool_modules.clone(), settings.clone(), output_styles.clone())));
     services.extend(local.services);

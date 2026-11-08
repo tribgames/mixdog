@@ -2003,6 +2003,231 @@
       ]
     },
     {
+      "name": "onboarding-bot-routes",
+      "config": {
+        "agents": {
+          "worker": {
+            "provider": "anthropic",
+            "model": "config-worker"
+          }
+        }
+      },
+      "files": {
+        "bots/migration.json": "{\"version\":1,\"bots\":[\"maintainer\",\"worker\"]}",
+        "bots/maintainer/agent.json": "{\"route\":{\"provider\":\"custom-harness\",\"model\":\"harness-model\",\"fast\":false,\"modelParameters\":{}}}",
+        "bots/worker/agent.json": "{\"name\":\"Worker\"}"
+      },
+      "main": null,
+      "customAgents": [],
+      "webSearch": null,
+      "steps": [
+        {
+          "method": "getOnboardingStatus",
+          "params": {},
+          "result": {
+            "completed": false,
+            "version": 0,
+            "default": null,
+            "workflowRoutes": {
+              "memory": {
+                "provider": "custom-harness",
+                "model": "harness-model",
+                "fast": false,
+                "modelParameters": {}
+              }
+            },
+            "starterGuide": null
+          },
+          "config": {
+            "agents": {
+              "worker": {
+                "provider": "anthropic",
+                "model": "config-worker"
+              }
+            }
+          },
+          "files": {
+            "bots/maintainer/agent.json": "{\"route\":{\"provider\":\"custom-harness\",\"model\":\"harness-model\",\"fast\":false,\"modelParameters\":{}}}",
+            "bots/migration.json": "{\"version\":1,\"bots\":[\"maintainer\",\"worker\"]}",
+            "bots/worker/agent.json": "{\"name\":\"Worker\"}"
+          },
+          "route": {
+            "provider": "openai",
+            "model": "main-model"
+          }
+        },
+        {
+          "method": "saveStarterGuideState",
+          "params": {
+            "state": {
+              "closed": false,
+              "welcomed": true,
+              "visited": [
+                "provider"
+              ]
+            }
+          },
+          "result": {
+            "completed": false,
+            "version": 0,
+            "default": null,
+            "workflowRoutes": {
+              "memory": {
+                "provider": "custom-harness",
+                "model": "harness-model",
+                "fast": false,
+                "modelParameters": {}
+              }
+            },
+            "starterGuide": {
+              "closed": false,
+              "welcomed": true,
+              "visited": [
+                "provider"
+              ]
+            }
+          },
+          "config": {
+            "agents": {
+              "worker": {
+                "provider": "anthropic",
+                "model": "config-worker"
+              }
+            },
+            "onboarding": {
+              "starterGuide": {
+                "closed": false,
+                "welcomed": true,
+                "visited": [
+                  "provider"
+                ]
+              }
+            },
+            "builtins": {}
+          },
+          "files": {
+            "bots/maintainer/agent.json": "{\"route\":{\"provider\":\"custom-harness\",\"model\":\"harness-model\",\"fast\":false,\"modelParameters\":{}}}",
+            "bots/migration.json": "{\"version\":1,\"bots\":[\"maintainer\",\"worker\"]}",
+            "bots/worker/agent.json": "{\"name\":\"Worker\"}"
+          },
+          "route": {
+            "provider": "openai",
+            "model": "main-model"
+          }
+        },
+        {
+          "method": "skipOnboarding",
+          "params": {},
+          "result": {
+            "completed": true,
+            "version": 1,
+            "default": null,
+            "workflowRoutes": {
+              "memory": {
+                "provider": "custom-harness",
+                "model": "harness-model",
+                "fast": false,
+                "modelParameters": {}
+              }
+            },
+            "starterGuide": {
+              "closed": false,
+              "welcomed": true,
+              "visited": [
+                "provider"
+              ]
+            }
+          },
+          "config": {
+            "agents": {
+              "worker": {
+                "provider": "anthropic",
+                "model": "config-worker"
+              }
+            },
+            "onboarding": {
+              "starterGuide": {
+                "closed": false,
+                "welcomed": true,
+                "visited": [
+                  "provider"
+                ]
+              },
+              "completed": true,
+              "version": 1,
+              "completedAt": "2026-01-02T03:04:05.678Z",
+              "skipped": true
+            },
+            "builtins": {}
+          },
+          "files": {
+            "bots/maintainer/agent.json": "{\"route\":{\"provider\":\"custom-harness\",\"model\":\"harness-model\",\"fast\":false,\"modelParameters\":{}}}",
+            "bots/migration.json": "{\"version\":1,\"bots\":[\"maintainer\",\"worker\"]}",
+            "bots/worker/agent.json": "{\"name\":\"Worker\"}"
+          },
+          "route": {
+            "provider": "openai",
+            "model": "main-model"
+          }
+        },
+        {
+          "method": "getOnboardingStatus",
+          "params": {},
+          "result": {
+            "completed": true,
+            "version": 1,
+            "default": null,
+            "workflowRoutes": {
+              "memory": {
+                "provider": "custom-harness",
+                "model": "harness-model",
+                "fast": false,
+                "modelParameters": {}
+              }
+            },
+            "starterGuide": {
+              "closed": false,
+              "welcomed": true,
+              "visited": [
+                "provider"
+              ]
+            }
+          },
+          "config": {
+            "agents": {
+              "worker": {
+                "provider": "anthropic",
+                "model": "config-worker"
+              }
+            },
+            "onboarding": {
+              "starterGuide": {
+                "closed": false,
+                "welcomed": true,
+                "visited": [
+                  "provider"
+                ]
+              },
+              "completed": true,
+              "version": 1,
+              "completedAt": "2026-01-02T03:04:05.678Z",
+              "skipped": true
+            },
+            "builtins": {}
+          },
+          "files": {
+            "bots/maintainer/agent.json": "{\"route\":{\"provider\":\"custom-harness\",\"model\":\"harness-model\",\"fast\":false,\"modelParameters\":{}}}",
+            "bots/migration.json": "{\"version\":1,\"bots\":[\"maintainer\",\"worker\"]}",
+            "bots/worker/agent.json": "{\"name\":\"Worker\"}"
+          },
+          "route": {
+            "provider": "openai",
+            "model": "main-model"
+          }
+        }
+      ]
+    },
+    {
       "name": "onboarding-complete-guide",
       "config": {
         "onboarding": {

@@ -9,10 +9,17 @@
 //
 //   node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs \
 //        benchmarks/rust-core/recorders/record-config-settings.mjs --tree <dir>
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, writeJson } from './lib/common.mjs';
+import { execFileSync } from 'node:child_process';
+import { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
-const tree = resolveTree(parseArgs());
+const cli = parseArgs();
+const tree = resolveTree(cli);
+// The Node commit the fixture is recorded from; the manifest names it only when the tree is exactly this commit.
+const NODE_COMMIT = execFileSync('git', ['rev-parse', 'b6f10295a^{commit}'], { cwd: tree, encoding: 'utf8' }).trim();
+const outDir = cli.get('out') ?? join(FIXTURES_ROOT, 'config-settings');
 const { createBuiltinToolSettings } = await importFrom(tree, 'src/session-runtime/settings-builtin-tools-api.mjs');
 const { createSystemSettings } = await importFrom(tree, 'src/session-runtime/settings-system-api.mjs');
 const { createDeveloperSettings } = await importFrom(tree, 'src/session-runtime/settings-developer-api.mjs');
@@ -21,6 +28,16 @@ const { createRuntimeFeatureGates } = await importFrom(tree, 'src/session-runtim
 const profileModule = await importFrom(tree, 'src/runtime/shared/profile-config.cjs');
 const cfgMod = profileModule.default ?? profileModule;
 const helpers = await importFrom(tree, 'src/runtime/agent/orchestrator/runtime-core/config-helpers.mjs');
+const cfgReal = await importFrom(tree, 'src/runtime/agent/orchestrator/config.mjs');
+const { withGrandfatheredBuiltins } = await importFrom(tree, 'src/runtime/agent/orchestrator/runtime-core/builtin-features.mjs');
+
+// Node's own config file (config.mjs persistence) in a directory of this run; every save goes through the saveConfigAndAdopt of
+// config-lifecycle.mjs, so the file is what the runtime would have stored.
+process.env.MIXDOG_CONFIG_READ_TTL_MS = '0';
+const cfgDir = mkdtempSync(join(tmpdir(), 'settings-config-'));
+process.env.MIXDOG_DATA_DIR = cfgDir;
+process.env.MIXDOG_USER_DATA_BACKUP_ROOT = join(cfgDir, 'backups');
+const cfgFile = join(cfgDir, 'mixdog-config.json');
 
 let seed = 0x3e771a95;
 const rnd = () => {
@@ -72,10 +89,25 @@ for (let i = 0; i < 120; i += 1) {
   if (shellEnv === null) delete process.env.MIXDOG_SHELL;
   else process.env.MIXDOG_SHELL = shellEnv;
   const run = async (call) => {
-    let current = structuredClone(config);
+    writeFileSync(cfgFile, JSON.stringify({ agent: structuredClone(config), defaultsVersion: 2 }));
+    // adoptConfig / saveConfigAndAdopt of config-lifecycle.mjs: the runtime keeps the adopted config in memory; the file takes the
+    // patch against the previous baseline plus the seeds (seedChanges: builtins, where the changes do not carry it).
+    let current = withGrandfatheredBuiltins(structuredClone(config));
+    let baseline = structuredClone(current);
     let saved = null;
     const calls = [];
-    const save = (next) => { current = structuredClone(next); saved = structuredClone(next); };
+    const save = (next) => {
+      current = withGrandfatheredBuiltins(next);
+      const changes = cfgReal.createConfigPatch(baseline, current);
+      baseline = structuredClone(current);
+      if (!changes.length) return current;
+      const seeds = ['builtins']
+        .filter((key) => current[key] !== undefined && !changes.some((change) => change.path[0] === key))
+        .map((key) => ({ path: [key], value: structuredClone(current[key]), ifAbsent: true }));
+      cfgReal.saveConfigPatch([...changes, ...seeds]);
+      saved = JSON.parse(readFileSync(cfgFile, 'utf8')).agent ?? {};
+      return current;
+    };
     const gates = createRuntimeFeatureGates({ getConfig: () => current, getToolProfile: () => 'interactive' });
     const builtin = createBuiltinToolSettings(
       {
@@ -160,11 +192,21 @@ for (let i = 0; i < 120; i += 1) {
   entries.push({ config, shellEnv, reads, setters: results });
 }
 delete process.env.MIXDOG_SHELL;
+rmSync(cfgDir, { recursive: true, force: true });
 
-writeJson(join(FIXTURES_ROOT, 'desktop', 'settings', 'config-settings-twin.json'), {
+const stage = stageSet(outDir);
+writeJson(join(stage, 'config-settings-twin.json'), {
   domain: 'config-settings-twin',
   recorder: 'benchmarks/rust-core/recorders/record-config-settings.mjs',
   platform: process.platform,
   entries,
 });
+writeSetManifest(stage, {
+  set: 'config-settings',
+  recorder: 'benchmarks/rust-core/recorders/record-config-settings.mjs',
+  command: 'node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-config-settings.mjs --tree <tree>',
+  identityTree: tree,
+  identityRef: NODE_COMMIT,
+});
+commitStage(stage, outDir);
 console.log(`recorded ${entries.length} settings configs`);

@@ -20,6 +20,19 @@ use crate::tool_modules::ToolModulesError;
 
 type Doc = Map<String, Value>;
 
+/// `saveConfigAndAdopt` (config-lifecycle.mjs): the runtime holds the grandfathered config, so both sides of the diff carry `builtins` and the
+/// first write seeds it (`seedChanges`) where the stored section lacks it.
+pub(crate) async fn save_and_adopt(config: &Config, before: &Doc, after: &Doc) -> Result<(), super::ConfigError> {
+    // `after` descends from the adopted config, so it keeps the section `before` was stamped with: a Lead route it adds must not turn a fresh
+    // profile into a grandfathered one.
+    let before = crate::tool_modules::with_grandfathered_builtins(before);
+    let mut after = after.clone();
+    if !after.contains_key("builtins") {
+        after.insert("builtins".into(), before.get("builtins").cloned().unwrap_or(Value::Null));
+    }
+    config.save_agent_config(&before, &after, false).await.map(|_| ())
+}
+
 /// The live effects Node's setters also had; the owners of the session, the shell and the cache
 /// warmer implement them.
 #[async_trait]
@@ -49,6 +62,8 @@ pub struct Settings {
     config: Config,
     effects: Arc<dyn SettingsEffects>,
     env: SettingsEnv,
+    /// The data directory holding bots/; empty when the host has none, so no agent is a store bot.
+    data_dir: std::path::PathBuf,
 }
 
 const HEARTBEAT_INTERVAL_CHOICES: [i64; 4] = [30, 60, 120, 240];
@@ -76,7 +91,12 @@ fn clean(value: Option<&Value>) -> String {
 
 impl Settings {
     pub fn new(config: Config, effects: Arc<dyn SettingsEffects>, env: SettingsEnv) -> Self {
-        Self { config, effects, env }
+        Self { config, effects, env, data_dir: std::path::PathBuf::new() }
+    }
+
+    /// The data directory whose bot store holds a store bot's route, which the onboarding status summarizes.
+    pub fn with_data_dir(self, data_dir: impl Into<std::path::PathBuf>) -> Self {
+        Self { data_dir: data_dir.into(), ..self }
     }
 
     pub fn with_process_env(config: Config, effects: Arc<dyn SettingsEffects>) -> Self {
@@ -84,7 +104,7 @@ impl Settings {
     }
 
     async fn save(&self, before: &Doc, after: &Doc) -> Result<(), ToolModulesError> {
-        self.config.save_agent_config(before, after, false).await.map(|_| ()).map_err(ToolModulesError::Config)
+        save_and_adopt(&self.config, before, after).await.map_err(ToolModulesError::Config)
     }
 
     // --- heartbeat ---
@@ -262,7 +282,9 @@ impl Settings {
         let mut after = before.clone();
         after.insert("onboarding".into(), Value::Object(onboarding));
         self.save(&before, &after).await?;
-        crate::workflow::onboarding::adopted_status(&before, &after).map_err(failed)
+        let routes = crate::config::AgentRoutes::new(self.config.clone(), self.data_dir.clone());
+        let bots = crate::workflow::onboarding::bot_routes(&routes).await.map_err(ToolModulesError::Config)?;
+        crate::workflow::onboarding::adopted_status(&before, &after, &bots).map_err(failed)
     }
 }
 

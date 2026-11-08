@@ -698,7 +698,7 @@ impl WorkflowFacts for Getters {
         self.1.lock().unwrap().push("getWebSearchRoute".to_owned());
         Ok(self.0["getWebSearchRoute"].clone())
     }
-    fn onboarding(&self) -> Result<Value, PortError> {
+    async fn onboarding(&self) -> Result<Value, PortError> {
         self.1.lock().unwrap().push("getOnboardingStatus".to_owned());
         Ok(self.0["getOnboardingStatus"].clone())
     }
