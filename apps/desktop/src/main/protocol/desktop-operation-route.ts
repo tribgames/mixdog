@@ -285,7 +285,8 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
 
 /** Operations with a Rust op that the window serves over its own connection, so no operation call carries them. */
 const NEEDS_RULING: Readonly<Record<string, string>> = {
-  // Served by the window process over the connection, not by an operation call (protocol/window-ipc.ts).
+  // Served by the window process over the connection, not by an operation call (protocol/window-ipc.ts): on a core
+  // connection the renderer's project watch is `sections.call('fs/watch')` (renderer/project-file-changes.ts).
   folderWatch: 'fs/watch is owned by the window that watches (ProtocolConnection.watchFiles)',
   folderUnwatch: 'fs/unwatch is owned by the window that watches (ProtocolConnection.unwatchFiles)',
   listListeningPorts: 'system/ports/subscribe is owned by the viewing window (ProtocolConnection.viewPorts)',

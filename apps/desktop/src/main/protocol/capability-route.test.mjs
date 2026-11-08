@@ -64,11 +64,12 @@ function recordingLane(answer = async () => ({ ok: true })) {
   const calls = [];
   const all = [];
   const states = new Map();
-  const world = { starts: 0, failStarts: 0, shell: [], inputs: [] };
+  const world = { starts: 0, failStarts: 0, shell: [], inputs: [], responses: [] };
   const listeners = new Set();
   const protocol = {
     snapshot: () => ({ status: 'ready', entries: world.shell }),
     noteUserInput: (at) => world.inputs.push(at),
+    respond: (id, answer) => world.responses.push({ id, answer }),
     onEvent: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -762,4 +763,33 @@ test('getQuotaAutoResume reads the quotaAutoResume subtree and answers what Node
     }
     assert.equal(await lane.getQuotaAutoResume(), read.enabled, read.name);
   }
+});
+
+// `resolveToolApprovalForSession` has no request op: the card's `id` is the id of the `item/*` server request the core asked
+// (the lane's own projection shows it as a string), and the decision is the answer to that request, with the original id
+// type and without `device` (the core stamps the answering connection's device: `ToolApprovalDecision`).
+test('resolveToolApproval answers the server request the card shows, once, and false for an id the core no longer asks', async () => {
+  const { emit, lane, world } = recordingLane();
+  const ask = (id, thread, surface) => ({
+    type: 'serverRequest',
+    request: {
+      id,
+      method: 'item/tool/requestApproval',
+      params: { threadId: thread, ...(surface ? { surfaceThreadId: surface } : {}), turnId: 't', itemId: `i${id}`, order: 1, request: { name: 'shell' } },
+    },
+  });
+  emit(ask(7, 'pane-1'));
+  emit(ask('req-8', 'sub-1', 'pane-1'));
+  assert.equal(await lane.resolveToolApproval('pane-1', '7', { approved: true, device: 'PC', response: 'approve' }), true);
+  assert.equal(await lane.resolveToolApproval('pane-1', 'req-8', { approved: false, reason: 'no' }), true);
+  assert.deepEqual(world.responses, [
+    { id: 7, answer: { result: { approved: true, response: 'approve' } } },
+    { id: 'req-8', answer: { result: { approved: false, reason: 'no' } } },
+  ]);
+  // Another session's card, an unknown id and a settled one are not answered.
+  assert.equal(await lane.resolveToolApproval('pane-2', '7', { approved: true }), false);
+  assert.equal(await lane.resolveToolApproval('pane-1', 'nope', { approved: true }), false);
+  emit({ type: 'serverRequestResolved', params: { requestId: 7 } });
+  assert.equal(await lane.resolveToolApproval('pane-1', '7', { approved: true }), false);
+  assert.equal(world.responses.length, 2);
 });

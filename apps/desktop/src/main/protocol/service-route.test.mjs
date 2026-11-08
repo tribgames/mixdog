@@ -18,16 +18,18 @@ const HELD = { held: true };
 // A project path resolves to its folder first (project/directory); everything else answers ok.
 function lane(answer = async (method) => (method === 'project/directory' ? { path: '/resolved' } : { ok: true })) {
   const calls = [];
+  const notified = [];
   const service = createServiceLane({
     protocol: {
       call: async (method, params) => {
         calls.push({ method, params });
         return answer(method, params);
       },
+      notify: (method, params) => notified.push({ method, params }),
     },
     snapshot: () => HELD,
   });
-  return { calls, service };
+  return { calls, notified, service };
 }
 
 const route = { provider: 'p', model: 'm' };
@@ -297,12 +299,24 @@ test('searchProjectFiles starts a consumer once per root and only re-queries aft
 
 test('a method with no request op is refused before anything is sent, with no fallback', async () => {
   const { calls, service } = lane();
-  for (const method of SERVICE_NOT_ROUTED.filter((name) => name !== 'perfLog')) {
+  for (const method of SERVICE_NOT_ROUTED) {
     await assert.rejects(service.call(method, []), (error) => error.code === 'unknownMethod', method);
   }
   await assert.rejects(service.call('agentRoomAction', ['reset', ['r1']]), (error) => error.code === 'unknownMethod');
-  assert.equal(await service.call('perfLog', ['line']), undefined);
   assert.deepEqual(calls, []);
+});
+
+// Node's perfLog wrote the renderer's diagnostic line in the host; the spec map (`operations_map.json`, list `services`)
+// sends it to the core as the `client/perfLog` notification, which has no reply and no request.
+test('perfLog is the client/perfLog notification with the line, and sends no request', async () => {
+  const { calls, notified, service } = lane();
+  assert.equal(await service.call('perfLog', ['composer-keystroke paint=30ms']), undefined);
+  assert.deepEqual(notified, [{ method: 'client/perfLog', params: { line: 'composer-keystroke paint=30ms' } }]);
+  assert.deepEqual(calls, []);
+  const target = JSON.parse(readFileSync(new URL('operations_map.json', schemaDir), 'utf8')).inventory.find(
+    (row) => row.list === 'services' && row.name === 'perfLog'
+  ).target;
+  assert.deepEqual(target, { kind: 'clientNotification', target: 'client/perfLog' });
 });
 
 test('an aborted request is not sent, and a domainError is mapped like the capability lane', async () => {
@@ -389,4 +403,23 @@ test('a folder answer without a path is an error, not a request with the project
   const { calls, service } = lane(async () => ({}));
   await assert.rejects(service.call('statProjectFile', ['/p', 'a']), /did not answer a folder/);
   assert.equal(calls.length, 1);
+});
+
+test('a client with a capability lane sends an approval decision through it, and perfLog through the service lane', async () => {
+  const { calls, notified, service } = lane();
+  const decided = [];
+  const client = new DesktopServiceClient({
+    connect: () => {
+      throw new Error('Node transport must not start');
+    },
+    sessionOptions: () => ({}),
+    serviceLane: service,
+    capabilityLane: { resolveToolApproval: async (...args) => (decided.push(args), true) },
+  });
+  assert.equal(await client.resolveToolApprovalForSession('t1', 'a1', { approved: true }), true);
+  assert.deepEqual(decided, [['t1', 'a1', { approved: true }]]);
+  client.perfLog('x');
+  await Promise.resolve();
+  assert.deepEqual(notified, [{ method: 'client/perfLog', params: { line: 'x' } }]);
+  assert.deepEqual(calls, []);
 });

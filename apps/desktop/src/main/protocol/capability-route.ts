@@ -5,6 +5,7 @@
 // The routing table is the TUI's (`src/standalone/protocol-session`); only actions the TUI does not route are added.
 // The control session is a real thread of the core, started on first need.
 import {
+  approvalSurface,
   desktopSessionState,
   sessionReducer,
 } from '../../../../../packages/protocol-client/src/index.ts';
@@ -143,6 +144,10 @@ export interface CapabilityLane {
    *  `config/value/write`; on unless it is `false`. */
   getQuotaAutoResume(): Promise<boolean>;
   setQuotaAutoResume(enabled: boolean): Promise<boolean>;
+  /** `resolveToolApprovalForSession`: the answer to the `item/*` server request the card of `sessionId` shows (the card's
+   *  `id` is the request id). The core stamps the device itself, so the decision's `device` is not sent. `false` when the
+   *  core is no longer asking for that id (already settled), as Node answered a settled approval. */
+  resolveToolApproval(sessionId: string, id: string, decision: Record<string, unknown>): Promise<boolean>;
 }
 
 export interface ShellJobResult {
@@ -202,7 +207,7 @@ const startedThreadId = (started: unknown): string => {
 export function createCapabilityLane({
   protocol,
 }: {
-  protocol: Pick<ProtocolConnection, 'call' | 'snapshot' | 'onEvent' | 'noteUserInput'>;
+  protocol: Pick<ProtocolConnection, 'call' | 'snapshot' | 'onEvent' | 'noteUserInput' | 'respond'>;
 }): CapabilityLane {
   const request = (method: string, params: unknown): Promise<unknown> =>
     protocol.call(method, params).catch((error: unknown) => {
@@ -326,6 +331,20 @@ export function createCapabilityLane({
       } catch (error) {
         return { released: false, error: failureMessage(error) };
       }
+    },
+    async resolveToolApproval(sessionId, id, decision) {
+      const asked = [...pendingApprovals.values()].find((candidate) => {
+        const { id: requestId } = candidate as { id: string | number };
+        return String(requestId) === id && approvalSurface(candidate as Parameters<typeof approvalSurface>[0]) === sessionId;
+      }) as { id: string | number } | undefined;
+      if (!asked) return false;
+      const { device: _device, ...answer } = decision;
+      try {
+        protocol.respond(asked.id, { result: answer } as Parameters<ProtocolConnection['respond']>[1]);
+      } catch (error) {
+        throw coreErrorForWindow(error);
+      }
+      return true;
     },
     async getQuotaAutoResume() {
       // The core publishes each subtree of the `config` section as an entry of its own, keyed by the subtree's name; this

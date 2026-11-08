@@ -1052,6 +1052,9 @@ export class DesktopServiceClient implements DesktopService {
     // already-settled id answers false). The service restarts itself when a
     // stalled daemon times its call out; the answer the user gave must wait
     // for that restart instead of surfacing as a failed, then cancelled, ask.
+    // A core connection answers the server request the card shows (capability-route.ts `resolveToolApproval`).
+    const lane = this.options.capabilityLane;
+    if (lane) return lane.resolveToolApproval(sessionId, id, decision as unknown as Record<string, unknown>);
     return this.invokeRead('resolveToolApprovalForSession', [sessionId, id, decision]);
   }
   listProviderModels(options: DesktopModelCatalogOptions = {}): Promise<DesktopModelOption[]> {
