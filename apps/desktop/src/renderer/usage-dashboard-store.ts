@@ -482,15 +482,20 @@ function acceptRefresh(win: Window, value: unknown): void {
 function followUsageSection(win: Window, api: UsageApi | undefined): () => void {
   const sections = sectionStoreFor(api);
   if (!sections) return () => undefined;
-  const generation = epoch;
+  let released = false;
+  // A pushed entry is a live result of the core, not an answer to a request of one epoch: retiring requests (a credential
+  // change, a mutation) must not silence the section for the rest of this holder's life.
   const take = (): void => {
     const entry = sections.get('usage', 'dashboard');
-    if (!entry || host !== win || epoch !== generation) return;
+    if (released || !entry || host !== win) return;
     acceptRefresh(win, entry.value);
   };
   const unsubscribe = sections.subscribe('usage', take);
   void sections.ready().then(take);
-  return unsubscribe;
+  return () => {
+    released = true;
+    unsubscribe();
+  };
 }
 
 function owns(win: Window, id: number, generation: number): boolean {

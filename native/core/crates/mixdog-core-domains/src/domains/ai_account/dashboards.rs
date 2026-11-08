@@ -77,6 +77,12 @@ impl Dashboards {
     }
 
     pub async fn get(&self, options: &Value, sources: &dyn UsageSources, accounts: &AccountStore) -> Result<Value, Failure> {
+        self.get_at(options, sources, accounts, now_ms()).await
+    }
+
+    /// [`get`](Self::get) at the clock reading `now` (`Date.now()`): the sweep-reuse window and the dashboard's
+    /// `checkedAt` are measured on it.
+    pub async fn get_at(&self, options: &Value, sources: &dyn UsageSources, accounts: &AccountStore, now: i64) -> Result<Value, Failure> {
         let refresh_usage = options.get("refresh") == Some(&Value::Bool(true));
         let force_setup = options.get("force") == Some(&Value::Bool(true))
             || (refresh_usage && options.get("refreshSetup") != Some(&Value::Bool(false)));
@@ -88,13 +94,13 @@ impl Dashboards {
             let scope = scope_key(options);
             if refresh_usage && !force_setup && scope.is_empty() {
                 if let (Some(_), Some(live)) = (&cache.dashboard, cache.live_at) {
-                    if now_ms() - live < USAGE_REFRESH_REUSE_MS {
+                    if now - live < USAGE_REFRESH_REUSE_MS {
                         return Ok(self.cached(&cache));
                     }
                 }
             }
         }
-        self.build(options, refresh_usage, force_setup, sources, accounts).await
+        self.build(options, refresh_usage, force_setup, sources, accounts, now).await
     }
 
     async fn build(
@@ -104,6 +110,7 @@ impl Dashboards {
         force_setup: bool,
         sources: &dyn UsageSources,
         accounts: &AccountStore,
+        at: i64,
     ) -> Result<Value, Failure> {
         let scope = scope_key(options);
         let setup = match self.setup.setup(force_setup, false).await {
@@ -120,7 +127,6 @@ impl Dashboards {
             preview: false,
         };
         let config = self.setup.display_config().await.map_err(Failure::error)?;
-        let at = now_ms();
         let dashboard = create_usage_dashboard(&config, &setup, &dashboard_options, at, sources, accounts).await;
         *self.cache() = Cache {
             dashboard: Some(dashboard.clone()),

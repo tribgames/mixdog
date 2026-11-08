@@ -7,9 +7,6 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use mixdog_core_api::StatePublisher;
-use mixdog_core_api::mock::MockStatePublisher;
-use mixdog_core_api::state::SectionChange;
 use mixdog_ledger::LedgerError;
 use mixdog_ledger::append::UsageRecord;
 use mixdog_ledger::append::append_batch;
@@ -24,7 +21,6 @@ use mixdog_ledger::repair::repair_usage_ledger;
 use mixdog_ledger::rollup::RollupQuery;
 use mixdog_ledger::schema::prepare;
 use mixdog_ledger::sums::build_sums_step;
-use mixdog_protocol::SectionName;
 
 /// 2026-01-01T12:00:00Z: the same calendar day in every time zone from UTC-12 to UTC+11.
 const NOON_JAN_1: i64 = 1_767_225_600_000 + 43_200_000;
@@ -189,7 +185,7 @@ fn repair_moves_a_provider_and_updates_the_route() {
 }
 
 #[tokio::test]
-async fn recompute_and_publish_the_usage_section() {
+async fn stale_days_recompute_in_bounded_steps_and_the_cache_answers_the_rollup() {
     let dir = tempfile::tempdir().unwrap();
     let mut conn = ledger(dir.path());
     let rows: Vec<_> = (0..20)
@@ -208,37 +204,35 @@ async fn recompute_and_publish_the_usage_section() {
     // Well after every stored day (they are named 2026-01-xx), so all of them are completed.
     let now = 1_800_000_000_000_i64;
 
-    let publisher = MockStatePublisher::default();
+    // `maintain_usage` answers true once no stale day remains: the point the writer signals.
     let mut steps = 0;
-    while !maintain_usage(&mut conn, &publisher, "all", now).unwrap() {
+    while !maintain_usage(&mut conn, now).unwrap() {
         steps += 1;
         assert!(steps < 10);
     }
     assert!(steps >= 1, "20 stale days take more than one bounded step");
     assert_eq!(recompute_rollup_days(&mut conn, now).unwrap().recomputed, 0);
 
-    let published = publisher.published();
-    assert_eq!(published.len(), 1);
-    let (section, key, change) = &published[0];
-    assert_eq!(
-        (*section, key.as_deref()),
-        (SectionName::Usage, Some("all"))
-    );
-    let SectionChange::Set(bytes) = change else {
-        panic!("expected an inline value")
-    };
-    let sent: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    // The day cache answers what the ledger computes directly.
     let tokens = mixdog_rt::testing::tokens();
     let reader = UsageReader::new(
         &dir.path().join("ledger.sqlite"),
         tokens.interactive_io,
         tokens.maintenance_io,
     );
-    let direct = reader.rollup(RollupQuery::default()).await.unwrap();
-    for (day, value) in direct["days"].as_object().unwrap() {
-        assert_eq!(&sent["days"][day], value, "day {day}");
+    let cached = reader.rollup(RollupQuery::default()).await.unwrap();
+    let cached_days = cached["days"].as_object().unwrap();
+    assert_eq!(cached_days.len(), 20);
+    for i in 0..20 {
+        let day = format!("2026-01-{:02}", i + 1);
+        let stored: String = conn
+            .query_row("SELECT value FROM rollup_days WHERE day=?1", [&day], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        let stored: serde_json::Value = serde_json::from_str(&stored).unwrap();
+        assert_eq!(&cached_days[&day], &stored, "day {day}");
     }
-    assert_eq!(sent, direct);
 
     // A new record moves its day's fingerprint: the next step recomputes exactly that day.
     append_batch(
@@ -254,5 +248,4 @@ async fn recompute_and_publish_the_usage_section() {
     )
     .unwrap();
     assert_eq!(recompute_rollup_days(&mut conn, now).unwrap().recomputed, 1);
-    let _: &dyn StatePublisher = &publisher;
 }

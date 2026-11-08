@@ -10,6 +10,7 @@ pub mod host_info;
 pub mod builder_env;
 pub mod accounting_scope;
 pub mod ledger_source;
+pub mod usage_stats_feed;
 pub mod provider_status_reader;
 pub mod ladder_sources;
 pub mod hop_bindings;

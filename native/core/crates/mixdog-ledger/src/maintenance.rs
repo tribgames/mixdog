@@ -1,17 +1,13 @@
-//! Rollup recompute as maintenance, and `usage` section publication (SPEC R32).
+//! Rollup recompute as maintenance (SPEC R32).
 //!
 //! A completed day's rollup is cached in `rollup_days`, validated by a fingerprint of the
 //! day-revision counters the triggers keep. The append commit that moves a fingerprint
 //! schedules [`recompute_rollup_days`] (an event, not a boot scan); when it completes the
-//! `usage` section is republished with [`publish_usage`].
+//! writer tells its owner that the figures changed ([`crate::writer::UsageChanged`]), and the
+//! owner publishes the `usage` section: the statistics answer, never this rollup.
 
 use std::collections::BTreeMap;
 
-use bytes::Bytes;
-use mixdog_core_api::StatePublisher;
-use mixdog_core_api::state::SectionChange;
-use mixdog_protocol::INLINE_MAX;
-use mixdog_protocol::SectionName;
 use serde_json::Map;
 use serde_json::Value;
 
@@ -147,38 +143,8 @@ pub(crate) fn cached_rollup(conn: &Connection, query: &RollupQuery, now_ms: i64)
     Ok(Value::Object(out))
 }
 
-/// Publishes the `usage` section for `scope`: the aggregate summary inline when it fits
-/// `INLINE_MAX`, else a stub counting its days for the client to page.
-pub fn publish_usage(
-    conn: &Connection,
-    publisher: &dyn StatePublisher,
-    scope: &str,
-    now_ms: i64,
-) -> Result<()> {
-    let summary = cached_rollup(conn, &RollupQuery::default(), now_ms)?;
-    let bytes = serde_json::to_vec(&summary)?;
-    let change = if bytes.len() <= INLINE_MAX {
-        SectionChange::Set(Bytes::from(bytes))
-    } else {
-        let count = summary["days"].as_object().map_or(0, |d| d.len() as u64);
-        SectionChange::Stub { count }
-    };
-    publisher.publish(SectionName::Usage, Some(scope.to_string()), change);
-    Ok(())
-}
-
-/// The maintenance job the append commit triggers: recompute stale days; once none remain,
-/// republish the `usage` section. Returns whether the section was published.
-pub fn maintain_usage(
-    conn: &mut Connection,
-    publisher: &dyn StatePublisher,
-    scope: &str,
-    now_ms: i64,
-) -> Result<bool> {
-    let step = recompute_rollup_days(conn, now_ms)?;
-    if step.remaining > 0 {
-        return Ok(false);
-    }
-    publish_usage(conn, publisher, scope, now_ms)?;
-    Ok(true)
+/// The maintenance job the append commit triggers: one bounded recompute step. Returns whether
+/// no stale day remains, which is when the owner is told the figures changed.
+pub fn maintain_usage(conn: &mut Connection, now_ms: i64) -> Result<bool> {
+    Ok(recompute_rollup_days(conn, now_ms)?.remaining == 0)
 }
