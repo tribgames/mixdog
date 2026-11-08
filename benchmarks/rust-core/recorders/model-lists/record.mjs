@@ -18,7 +18,9 @@ const RUN_ROOT = mkdtempSync(join(tmpdir(), 'model-lists-'));
 const DROP = /^(MIXDOG_|HTTPS?_PROXY$|ALL_PROXY$|NO_PROXY$|OPENAI_|ANTHROPIC_|GOOGLE_|GEMINI_|AZURE_|XDG_|ELECTRON_)/i;
 const onlyAt = process.argv.indexOf('--only');
 const only = onlyAt < 0 ? null : process.argv[onlyAt + 1];
-const scenarios = JSON.parse(readFileSync(join(HERE, 'scenarios.json'), 'utf8')).filter((s) => !only || s.name === only);
+const setAt = process.argv.indexOf('--set');
+const setName = setAt < 0 ? null : process.argv[setAt + 1];
+const scenarios = JSON.parse(readFileSync(join(HERE, setName ? `scenarios-${setName}.json` : 'scenarios.json'), 'utf8')).filter((s) => !only || s.name === only);
 const hits = [];
 // The metadata layers a Node daemon would fetch from models.dev and LiteLLM (and the update check it runs) are
 // seeded fresh instead, so no run reaches a network and the Rust test seeds the same files.
@@ -61,7 +63,7 @@ for (const scenario of scenarios) {
   const agent = JSON.parse(JSON.stringify(scenario.agent).replaceAll('__BASE_URL__', baseURL));
   writeFileSync(join(paths.dataDir, 'mixdog-config.json'), JSON.stringify({ agent }, null, 2));
   const file = join(root, 'scenario.json');
-  writeFileSync(file, JSON.stringify({ name: scenario.name, calls: scenario.calls }));
+  writeFileSync(file, JSON.stringify({ name: scenario.name, calls: scenario.calls, waitListed: scenario.waitListed }));
   const env = {};
   for (const [name, value] of Object.entries(process.env)) if (!DROP.test(name)) env[name] = value;
   Object.assign(env, {
@@ -82,6 +84,7 @@ for (const scenario of scenarios) {
     // offline.mjs in every Node process the daemon starts: without it the daemon replaces the seeded catalogs with the live
     // models.dev / LiteLLM ones and the recording depends on the day it was made.
     NODE_OPTIONS: `--import ${pathToFileURL(join(HERE, 'offline.mjs')).href}`,
+    ...(scenario.waitListed ? { MIXDOG_BOOT_PROFILE: '1' } : {}),
     ...(scenario.env ?? {}),
   });
   const child = spawn(process.execPath, ['--experimental-transform-types', '--no-warnings', join(HERE, 'child.mjs'), NODE_TREE, paths.workspace, file], { env, cwd: paths.workspace, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
@@ -96,14 +99,21 @@ for (const scenario of scenarios) {
   if (!line) throw new Error(`${scenario.name}: no result (exit ${code})\n${stdout}\n${stderr}`);
   const result = JSON.parse(line.slice(7));
   if (result.failed) throw new Error(`${scenario.name}: ${result.failed}`);
-  recorded.push({ name: scenario.name, agent: scenario.agent, ...(scenario.env ? { env: scenario.env } : {}), stub: scenario.stub ?? {}, calls: result.calls });
+  recorded.push({ name: scenario.name, agent: scenario.agent, ...(scenario.env ? { env: scenario.env } : {}), stub: scenario.stub ?? {}, ...(result.waited ? { waited: result.waited } : {}), calls: result.calls });
   console.log(`${scenario.name} (stub hits: ${hits.splice(0).join(' ') || 'none'}): ${result.calls.map((c) => `${c.action}${c.configure ? '(configure)' : ''}:${c.ok ? (Array.isArray(c.value) ? c.value.length : 'ok') : 'ERR ' + c.error}`).join(' ')}`);
 }
 stub.close();
-const OUT = join(HERE, '..', '..', '..', '..', 'native', 'core', 'fixtures', 'model-lists', 'node-model-lists.json');
+const OUT = join(HERE, '..', '..', '..', '..', 'native', 'core', 'fixtures', setName ? `model-lists-${setName}` : 'model-lists', 'node-model-lists.json');
 mkdirSync(dirname(OUT), { recursive: true });
 if (process.argv.includes('--keep')) console.log(`kept: ${RUN_ROOT}`);
 else rmSync(RUN_ROOT, { recursive: true, force: true });
 // `--only` re-records one scenario into the fixture and leaves the others as they were recorded.
 const kept = only ? JSON.parse(readFileSync(OUT, 'utf8')).scenarios.filter((s) => s.name !== only) : [];
 writeFileSync(OUT, JSON.stringify({ baseURL: '__BASE_URL__', seeds, scenarios: [...kept, ...recorded] }, null, 2).replaceAll(baseURL, '__BASE_URL__'));
+// A named set is a recording of its own: its manifest names the Node commit and says whether the loaded tree is exactly it.
+if (setName) {
+  const { writeSetManifest } = await import('../lib/common.mjs');
+  const NODE_COMMIT = 'b6f10295a2f698afc85332467192de28500bd146';
+  const recorder = 'benchmarks/rust-core/recorders/model-lists/record.mjs';
+  writeSetManifest(dirname(OUT), { set: `model-lists-${setName}`, recorder, command: `node ${recorder} --tree <tree> --set ${setName}`, identityTree: NODE_TREE, identityRef: NODE_COMMIT });
+}

@@ -48,6 +48,11 @@ pub(super) fn recording() -> Value {
     serde_json::from_str(include_str!("../../../../../fixtures/model-lists/node-model-lists.json")).unwrap()
 }
 
+/// Node's recording of a default route naming an OAuth provider (model-lists-statusline): the reads after its statusline-usage warm-up.
+pub(super) fn statusline_recording() -> Value {
+    serde_json::from_str(include_str!("../../../../../fixtures/model-lists-statusline/node-model-lists.json")).unwrap()
+}
+
 /// The providers a profile can name that Node's route resolution knows.
 const KNOWN: [&str; 5] = ["custom-aaaa", "custom-bbbb", "custom-dddd", "custom-dddddddd-dddd-dddd-dddd-dddddddddddd", "anthropic-oauth"];
 const GATED: [&str; 4] = ["mimo-oauth", "cursor-oauth", "devin-oauth", "antigravity-oauth"];

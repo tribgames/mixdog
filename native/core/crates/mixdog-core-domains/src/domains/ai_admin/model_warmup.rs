@@ -31,6 +31,8 @@ pub trait WarmupGates: Send + Sync {
     fn busy(&self) -> Option<&'static str>;
     /// `isCloseRequested()`.
     fn closing(&self) -> bool;
+    /// Resolves when the runtime starts closing (	eardown clears the warm-up timers): a pending delay ends at once.
+    fn closed(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
 }
 
 /// `envFlag(name)`: only the documented spellings flip the fallback.
@@ -42,10 +44,10 @@ fn env_flag(raw: Option<String>, fallback: bool) -> bool {
     }
 }
 
-/// `envDelayMs(name, fallback, { min: 0, max: 120_000 })`.
-fn env_delay(raw: Option<String>, fallback: u64) -> Duration {
+/// `envDelayMs(name, fallback, { min: 0, max })`.
+pub(super) fn env_delay(raw: Option<String>, fallback: u64, max: f64) -> Duration {
     let parsed = raw.filter(|raw| !raw.is_empty()).map(|raw| mixdog_js::string_to_number(&raw)).filter(|n| n.is_finite());
-    Duration::from_millis(parsed.map_or(fallback as f64, |n| n.floor().clamp(0.0, 120_000.0)) as u64)
+    Duration::from_millis(parsed.map_or(fallback as f64, |n| n.floor().clamp(0.0, max)) as u64)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -60,7 +62,7 @@ impl WarmupConfig {
     pub fn from_env(env: &dyn Fn(&str) -> Option<String>) -> Self {
         Self {
             enabled: !env_flag(env("MIXDOG_DISABLE_PROVIDER_WARMUP"), false) && !env_flag(env("MIXDOG_DISABLE_MODEL_PREFETCH"), false),
-            delay: env_delay(env("MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS"), 0),
+            delay: env_delay(env("MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS"), 0, 120_000.0),
         }
     }
 }

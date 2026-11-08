@@ -521,6 +521,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let dashboards = mixdog_core_domains::domains::ai_account::dashboards::Dashboards::new(Arc::new(crate::setup_host::SetupSourceOf { setup: provider_setup.clone(), config: config.clone(), effective: effective.clone() }));
     // The provider model cache's warm (`scheduleProviderModelWarmup` and the account flows' `warmProviderModelCache`): built here for the effects, bound to the list and the gates below.
     let model_warmup = mixdog_core_domains::domains::ai_admin::model_warmup::ModelWarmup::new(mixdog_core_domains::domains::ai_admin::model_warmup::WarmupConfig::from_env(&*b.env));
+    // The statusline usage warm-up (`scheduleStatuslineUsageWarmup`): built here for the prewarm signals, bound to the route and the usage service once those exist.
+    let statusline_warmup = mixdog_core_domains::domains::ai_admin::statusline_warmup::StatuslineWarmup::new(&*b.env);
     let provider_effects = mixdog_core_domains::domains::ai_account::auth_refresh::ProviderEffects::new(config.clone(), readiness.clone(), admission.clone(), dashboards.clone(), model_warmup.clone());
     // Node's one `invalidateProviderCaches()` also drops the setup cache: the effects the flow runs are `ProviderEffects` plus that drop.
     let refresh: Arc<dyn mixdog_core_domains::domains::ai_account::collaborators::AuthRefresh> = mixdog_core_domains::domains::ai_account::auth_refresh::AuthRefreshFlow::new(Arc::new(
@@ -1821,6 +1823,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         prewarm: mixdog_core::run_host::code_graph_prewarm::SessionPrewarm { prewarm: code_graph_prewarm, lazy: prewarm_lazy },
         catalog: b.catalog_warmup.clone(),
         models: model_warmup.clone(),
+        statusline: statusline_warmup.clone(),
     });
     // The third wake source: a provider catalog refresh settling (failed or not) wakes every parked background warm-up
     // (`provider-readiness.mjs` `settle` -> `rt.wakeDeferredWarmups()`), the same wake the sessions' busy-state changes give.
@@ -2548,6 +2551,17 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             now_ms.clone(),
         )),
     );
+    // The boot's scheduleStatuslineUsageWarmup() (session.mjs:125): it prepares the live Main route's OAuth provider and refreshes its usage reading.
+    statusline_warmup
+        .bind(
+            { let main = main_route.clone(); Arc::new(move || main.route()) },
+            loaded_config.clone(),
+            readiness.clone(),
+            usage_sources.clone(),
+            Arc::new(crate::prewarm_world::DaemonWarmupGates { liveness: liveness.clone(), directory: late.clone(), close_requested: close_requested.clone() }),
+        )
+        .map_err(|()| ComposeError::AlreadyBound("statusline usage warm-up"))?;
+    statusline_warmup.start();
     let route_writer = Arc::new(mixdog_core_ports::ports::route_write::LiveRouteWriter {
         cell: routes.clone(),
         session: late_route_session.clone(),
@@ -2772,7 +2786,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     connection_owners
         .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone()))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
-    crate::compose::verify_bound(&[&*late_new_place, &connection_owners, &*late_agent_status, &*late_turn_admission, &*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
+    crate::compose::verify_bound(&[&*late_new_place, &connection_owners, &*late_agent_status, &*late_turn_admission, &*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
     Ok(Real { late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), directory, agent_dispatch, agent_host, code_graph_cache, maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default() })
 }
 

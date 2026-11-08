@@ -30,6 +30,10 @@ impl WarmupGates for Gates {
     fn closing(&self) -> bool {
         self.closing.load(Ordering::SeqCst)
     }
+    // The model warm never waits on the close; its tests set the flag.
+    fn closed(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+        Box::pin(std::future::pending())
+    }
 }
 
 const ON: WarmupConfig = WarmupConfig { enabled: true, delay: Duration::ZERO };
