@@ -9,25 +9,6 @@ use super::*;
 
 const TWIN: &str = include_str!("../../../../../fixtures/desktop/settings/config-hosts-twin.json");
 
-struct Headers(Option<Header>);
-
-#[async_trait]
-impl ThreadHeaders for Headers {
-    async fn header(&self, _: &ThreadId) -> Result<Option<Header>, CoreError> {
-        Ok(self.0.clone())
-    }
-}
-
-/// A header store whose read never ran.
-struct Unreadable;
-
-#[async_trait]
-impl ThreadHeaders for Unreadable {
-    async fn header(&self, _: &ThreadId) -> Result<Option<Header>, CoreError> {
-        Err(CoreError::QueueFull { queue: "interactive".into() })
-    }
-}
-
 struct Routes(Route);
 
 impl LiveRoute for Routes {
@@ -111,7 +92,7 @@ struct Rig {
     refresh: Arc<Refresh>,
 }
 
-async fn rig(dir: &Path, agent: Value, header: Option<Header>, catalog: Map<String, Value>, env: &'static [(&str, &str)]) -> Rig {
+async fn rig(dir: &Path, agent: Value, catalog: Map<String, Value>, env: &'static [(&str, &str)]) -> Rig {
     let tokens = mixdog_rt::testing::tokens();
     let path = dir.join("mixdog-config.json");
     crate::run_host::fixture_fs::write(&path, serde_json::to_vec(&json!({ "agent": agent })).unwrap());
@@ -122,7 +103,6 @@ async fn rig(dir: &Path, agent: Value, header: Option<Header>, catalog: Map<Stri
     let route: Route = json!({ "provider": "anthropic", "model": "claude-opus-4-5" }).as_object().unwrap().clone();
     let hosts = ConfigHosts {
         config,
-        headers: Arc::new(Headers(header)),
         routes: Arc::new(Routes(route)),
         gauge: gauge.clone(),
         agents: Arc::new(Agents(vec!["reviewer".into()])),
@@ -146,7 +126,7 @@ async fn web_search_capability_is_nodes_for_every_form_of_the_model() {
     let twin: Value = serde_json::from_str(TWIN).unwrap();
     let catalog = twin["catalog"].as_object().unwrap().clone();
     let dir = tempfile::tempdir().unwrap();
-    let rig = rig(dir.path(), json!({}), None, catalog, &[]).await;
+    let rig = rig(dir.path(), json!({}), catalog, &[]).await;
     let cases = twin["cases"].as_array().unwrap();
     assert!(cases.len() > 700);
     for case in cases {
@@ -161,25 +141,16 @@ async fn web_search_capability_is_nodes_for_every_form_of_the_model() {
 #[tokio::test]
 async fn a_saved_lead_route_moves_the_surface_generation() {
     let dir = tempfile::tempdir().unwrap();
-    let rig = rig(dir.path(), json!({}), None, none(), &[]).await;
+    let rig = rig(dir.path(), json!({}), none(), &[]).await;
     let before = rig.hosts.surface.get();
     rig.hosts.adopt_lead_route(json!({ "provider": "openai", "model": "gpt-x" })).await;
     assert_eq!(rig.hosts.surface.get(), before + 1);
 }
 
-/// An unread record is not a missing thread: `ThreadNotFound` is for a record that was read.
-#[tokio::test]
-async fn a_thread_record_that_was_not_read_is_not_a_missing_thread() {
-    let dir = tempfile::tempdir().unwrap();
-    let mut rig = rig(dir.path(), json!({}), None, none(), &[]).await;
-    rig.hosts.headers = Arc::new(Unreadable);
-    assert_eq!(rig.hosts.thread_mode_facts("t3").await, Err(CoreError::QueueFull { queue: "interactive".into() }));
-}
-
 #[tokio::test]
 async fn the_compaction_host_reads_the_threads_route_and_the_boot_route() {
     let dir = tempfile::tempdir().unwrap();
-    let rig = rig(dir.path(), json!({ "default": "main", "presets": [{ "id": "main", "provider": "openai", "model": "gpt-5" }] }), None, none(), &[]).await;
+    let rig = rig(dir.path(), json!({ "default": "main", "presets": [{ "id": "main", "provider": "openai", "model": "gpt-5" }] }), none(), &[]).await;
     let thread = ThreadId::from("t1");
     assert_eq!(rig.hosts.route_provider(Some(&thread)).as_deref(), Some("anthropic"));
     // No thread: `resolveRoute(config, {})`, the configured default route.
@@ -190,27 +161,11 @@ async fn the_compaction_host_reads_the_threads_route_and_the_boot_route() {
 }
 
 #[tokio::test]
-async fn a_thread_gives_the_facts_the_orchestration_mode_is_read_from() {
-    let dir = tempfile::tempdir().unwrap();
-    let header: Header = json!({ "orchestrationMode": "swarm", "pendingOrchestrationMode": "none", "workflow": { "id": "default" }, "title": "x" })
-        .as_object()
-        .unwrap()
-        .clone();
-    let known = rig(dir.path(), json!({}), Some(header), none(), &[]).await;
-    assert_eq!(
-        known.hosts.thread_mode_facts("t1").await.unwrap(),
-        json!({ "orchestrationMode": "swarm", "pendingOrchestrationMode": "none", "workflow": { "id": "default" } })
-    );
-    let missing = rig(dir.path(), json!({}), None, none(), &[]).await;
-    assert_eq!(missing.hosts.thread_mode_facts("t2").await, Err(CoreError::ThreadNotFound { thread_id: ThreadId::from("t2") }));
-}
-
-#[tokio::test]
 async fn the_workflow_host_answers_from_the_providers_agents_and_catalog() {
     let dir = tempfile::tempdir().unwrap();
     let mut catalog = Map::new();
     catalog.insert("claude-opus-4-5".into(), json!({ "id": "claude-opus-4-5", "supportsFastMode": true }));
-    let rig = rig(dir.path(), json!({ "developer": {} }), None, catalog, &[]).await;
+    let rig = rig(dir.path(), json!({ "developer": {} }), catalog, &[]).await;
     let host = &rig.hosts;
     assert_eq!(host.custom_agent_ids().await, vec!["reviewer".to_owned()]);
     assert_eq!(host.lookup_model_meta("anthropic", "claude-opus-4-5").await.unwrap()["id"], "claude-opus-4-5");
@@ -230,7 +185,7 @@ async fn the_workflow_host_answers_from_the_providers_agents_and_catalog() {
 #[tokio::test]
 async fn provider_gating_follows_the_developer_options_() {
     let dir = tempfile::tempdir().unwrap();
-    let local = rig(dir.path(), json!({}), None, none(), &[]).await;
+    let local = rig(dir.path(), json!({}), none(), &[]).await;
     assert!(local.hosts.provider_available("openai"));
     assert_eq!(local.hosts.require_local_provider_management(), Ok(()));
 }

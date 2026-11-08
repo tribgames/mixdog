@@ -448,8 +448,7 @@ impl ThreadMessages for LateThreads {
 }
 
 /// `ThreadHeaders` over the late directory: the stored header, `None` for an unknown thread or
-/// before the directory is up. `ConfigHosts.headers` and `HeaderCwds` (`DomainSeams.session_cwds`)
-/// are built on this one view.
+/// before the directory is up. `HeaderCwds` (`DomainSeams.session_cwds`) is built on this view.
 pub struct LateHeaders(pub Arc<LateDirectory>);
 
 #[async_trait]
@@ -515,7 +514,6 @@ pub fn live_routes(config: Config, facts: Arc<CatalogFacts>) -> Arc<SessionRoute
 /// (compose-seams.md, "Blocked rows"): the caller supplies them.
 pub struct ConfigHostsIn {
     pub config: Config,
-    pub headers: Arc<dyn ThreadHeaders>,
     pub routes: Arc<dyn LiveRoute>,
     pub gauge: Arc<dyn ContextStatusCache>,
     pub agents: Arc<AgentDefinitions>,
@@ -530,7 +528,6 @@ pub struct ConfigHostsIn {
 pub fn config_hosts(input: ConfigHostsIn) -> Arc<ConfigHosts> {
     Arc::new(ConfigHosts {
         config: input.config,
-        headers: input.headers,
         routes: input.routes,
         gauge: input.gauge,
         agents: input.agents,

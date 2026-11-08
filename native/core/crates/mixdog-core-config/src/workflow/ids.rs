@@ -200,37 +200,8 @@ pub(crate) fn legacy_workflow_mode(active: Option<&Value>) -> &'static str {
     }
 }
 
-/// `pendingOrchestrationMode ?? sessionOrchestrationMode(session)` over the facts a thread
-/// holds: `orchestrationMode`, `pendingOrchestrationMode` and its `workflow` summary.
-pub(crate) fn thread_orchestration_mode(facts: &Value) -> String {
-    if let Some(pending) = facts.get("pendingOrchestrationMode").filter(|value| !value.is_null()) {
-        return value_to_string(pending);
-    }
-    if let Some(mode) = facts.get("orchestrationMode") {
-        return normalize_mode(Some(mode), "none");
-    }
-    let workflow = facts.get("workflow").filter(|workflow| truthy(Some(workflow)));
-    let delegates = workflow.and_then(|workflow| workflow.get("delegatesAgents"));
-    let no_agents = workflow.is_some_and(|workflow| {
-        workflow.get("agentsConfigured") == Some(&Value::Bool(true))
-            && workflow.get("agents").and_then(Value::as_array).is_some_and(|agents| agents.is_empty())
-    });
-    if delegates == Some(&Value::Bool(false)) || no_agents {
-        return "none".to_owned();
-    }
-    if delegates == Some(&Value::Bool(true)) {
-        return "swarm".to_owned();
-    }
-    match workflow {
-        Some(workflow) => legacy_workflow_mode(workflow.get("id")).to_owned(),
-        None => "swarm".to_owned(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
     use super::*;
 
     #[test]
@@ -241,12 +212,5 @@ mod tests {
         assert_eq!(workflow_id_from_name("Café  Déjà vu!"), "cafe-deja-vu");
         assert_eq!(workflow_id_from_name("한국어"), "workflow-ea3252281b");
         assert_eq!(available_workflow_id("a", |id| id == "a" || id == "a-2"), "a-3");
-    }
-
-    #[test]
-    fn thread_modes() {
-        assert_eq!(thread_orchestration_mode(&json!({ "orchestrationMode": "focused" })), "focused");
-        assert_eq!(thread_orchestration_mode(&json!({ "workflow": { "id": "solo" } })), "none");
-        assert_eq!(thread_orchestration_mode(&json!({})), "swarm");
     }
 }

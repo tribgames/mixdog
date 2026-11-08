@@ -6,8 +6,8 @@
 //! Each follows the 1.4.5 daemon's code path (`workflow-agents-api/*`, `model-route/
 //! web-search-route.mjs`, `provider-auth/login.mjs`): same results, same sentences. The agent
 //! config is read from and written through [`Config`]; what other owners hold (the live Main
-//! route, the provider registry and model catalog, the custom-agent list, the thread's session
-//! facts) comes in through [`WorkflowHost`].
+//! route, the provider registry and model catalog, the custom-agent list) comes in through
+//! [`WorkflowHost`].
 //!
 //! The core routes by exact method, so the service is registered with its [`METHODS`].
 
@@ -47,7 +47,6 @@ use self::ids::Doc;
 use self::ids::DEFAULT_WORKFLOW_ID;
 use self::ids::active_workflow_id;
 use self::ids::configured_orchestration_mode;
-use self::ids::thread_orchestration_mode;
 use self::ids::workflow_id;
 use crate::config::Config;
 use crate::config::ConfigError;
@@ -79,10 +78,6 @@ pub const METHODS: [&str; 10] = [
 /// threw.
 #[async_trait]
 pub trait WorkflowHost: Send + Sync {
-    /// The session facts of a thread (`orchestrationMode`, `pendingOrchestrationMode`,
-    /// `workflow`), or the thread's own refusal.
-    async fn thread_mode_facts(&self, thread_id: &str) -> Result<Value, CoreError>;
-
     /// The live Main route (`getRoute()`), the fallback of a sent default route.
     fn main_route(&self) -> Value;
 
@@ -196,8 +191,10 @@ impl WorkflowConfig {
             "config/saveWorkflowPack" => self.packs_changed(self.save_pack(req).await),
             "config/createWorkflow" => self.packs_changed(self.create_pack(req).await),
             "config/deleteWorkflow" => self.packs_changed(self.delete_pack(req).await),
-            "config/getOrchestrationMode" => self.orchestration_mode(req).await,
-            "config/getConfiguredOrchestrationMode" => {
+            // Both read the configured mode, whatever session the call is addressed to: the runtime's `getOrchestrationMode` is
+            // `configuredOrchestrationMode(displayConfig())` (`workflow-agents-api/style-and-mode.mjs`), the session's own mode being
+            // another accessor (`orchestrationMode`) that no action reaches.
+            "config/getOrchestrationMode" | "config/getConfiguredOrchestrationMode" => {
                 Ok(Reply::Value(Value::String(configured_orchestration_mode(&self.config.agent()))))
             }
             "config/setWebSearchRoute" => self.set_web_search_route(req).await,
@@ -232,14 +229,6 @@ impl WorkflowConfig {
     /// `cfgMod.saveConfig(next, { baseConfig })`: the diff of the documents as given.
     async fn save_plain(&self, before: &Doc, after: &Doc) -> Result<(), CoreError> {
         self.config.save_agent_config(before, after, false).await.map(|_| ()).map_err(config_failure)
-    }
-
-    async fn orchestration_mode(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
-        let mode = match req.params.get("threadId").and_then(Value::as_str) {
-            Some(thread) => thread_orchestration_mode(&self.host.thread_mode_facts(thread).await?),
-            None => configured_orchestration_mode(&self.config.agent()),
-        };
-        Ok(Reply::Value(Value::String(mode)))
     }
 
     // --- workflow packs ---

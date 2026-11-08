@@ -40,9 +40,6 @@ struct Host {
 
 #[async_trait]
 impl WorkflowHost for Host {
-    async fn thread_mode_facts(&self, _thread_id: &str) -> Result<Value, CoreError> {
-        Ok(Value::Null)
-    }
     fn main_route(&self) -> Value {
         self.main.lock().unwrap().clone()
     }
