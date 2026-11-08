@@ -72,9 +72,12 @@ fn bundle_rules(kind: &str, out_file: &str, count_env: &str) {
 
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
     let out_path = out_dir.join(out_file);
-    std::fs::write(&out_path, bundle).unwrap_or_else(|error| {
-        panic!("failed to write {}: {error}", out_path.display());
-    });
+    // An unchanged rewrite would still bump the mtime that rustc's dep-info compares.
+    if std::fs::read_to_string(&out_path).ok().as_deref() != Some(bundle.as_str()) {
+        std::fs::write(&out_path, bundle).unwrap_or_else(|error| {
+            panic!("failed to write {}: {error}", out_path.display());
+        });
+    }
     // Also expose the source count so a build log can show the bundle size.
     println!("cargo:rustc-env={count_env}={}", sources.len());
 }
