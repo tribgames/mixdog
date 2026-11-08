@@ -600,11 +600,38 @@ fn twin() -> Value {
     serde_json::from_str(include_str!("../../../../fixtures/goal/goal-runtime-twin.json")).unwrap()
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_runtime_answers_like_node_operation_by_operation() {
+/// Recorded cases per test: each has its own directory and clock.
+const CASE_CHUNK: usize = 4;
+
+mixdog_rt::replay_chunks!(RUNTIME_TESTS, #[tokio::test(flavor = "multi_thread", worker_threads = 2)] async the_runtime_chunk; [
+    the_runtime_answers_like_node_operation_by_operation_00 = 0,
+    the_runtime_answers_like_node_operation_by_operation_01 = 1,
+    the_runtime_answers_like_node_operation_by_operation_02 = 2,
+    the_runtime_answers_like_node_operation_by_operation_03 = 3,
+    the_runtime_answers_like_node_operation_by_operation_04 = 4,
+    the_runtime_answers_like_node_operation_by_operation_05 = 5,
+    the_runtime_answers_like_node_operation_by_operation_06 = 6,
+    the_runtime_answers_like_node_operation_by_operation_07 = 7,
+    the_runtime_answers_like_node_operation_by_operation_08 = 8,
+    the_runtime_answers_like_node_operation_by_operation_09 = 9,
+    the_runtime_answers_like_node_operation_by_operation_10 = 10,
+    the_runtime_answers_like_node_operation_by_operation_11 = 11,
+    the_runtime_answers_like_node_operation_by_operation_12 = 12,
+    the_runtime_answers_like_node_operation_by_operation_13 = 13,
+    the_runtime_answers_like_node_operation_by_operation_14 = 14,
+    the_runtime_answers_like_node_operation_by_operation_15 = 15,
+]);
+
+#[test]
+fn every_recorded_case_has_its_runtime_test() {
+    mixdog_rt::testing::assert_chunks_registered(RUNTIME_TESTS, twin()["cases"].as_array().unwrap().len(), CASE_CHUNK);
+}
+
+async fn the_runtime_chunk(chunk: usize) {
     let twin = twin();
     let mut failures = Vec::new();
-    let cases = twin["cases"].as_array().unwrap();
+    let all = twin["cases"].as_array().unwrap();
+    let cases = &all[mixdog_rt::testing::chunk_range(all.len(), chunk, CASE_CHUNK)];
     // Every case has its own directory and clock; the durable writes (fsync) of different cases
     // overlap on the lanes.
     let replays = cases

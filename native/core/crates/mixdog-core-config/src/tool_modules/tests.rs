@@ -160,22 +160,53 @@ fn without_retired_memory_module(doc: &Value) -> Value {
 
 /// The value, the saved config, the host calls and the errors of Node's setters over 100
 /// recorded configs (`record-tool-modules.mjs`).
-#[tokio::test]
-async fn the_value_and_every_setter_match_the_recorded_node_module() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/desktop/settings/tool-modules-twin.json");
-    let twin: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+/// Recorded entries per test: each opens its own service for the value and every setter.
+const ENTRY_CHUNK: usize = 7;
+
+fn modules_twin() -> Value {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/tool-modules-twin.json");
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+mixdog_rt::replay_chunks!(MODULE_TESTS, #[tokio::test] async the_modules_chunk; [
+    the_value_and_every_setter_match_the_recorded_node_module_00 = 0,
+    the_value_and_every_setter_match_the_recorded_node_module_01 = 1,
+    the_value_and_every_setter_match_the_recorded_node_module_02 = 2,
+    the_value_and_every_setter_match_the_recorded_node_module_03 = 3,
+    the_value_and_every_setter_match_the_recorded_node_module_04 = 4,
+    the_value_and_every_setter_match_the_recorded_node_module_05 = 5,
+    the_value_and_every_setter_match_the_recorded_node_module_06 = 6,
+    the_value_and_every_setter_match_the_recorded_node_module_07 = 7,
+    the_value_and_every_setter_match_the_recorded_node_module_08 = 8,
+    the_value_and_every_setter_match_the_recorded_node_module_09 = 9,
+    the_value_and_every_setter_match_the_recorded_node_module_10 = 10,
+    the_value_and_every_setter_match_the_recorded_node_module_11 = 11,
+    the_value_and_every_setter_match_the_recorded_node_module_12 = 12,
+    the_value_and_every_setter_match_the_recorded_node_module_13 = 13,
+    the_value_and_every_setter_match_the_recorded_node_module_14 = 14,
+]);
+
+#[test]
+fn every_recorded_entry_has_its_modules_test() {
+    let twin = modules_twin();
     let entries = twin["entries"].as_array().unwrap();
     assert_eq!(entries.len(), 100);
-    let mut compared = 0;
-    for (index, entry) in entries.iter().enumerate() {
+    let setters: usize = entries.iter().map(|entry| entry["setters"].as_array().unwrap().len()).sum();
+    assert_eq!(entries.len() + setters, 900);
+    mixdog_rt::testing::assert_chunks_registered(MODULE_TESTS, entries.len(), ENTRY_CHUNK);
+}
+
+async fn the_modules_chunk(chunk: usize) {
+    let twin = modules_twin();
+    let entries = twin["entries"].as_array().unwrap();
+    let range = mixdog_rt::testing::chunk_range(entries.len(), chunk, ENTRY_CHUNK);
+    for (index, entry) in entries.iter().enumerate().skip(range.start).take(range.len()) {
         let external = external_of(&entry["external"]);
         let env = || env_of(&entry["env"]);
         let dir = tempfile::tempdir().unwrap();
         let (modules, _, _, _, cancel) = service(&dir, Some(&entry["config"]), external.clone(), env()).await;
         assert_eq!(modules.settings().await, entry["value"], "entry {index}: value");
         cancel.cancel();
-        compared += 1;
 
         for setter in entry["setters"].as_array().unwrap() {
             let dir = tempfile::tempdir().unwrap();
@@ -218,10 +249,8 @@ async fn the_value_and_every_setter_match_the_recorded_node_module() {
             assert_eq!(&Value::Object(config.agent()), &without_retired_memory_module(expected_doc), "{label}: config");
             assert_eq!(Value::Array(host.calls()), setter["calls"], "{label}: host calls");
             cancel.cancel();
-            compared += 1;
         }
     }
-    assert_eq!(compared, 900);
 }
 
 #[tokio::test]

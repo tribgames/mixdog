@@ -134,13 +134,43 @@ async fn status_of(agents: Arc<AgentDefinitions>, mode: &str, order: &Value, hel
     Value::Object(out)
 }
 
-#[tokio::test]
-async fn the_agents_status_equals_what_the_recorded_node_executor_answered() {
+/// Recorded cases per test: each opens its own world.
+const CASE_CHUNK: usize = 5;
+
+mixdog_rt::replay_chunks!(STATUS_TESTS, #[tokio::test] async the_agents_status_chunk; [
+    the_agents_status_equals_what_the_recorded_node_executor_answered_00 = 0,
+    the_agents_status_equals_what_the_recorded_node_executor_answered_01 = 1,
+    the_agents_status_equals_what_the_recorded_node_executor_answered_02 = 2,
+    the_agents_status_equals_what_the_recorded_node_executor_answered_03 = 3,
+    the_agents_status_equals_what_the_recorded_node_executor_answered_04 = 4,
+    the_agents_status_equals_what_the_recorded_node_executor_answered_05 = 5,
+    the_agents_status_equals_what_the_recorded_node_executor_answered_06 = 6,
+    the_agents_status_equals_what_the_recorded_node_executor_answered_07 = 7,
+    the_agents_status_equals_what_the_recorded_node_executor_answered_08 = 8,
+    the_agents_status_equals_what_the_recorded_node_executor_answered_09 = 9,
+    the_agents_status_equals_what_the_recorded_node_executor_answered_10 = 10,
+    the_agents_status_equals_what_the_recorded_node_executor_answered_11 = 11,
+    the_agents_status_equals_what_the_recorded_node_executor_answered_12 = 12,
+    the_agents_status_equals_what_the_recorded_node_executor_answered_13 = 13,
+    the_agents_status_equals_what_the_recorded_node_executor_answered_14 = 14,
+    the_agents_status_equals_what_the_recorded_node_executor_answered_15 = 15,
+]);
+
+#[test]
+fn every_recorded_case_has_its_status_test() {
+    let twin: Value = serde_json::from_str(STATUS).unwrap();
+    let cases = twin["cases"].as_array().unwrap();
+    assert!(cases.len() >= 80);
+    mixdog_rt::testing::assert_chunks_registered(STATUS_TESTS, cases.len(), CASE_CHUNK);
+}
+
+async fn the_agents_status_chunk(chunk: usize) {
     let twin: Value = serde_json::from_str(STATUS).unwrap();
     let worlds: Value = serde_json::from_str(WORLDS).unwrap();
     let by_name: HashMap<&str, &Value> = worlds["worlds"].as_array().unwrap().iter().map(|w| (w["name"].as_str().unwrap(), w)).collect();
     let mut failures = Vec::new();
-    for case in twin["cases"].as_array().unwrap() {
+    let cases = twin["cases"].as_array().unwrap();
+    for case in &cases[mixdog_rt::testing::chunk_range(cases.len(), chunk, CASE_CHUNK)] {
         let name = case["world"].as_str().unwrap();
         let (_dir, agents) = open_world(by_name[name]).await;
         let got = status_of(Arc::new(agents), case["mode"].as_str().unwrap(), &case["botOrder"], Vec::new(), case["detail"].as_bool().unwrap()).await;
@@ -152,7 +182,6 @@ async fn the_agents_status_equals_what_the_recorded_node_executor_answered() {
         }
     }
     assert!(failures.is_empty(), "{} differ:\n{}", failures.len(), failures.iter().take(3).cloned().collect::<Vec<_>>().join("\n"));
-    assert!(twin["cases"].as_array().unwrap().len() >= 80);
 }
 
 /// The held sessions come last, whole and in the order the route owner gave them.

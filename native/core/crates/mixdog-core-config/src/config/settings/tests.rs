@@ -42,15 +42,54 @@ fn stored(doc: &Value) -> Value {
     Value::Object(stored_form(doc.as_object().unwrap()))
 }
 
-#[tokio::test]
-async fn reads_and_setters_match_the_recorded_node_settings() {
+/// Recorded entries per test: each opens its own config for every read and setter.
+const ENTRY_CHUNK: usize = 8;
+
+fn settings_twin() -> Value {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/config-settings/config-settings-twin.json");
-    let twin: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+/// The shell rule depends on the platform the twin was recorded on.
+fn compares(node_is_windows: bool, method: &str) -> bool {
+    !(method == "setSystemShell" && node_is_windows != cfg!(windows))
+}
+
+mixdog_rt::replay_chunks!(SETTINGS_TESTS, #[tokio::test] async the_settings_chunk; [
+    reads_and_setters_match_the_recorded_node_settings_00 = 0,
+    reads_and_setters_match_the_recorded_node_settings_01 = 1,
+    reads_and_setters_match_the_recorded_node_settings_02 = 2,
+    reads_and_setters_match_the_recorded_node_settings_03 = 3,
+    reads_and_setters_match_the_recorded_node_settings_04 = 4,
+    reads_and_setters_match_the_recorded_node_settings_05 = 5,
+    reads_and_setters_match_the_recorded_node_settings_06 = 6,
+    reads_and_setters_match_the_recorded_node_settings_07 = 7,
+    reads_and_setters_match_the_recorded_node_settings_08 = 8,
+    reads_and_setters_match_the_recorded_node_settings_09 = 9,
+    reads_and_setters_match_the_recorded_node_settings_10 = 10,
+    reads_and_setters_match_the_recorded_node_settings_11 = 11,
+    reads_and_setters_match_the_recorded_node_settings_12 = 12,
+    reads_and_setters_match_the_recorded_node_settings_13 = 13,
+    reads_and_setters_match_the_recorded_node_settings_14 = 14,
+]);
+
+#[test]
+fn every_recorded_entry_has_its_settings_test() {
+    let twin = settings_twin();
     let node_is_windows = twin["platform"] == "win32";
     let entries = twin["entries"].as_array().unwrap();
     assert_eq!(entries.len(), 120);
-    let mut compared = 0;
-    for (index, entry) in entries.iter().enumerate() {
+    let setters = entries.iter().flat_map(|entry| entry["setters"].as_array().unwrap()).filter(|setter| compares(node_is_windows, setter["method"].as_str().unwrap())).count();
+    assert!(setters >= 1000, "{setters}");
+    mixdog_rt::testing::assert_chunks_registered(SETTINGS_TESTS, entries.len(), ENTRY_CHUNK);
+}
+
+async fn the_settings_chunk(chunk: usize) {
+    let twin = settings_twin();
+    let node_is_windows = twin["platform"] == "win32";
+    let entries = twin["entries"].as_array().unwrap();
+    let range = mixdog_rt::testing::chunk_range(entries.len(), chunk, ENTRY_CHUNK);
+    for (index, entry) in entries.iter().enumerate().skip(range.start).take(range.len()) {
         let env = entry["shellEnv"].as_str().map(str::to_owned);
         let dir = tempfile::tempdir().unwrap();
         let (s, _) = settings(&dir, &entry["config"], env.clone()).await;
@@ -70,8 +109,7 @@ async fn reads_and_setters_match_the_recorded_node_settings() {
         }
         for setter in entry["setters"].as_array().unwrap() {
             let method = setter["method"].as_str().unwrap();
-            // The shell rule depends on the platform the twin was recorded on.
-            if method == "setSystemShell" && node_is_windows != cfg!(windows) {
+            if !compares(node_is_windows, method) {
                 continue;
             }
             let dir = tempfile::tempdir().unwrap();
@@ -114,10 +152,8 @@ async fn reads_and_setters_match_the_recorded_node_settings() {
                 .cloned()
                 .collect();
             assert!(eq(&Value::Array(effects), &setter["calls"]), "{label}: effects");
-            compared += 1;
         }
     }
-    assert!(compared >= 1000, "{compared}");
 }
 
 // Expected values come from the TUI registry (`src/tui/themes/index.mjs`, run under Node).

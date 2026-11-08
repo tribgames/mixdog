@@ -255,4 +255,47 @@ pub mod testing {
             install(Arc::new(InlineBackend)).expect("a non-test backend is installed")
         })
     }
+
+    /// The recorded cases of chunk `index` when a replay of `recorded` cases is split into chunks of `per`.
+    /// Panics on a chunk that holds no case: a test registered past the recording.
+    pub fn chunk_range(recorded: usize, index: usize, per: usize) -> std::ops::Range<usize> {
+        let start = index * per;
+        assert!(start < recorded, "chunk {index} holds no recorded case ({recorded} recorded, {per} per chunk)");
+        start..recorded.min(start + per)
+    }
+
+    /// Fails unless the chunks a [`replay_chunks!`](crate::replay_chunks) list registered are exactly the chunks the
+    /// recording has: a recorded case no test runs, a test with no case, or a chunk registered twice.
+    pub fn assert_chunks_registered(registered: &[usize], recorded: usize, per: usize) {
+        let mut registered = registered.to_vec();
+        registered.sort_unstable();
+        assert_eq!(registered, (0..recorded.div_ceil(per)).collect::<Vec<_>>(), "the registered chunks of {recorded} recorded cases");
+    }
+}
+
+/// Splits a recorded replay into tests nextest runs in parallel. `replay_chunks!(REGISTERED, #[tokio::test] async run;
+/// [name_00 = 0, name_01 = 1])` emits `async fn name_00() { run(0).await }` per entry (without `async`, a plain call)
+/// and `REGISTERED`, the chunk indices of the very tests it emitted, for the family's guard
+/// ([`testing::assert_chunks_registered`]).
+#[cfg(feature = "test-support")]
+#[macro_export]
+macro_rules! replay_chunks {
+    ($registered:ident, #[$attr:meta] async $run:path; [$($test:ident = $chunk:literal),* $(,)?]) => {
+        const $registered: &[usize] = &[$($chunk),*];
+        $(
+            #[$attr]
+            async fn $test() {
+                $run($chunk).await
+            }
+        )*
+    };
+    ($registered:ident, #[$attr:meta] $run:path; [$($test:ident = $chunk:literal),* $(,)?]) => {
+        const $registered: &[usize] = &[$($chunk),*];
+        $(
+            #[$attr]
+            fn $test() {
+                $run($chunk)
+            }
+        )*
+    };
 }

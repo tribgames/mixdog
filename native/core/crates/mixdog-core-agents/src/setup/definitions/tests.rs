@@ -142,15 +142,48 @@ fn mask(value: Value, data: &str) -> Value {
     }
 }
 
-#[tokio::test]
-async fn the_actions_answer_and_write_what_the_recorded_node_handlers_did() {
+/// Recorded worlds per test: each writes its own data directory.
+const WORLD_CHUNK: usize = 5;
+
+fn action_worlds() -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/agent-definition-actions-twin.json");
-    let twin: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+mixdog_rt::replay_chunks!(ACTION_TESTS, #[tokio::test] async the_actions_chunk; [
+    the_actions_answer_and_write_what_the_recorded_node_handlers_did_00 = 0,
+    the_actions_answer_and_write_what_the_recorded_node_handlers_did_01 = 1,
+    the_actions_answer_and_write_what_the_recorded_node_handlers_did_02 = 2,
+    the_actions_answer_and_write_what_the_recorded_node_handlers_did_03 = 3,
+    the_actions_answer_and_write_what_the_recorded_node_handlers_did_04 = 4,
+    the_actions_answer_and_write_what_the_recorded_node_handlers_did_05 = 5,
+    the_actions_answer_and_write_what_the_recorded_node_handlers_did_06 = 6,
+    the_actions_answer_and_write_what_the_recorded_node_handlers_did_07 = 7,
+    the_actions_answer_and_write_what_the_recorded_node_handlers_did_08 = 8,
+    the_actions_answer_and_write_what_the_recorded_node_handlers_did_09 = 9,
+    the_actions_answer_and_write_what_the_recorded_node_handlers_did_10 = 10,
+    the_actions_answer_and_write_what_the_recorded_node_handlers_did_11 = 11,
+    the_actions_answer_and_write_what_the_recorded_node_handlers_did_12 = 12,
+    the_actions_answer_and_write_what_the_recorded_node_handlers_did_13 = 13,
+    the_actions_answer_and_write_what_the_recorded_node_handlers_did_14 = 14,
+    the_actions_answer_and_write_what_the_recorded_node_handlers_did_15 = 15,
+]);
+
+#[test]
+fn every_recorded_world_has_its_actions_test() {
+    let twin = action_worlds();
     let worlds = twin["worlds"].as_array().unwrap();
     assert_eq!(worlds.len(), 80);
+    assert!(worlds.iter().map(|world| world["steps"].as_array().unwrap().len()).sum::<usize>() > 400);
+    mixdog_rt::testing::assert_chunks_registered(ACTION_TESTS, worlds.len(), WORLD_CHUNK);
+}
 
-    let (mut failures, mut calls) = (Vec::new(), 0);
-    for world in worlds {
+async fn the_actions_chunk(chunk: usize) {
+    let twin = action_worlds();
+    let worlds = twin["worlds"].as_array().unwrap();
+
+    let mut failures = Vec::new();
+    for world in &worlds[mixdog_rt::testing::chunk_range(worlds.len(), chunk, WORLD_CHUNK)] {
         let name = world["name"].as_str().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let (shipped, data) = (dir.path().join("shipped"), dir.path().join("data"));
@@ -175,7 +208,6 @@ async fn the_actions_answer_and_write_what_the_recorded_node_handlers_did() {
         let setup = DefinitionSetup::new(agents.clone(), Arc::new(Callers), Arc::new(Unused), Arc::new(Unused));
 
         for (index, step) in world["steps"].as_array().unwrap().iter().enumerate() {
-            calls += 1;
             let thread = ThreadId::from(twin["callers"][step["caller"].as_str().unwrap()]["id"].as_str().unwrap());
             let action = step["args"]["action"].as_str().unwrap();
             let call = SetupCall { action, args: &step["args"], thread: &thread };
@@ -238,7 +270,6 @@ async fn the_actions_answer_and_write_what_the_recorded_node_handlers_did() {
             }
         }
     }
-    assert!(calls > 400);
     assert!(failures.is_empty(), "{} differ:\n{}", failures.len(), failures.iter().take(30).cloned().collect::<Vec<_>>().join("\n"));
 }
 

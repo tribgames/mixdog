@@ -22,6 +22,14 @@ pub(crate) fn write(path: impl AsRef<Path>, body: impl AsRef<[u8]>) {
     on_lane(move |lane| mixdog_statefile::write_file(lane, &path, &body, &mixdog_statefile::Opts::default())).unwrap();
 }
 
+/// [`write`] without the file flush: a fixture rewritten per case of a replay needs no durability, and the flush
+/// is the dominant cost of such a loop.
+pub(crate) fn write_unsynced(path: impl AsRef<Path>, body: impl AsRef<[u8]>) {
+    let (path, body) = (path.as_ref().to_owned(), body.as_ref().to_vec());
+    let opts = mixdog_statefile::Opts { fsync: false, ..mixdog_statefile::Opts::default() };
+    on_lane(move |lane| mixdog_statefile::write_file(lane, &path, &body, &opts)).unwrap();
+}
+
 /// `std::fs::read_to_string`.
 pub(crate) fn read_to_string(path: impl AsRef<Path>) -> io::Result<String> {
     let bytes = mixdog_statefile::read_content(path.as_ref())?.ok_or_else(|| io::Error::from(io::ErrorKind::NotFound))?;

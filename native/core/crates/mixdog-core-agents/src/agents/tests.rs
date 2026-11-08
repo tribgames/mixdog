@@ -87,13 +87,44 @@ async fn open_world(world: &Value) -> (tempfile::TempDir, AgentDefinitions) {
 
 /// The rooms module reads the same recorded worlds through `AgentCatalog`: contacts, Mixy's home
 /// route and existence, presence, and the name an archived agent left (`""` when none).
-#[tokio::test]
-async fn the_room_catalog_answers_what_the_recorded_node_functions_answered() {
-    use mixdog_core_rooms::rooms::sessions::AgentCatalog;
+/// Recorded worlds per test: each opens its own definitions and config.
+const WORLD_CHUNK: usize = 5;
+
+fn definition_worlds() -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/agent-definitions-twin.json");
-    let twin: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+mixdog_rt::replay_chunks!(ROOM_CATALOG_TESTS, #[tokio::test] async the_room_catalog_chunk; [
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_00 = 0,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_01 = 1,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_02 = 2,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_03 = 3,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_04 = 4,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_05 = 5,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_06 = 6,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_07 = 7,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_08 = 8,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_09 = 9,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_10 = 10,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_11 = 11,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_12 = 12,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_13 = 13,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_14 = 14,
+    the_room_catalog_answers_what_the_recorded_node_functions_answered_15 = 15,
+]);
+
+#[test]
+fn every_recorded_world_has_its_room_catalog_test() {
+    mixdog_rt::testing::assert_chunks_registered(ROOM_CATALOG_TESTS, definition_worlds()["worlds"].as_array().unwrap().len(), WORLD_CHUNK);
+}
+
+async fn the_room_catalog_chunk(chunk: usize) {
+    use mixdog_core_rooms::rooms::sessions::AgentCatalog;
+    let twin = definition_worlds();
+    let worlds = twin["worlds"].as_array().unwrap();
     let mut failures = Vec::new();
-    for world in twin["worlds"].as_array().unwrap() {
+    for world in &worlds[mixdog_rt::testing::chunk_range(worlds.len(), chunk, WORLD_CHUNK)] {
         let name = world["name"].as_str().unwrap();
         let (_dir, agents) = open_world(world).await;
         let catalog: &dyn AgentCatalog = &agents;
@@ -118,15 +149,39 @@ async fn the_room_catalog_answers_what_the_recorded_node_functions_answered() {
     }
     assert!(failures.is_empty(), "{} differ:\n{}", failures.len(), failures.iter().take(40).cloned().collect::<Vec<_>>().join("\n"));
 }
-#[tokio::test]
-async fn the_loader_answers_what_the_recorded_node_functions_answered() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/agent-definitions-twin.json");
-    let twin: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+mixdog_rt::replay_chunks!(LOADER_TESTS, #[tokio::test] async the_loader_chunk; [
+    the_loader_answers_what_the_recorded_node_functions_answered_00 = 0,
+    the_loader_answers_what_the_recorded_node_functions_answered_01 = 1,
+    the_loader_answers_what_the_recorded_node_functions_answered_02 = 2,
+    the_loader_answers_what_the_recorded_node_functions_answered_03 = 3,
+    the_loader_answers_what_the_recorded_node_functions_answered_04 = 4,
+    the_loader_answers_what_the_recorded_node_functions_answered_05 = 5,
+    the_loader_answers_what_the_recorded_node_functions_answered_06 = 6,
+    the_loader_answers_what_the_recorded_node_functions_answered_07 = 7,
+    the_loader_answers_what_the_recorded_node_functions_answered_08 = 8,
+    the_loader_answers_what_the_recorded_node_functions_answered_09 = 9,
+    the_loader_answers_what_the_recorded_node_functions_answered_10 = 10,
+    the_loader_answers_what_the_recorded_node_functions_answered_11 = 11,
+    the_loader_answers_what_the_recorded_node_functions_answered_12 = 12,
+    the_loader_answers_what_the_recorded_node_functions_answered_13 = 13,
+    the_loader_answers_what_the_recorded_node_functions_answered_14 = 14,
+    the_loader_answers_what_the_recorded_node_functions_answered_15 = 15,
+]);
+
+#[test]
+fn every_recorded_world_has_its_loader_test() {
+    let twin = definition_worlds();
     let worlds = twin["worlds"].as_array().unwrap();
     assert_eq!(worlds.len(), 80);
+    mixdog_rt::testing::assert_chunks_registered(LOADER_TESTS, worlds.len(), WORLD_CHUNK);
+}
+
+async fn the_loader_chunk(chunk: usize) {
+    let twin = definition_worlds();
+    let worlds = twin["worlds"].as_array().unwrap();
 
     let mut failures = Vec::new();
-    for world in worlds {
+    for world in &worlds[mixdog_rt::testing::chunk_range(worlds.len(), chunk, WORLD_CHUNK)] {
         let name = world["name"].as_str().unwrap();
         let (_dir, agents) = open_world(world).await;
 

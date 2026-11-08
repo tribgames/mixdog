@@ -18,9 +18,23 @@ fn rows_of(conn: &Connection, session: &str) -> usize {
 
 /// A deleted fork with 499 to 501 index rows (and its edge and catalog row besides): no
 /// purge step deletes more than `STEP_ROWS` rows, and the purge ends with none left.
+/// The index sizes around `STEP_ROWS`; each is its own test.
+const SIZES: [usize; 4] = [STEP_ROWS - 2, STEP_ROWS - 1, STEP_ROWS, STEP_ROWS + 1];
+
+mixdog_rt::replay_chunks!(SIZE_TESTS, #[test] purge_size; [
+    a_purge_step_deletes_at_most_step_rows_counting_the_edge_and_catalog_row_00 = 0,
+    a_purge_step_deletes_at_most_step_rows_counting_the_edge_and_catalog_row_01 = 1,
+    a_purge_step_deletes_at_most_step_rows_counting_the_edge_and_catalog_row_02 = 2,
+    a_purge_step_deletes_at_most_step_rows_counting_the_edge_and_catalog_row_03 = 3,
+]);
+
 #[test]
-fn a_purge_step_deletes_at_most_step_rows_counting_the_edge_and_catalog_row() {
-    for indexed in [STEP_ROWS - 2, STEP_ROWS - 1, STEP_ROWS, STEP_ROWS + 1] {
+fn every_size_has_its_purge_test() {
+    mixdog_rt::testing::assert_chunks_registered(SIZE_TESTS, SIZES.len(), 1);
+}
+
+fn purge_size(chunk: usize) {
+    for indexed in SIZES[mixdog_rt::testing::chunk_range(SIZES.len(), chunk, 1)].iter().copied() {
         let dir = tempfile::tempdir().unwrap();
         let mut w = Writer::start(&dir.path().join("store.sqlite")).unwrap();
         w.conn

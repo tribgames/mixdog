@@ -31,7 +31,7 @@ async fn seams(stored: Option<Value>, env: HashMap<String, String>) -> (tempfile
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("mixdog-config.json");
     if let Some(stored) = stored {
-        crate::run_host::fixture_fs::write(&path, serde_json::to_vec(&stored).unwrap());
+        crate::run_host::fixture_fs::write_unsynced(&path, serde_json::to_vec(&stored).unwrap());
     }
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
@@ -54,11 +54,15 @@ fn header(value: Value) -> Header {
     value.as_object().unwrap().clone()
 }
 
-#[tokio::test]
-async fn the_compaction_settings_resolve_what_the_recorded_node_policy_resolved() {
-    let twin: Value = serde_json::from_str(include_str!("../../../../../fixtures/desktop/settings/run-compact-twin.json")).unwrap();
+const COMPACT_TWIN: &str = include_str!("../../../../../fixtures/desktop/settings/run-compact-twin.json");
+/// Entries per test: each recorded entry builds its own config, agent store and directory, so the replay is split into chunks nextest runs in parallel.
+const COMPACT_CHUNK: usize = 30;
+
+async fn compaction_chunk(chunk: usize) {
+    let twin: Value = serde_json::from_str(COMPACT_TWIN).unwrap();
     let mut differ = Vec::new();
-    for (index, entry) in twin["entries"].as_array().unwrap().iter().enumerate() {
+    let mut ran = 0;
+    for (index, entry) in twin["entries"].as_array().unwrap().iter().enumerate().skip(chunk * COMPACT_CHUNK).take(COMPACT_CHUNK) {
         let config = entry["config"].as_object().unwrap();
         let stored = (!config.is_empty()).then(|| json!({ "agent": config }));
         let env = entry["env"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect();
@@ -83,11 +87,54 @@ async fn the_compaction_settings_resolve_what_the_recorded_node_policy_resolved(
                 object.insert("tokenCalibration".into(), json!(factor));
             }
         }
+        ran += 1;
         if got != expected {
             differ.push(format!("case {index}: {} -> Rust {got}, Node {expected}", entry["session"]));
         }
     }
+    assert!(ran > 0, "compaction chunk {chunk} has no recorded entry");
     assert!(differ.is_empty(), "{} differ:\n{}", differ.len(), differ.iter().take(8).cloned().collect::<Vec<_>>().join("\n"));
+}
+
+
+mixdog_rt::replay_chunks!(COMPACT_TESTS, #[tokio::test] async compaction_chunk; [
+    the_compaction_settings_resolve_chunk_00 = 0,
+    the_compaction_settings_resolve_chunk_01 = 1,
+    the_compaction_settings_resolve_chunk_02 = 2,
+    the_compaction_settings_resolve_chunk_03 = 3,
+    the_compaction_settings_resolve_chunk_04 = 4,
+    the_compaction_settings_resolve_chunk_05 = 5,
+    the_compaction_settings_resolve_chunk_06 = 6,
+    the_compaction_settings_resolve_chunk_07 = 7,
+    the_compaction_settings_resolve_chunk_08 = 8,
+    the_compaction_settings_resolve_chunk_09 = 9,
+    the_compaction_settings_resolve_chunk_10 = 10,
+    the_compaction_settings_resolve_chunk_11 = 11,
+    the_compaction_settings_resolve_chunk_12 = 12,
+    the_compaction_settings_resolve_chunk_13 = 13,
+    the_compaction_settings_resolve_chunk_14 = 14,
+    the_compaction_settings_resolve_chunk_15 = 15,
+    the_compaction_settings_resolve_chunk_16 = 16,
+    the_compaction_settings_resolve_chunk_17 = 17,
+    the_compaction_settings_resolve_chunk_18 = 18,
+    the_compaction_settings_resolve_chunk_19 = 19,
+    the_compaction_settings_resolve_chunk_20 = 20,
+    the_compaction_settings_resolve_chunk_21 = 21,
+    the_compaction_settings_resolve_chunk_22 = 22,
+    the_compaction_settings_resolve_chunk_23 = 23,
+    the_compaction_settings_resolve_chunk_24 = 24,
+    the_compaction_settings_resolve_chunk_25 = 25,
+    the_compaction_settings_resolve_chunk_26 = 26,
+    the_compaction_settings_resolve_chunk_27 = 27,
+    the_compaction_settings_resolve_chunk_28 = 28,
+    the_compaction_settings_resolve_chunk_29 = 29,
+]);
+
+/// Every recorded entry belongs to one chunk test and every chunk test has recorded entries.
+#[test]
+fn every_recorded_compaction_entry_has_its_chunk_test() {
+    let twin: Value = serde_json::from_str(COMPACT_TWIN).unwrap();
+    mixdog_rt::testing::assert_chunks_registered(COMPACT_TESTS, twin["entries"].as_array().unwrap().len(), COMPACT_CHUNK);
 }
 
 #[tokio::test]
