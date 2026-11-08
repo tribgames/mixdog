@@ -171,6 +171,22 @@ pub fn unsupported_repo(project_path: Option<String>, reason_file: Option<String
     )
 }
 
+/// `unsupported_repo` under the text of the Node check that refused (`inspectRepo` words each refusal for its cause).
+pub fn unsupported_repo_text(project_path: String, message: &str) -> ScmFailure {
+    ScmFailure::coded_with_message(
+        WORKTREE_UNSUPPORTED_REPO,
+        DomainErrorDetail::WorktreeUnsupportedRepo {
+            project_path: Some(project_path),
+            file: None,
+            line: None,
+            rel: None,
+            base_branch: None,
+            branch: None,
+        },
+        message,
+    )
+}
+
 pub fn project_unknown(project_path: String, reason: &str) -> ScmFailure {
     ScmFailure::coded(
         WORKTREE_PROJECT_UNKNOWN,
@@ -178,6 +194,18 @@ pub fn project_unknown(project_path: String, reason: &str) -> ScmFailure {
             project_path: Some(project_path),
             reason: Some(reason.to_owned()),
         },
+    )
+}
+
+/// `project_unknown` under the text of the Node check that refused.
+pub fn project_unknown_text(project_path: String, reason: &str, message: &str) -> ScmFailure {
+    ScmFailure::coded_with_message(
+        WORKTREE_PROJECT_UNKNOWN,
+        DomainErrorDetail::WorktreeProjectUnknown {
+            project_path: Some(project_path),
+            reason: Some(reason.to_owned()),
+        },
+        message,
     )
 }
 

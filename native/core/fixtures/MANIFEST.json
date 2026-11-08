@@ -1098,6 +1098,15 @@
       "recorder": "benchmarks/rust-core/recorders/record-worktree-add-retry.mjs",
       "set": "worktree-add-retry",
       "totalBytes": 730
+    },
+    {
+      "command": "node benchmarks/rust-core/recorders/record-worktree-inspect-repo.mjs --tree <tree>",
+      "fileCount": 1,
+      "manifest": "worktree-inspect-repo/MANIFEST.json",
+      "manifestSha256": "3c96bd074e3cae7584b3228515c95fd09cf840d0ff95aeee4c2cf0a4c68ac358",
+      "recorder": "benchmarks/rust-core/recorders/record-worktree-inspect-repo.mjs",
+      "set": "worktree-inspect-repo",
+      "totalBytes": 745
     }
   ]
 }

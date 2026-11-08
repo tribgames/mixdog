@@ -1,0 +1,31 @@
+{
+  "missing": {
+    "code": "WORKTREE_PROJECT_UNKNOWN",
+    "message": "The project folder no longer exists.",
+    "details": {
+      "projectPath": "<folder>",
+      "reason": "missing"
+    }
+  },
+  "plain": {
+    "code": "WORKTREE_UNSUPPORTED_REPO",
+    "message": "The project folder is not a git repository.",
+    "details": {
+      "projectPath": "<folder>"
+    }
+  },
+  "bare": {
+    "code": "WORKTREE_UNSUPPORTED_REPO",
+    "message": "Bare repositories cannot host managed worktrees.",
+    "details": {
+      "projectPath": "<folder>"
+    }
+  },
+  "noCommit": {
+    "code": "WORKTREE_UNSUPPORTED_REPO",
+    "message": "The repository has no commits yet; commit once first.",
+    "details": {
+      "projectPath": "<folder>"
+    }
+  }
+}
