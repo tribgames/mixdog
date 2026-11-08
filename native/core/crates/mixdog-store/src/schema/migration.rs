@@ -22,6 +22,11 @@ pub const MANIFEST_PATH: &str = "migration/manifest.json";
 pub const JOURNAL_PATH: &str = "migration/journal.000000";
 pub const STAGE_DIR: &str = "migration/stage";
 pub const COMPLETE_PATH: &str = "migration/complete.json";
+/// The manifest and journal of the late desktop-profile pass: a migration that completed with
+/// no profile named, run again with one. `complete.json` names the manifest it completed
+/// (this one once the pass is done), so the profile it records is the manifest's `roots.profile`.
+pub const LATE_MANIFEST_PATH: &str = "migration/late-manifest.json";
+pub const LATE_JOURNAL_PATH: &str = "migration/late-journal.000000";
 /// `quarantine/<code>/<escaped key>/{reason.json, <moved files>}`.
 pub const QUARANTINE_DIR: &str = "quarantine";
 pub const REASON_FILE: &str = "reason.json";
