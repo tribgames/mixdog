@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 6260,
+      "bytes": 77062,
       "path": "golden.json",
-      "sha256": "cd2acb3fbad125170c631240d228868827ba6c93f05b0af82232c24d5467d0a8"
+      "sha256": "430db4a14930b5097783dcf4d1f8fd144333395bb2d1d3392ce91b855c60a1e2"
     }
   ],
   "product": {
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-set-extension-scope-sessions.mjs",
   "set": "set-extension-scope-sessions",
-  "totalBytes": 6260
+  "totalBytes": 77062
 }
