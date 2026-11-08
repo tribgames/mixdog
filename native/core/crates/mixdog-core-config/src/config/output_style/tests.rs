@@ -28,13 +28,40 @@ async fn open(dir: &Path, entry: &Value) -> OutputStyles {
     OutputStyles::new(config, dir.join("root/output-styles"), dir.join("data"))
 }
 
-#[tokio::test]
-async fn the_status_and_the_selection_match_the_recorded_node_answers() {
+/// Recorded entries per test: each builds its own style directories.
+const ENTRY_CHUNK: usize = 4;
+
+fn styles_twin() -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/output-styles-twin.json");
-    let twin: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+mixdog_rt::replay_chunks!(STYLE_TESTS, #[tokio::test] async the_styles_chunk; [
+    the_status_and_the_selection_match_the_recorded_node_answers_00 = 0,
+    the_status_and_the_selection_match_the_recorded_node_answers_01 = 1,
+    the_status_and_the_selection_match_the_recorded_node_answers_02 = 2,
+    the_status_and_the_selection_match_the_recorded_node_answers_03 = 3,
+    the_status_and_the_selection_match_the_recorded_node_answers_04 = 4,
+    the_status_and_the_selection_match_the_recorded_node_answers_05 = 5,
+    the_status_and_the_selection_match_the_recorded_node_answers_06 = 6,
+    the_status_and_the_selection_match_the_recorded_node_answers_07 = 7,
+    the_status_and_the_selection_match_the_recorded_node_answers_08 = 8,
+    the_status_and_the_selection_match_the_recorded_node_answers_09 = 9,
+]);
+
+#[test]
+fn every_recorded_entry_has_its_styles_test() {
+    let twin = styles_twin();
     let entries = twin["entries"].as_array().unwrap();
     assert_eq!(entries.len(), 40);
-    for (i, entry) in entries.iter().enumerate() {
+    mixdog_rt::testing::assert_chunks_registered(STYLE_TESTS, entries.len(), ENTRY_CHUNK);
+}
+
+async fn the_styles_chunk(chunk: usize) {
+    let twin = styles_twin();
+    let entries = twin["entries"].as_array().unwrap();
+    let range = mixdog_rt::testing::chunk_range(entries.len(), chunk, ENTRY_CHUNK);
+    for (i, entry) in entries.iter().enumerate().skip(range.start).take(range.len()) {
         let dir = tempfile::tempdir().unwrap();
         let styles = open(dir.path(), entry).await;
         let status = styles.status().await.unwrap();

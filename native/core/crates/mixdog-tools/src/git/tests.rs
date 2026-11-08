@@ -312,20 +312,12 @@ fn replayable(step: &Value) -> bool {
         .is_none_or(|requests| requests.iter().all(|r| matches!(r["op"].as_str(), Some("enter" | "return" | "merge" | "remove"))))
 }
 
-#[tokio::test]
-async fn every_recorded_case_replays_to_nodes_text() {
+async fn replay_case(stem: &str) {
     pin_environment();
-    let mut names: Vec<PathBuf> = std::fs::read_dir(fixtures())
-        .unwrap()
-        .map(|e| e.unwrap().path())
-        .filter(|p| p.extension().is_some_and(|e| e == "json"))
-        .collect();
-    names.sort();
-    assert!(names.len() >= 17, "git goldens are recorded");
     let mut failures: Vec<String> = Vec::new();
     let mut replayed = 0;
     let diff_id = Regex::new(r"diff_[0-9a-f]{20}").unwrap();
-    for path in names {
+    for path in [fixtures().join(format!("{stem}.json"))] {
         let case: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         let tmp = tempfile::tempdir().unwrap();
         let work = strip_verbatim(tmp.path().canonicalize().unwrap());
@@ -384,8 +376,62 @@ async fn every_recorded_case_replays_to_nodes_text() {
             }
         }
     }
-    assert!(replayed > 100, "most recorded steps replay ({replayed})");
+    assert!(replayed > 0, "{stem} replays at least one recorded step");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// Every recorded case has its own test: each rebuilds a real repository and runs git for every step, and the cases are independent.
+macro_rules! case_tests {
+    ($($test:ident => $stem:literal,)*) => {
+        $(
+            #[tokio::test]
+            async fn $test() {
+                replay_case($stem).await
+            }
+        )*
+        const CASE_TESTS: &[&str] = &[$($stem),*];
+    };
+}
+
+case_tests! {
+    command_basics => "command-basics",
+    command_outside_repo => "command-outside-repo",
+    command_write => "command-write",
+    stage_diff_ids => "stage-diff-ids",
+    stage_multiple_and_new_file => "stage-multiple-and-new-file",
+    stage_partial => "stage-partial",
+    stage_paths_diff => "stage-paths-diff",
+    stage_refusals => "stage-refusals",
+    stage_scope_mismatch => "stage-scope-mismatch",
+    stage_stale => "stage-stale",
+    stage_stringified_ids => "stage-stringified-ids",
+    worktree_host_actions => "worktree-host-actions",
+    worktree_host_failures => "worktree-host-failures",
+    worktree_host_mapped => "worktree-host-mapped",
+    worktree_host_plain_error => "worktree-host-plain-error",
+    worktree_input_validation => "worktree-input-validation",
+    worktree_no_host => "worktree-no-host",
+}
+
+/// A recorded case without a test, or a test without a recorded case, fails here; most recorded steps replay.
+#[test]
+fn every_recorded_case_has_its_replay_test() {
+    let mut names: Vec<String> = std::fs::read_dir(fixtures())
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .filter(|p| p.extension().is_some_and(|e| e == "json"))
+        .map(|p| p.file_stem().unwrap().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names, CASE_TESTS);
+    let replayable_steps: usize = names
+        .iter()
+        .map(|name| {
+            let case: Value = serde_json::from_str(&std::fs::read_to_string(fixtures().join(format!("{name}.json"))).unwrap()).unwrap();
+            case["steps"].as_array().unwrap().iter().filter(|step| step.get("write").is_none() && replayable(step)).count()
+        })
+        .sum();
+    assert!(replayable_steps > 100, "most recorded steps replay ({replayable_steps})");
 }
 
 struct Rig {

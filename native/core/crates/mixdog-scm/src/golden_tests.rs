@@ -241,7 +241,9 @@ async fn staging_by_id_stages_only_the_selected_runs_and_refuses_a_stale_diff() 
 /// A process manager whose `git status` children start late: the injected slow inspection.
 struct SlowStatus {
     inner: std::sync::Arc<dyn mixdog_core_api::domain::process::ProcessManager>,
-    delay: std::time::Duration,
+    /// The inspection's status child starts once the test adds a permit; it is held, not timed,
+    /// so the check does not depend on how fast the machine runs the merge's git processes.
+    gate: std::sync::Arc<tokio::sync::Semaphore>,
 }
 
 #[async_trait::async_trait]
@@ -253,7 +255,8 @@ impl mixdog_core_api::domain::process::ProcessManager for SlowStatus {
         if let mixdog_core_api::domain::process::CommandSpec::Argv { args, .. } = &request.command {
             // The inspector's scan only; the merge's own preflight status is not the inspection.
             if args.iter().any(|a| a == "--porcelain=v2") {
-                tokio::time::sleep(self.delay).await;
+                // The permit goes back on drop: once the test opens the gate, every inspection status passes.
+                drop(self.gate.acquire().await.unwrap());
             }
         }
         self.inner.spawn(request).await
@@ -310,9 +313,9 @@ async fn g9_a_slow_inspection_delays_neither_a_review_page_nor_a_merge() {
     git(&repo, &["add", "-A"]);
     git(&repo, &["commit", "-q", "-m", "clean"]);
     git(&repo, &["branch", "topic"]);
-    let slow = std::time::Duration::from_secs(6);
+    let gate = std::sync::Arc::new(tokio::sync::Semaphore::new(0));
     let slow_pm: std::sync::Arc<dyn mixdog_core_api::domain::process::ProcessManager> =
-        std::sync::Arc::new(SlowStatus { inner: TestProcesses::shared(), delay: slow });
+        std::sync::Arc::new(SlowStatus { inner: TestProcesses::shared(), gate: gate.clone() });
     let scm = Scm::new(
         slow_pm,
         mixdog_rt::testing::tokens().maintenance_io,
@@ -345,7 +348,8 @@ async fn g9_a_slow_inspection_delays_neither_a_review_page_nor_a_merge() {
         .await
         .unwrap();
     assert_eq!(merged["merged"], true);
-    assert!(started.elapsed() < slow, "the merge waited for the inspection: {:?}", started.elapsed());
+    assert!(!inspecting.is_finished(), "the merge waited for the inspection");
+    gate.add_permits(1);
     let _ = CheckoutRequest { project_path: repo.clone(), branch: None, create: false, remote: false, start_point: None, detach: None };
     inspecting.await.unwrap().unwrap();
 }

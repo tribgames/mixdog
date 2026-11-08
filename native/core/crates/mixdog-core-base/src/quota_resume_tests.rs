@@ -50,9 +50,43 @@ async fn run(store: &QuotaResumeStore, op: &str, args: &Value) -> Result<Value, 
     })
 }
 
-#[tokio::test]
-async fn the_store_matches_node() {
-    for case in twin()["cases"].as_array().unwrap() {
+/// Recorded cases per test: each opens its own store file.
+const CASE_CHUNK: usize = 10;
+
+mixdog_rt::replay_chunks!(STORE_TESTS, #[tokio::test] async the_store_chunk; [
+    the_store_matches_node_00 = 0,
+    the_store_matches_node_01 = 1,
+    the_store_matches_node_02 = 2,
+    the_store_matches_node_03 = 3,
+    the_store_matches_node_04 = 4,
+    the_store_matches_node_05 = 5,
+    the_store_matches_node_06 = 6,
+    the_store_matches_node_07 = 7,
+    the_store_matches_node_08 = 8,
+    the_store_matches_node_09 = 9,
+    the_store_matches_node_10 = 10,
+    the_store_matches_node_11 = 11,
+    the_store_matches_node_12 = 12,
+    the_store_matches_node_13 = 13,
+    the_store_matches_node_14 = 14,
+    the_store_matches_node_15 = 15,
+    the_store_matches_node_16 = 16,
+    the_store_matches_node_17 = 17,
+    the_store_matches_node_18 = 18,
+    the_store_matches_node_19 = 19,
+    the_store_matches_node_20 = 20,
+    the_store_matches_node_21 = 21,
+]);
+
+#[test]
+fn every_recorded_case_has_its_store_test() {
+    mixdog_rt::testing::assert_chunks_registered(STORE_TESTS, twin()["cases"].as_array().unwrap().len(), CASE_CHUNK);
+}
+
+async fn the_store_chunk(chunk: usize) {
+    let twin = twin();
+    let cases = twin["cases"].as_array().unwrap();
+    for case in &cases[mixdog_rt::testing::chunk_range(cases.len(), chunk, CASE_CHUNK)] {
         let name = case["name"].as_str().unwrap();
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join(QUOTA_RESUME_FILE);

@@ -543,10 +543,57 @@ fn run(seed: u64) {
     }
 }
 
+/// The seeds every run covers; `MIXDOG_MODEL_SEEDS` raises the count for a longer search.
+const DEFAULT_SEEDS: u64 = 100;
+/// Seeds per test: each seed is an independent random walk.
+const SEED_CHUNK: usize = 5;
+
+fn seeds_chunk(chunk: usize) {
+    for seed in mixdog_rt::testing::chunk_range(DEFAULT_SEEDS as usize, chunk, SEED_CHUNK) {
+        run(seed as u64);
+    }
+}
+
+mixdog_rt::replay_chunks!(SEED_TESTS, #[test] seeds_chunk; [
+    random_operations_match_the_oracle_00 = 0,
+    random_operations_match_the_oracle_01 = 1,
+    random_operations_match_the_oracle_02 = 2,
+    random_operations_match_the_oracle_03 = 3,
+    random_operations_match_the_oracle_04 = 4,
+    random_operations_match_the_oracle_05 = 5,
+    random_operations_match_the_oracle_06 = 6,
+    random_operations_match_the_oracle_07 = 7,
+    random_operations_match_the_oracle_08 = 8,
+    random_operations_match_the_oracle_09 = 9,
+    random_operations_match_the_oracle_10 = 10,
+    random_operations_match_the_oracle_11 = 11,
+    random_operations_match_the_oracle_12 = 12,
+    random_operations_match_the_oracle_13 = 13,
+    random_operations_match_the_oracle_14 = 14,
+    random_operations_match_the_oracle_15 = 15,
+    random_operations_match_the_oracle_16 = 16,
+    random_operations_match_the_oracle_17 = 17,
+    random_operations_match_the_oracle_18 = 18,
+    random_operations_match_the_oracle_19 = 19,
+]);
+
 #[test]
-fn random_operations_match_the_oracle() {
-    let seeds: u64 = std::env::var("MIXDOG_MODEL_SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(100);
-    for seed in REGRESSIONS.iter().copied().chain(0..seeds) {
+fn every_default_seed_has_its_test() {
+    mixdog_rt::testing::assert_chunks_registered(SEED_TESTS, DEFAULT_SEEDS as usize, SEED_CHUNK);
+}
+
+#[test]
+fn the_regression_seeds_match_the_oracle() {
+    for seed in REGRESSIONS.iter().copied() {
+        run(seed);
+    }
+}
+
+/// `MIXDOG_MODEL_SEEDS` above the default runs the further seeds here.
+#[test]
+fn the_seeds_past_the_default_match_the_oracle() {
+    let seeds: u64 = std::env::var("MIXDOG_MODEL_SEEDS").ok().and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_SEEDS);
+    for seed in DEFAULT_SEEDS..seeds {
         run(seed);
     }
 }

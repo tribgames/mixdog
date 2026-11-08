@@ -1354,12 +1354,11 @@ impl SnapshotPersist for MemorySnapshots {
 /// What the file tools remember between calls, replayed from the recorded sequences: a repeated
 /// read, a read after an edit or a patch, another session, a changed file, and a cache that has
 /// outlived its 30 seconds (on a clock the test moves).
-#[tokio::test]
-async fn the_session_memory_answers_repeated_reads_as_node_does() {
+async fn replay_sequence(name: &str) {
     let doc: JsonValue = serde_json::from_str(include_str!("golden/batch_cases.json")).unwrap();
     let mut failures = Vec::new();
-    for sequence in doc["sequences"].as_array().unwrap() {
-        let name = sequence["name"].as_str().unwrap();
+    {
+        let sequence = doc["sequences"].as_array().unwrap().iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("no recorded sequence {name}"));
         let dir = tempfile::tempdir().unwrap();
         let (root, mut ctx) = recorded_workspace(&doc, dir.path(), false).await;
         let cwd = root.as_path().to_string_lossy().replace('\\', "/");
@@ -1461,4 +1460,68 @@ async fn the_session_memory_answers_repeated_reads_as_node_does() {
         }
     }
     assert!(failures.is_empty(), "{} steps differ:\n{}", failures.len(), failures.join("\n"));
+}
+
+/// Every recorded sequence has its own test, because building each one's workspace writes dozens of files through the
+/// file service and the sequences are independent.
+macro_rules! sequence_tests {
+    ($($test:ident => $name:literal,)*) => {
+        $(
+            #[tokio::test]
+            async fn $test() {
+                replay_sequence($name).await
+            }
+        )*
+        const SEQUENCE_TESTS: &[&str] = &[$($name),*];
+    };
+}
+
+sequence_tests! {
+    read_twice => "read-twice",
+    window_twice => "window-twice",
+    ranged_partial => "ranged-partial",
+    batch_never_stubs => "batch-never-stubs",
+    edit_then_read => "edit-then-read",
+    edit_unread => "edit-unread",
+    edit_after_partial_read => "edit-after-partial-read",
+    patch_then_read => "patch-then-read",
+    external_change => "external-change",
+    external_then_edit => "external-then-edit",
+    cache_lifetime => "cache-lifetime",
+    two_sessions => "two-sessions",
+    two_files => "two-files",
+    over_cache_size => "over-cache-size",
+    special_bodies => "special-bodies",
+    glob_twice => "glob-twice",
+    ctime_only_change => "ctime-only-change",
+    switch_rereads_in_full => "switch-rereads-in-full",
+    switch_before_the_flush => "switch-before-the-flush",
+    switch_keeps_other_sessions => "switch-keeps-other-sessions",
+    switch_after_a_ranged_read => "switch-after-a-ranged-read",
+    switch_with_nothing_read => "switch-with-nothing-read",
+    switch_twice => "switch-twice",
+    switch_after_a_patch => "switch-after-a-patch",
+    patch_rename => "patch-rename",
+    patch_rename_unread => "patch-rename-unread",
+    patch_delete => "patch-delete",
+    patch_create => "patch-create",
+    patch_dry_run => "patch-dry-run",
+    patch_rejected_batch => "patch-rejected-batch",
+    patch_partial_batch => "patch-partial-batch",
+    patch_ordered => "patch-ordered",
+    patch_ordered_failure => "patch-ordered-failure",
+    patch_unified => "patch-unified",
+    patch_unified_ordered => "patch-unified-ordered",
+    patch_after_partial_read => "patch-after-partial-read",
+    patch_twice => "patch-twice",
+    image_twice => "image-twice",
+    no_session => "no-session",
+}
+
+/// A recorded sequence without a test, or a test without a recorded sequence, fails here.
+#[test]
+fn every_recorded_sequence_has_its_session_memory_test() {
+    let doc: JsonValue = serde_json::from_str(include_str!("golden/batch_cases.json")).unwrap();
+    let recorded: Vec<&str> = doc["sequences"].as_array().unwrap().iter().map(|s| s["name"].as_str().unwrap()).collect();
+    assert_eq!(recorded, SEQUENCE_TESTS);
 }

@@ -43,23 +43,78 @@ impl Rig {
     /// The case's environment and saved `agent` section.
     async fn set(&self, env: &Value, agent: &Value) {
         *self.env.lock().unwrap() = env.as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect();
-        fixture_fs::write(&self.path, serde_json::to_vec(&json!({ "agent": agent })).unwrap());
+        fixture_fs::write_unsynced(&self.path, serde_json::to_vec(&json!({ "agent": agent })).unwrap());
         self.config.reload().await.unwrap();
     }
 }
 
-#[tokio::test]
-async fn the_source_answers_the_mode_base_and_steps_node_resolved() {
+/// Cases per test: each recorded case rewrites the config file and reloads it, so the replay is split into chunks nextest runs in parallel.
+const SOURCE_CHUNK: usize = 25;
+
+async fn sources_chunk(chunk: usize) {
     let rig = Rig::new().await;
     let source = ConfigAutoEffort::new(rig.config.clone(), rig.env_reader());
     let cases = twin();
-    for (index, case) in cases["sources"].as_array().unwrap().iter().enumerate() {
+    let cases = cases["sources"].as_array().unwrap();
+    let mut ran = 0;
+    for (index, case) in cases.iter().enumerate().skip(chunk * SOURCE_CHUNK).take(SOURCE_CHUNK) {
         rig.set(&case["env"], &case["agent"]).await;
         assert_eq!(source.mode(), case["mode"], "mode of case {index}: {case}");
         assert_eq!(source.mode_on(), case["mode"] == "on", "mode_on of case {index}");
         assert_eq!(source.base(), case["base"], "base of case {index}: {case}");
         assert_eq!(source.steps_enabled(), case["steps"], "steps of case {index}: {case}");
+        ran += 1;
     }
+    assert!(ran > 0, "source chunk {chunk} has no recorded case");
+}
+
+
+mixdog_rt::replay_chunks!(SOURCE_TESTS, #[tokio::test] async sources_chunk; [
+    the_source_answers_chunk_00 = 0,
+    the_source_answers_chunk_01 = 1,
+    the_source_answers_chunk_02 = 2,
+    the_source_answers_chunk_03 = 3,
+    the_source_answers_chunk_04 = 4,
+    the_source_answers_chunk_05 = 5,
+    the_source_answers_chunk_06 = 6,
+    the_source_answers_chunk_07 = 7,
+    the_source_answers_chunk_08 = 8,
+    the_source_answers_chunk_09 = 9,
+    the_source_answers_chunk_10 = 10,
+    the_source_answers_chunk_11 = 11,
+    the_source_answers_chunk_12 = 12,
+    the_source_answers_chunk_13 = 13,
+    the_source_answers_chunk_14 = 14,
+    the_source_answers_chunk_15 = 15,
+    the_source_answers_chunk_16 = 16,
+    the_source_answers_chunk_17 = 17,
+    the_source_answers_chunk_18 = 18,
+    the_source_answers_chunk_19 = 19,
+    the_source_answers_chunk_20 = 20,
+    the_source_answers_chunk_21 = 21,
+    the_source_answers_chunk_22 = 22,
+    the_source_answers_chunk_23 = 23,
+    the_source_answers_chunk_24 = 24,
+    the_source_answers_chunk_25 = 25,
+    the_source_answers_chunk_26 = 26,
+    the_source_answers_chunk_27 = 27,
+    the_source_answers_chunk_28 = 28,
+    the_source_answers_chunk_29 = 29,
+    the_source_answers_chunk_30 = 30,
+    the_source_answers_chunk_31 = 31,
+    the_source_answers_chunk_32 = 32,
+    the_source_answers_chunk_33 = 33,
+    the_source_answers_chunk_34 = 34,
+    the_source_answers_chunk_35 = 35,
+    the_source_answers_chunk_36 = 36,
+    the_source_answers_chunk_37 = 37,
+    the_source_answers_chunk_38 = 38,
+]);
+
+/// Every recorded case belongs to one chunk test and every chunk test has recorded cases.
+#[test]
+fn every_recorded_source_case_has_its_chunk_test() {
+    mixdog_rt::testing::assert_chunks_registered(SOURCE_TESTS, twin()["sources"].as_array().unwrap().len(), SOURCE_CHUNK);
 }
 
 #[test]
@@ -202,8 +257,10 @@ fn decision_value(decision: &AutoEffortDecision) -> Value {
     })
 }
 
-#[tokio::test]
-async fn the_first_request_is_judged_as_the_recorded_node_judged_it() {
+/// Cases per test: a turn writes its decision log through the durability lane, so the replay is split into chunks nextest runs in parallel.
+const TURN_CHUNK: usize = 40;
+
+async fn turns_chunk(chunk: usize) {
     let rig = Rig::new().await;
     let doubles = Doubles::default();
     let auto = Arc::new(ConfigAutoEffort::new(rig.config.clone(), rig.env_reader()));
@@ -224,8 +281,16 @@ async fn the_first_request_is_judged_as_the_recorded_node_judged_it() {
         },
     );
     let cases = twin();
-    let mut decided = 0;
-    for (index, case) in cases["turns"].as_array().unwrap().iter().enumerate() {
+    // The empty-ladder warning is once per provider/model per process, so a chunk starts with the routes the
+    // earlier recorded turns already warned about.
+    for earlier in cases["turns"].as_array().unwrap().iter().take(chunk * TURN_CHUNK) {
+        for warning in earlier["warnings"].as_array().unwrap() {
+            let key = warning.as_str().unwrap().strip_prefix("[auto-effort] no effort ladder for ").unwrap().strip_suffix("; judge skipped\n").unwrap();
+            turn.warned.lock().unwrap().insert(key.to_owned());
+        }
+    }
+    let mut ran = 0;
+    for (index, case) in cases["turns"].as_array().unwrap().iter().enumerate().skip(chunk * TURN_CHUNK).take(TURN_CHUNK) {
         let root = tempfile::tempdir().unwrap();
         let mut env = case["env"].as_object().unwrap().clone();
         env.extend(log_env(case["log"]["mode"].as_str().unwrap(), root.path()));
@@ -274,8 +339,86 @@ async fn the_first_request_is_judged_as_the_recorded_node_judged_it() {
             None => assert!(!fixture_fs::exists(&log_path).unwrap(), "no log of case {index}: {case}"),
         }
         assert_eq!(json!(*diagnostics.warnings.lock().unwrap()), case["warnings"], "warnings of case {index}: {case}");
-        decided += usize::from(got.is_some());
+        ran += 1;
     }
+    assert!(ran > 0, "turn chunk {chunk} has no recorded case");
+}
+
+mixdog_rt::replay_chunks!(TURN_TESTS, #[tokio::test] async turns_chunk; [
+    the_first_request_is_judged_chunk_00 = 0,
+    the_first_request_is_judged_chunk_01 = 1,
+    the_first_request_is_judged_chunk_02 = 2,
+    the_first_request_is_judged_chunk_03 = 3,
+    the_first_request_is_judged_chunk_04 = 4,
+    the_first_request_is_judged_chunk_05 = 5,
+    the_first_request_is_judged_chunk_06 = 6,
+    the_first_request_is_judged_chunk_07 = 7,
+    the_first_request_is_judged_chunk_08 = 8,
+    the_first_request_is_judged_chunk_09 = 9,
+    the_first_request_is_judged_chunk_10 = 10,
+    the_first_request_is_judged_chunk_11 = 11,
+    the_first_request_is_judged_chunk_12 = 12,
+    the_first_request_is_judged_chunk_13 = 13,
+    the_first_request_is_judged_chunk_14 = 14,
+    the_first_request_is_judged_chunk_15 = 15,
+    the_first_request_is_judged_chunk_16 = 16,
+    the_first_request_is_judged_chunk_17 = 17,
+    the_first_request_is_judged_chunk_18 = 18,
+    the_first_request_is_judged_chunk_19 = 19,
+    the_first_request_is_judged_chunk_20 = 20,
+    the_first_request_is_judged_chunk_21 = 21,
+    the_first_request_is_judged_chunk_22 = 22,
+    the_first_request_is_judged_chunk_23 = 23,
+    the_first_request_is_judged_chunk_24 = 24,
+    the_first_request_is_judged_chunk_25 = 25,
+    the_first_request_is_judged_chunk_26 = 26,
+    the_first_request_is_judged_chunk_27 = 27,
+    the_first_request_is_judged_chunk_28 = 28,
+    the_first_request_is_judged_chunk_29 = 29,
+    the_first_request_is_judged_chunk_30 = 30,
+    the_first_request_is_judged_chunk_31 = 31,
+    the_first_request_is_judged_chunk_32 = 32,
+    the_first_request_is_judged_chunk_33 = 33,
+    the_first_request_is_judged_chunk_34 = 34,
+    the_first_request_is_judged_chunk_35 = 35,
+    the_first_request_is_judged_chunk_36 = 36,
+    the_first_request_is_judged_chunk_37 = 37,
+    the_first_request_is_judged_chunk_38 = 38,
+    the_first_request_is_judged_chunk_39 = 39,
+    the_first_request_is_judged_chunk_40 = 40,
+    the_first_request_is_judged_chunk_41 = 41,
+    the_first_request_is_judged_chunk_42 = 42,
+    the_first_request_is_judged_chunk_43 = 43,
+    the_first_request_is_judged_chunk_44 = 44,
+    the_first_request_is_judged_chunk_45 = 45,
+    the_first_request_is_judged_chunk_46 = 46,
+    the_first_request_is_judged_chunk_47 = 47,
+    the_first_request_is_judged_chunk_48 = 48,
+    the_first_request_is_judged_chunk_49 = 49,
+    the_first_request_is_judged_chunk_50 = 50,
+    the_first_request_is_judged_chunk_51 = 51,
+    the_first_request_is_judged_chunk_52 = 52,
+    the_first_request_is_judged_chunk_53 = 53,
+    the_first_request_is_judged_chunk_54 = 54,
+    the_first_request_is_judged_chunk_55 = 55,
+    the_first_request_is_judged_chunk_56 = 56,
+    the_first_request_is_judged_chunk_57 = 57,
+    the_first_request_is_judged_chunk_58 = 58,
+    the_first_request_is_judged_chunk_59 = 59,
+    the_first_request_is_judged_chunk_60 = 60,
+    the_first_request_is_judged_chunk_61 = 61,
+    the_first_request_is_judged_chunk_62 = 62,
+    the_first_request_is_judged_chunk_63 = 63,
+    the_first_request_is_judged_chunk_64 = 64,
+]);
+
+/// Every recorded turn belongs to one chunk test and every chunk test has recorded turns; the golden decides enough turns.
+#[test]
+fn every_recorded_turn_has_its_chunk_test() {
+    let cases = twin();
+    let turns = cases["turns"].as_array().unwrap();
+    mixdog_rt::testing::assert_chunks_registered(TURN_TESTS, turns.len(), TURN_CHUNK);
+    let decided = turns.iter().filter(|case| !case["result"].is_null()).count();
     assert!(decided > 300, "the golden decides enough turns: {decided}");
 }
 
