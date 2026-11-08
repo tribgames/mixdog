@@ -1225,7 +1225,6 @@ mod tests {
     pub(crate) mod gates {
         use std::sync::mpsc::{channel, Receiver, Sender};
         use std::sync::Mutex;
-        use std::time::Duration;
 
         struct Gate {
             id: u64,

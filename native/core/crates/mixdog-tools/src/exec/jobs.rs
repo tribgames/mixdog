@@ -118,8 +118,9 @@ pub struct Survivors {
 pub trait SurvivorWatch: Send + Sync {
     /// The survivors of the command run as `handle`, observed once it exited.
     fn survivors(&self, handle: &ProcessHandle) -> Option<Survivors>;
-    /// Completes when the last survivor has exited.
-    async fn wait_gone(&self, handle: &ProcessHandle);
+    /// Completes `true` when the last survivor has exited, `false` when `abort` is raised first
+    /// (`waitForShellDescendants`).
+    async fn wait_gone(&self, handle: &ProcessHandle, abort: &CancellationToken) -> bool;
     /// Terminates them; `true` when a re-observation found every one gone.
     async fn kill(&self, handle: &ProcessHandle) -> bool;
 }
@@ -133,8 +134,8 @@ impl SurvivorWatch for mixdog_spawn::survivors::ProcessSurvivors {
         mixdog_spawn::survivors::ProcessSurvivors::survivors(self, handle).map(|report| Survivors { reachable: report.reachable })
     }
 
-    async fn wait_gone(&self, handle: &ProcessHandle) {
-        mixdog_spawn::survivors::ProcessSurvivors::wait_gone(self, handle).await;
+    async fn wait_gone(&self, handle: &ProcessHandle, abort: &CancellationToken) -> bool {
+        mixdog_spawn::survivors::ProcessSurvivors::wait_gone(self, handle, abort).await
     }
 
     async fn kill(&self, handle: &ProcessHandle) -> bool {
@@ -1271,9 +1272,12 @@ impl ExecRuntime {
             // The passive observation (`waitForShellDescendants`): the survivors are checked now and re-checked every
             // `TERMINATION_RECHECK_MS`. A cancel whose kill could not confirm them gone keeps terminating on every pass
             // (`sweep: () => cancelled`) while the row is held.
+            // Node's `run` passes no abort signal and ignores the boolean `waitForShellDescendants` answers, which is
+            // `false` only for an abort: this watch raises none, so whichever way the wait ends, the task ends.
+            let never = CancellationToken::new();
             loop {
-                match tokio::time::timeout(TERMINATION_RECHECK, watch.wait_gone(&watched.handle)).await {
-                    Ok(()) => break,
+                match tokio::time::timeout(TERMINATION_RECHECK, watch.wait_gone(&watched.handle, &never)).await {
+                    Ok(_) => break,
                     Err(_) if watched.termination_pending() && watch.kill(&watched.handle).await => break,
                     Err(_) => {}
                 }

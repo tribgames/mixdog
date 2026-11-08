@@ -9,8 +9,10 @@
 //! `kill` → [`ProcessSurvivors::kill`].
 
 use mixdog_protocol::ProcessHandle;
+use tokio_util::sync::CancellationToken;
 
 use crate::contain::Seen;
+use crate::contain::Waited;
 use crate::manager::LocalProcessManager;
 
 /// What a finished command left running.
@@ -47,10 +49,13 @@ impl ProcessSurvivors {
         }
     }
 
-    /// Completes when the last survivor has ended (at once if none is left).
-    pub async fn wait_gone(&self, handle: &ProcessHandle) {
-        if let Ok(proc) = self.manager.proc(handle) {
-            proc.containment().wait_gone().await;
+    /// `waitForShellDescendants`: `true` when the last survivor has ended (at once if none is left, or
+    /// the handle is unknown), `false` when `abort` is raised first. An aborted wait confirms nothing:
+    /// the survivors may still be running.
+    pub async fn wait_gone(&self, handle: &ProcessHandle, abort: &CancellationToken) -> bool {
+        match self.manager.proc(handle) {
+            Ok(proc) => proc.containment().wait_gone(abort).await == Waited::Gone,
+            Err(_) => true,
         }
     }
 
