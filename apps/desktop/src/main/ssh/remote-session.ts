@@ -92,8 +92,8 @@ export function resolveRemoteCwd(configured: string | null, home: string): strin
  *  checked first. */
 export interface DaemonHealth {
   pid: number;
-  /** The core's `version`: the only build field /health carries. */
-  version: string | null;
+  /** The run the answering core is (`instanceId`): random per start, so a process that reused the pid differs. */
+  instanceId: string | null;
   rttMs: number;
   /** Units of work the core is running (`busy`). */
   busy: number;
@@ -102,8 +102,8 @@ export interface DaemonHealth {
 /** The core the bootstrap found: what the tunnel must lead to. */
 export interface DaemonIdentity {
   pid: number;
-  /** The `core.version` its discovery file names. */
-  version: string;
+  /** The `core.instanceId` its discovery file names. */
+  instanceId: string;
 }
 
 export function readDaemonHealth(port: number, timeoutMs: number): Promise<DaemonHealth | null> {
@@ -117,11 +117,11 @@ export function readDaemonHealth(port: number, timeoutMs: number): Promise<Daemo
       });
       response.on('end', () => {
         try {
-          const health = JSON.parse(body) as { status?: unknown; pid?: unknown; version?: unknown; busy?: unknown };
+          const health = JSON.parse(body) as { status?: unknown; pid?: unknown; instanceId?: unknown; busy?: unknown };
           if (health.status !== 'ok') return resolve(null);
           resolve({
             pid: Number(health.pid) || 0,
-            version: typeof health.version === 'string' && health.version ? health.version : null,
+            instanceId: typeof health.instanceId === 'string' && health.instanceId ? health.instanceId : null,
             rttMs: Math.max(0, Math.round(performance.now() - startedAt)),
             busy: Math.max(0, Number(health.busy) || 0),
           });
@@ -136,12 +136,11 @@ export function readDaemonHealth(port: number, timeoutMs: number): Promise<Daemo
   });
 }
 
-/** The answering process is the probed core: same pid, and the same build as
- *  far as /health says (its version). Anything else may be another user's
- *  process that bound the freed port on a shared server, or a replacement that
- *  reused the pid. */
+/** The answering process is the probed core: same pid and same run. Anything
+ *  else may be another user's process that bound the freed port on a shared
+ *  server, or a replacement that reused the pid. */
 export function isExpectedDaemon(health: DaemonHealth, identity: DaemonIdentity): boolean {
-  return health.pid === identity.pid && health.version === identity.version;
+  return health.pid === identity.pid && health.instanceId === identity.instanceId;
 }
 
 /** The tunnel leads to another process than the probed core. */
@@ -293,7 +292,7 @@ export class RemoteSession implements RemoteDaemonConnector {
       // Before the core token goes through the tunnel, the process behind it
       // must be the core the probe found: on a shared server another user
       // could have bound the port it freed.
-      const identity: DaemonIdentity = { pid: state.discovery.pid, version: state.discovery.version };
+      const identity: DaemonIdentity = { pid: state.discovery.pid, instanceId: state.discovery.instanceId };
       const controlPort = tunnel.companionBoundPort;
       const health = await readDaemonHealth(controlPort, IDENTITY_CHECK_TIMEOUT_MS);
       if (!health) {

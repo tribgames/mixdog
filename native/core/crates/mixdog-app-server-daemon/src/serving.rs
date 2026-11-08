@@ -262,6 +262,7 @@ pub async fn begin(tokens: &LaneTokens, given: StartIn) -> Result<Booting, Servi
         .map_or(0, |info| info.identity.start_ms);
     let version = env!("CARGO_PKG_VERSION");
     let instance_id = new_instance_id();
+    let build = option_env!("MIXDOG_BUILD").unwrap_or("dev");
     let base = discovery::Discovery {
         pid,
         endpoints: discovery::Endpoints {
@@ -270,7 +271,7 @@ pub async fn begin(tokens: &LaneTokens, given: StartIn) -> Result<Booting, Servi
         },
         core: discovery::CoreSection {
             version: version.to_owned(),
-            build: option_env!("MIXDOG_BUILD").unwrap_or("dev").to_owned(),
+            build: build.to_owned(),
             instance_id: instance_id.clone(),
             process_start_time: start_ms.to_string(),
             state: discovery::CoreState::Booting,
@@ -284,14 +285,20 @@ pub async fn begin(tokens: &LaneTokens, given: StartIn) -> Result<Booting, Servi
     let discovery = publication.clone();
     let core_port = Arc::new(LateCorePort { release: release.clone(), core: OnceLock::new() });
     let lifecycle = Lifecycle::new(
-        LifecycleConfig { instance_id, version: version.to_owned(), runtime_root: root },
+        LifecycleConfig { instance_id: instance_id.clone(), version: version.to_owned(), runtime_root: root },
         Ports { core: core_port.clone(), discovery: publication, exiter },
     );
     let control = ControlServer::serve(
         control,
         ControlConfig {
             token: token.clone(),
-            legacy: Legacy { pid, version: version.to_owned(), update_text },
+            legacy: Legacy {
+                pid,
+                version: version.to_owned(),
+                instance_id,
+                build: build.to_owned(),
+                update_text,
+            },
         },
         lifecycle.clone(),
     )
@@ -391,6 +398,44 @@ mod tests {
         let mut buffer = [0u8; 256];
         let read = stream.read(&mut buffer).await.unwrap();
         String::from_utf8_lossy(&buffer[..read]).lines().next().unwrap_or_default().to_owned()
+    }
+
+    /// A desktop compares `/health` with the `daemon.json` it read: both must name the same run and build.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn health_and_daemon_json_name_the_same_run_and_build() {
+        let dir = tempfile::tempdir().unwrap();
+        let tokens = mixdog_rt::testing::tokens();
+        let (exited, _exit) = oneshot::channel();
+        let root = dir.path().join("runtime");
+        let booting = begin(
+            &tokens,
+            StartIn {
+                runtime_root: root.clone(),
+                exiter: Arc::new(RecordedExit(Mutex::new(Some(exited)))),
+                update_text: "Update.".into(),
+            },
+        )
+        .await
+        .unwrap();
+        booting.lifecycle.set_serving().unwrap();
+        let writer = booting.discovery.clone();
+        tokio::task::spawn_blocking(move || writer.flush()).await.unwrap();
+
+        let document: serde_json::Value =
+            serde_json::from_slice(&tokio::fs::read(discovery::path(&root)).await.unwrap()).unwrap();
+        let control = document["core"]["control"]["port"].as_u64().unwrap();
+        let health: serde_json::Value = reqwest::get(format!("http://127.0.0.1:{control}/health"))
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(health["pid"], document["pid"]);
+        assert_eq!(health["version"], document["core"]["version"]);
+        assert_eq!(health["instanceId"], document["core"]["instanceId"]);
+        assert_eq!(health["build"], document["core"]["build"]);
+        assert!(!health["instanceId"].as_str().unwrap().is_empty());
+        assert!(health.get("buildHash").is_none());
     }
 
     /// `start` against a temp runtime root: discovery is written and names both listeners, the

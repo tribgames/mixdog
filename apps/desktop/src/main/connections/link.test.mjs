@@ -1008,7 +1008,7 @@ test('a user connect to a stopped server window reopens it in place instead of a
 
 test('the daemon behind the tunnel must be the probed one, and no token is sent to check it', async (t) => {
   const seen = [];
-  let answer = { status: 'ok', pid: 41, version: '1.4.6' };
+  let answer = { status: 'ok', pid: 41, instanceId: 'run-a' };
   const server = createServer((request, response) => {
     seen.push({ url: request.url, token: request.headers['x-mixdog-daemon-token'] ?? null });
     response.end(JSON.stringify(answer));
@@ -1018,12 +1018,12 @@ test('the daemon behind the tunnel must be the probed one, and no token is sent 
   const { port } = server.address();
   const health = await readDaemonHealth(port, 2_000);
   assert.equal(health.pid, 41);
-  assert.equal(health.version, '1.4.6');
-  assert.equal(isExpectedDaemon(health, { pid: 41, version: '1.4.6' }), true);
-  assert.equal(isExpectedDaemon(health, { pid: 42, version: '1.4.6' }), false, 'another process on the freed port');
-  assert.equal(isExpectedDaemon(health, { pid: 41, version: '1.4.7' }), false, 'same pid, another build');
+  assert.equal(health.instanceId, 'run-a');
+  assert.equal(isExpectedDaemon(health, { pid: 41, instanceId: 'run-a' }), true);
+  assert.equal(isExpectedDaemon(health, { pid: 42, instanceId: 'run-a' }), false, 'another process on the freed port');
+  assert.equal(isExpectedDaemon(health, { pid: 41, instanceId: 'run-b' }), false, 'a reused pid: same pid, another run');
   answer = { status: 'ok', pid: 41 };
-  assert.equal(isExpectedDaemon(await readDaemonHealth(port, 2_000), { pid: 41, version: '1.4.6' }), false, 'an answer that names no build');
+  assert.equal(isExpectedDaemon(await readDaemonHealth(port, 2_000), { pid: 41, instanceId: 'run-a' }), false, 'an answer that names no run');
   answer = { status: 'starting', pid: 41 };
   assert.equal(await readDaemonHealth(port, 2_000), null);
   assert.deepEqual(
