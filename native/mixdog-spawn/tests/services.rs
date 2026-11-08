@@ -274,6 +274,9 @@ async fn terminal_service_ensures_publishes_tabs_and_disposes() {
     .await;
 
     service.call(request("terminal/dispose", json!({ "tabId": id }), 1)).await.unwrap();
-    let gone = service.call(request("terminal/attach", json!({ "tabId": id }), 1)).await;
-    assert!(gone.is_err(), "a disposed tab cannot be attached");
+    // A tab that is not running is Node's `null` (termAttach), not an error.
+    let Reply::Value(gone) = service.call(request("terminal/attach", json!({ "tabId": id }), 1)).await.unwrap() else {
+        panic!("a disposed tab answers with a value");
+    };
+    assert_eq!(gone, Value::Null);
 }
