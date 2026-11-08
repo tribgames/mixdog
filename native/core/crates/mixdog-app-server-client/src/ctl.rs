@@ -19,7 +19,7 @@ use std::{future::Future, path::Path, time::Duration};
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpStream,
 };
 
@@ -77,7 +77,7 @@ impl Call {
     }
 
     /// `write_all` with the silence bound restarted by every write that moves bytes, as Node's socket timer is.
-    async fn write_all(&self, stream: &mut TcpStream, mut bytes: &[u8]) -> Result<(), CtlError> {
+    async fn write_all<W: AsyncWrite + Unpin>(&self, stream: &mut W, mut bytes: &[u8]) -> Result<(), CtlError> {
         while !bytes.is_empty() {
             let moved = self.idle(stream.write(bytes)).await?;
             if moved == 0 {
@@ -121,6 +121,16 @@ impl CtlError {
             Self::Refused { code, .. } => Some(code),
             Self::Timeout { .. } => Some("ESESSIONTIMEOUT"),
             _ => None,
+        }
+    }
+
+    /// What `mixdogd ctl` prints on stderr for a failed call. Only a `Refused` is a refusal: a timeout is the core not
+    /// answering, which Node's callers show as the bare `session timeout: <method> <path>` (`holdInTreeDaemon` and
+    /// `stopInTreeDaemon` carry it as `error`; `probeSessionHealth` and `shutdownDaemon` show only that the core did not answer).
+    pub fn cli_line(&self) -> String {
+        match self {
+            Self::Refused { code, .. } => format!("mixdogd: refused: {code}: {self}"),
+            _ => format!("mixdogd: {self}"),
         }
     }
 }
@@ -757,6 +767,8 @@ mod tests {
                     .await
                     .unwrap_or_else(|_| panic!("{what}: never ended"));
                 let elapsed = started.elapsed();
+                let answered = outcome.is_ok();
+                let shown = outcome.as_ref().err().map(CtlError::cli_line);
                 match case["settled"].as_str().unwrap() {
                     "resolved" => assert_eq!(outcome.expect(&what).state, CoreStateName::Draining, "{what}"),
                     _ => {
@@ -778,8 +790,64 @@ mod tests {
                         assert!(elapsed <= Duration::from_millis(case["elapsedMs"].as_u64().unwrap()), "{what}: after Node");
                     }
                 }
+                // What the Node caller shows or returns (`seen`), projected from what `mixdogd ctl` shows or exits with.
+                let node_path = request["path"].as_str().unwrap();
+                let shown_error = shown.as_deref().map(|line| {
+                    line.strip_prefix("mixdogd: ").expect("a bare error line, not a refusal").replace(ctl_path, node_path)
+                });
+                let ok_word = |word: &'static str, other: &'static str| if answered { word } else { other };
+                let seen = match node_call {
+                    "GET /health" => json!({"health": if answered { json!("ok") } else { json!(null) }}),
+                    "POST /install-hold close" => json!({"status": ok_word("held", "unknown"), "error": shown_error}),
+                    "POST /install-hold release" => json!({"status": ok_word("released", "unknown"), "error": shown_error}),
+                    "POST /stop" => json!({"request": ok_word("sent", "failed"), "error": shown_error}),
+                    "POST /shutdown" => json!({"shutDown": answered}),
+                    other => panic!("no projection for {other}"),
+                };
+                assert_eq!(seen, case["seen"], "{what}: what the caller sees");
             }
         }
+    }
+
+    /// The silence bound is restarted by every write that moves bytes (Node's socket `timeout`), not a limit on the whole
+    /// write: a peer that drains a little at intervals shorter than the recorded `timeoutMs` keeps a transfer much longer
+    /// than it alive, and one that stops draining ends it at that bound after its last progress.
+    #[tokio::test(start_paused = true)]
+    async fn a_write_that_keeps_moving_outlasts_the_silence_bound_and_a_stalled_one_ends_at_it() {
+        let golden: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/ctl-timeouts/golden.json")).unwrap();
+        let silence = golden["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["nodeCall"] == "POST /stop" && c["reply"]["kind"] == "silent")
+            .map(|c| Duration::from_millis(c["request"]["timeoutMs"].as_u64().unwrap()))
+            .unwrap();
+        let call = Call { verb: "POST", path: "/mgmt/stop".into(), bound: LIFECYCLE };
+        assert_eq!(call.bound.inactivity, silence);
+
+        let (mut near, mut far) = tokio::io::duplex(16);
+        let every = silence / 2;
+        // The peer reads one full buffer every half bound, three times: the transfer lasts 1.5 bounds.
+        let drain = tokio::spawn(async move {
+            let begun = tokio::time::Instant::now();
+            let mut buf = [0u8; 16];
+            for k in 1..=3 {
+                tokio::time::sleep_until(begun + every * k).await;
+                far.read_exact(&mut buf).await.unwrap();
+            }
+            far
+        });
+        let started = tokio::time::Instant::now();
+        call.write_all(&mut near, &[7u8; 64]).await.expect("progress keeps the call alive");
+        assert!(started.elapsed() > silence, "the transfer outlasted the bound");
+        let _undrained = drain.await.unwrap();
+
+        // Nobody reads any more: what fits goes in at once, the rest stalls and the call ends one bound later.
+        let stalled = tokio::time::Instant::now();
+        let err = call.write_all(&mut near, &[7u8; 64]).await.unwrap_err();
+        assert_eq!(err.to_string(), "session timeout: POST /mgmt/stop");
+        assert_eq!(stalled.elapsed(), silence);
     }
 
     #[tokio::test]
