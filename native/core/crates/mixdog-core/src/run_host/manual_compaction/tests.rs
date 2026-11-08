@@ -76,48 +76,74 @@ fn snapshot_of(case: &Value, header: &Header, messages: &[AgentMessage]) -> Arc<
     })
 }
 
-/// A session whose request leads with four system blocks counts them in both numbers of the plan and
-/// of the commit: Node's `session.messages` hold them (w2f `compact`: five messages for one stored row).
+/// A session whose `messages` lead with four system blocks plans and commits over them as Node does
+/// (fixtures/compaction-system-blocks/golden.json, `record-compaction-system-blocks.mjs`, recorded from
+/// b6f10295a): the whole result object and the record equal Node's, counts and tokens included. The
+/// blocks come from the header; the compactor and the stored rows keep the transcript alone.
 #[test]
 fn a_plan_and_its_commit_count_the_system_blocks_of_the_request() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/compaction-commit/golden.json")).expect("golden json");
-    let case = golden["cases"].as_array().expect("cases").iter().find(|c| c["name"] == "a small conversation compacts by rules").expect("the small case");
-    let mut header = header_of(&case["before"]);
-    for (key, body) in [("promptBase", "rules"), ("promptStable", "stable"), ("bp3CoreContext", "core context"), ("promptEnv", "environment")] {
-        header.insert(key.into(), json!(body));
+    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/compaction-system-blocks/golden.json")).expect("golden json");
+    let now = golden["now"].as_f64().expect("now");
+    let rows_of = |messages: &Value| -> Vec<Value> { messages.as_array().expect("messages").iter().filter(|m| m["role"] != "system").cloned().collect() };
+    let mut compared = 0;
+    for case in golden["cases"].as_array().expect("cases") {
+        let name = case["name"].as_str().expect("name");
+        let value = &case["result"]["value"];
+        let mut header = header_of(&case["before"]);
+        for (key, system) in ["promptBase", "promptStable", "bp3CoreContext", "promptEnv"].into_iter().zip(case["before"]["messages"].as_array().expect("messages")) {
+            header.insert(key.into(), system["content"].clone());
+        }
+        header.insert("bp3EnvSplit".into(), json!(true));
+        let before_rows = rows_of(&case["before"]["messages"]);
+        let transcript: Vec<AgentMessage> = before_rows.iter().map(|row| message_of(row).expect("a stored row")).collect();
+        // The header's blocks are the recorded ones, message for message.
+        let recorded: Vec<AgentMessage> = case["before"]["messages"].as_array().expect("messages")[..4].iter().map(|row| message_of(row).expect("a system block")).collect();
+        let blocks = super::super::factory::system_messages(&header);
+        assert_eq!(blocks.iter().map(|m| &m.message).collect::<Vec<_>>(), recorded.iter().map(|m| &m.message).collect::<Vec<_>>(), "{name}: the header rebuilds Node's four system messages");
+        let snapshot = snapshot_of(case, &header, &transcript);
+        let session_messages = priced(&header, &transcript);
+        let plan = forced_plan(&snapshot, &session_messages).expect("a window").expect("a plan");
+        let after_rows = rows_of(&case["after"]["messages"]);
+        let compacted: Vec<AgentMessage> = after_rows.iter().map(|row| message_of(row).expect("a stored row")).collect();
+        let mode = case["compactMode"].as_str().unwrap_or_default();
+        let mut parts = mode.split(':');
+        let (pipeline_mode, kind, route) = (parts.next().map(str::to_owned), parts.next(), parts.next().map(str::to_owned));
+        let record = &case["after"]["compaction"];
+        let changed = value["changed"] == Value::Bool(true);
+        let facts = CommitFacts {
+            snapshot: snapshot.clone(),
+            messages: session_messages,
+            before_rows,
+            plan,
+            compacted,
+            compacted_rows: after_rows,
+            fresh: SummaryFacts {
+                usage: Some(value["usage"].clone()).filter(|u| !u.is_null()),
+                fresh_context: value["freshContext"] == Value::Bool(true),
+                handoff_source: text(&value["handoffSource"]),
+                summary_provider: text(&record["lastSummaryProvider"]),
+                summary_model: text(&record["lastSummaryModel"]),
+                pipeline_mode,
+                summary_route: route,
+                forked: kind == Some("fork"),
+                generated_ms: record["lastSummaryMs"].as_f64(),
+                total_ms: record["lastPipelineMs"].as_f64(),
+            },
+            archived: changed.then(|| Archived { dropped: value["droppedMessages"].as_u64().unwrap_or(0), identities: Some(value["droppedIdentities"].clone()).filter(|i| !i.is_null()) }),
+            now,
+            started_at: now,
+            commit_started_at: now,
+        };
+        let (working, result) = committed_header(&facts, &header, &[]);
+        assert_eq!(&result, value, "{name}: the reply");
+        let mut want = header_of(&case["after"]);
+        for key in ["promptBase", "promptStable", "bp3CoreContext", "promptEnv", "bp3EnvSplit"] {
+            want.insert(key.into(), header[key].clone());
+        }
+        assert_eq!(comparable(&working), comparable(&want), "{name}: the header");
+        compared += 1;
     }
-    header.insert("bp3EnvSplit".into(), json!(true));
-    let rows: Vec<Value> = case["before"]["messages"].as_array().expect("messages").clone();
-    let transcript: Vec<AgentMessage> = rows.iter().map(|row| message_of(row).expect("a stored row")).collect();
-    let system = super::super::factory::system_messages(&header);
-    assert_eq!(system.len(), 4, "the header carries four system blocks");
-    let snapshot = snapshot_of(case, &header, &transcript);
-    let session_messages = priced(&header, &transcript);
-    let plan = forced_plan(&snapshot, &session_messages).expect("a window").expect("a plan");
-    let bare = forced_plan(&snapshot, &transcript).expect("a window").expect("a plan");
-    let system_tokens = with_status(&snapshot, &header, &system, |status| status.meter.messages(&system)) as f64;
-    assert_eq!(plan.messages, transcript.len() + 4);
-    assert_eq!(plan.before_message_tokens, bare.before_message_tokens + system_tokens);
-
-    // The compactor keeps the rows (it never sees the blocks); the commit prices them back in.
-    let facts = CommitFacts {
-        snapshot: snapshot.clone(),
-        messages: session_messages,
-        before_rows: rows.clone(),
-        plan,
-        compacted: transcript.clone(),
-        compacted_rows: rows,
-        fresh: SummaryFacts { usage: None, fresh_context: true, handoff_source: Some("rules".into()), summary_provider: None, summary_model: None, pipeline_mode: None, summary_route: None, forked: false, generated_ms: None, total_ms: None },
-        archived: None,
-        now: 1.0,
-        started_at: 1.0,
-        commit_started_at: 1.0,
-    };
-    let (_, result) = committed_header(&facts, &header, &[]);
-    assert_eq!(result["changed"], json!(false));
-    assert_eq!(result["beforeMessages"], json!(transcript.len() + 4));
-    assert_eq!(result["afterMessages"], result["beforeMessages"]);
-    assert_eq!(result["afterMessageTokens"], result["beforeMessageTokens"]);
+    assert_eq!(compared, 2);
 }
 
 #[test]
