@@ -32,8 +32,16 @@ async fn run_and_find_sleeper(
     m: &mixdog_spawn::LocalProcessManager,
     h: &mixdog_protocol::ProcessHandle,
 ) -> u32 {
+    run_and_find(m, h, leaves_a_sleeper()).await
+}
+
+async fn run_and_find(
+    m: &mixdog_spawn::LocalProcessManager,
+    h: &mixdog_protocol::ProcessHandle,
+    command: CommandSpec,
+) -> u32 {
     use mixdog_core_api::domain::process::ProcessManager;
-    m.spawn(request(h, leaves_a_sleeper())).await.unwrap();
+    m.spawn(request(h, command)).await.unwrap();
     let (bytes, _) = collect(m, h).await;
     let out = text(&bytes);
     let at = out.find("CHILD=").expect("the command printed its child");
@@ -91,4 +99,27 @@ async fn kill_ends_the_survivors_and_a_second_look_finds_none() {
     assert_eq!(watch.survivors(&h), None);
     // Nothing left: waiting returns at once.
     tokio::time::timeout(Duration::from_secs(2), watch.wait_gone(&h)).await.expect("nothing to wait for");
+}
+
+/// The cancel's own schedule (`killShellDescendants`): SIGTERM to the group first, and a survivor that ignores it is ended by
+/// the forced stop that follows, so the kill still reports every one gone.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_survivor_that_ignores_sigterm_is_ended_by_the_forced_stop() {
+    let m = manager();
+    let watch = ProcessSurvivors::new(m.clone());
+    let h = handle("survivor-ignores-term");
+    let ignoring = CommandSpec::Shell {
+        script: "(trap '' TERM; exec sleep 90) >/dev/null 2>&1 & echo CHILD=$!".to_owned(),
+        shell: None,
+    };
+    let sleeper = run_and_find(&m, &h, ignoring).await;
+    assert!(watch.survivors(&h).is_some());
+    assert!(watch.kill(&h).await, "the forced stop ends what SIGTERM did not");
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while pid_alive(sleeper) {
+        assert!(Instant::now() < deadline, "the sleeper survived the kill");
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(watch.survivors(&h), None);
 }

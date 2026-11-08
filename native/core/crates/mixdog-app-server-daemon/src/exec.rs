@@ -231,7 +231,7 @@ pub fn build_exec(
     (Exec { runtime, wakes, configured_shell }, ExecEvents { finished, thread_strips, host_strip })
 }
 
-// The recorded Node fixture is the Windows form of the command.
+// The recorded Node fixture is the Windows form of the commands.
 #[cfg(all(test, windows))]
 mod tests {
     use super::*;
@@ -246,39 +246,51 @@ mod tests {
     use mixdog_tools::exec::ShellTool;
     use mixdog_tools::exec::TaskTool;
     use tokio_util::sync::CancellationToken;
+    use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::System::Threading::GetExitCodeProcess;
+    use windows_sys::Win32::System::Threading::OpenProcess;
+    use windows_sys::Win32::System::Threading::PROCESS_QUERY_LIMITED_INFORMATION;
 
-    /// What Node's agent sees when a finished command leaves a descendant running, and after `task cancel`
-    /// (`fixtures/shell-survivors/golden.json`, recorded from Node b6f10295a by `record-shell-survivors.mjs`;
-    /// the Windows form of the command).
+    /// `STILL_ACTIVE` (minwinbase.h): the exit code of a process that has not ended.
+    const STILL_ACTIVE: u32 = 259;
+
+    /// What Node's agent sees through the life of a survivors task (`fixtures/shell-survivors/golden.json`, recorded
+    /// from Node b6f10295a with a mixdog-spawn built from the same commit; see its MANIFEST.json). The task id,
+    /// the timestamps and the child's pid are placeholders there.
     fn golden() -> serde_json::Value {
         serde_json::from_str(include_str!("../../../fixtures/shell-survivors/golden.json")).unwrap()
     }
 
-    /// The recorder's placeholders for the task id and the timestamps.
-    fn scrub(text: &str, id: &str) -> String {
-        let timed = stamps_unset(text);
-        timed.replace(id, "<TASK>")
-    }
-
-    fn stamps_unset(text: &str) -> String {
-        text.lines()
+    fn node_view(text: &str, id: &str) -> String {
+        let tail = if text.ends_with('\n') { "\n" } else { "" };
+        let pid_free = text.lines().map(|line| if line.starts_with("CHILD=") { "CHILD=<PID>" } else { line }).collect::<Vec<_>>();
+        pid_free
+            .join("\n")
+            .replace(id, "<TASK>")
+            .lines()
             .map(|line| match line.split_once(": ") {
                 Some((key @ ("started" | "finished"), _)) => format!("{key}: <TIME>"),
                 _ => line.to_owned(),
             })
             .collect::<Vec<_>>()
             .join("\n")
+            + tail
     }
 
-    /// The hidden `ping` descendants of the golden command that are running, asked of the operating system
-    /// through a command of its own (the survivor mechanism under test is not consulted).
-    async fn running_pings(shell: &ShellTool, dir: &Path, call: &str, processes: &LocalProcessManager) -> usize {
-        let query = "(Get-CimInstance Win32_Process -Filter \"Name='ping.exe'\" | Where-Object { $_.CommandLine -like '*127.0.0.1*' } | Measure-Object).Count";
-        text(shell.call(&ctx(dir, call, processes.clone()), serde_json::json!({"command": query})).await)
-            .lines()
-            .find_map(|line| line.trim().parse().ok())
-            .expect("a count")
+    /// Whether the process `pid` is still running, asked of the operating system directly.
+    fn alive(pid: u32) -> bool {
+        unsafe {
+            let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if process.is_null() {
+                return false;
+            }
+            let mut code = 0u32;
+            let known = GetExitCodeProcess(process, &mut code) != 0;
+            CloseHandle(process);
+            known && code == STILL_ACTIVE
+        }
     }
+
     fn ctx(dir: &Path, call: &str, processes: LocalProcessManager) -> ToolContext {
         let tokens = mixdog_rt::testing::tokens();
         ToolContext {
@@ -310,12 +322,14 @@ mod tests {
         }
     }
 
-    /// The runtime the daemon builds tracks what a finished command left running (Node's `probeShellDescendants`
-    /// at the shell settle): the call leaves with the survivors as a task, and `task cancel` ends them. Both
-    /// texts equal Node's recording, and the descendant is gone from the operating system afterwards.
-    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn a_finished_commands_survivors_are_tracked_and_cancel_ends_them() {
-        let want = golden();
+    struct Rig {
+        dir: tempfile::TempDir,
+        processes: LocalProcessManager,
+        shell: ShellTool,
+        task: TaskTool,
+    }
+
+    async fn rig() -> Rig {
         let tokens = mixdog_rt::testing::tokens();
         let dir = tempfile::tempdir().unwrap();
         let processes = LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default());
@@ -329,15 +343,72 @@ mod tests {
             SkillRuntime { platform: "win32".into(), interpreter: "node".into(), entry: "skill-entry.mjs".into(), electron: false },
             ExecHosts { ext_pool: Arc::new(MockExtPool::new(1)), processes: processes.clone() },
         );
-        let (shell, task) = (ShellTool::new(exec.runtime.clone()), TaskTool::new(exec.runtime));
-        assert_eq!(running_pings(&shell, dir.path(), "q0", &processes).await, 0);
-        let ran = text(shell.call(&ctx(dir.path(), "s1", processes.clone()), serde_json::json!({"command": want["command"]})).await);
-        assert_eq!(scrub(&ran, "task-s1"), want["shell"].as_str().unwrap());
-        assert_eq!(running_pings(&shell, dir.path(), "q1", &processes).await, 1, "the descendant runs while tracked");
-        let cancelled = text(task.call(&ctx(dir.path(), "s2", processes.clone()), serde_json::json!({"action": "cancel", "task_id": "task-s1"})).await);
-        assert_eq!(scrub(&cancelled, "task-s1"), want["cancel"].as_str().unwrap());
-        assert_eq!(running_pings(&shell, dir.path(), "q2", &processes).await, 0, "the descendant is gone after the cancel");
-        let read = text(task.call(&ctx(dir.path(), "s3", processes), serde_json::json!({"action": "read", "task_id": "task-s1"})).await);
-        assert_eq!(scrub(&read, "task-s1"), want["read"].as_str().unwrap());
+        Rig { dir, processes, shell: ShellTool::new(exec.runtime.clone()), task: TaskTool::new(exec.runtime) }
+    }
+
+    impl Rig {
+        async fn run(&self, call: &str, command: &str) -> String {
+            text(self.shell.call(&ctx(self.dir.path(), call, self.processes.clone()), serde_json::json!({"command": command})).await)
+        }
+
+        async fn task(&self, call: &str, args: serde_json::Value) -> String {
+            text(self.task.call(&ctx(self.dir.path(), call, self.processes.clone()), args).await)
+        }
+
+        /// The child the command printed (`CHILD=<pid>`), whose life is the test's own evidence.
+        fn child_of(ran: &str) -> u32 {
+            ran.lines().find_map(|line| line.strip_prefix("CHILD=")?.trim().parse().ok()).expect("the command printed its child")
+        }
+    }
+
+    /// The daemon's runtime tracks what a finished command left running (Node's `probeShellDescendants` at the shell settle)
+    /// and cancels it as Node does: every text the agent reads equals Node's recording, the task starts with the command,
+    /// and the child the command printed is running while tracked and gone from the operating system after the cancel.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_cancelled_survivors_task_reads_as_nodes_and_its_child_is_gone() {
+        let want = golden();
+        let rig = rig().await;
+        let command = want["cancelled"]["command"].as_str().unwrap();
+        let before = chrono::Utc::now().timestamp_millis();
+        let ran = rig.run("s1", command).await;
+        let returned = chrono::Utc::now().timestamp_millis();
+        assert_eq!(node_view(&ran, "task-s1"), want["cancelled"]["run"].as_str().unwrap());
+        // `started` is the command's start, not the moment its survivors were observed: the recording's own rule.
+        let started = ran.lines().find_map(|line| line.strip_prefix("started: ")).unwrap();
+        let started = chrono::DateTime::parse_from_rfc3339(started).unwrap().timestamp_millis();
+        assert!(want["timing"]["cancelled"]["startedAtCommandStart"].as_bool().unwrap());
+        assert!((started - before) * 2 < returned - before, "started {started} is not near the call's start {before} (returned {returned})");
+        let child = Rig::child_of(&ran);
+        assert!(alive(child), "the child runs while it is tracked");
+        let read = serde_json::json!({"action": "read", "task_id": "task-s1"});
+        assert_eq!(node_view(&rig.task("r1", read.clone()).await, "task-s1"), want["cancelled"]["readRunning"].as_str().unwrap());
+        let cancel = serde_json::json!({"action": "cancel", "task_id": "task-s1"});
+        assert_eq!(node_view(&rig.task("c1", cancel.clone()).await, "task-s1"), want["cancelled"]["cancel"].as_str().unwrap());
+        assert!(!alive(child), "the child is gone once the cancel reports");
+        assert_eq!(node_view(&rig.task("c2", cancel).await, "task-s1"), want["cancelled"]["cancelAgain"].as_str().unwrap());
+        assert_eq!(node_view(&rig.task("r2", read).await, "task-s1"), want["cancelled"]["read"].as_str().unwrap());
+        let tail = serde_json::json!({"action": "read", "task_id": "task-s1", "output": "tail"});
+        assert_eq!(node_view(&rig.task("r3", tail).await, "task-s1"), want["cancelled"]["tail"].as_str().unwrap());
+    }
+
+    /// A survivors task whose child ends on its own completes with Node's result body, and has nothing left to cancel.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_survivors_task_whose_child_ends_on_its_own_completes_as_nodes_does() {
+        let want = golden();
+        let rig = rig().await;
+        let ran = rig.run("s1", want["natural"]["command"].as_str().unwrap()).await;
+        assert_eq!(node_view(&ran, "task-s1"), want["natural"]["run"].as_str().unwrap());
+        let child = Rig::child_of(&ran);
+        assert!(alive(child));
+        let read = serde_json::json!({"action": "read", "task_id": "task-s1"});
+        assert_eq!(node_view(&rig.task("r1", read.clone()).await, "task-s1"), want["natural"]["readRunning"].as_str().unwrap());
+        let wait = serde_json::json!({"action": "wait", "task_id": "task-s1", "timeout_ms": 30000});
+        assert_eq!(node_view(&rig.task("w", wait).await, "task-s1"), want["natural"]["wait"].as_str().unwrap());
+        assert!(!alive(child), "the task completed because its child ended");
+        assert_eq!(node_view(&rig.task("r2", read).await, "task-s1"), want["natural"]["read"].as_str().unwrap());
+        let tail = serde_json::json!({"action": "read", "task_id": "task-s1", "output": "tail"});
+        assert_eq!(node_view(&rig.task("r3", tail).await, "task-s1"), want["natural"]["tail"].as_str().unwrap());
+        let cancel = serde_json::json!({"action": "cancel", "task_id": "task-s1"});
+        assert_eq!(node_view(&rig.task("c1", cancel).await, "task-s1"), want["natural"]["cancelAfterEnd"].as_str().unwrap());
     }
 }

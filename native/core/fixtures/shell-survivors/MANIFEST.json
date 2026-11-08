@@ -1,0 +1,56 @@
+{
+  "blocked": [
+    "unconfirmed cancel: a Windows job object ends every member, nothing here resists the kill",
+    "POSIX recordings (no-pidfd termination, SIGTERM/SIGKILL sequence): this machine is Windows"
+  ],
+  "command": "node benchmarks/rust-core/recorders/record-shell-survivors.mjs --tree <git checkout of b6f10295a2f698afc85332467192de28500bd146> --commit b6f10295a2f698afc85332467192de28500bd146 --spawn-bin <mixdog-spawn built from it> --spawn-build-command <cargo command> --spawn-target-dir <dir> --rustc <rustc>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 3220,
+      "path": "golden.json",
+      "sha256": "a68002b5bbd7afc0ed70ab32cb2bd83af990d3c6a145c85498c85a28bc77830d"
+    }
+  ],
+  "product": {
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-shell-survivors.mjs",
+  "scenarios": [
+    "natural end",
+    "cancel while running",
+    "cancel after the natural end",
+    "cancel twice",
+    "observer exit after a cancel"
+  ],
+  "set": "shell-survivors",
+  "spawn": {
+    "binarySha256": "cc2e00c0ac58c9abaa520612bc5aa7e168b288f6821eaf89fe2b14d7702946b9",
+    "buildCommand": "cargo build --release --locked (via D:\\mixdog-build\\tools\\cargo-gate.ps1)",
+    "buildCwd": "native/mixdog-spawn",
+    "cargoLockSha256": "7c759835677b14e4e2c0d7646e9fb29af81329708f913957c807aefcac089c3b",
+    "sourceTree": "f8d7d1c23d8f29a5b4454c4c43e34490a52dcd2a",
+    "targetDir": "D:\\mixdog-build\\tmp\\w4rec\\spawn-target",
+    "toolchain": [
+      "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+      "binary: rustc",
+      "commit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67",
+      "commit-date: 2026-10-13",
+      "host: x86_64-pc-windows-msvc",
+      "release: 1.99.1",
+      "LLVM version: 23.1.1"
+    ]
+  },
+  "totalBytes": 3220
+}

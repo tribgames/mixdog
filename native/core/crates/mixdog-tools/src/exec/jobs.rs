@@ -14,6 +14,7 @@ use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicU32;
+use std::time::Duration;
 
 use mixdog_core_api::domain::common::EventSource;
 use mixdog_core_api::domain::process::ExitStatus;
@@ -382,8 +383,12 @@ struct JobState {
     /// The unseen output at completion, returned once by the next read.
     completion_output: Option<String>,
     acknowledged: bool,
-    /// A survivors task ended by `task cancel`.
+    /// A survivors task ended by `task cancel` (its registry state; the processes may still run, see `confirmed`).
     cancelled: bool,
+    /// A survivors task whose observer returned its result (`run` resolved): only a natural end has one.
+    survivor_result: bool,
+    /// The survivors are confirmed gone (by the observer or by a kill's re-observation).
+    confirmed: bool,
     /// When the command moved to the background; the task row starts there.
     promoted_ms: Option<u64>,
     /// When the process last wrote to stdout or stderr.
@@ -404,6 +409,8 @@ impl JobState {
             completion_output: None,
             acknowledged: false,
             cancelled: false,
+            survivor_result: false,
+            confirmed: false,
             promoted_ms: None,
             last_output_ms: None,
             user_cycle: None,
@@ -699,6 +706,22 @@ impl Job {
         !self.state().finished
     }
 
+    /// A survivors task cancelled whose processes are not yet confirmed gone: it keeps being terminated.
+    pub(crate) fn termination_pending(&self) -> bool {
+        let state = self.state();
+        self.survivors && state.finished && state.cancelled && !state.confirmed
+    }
+
+    /// The result body of a survivors task read: it owns no output (its command's was delivered with the call, and its logs are not
+    /// reopened). Node renders a body whenever a result object exists, and only a natural end has one (`readShellTaskOutput` with no
+    /// log paths: `(no new output)`, `(no output)` for an explicit tail).
+    pub(crate) fn survivor_body(&self, tail: bool) -> String {
+        if !self.state().survivor_result {
+            return String::new();
+        }
+        if tail { "(no output)" } else { "(no new output)" }.to_owned()
+    }
+
     pub fn exit(&self) -> Option<ProcessExit> {
         self.state().exit
     }
@@ -895,8 +918,7 @@ impl Job {
         if !self.survivors {
             lines.push(self.logs_line());
         }
-        // A survivors task owns no output (its command's output was delivered with the call): Node's read ends at the status lines.
-        if let Some(body) = body.filter(|_| !self.survivors) {
+        if let Some(body) = body {
             if !body.is_empty() {
                 lines.push(String::new());
                 lines.push(body.to_owned());
@@ -1032,6 +1054,9 @@ impl Job {
         out.join("\n")
     }
 }
+
+/// Node's `TERMINATION_RECHECK_MS` (`lib/shell-descendants.mjs`): the cadence of every termination re-check.
+const TERMINATION_RECHECK: Duration = Duration::from_millis(5_000);
 
 /// The jobs of one runtime.
 pub struct ExecRuntime {
@@ -1216,7 +1241,8 @@ impl ExecRuntime {
             cwd: job.cwd.clone(),
             owner: job.owner.clone(),
             handle: job.handle.clone(),
-            started_ms: self.now_ms(),
+            // The command's own start: Node's `trackSurvivingDescendants` hands its `startedAtMs` to the task.
+            started_ms: job.started_ms,
             time_limit_ms: 0,
             review: job.review.clone(),
             stdout_log: job.stdout_log.clone(),
@@ -1242,33 +1268,66 @@ impl ExecRuntime {
         });
         let (runtime, watched) = (self.clone(), tracked.clone());
         mixdog_rt::spawn("shell-survivors", TaskClass::Work, async move {
-            watch.wait_gone(&watched.handle).await;
-            runtime.finish_survivors(&watched, false).await;
+            // The passive observation (`waitForShellDescendants`): the survivors are checked now and re-checked every
+            // `TERMINATION_RECHECK_MS`. A cancel whose kill could not confirm them gone keeps terminating on every pass
+            // (`sweep: () => cancelled`) while the row is held.
+            loop {
+                match tokio::time::timeout(TERMINATION_RECHECK, watch.wait_gone(&watched.handle)).await {
+                    Ok(()) => break,
+                    Err(_) if watched.termination_pending() && watch.kill(&watched.handle).await => break,
+                    Err(_) => {}
+                }
+            }
+            runtime.finish_survivors(&watched).await;
         });
         Some((tracked, survivors))
     }
 
-    /// The last survivor exited (or was terminated).
-    pub(crate) async fn finish_survivors(&self, job: &Job, cancelled: bool) {
-        let now = self.now_ms();
-        {
+    /// A cancel of a survivors task, before anything is signalled: its intent is latched and the registry state turns terminal
+    /// (`cancelBackgroundTask` flips the status ahead of the kill's outcome), with the row held until the processes are
+    /// confirmed gone. An exit event that arrives later can no longer mark the task completed. `false` when the task is
+    /// already terminal.
+    pub(crate) fn cancel_survivors_intent(&self, job: &Job) -> bool {
+        let mut state = job.state();
+        if state.finished {
+            return false;
+        }
+        state.finished = true;
+        state.finished_ms = Some(self.now_ms());
+        state.cancelled = true;
+        let _ = self.config.tasks.finish(&job.id, TaskOutcome { status: SpawnStatus::Cancelled, exit_code: None });
+        let _ = self.config.tasks.set_termination_unconfirmed(&job.id, true);
+        true
+    }
+
+    /// The survivors are confirmed gone (the observer saw the last one exit, or a kill's re-observation found none). A task still
+    /// running ends as completed with its result; one cancelled earlier ends its hold. Idempotent.
+    pub(crate) async fn finish_survivors(&self, job: &Job) {
+        let (natural, cancelled) = {
             let mut state = job.state();
-            if state.finished {
+            if state.confirmed {
                 return;
             }
-            state.finished = true;
-            state.finished_ms = Some(now);
-            state.cancelled = cancelled;
+            state.confirmed = true;
+            let natural = !state.finished;
+            if natural {
+                state.finished = true;
+                state.finished_ms = Some(self.now_ms());
+                state.survivor_result = true;
+            }
+            (natural, state.cancelled)
+        };
+        if natural {
+            self.finish_row(&job.id, TaskOutcome { status: SpawnStatus::Completed, exit_code: None });
+        } else {
+            let _ = self.config.tasks.set_termination_unconfirmed(&job.id, false);
         }
-        let status = if cancelled { SpawnStatus::Cancelled } else { SpawnStatus::Completed };
-        self.finish_row(&job.id, TaskOutcome { status, exit_code: None });
         // The tracked task's end, like `completeBackgroundTask`: its folder may have changed.
         super::settle::note_command_settled(job.review.as_ref(), &job.cwd);
         let word = if cancelled { "cancelled" } else { "completed" };
         job.report_finished(self.config.notifier.as_deref(), word, job.survivors_notification(word)).await;
         job.settled.send_replace(true);
     }
-
     /// A cancel of `job` could not confirm its processes gone: the row is held
     /// (`terminationUnconfirmed`) so the surfaces list it, the user may release it and a closed
     /// owner's hold is found. A job that has already ended is confirmed gone, so nothing is held.

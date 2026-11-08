@@ -8,17 +8,13 @@
 //! `survivors` → [`ProcessSurvivors::survivors`], `wait_gone` → [`ProcessSurvivors::wait_gone`],
 //! `kill` → [`ProcessSurvivors::kill`].
 
-use std::time::Duration;
-
 use mixdog_protocol::ProcessHandle;
 
+use crate::contain::Containment;
 use crate::manager::LocalProcessManager;
 
-/// How long a kill waits for the operating system to finish ending the processes.
-const KILL_SETTLE: Duration = Duration::from_secs(5);
-
-/// How long the survivors get to leave after SIGTERM before SIGKILL (`delay(200)` of Node).
-const TERM_GRACE: Duration = Duration::from_millis(200);
+/// Kill-and-observe rounds of a survivor kill before it reports what is left (KILL_ROUNDS of Node).
+const KILL_ROUNDS: usize = 3;
 
 /// What a finished command left running.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -55,18 +51,31 @@ impl ProcessSurvivors {
         }
     }
 
-    /// Ends them; `true` when a fresh look finds every one gone.
+    /// Ends them; `true` when a fresh look finds every one gone. This is the cancel's own schedule
+    /// (`killShellDescendants`), apart from the passive observation of [`Self::wait_gone`]: the group
+    /// gets the gentle stop and its grace, then the forced stop and its wait, then up to three
+    /// sweeps (the group again and every observed identity) each followed by a look. Whatever look
+    /// finds nothing left settles the kill at once, never at the observer's next re-check.
     pub async fn kill(&self, handle: &ProcessHandle) -> bool {
         let Ok(proc) = self.manager.proc(handle) else {
             return true;
         };
-        // `killShellDescendants`: SIGTERM to the group, 200 ms, then SIGKILL if anything is left.
-        // (A job object has no gentle stop: `terminate` is the forced kill there.)
-        proc.containment().terminate();
-        if tokio::time::timeout(TERM_GRACE, proc.containment().wait_empty()).await.is_err() {
-            proc.containment().kill();
+        let containment = proc.containment();
+        if containment.remaining().is_none() {
+            return true;
         }
-        let _ = tokio::time::timeout(KILL_SETTLE, proc.containment().wait_empty()).await;
-        proc.containment().remaining().is_none()
+        containment.terminate();
+        if !containment.gone_within(Containment::TERM_GRACE).await {
+            containment.kill();
+            containment.gone_within(Containment::SWEEP_WAIT).await;
+        }
+        for _ in 0..KILL_ROUNDS {
+            if containment.remaining().is_none() {
+                return true;
+            }
+            containment.sweep();
+            containment.gone_within(Containment::SWEEP_WAIT).await;
+        }
+        containment.remaining().is_none()
     }
 }
