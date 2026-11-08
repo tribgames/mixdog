@@ -103,6 +103,7 @@ impl ShellControl {
             CancelOutcome::Unconfirmed | CancelOutcome::Pending => {
                 json!({ "stopped": false, "unconfirmed": true, "error": format!("cancellation not confirmed: {id}") })
             }
+            CancelOutcome::NotFound => unknown(),
         }
     }
 
@@ -136,9 +137,14 @@ impl ShellControl {
         if job.survivors {
             let runtime = self.runtime.clone();
             drop(mixdog_rt::spawn("shell-owner-close", TaskClass::Work, async move {
-                match &runtime.config.survivors {
-                    Some(watch) if watch.kill(&job.handle).await => runtime.finish_survivors(&job, true).await,
-                    _ => runtime.hold_unconfirmed(&job),
+                // The intent is latched first; a closing session's cancel is the same hook as `task cancel`'s.
+                if !runtime.cancel_survivors_intent(&job) && !job.termination_pending() {
+                    return;
+                }
+                if let Some(watch) = &runtime.config.survivors {
+                    if watch.kill(&job.handle).await {
+                        runtime.finish_survivors(&job).await;
+                    }
                 }
             }));
         } else if !send_kill(&self.runtime, &*self.processes, &job) {

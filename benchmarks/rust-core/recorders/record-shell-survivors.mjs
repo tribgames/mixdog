@@ -1,48 +1,119 @@
 #!/usr/bin/env node
 // What the agent sees when a foreground shell command finishes but leaves a descendant running (Node's
-// `probeShellDescendants` → survivors task), and after `task cancel` of it: the real Node shell and task
-// tools run once, the task id and the two timestamps are replaced by placeholders. Windows form of the
-// command (the host this was recorded on); the descendant is a hidden `ping` that would run 90 s.
+// `probeShellDescendants` → survivors task), through its whole life: the start notice, `task read` while it runs,
+// `task wait` / `task read` after it ended on its own, `task read output:tail`, `task cancel` (while running, again,
+// and after a natural end), the read after a cancel (the observer's exit event must not turn it into a completion)
+// and `task list`. The real Node shell and task tools run on a clean checkout of one commit with the
+// mixdog-spawn binary built from that same commit; the task id, the two timestamps and the child's pid are
+// replaced by placeholders. Windows form of the commands (the host this was recorded on).
 //
-//   node benchmarks/rust-core/recorders/record-shell-survivors.mjs --tree <dir> --spawn-bin <mixdog-spawn binary>
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+//   node benchmarks/rust-core/recorders/record-shell-survivors.mjs --tree <git checkout at --commit, with node_modules> \
+//        --commit <40-hex> --spawn-bin <mixdog-spawn built from the same commit> \
+//        --spawn-build-command "<the cargo command>" --spawn-target-dir <its CARGO_TARGET_DIR> --rustc <rustc of the build>
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, writeJson } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitCheckoutIdentity, importFrom, parseArgs, resolveTree, sha256, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const args = parseArgs();
+const need = (name) => args.get(name) ?? (() => { throw new Error(`--${name} is required`); })();
 const tree = resolveTree(args);
-if (process.platform !== 'win32') throw new Error('the recorded command is the Windows form');
+const commit = need('commit');
+if (process.platform !== 'win32') throw new Error('the recorded commands are the Windows form');
+const identity = commitCheckoutIdentity(tree, commit);
+const git = (...a) => execFileSync('git', ['-C', tree, ...a], { encoding: 'utf8' }).trim();
+const spawnBin = need('spawn-bin');
+const spawnIdentity = {
+  sourceTree: git('rev-parse', 'HEAD:native/mixdog-spawn'),
+  cargoLockSha256: sha256(readFileSync(join(tree, 'native', 'mixdog-spawn', 'Cargo.lock'))),
+  binarySha256: sha256(readFileSync(spawnBin)),
+  buildCommand: need('spawn-build-command'),
+  buildCwd: 'native/mixdog-spawn',
+  targetDir: need('spawn-target-dir'),
+  toolchain: execFileSync(need('rustc'), ['--version', '--verbose'], { encoding: 'utf8' }).trim().split(/\r?\n/),
+};
+
 const work = mkdtempSync(join(tmpdir(), 'mixdog-survivors-golden-'));
 process.env.MIXDOG_DATA_DIR = join(work, 'data');
+const keepAlive = setInterval(() => {}, 1000); // `task wait` holds only unref'd timers
 const { _setNativeSpawnBinaryForTest } = await importFrom(tree, 'src/runtime/agent/orchestrator/tools/lib/native-spawn-client.mjs');
-_setNativeSpawnBinaryForTest(args.get('spawn-bin'));
+_setNativeSpawnBinaryForTest(spawnBin);
 const { executeBuiltinTool } = await importFrom(tree, 'src/runtime/agent/orchestrator/tools/builtin.mjs');
 const { normalizeToolEnvelope } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/tool-envelope.mjs');
 
 const ws = join(work, 'ws');
 mkdirSync(ws, { recursive: true });
-const command = "Start-Process ping -ArgumentList '-n','90','127.0.0.1' -WindowStyle Hidden";
-const text = async (tool, input) => {
-  const env = normalizeToolEnvelope(await executeBuiltinTool(tool, input, ws));
-  return String(env.result ?? '');
+const text = async (tool, input) => String(normalizeToolEnvelope(await executeBuiltinTool(tool, input, ws)).result ?? '');
+const child = (seconds) => `$p = Start-Process ping -ArgumentList '-n','${seconds}','127.0.0.1' -PassThru -WindowStyle Hidden; Write-Output "CHILD=$($p.Id)"`;
+const NATURAL = child(3); // the hidden ping ends by itself after about two seconds
+const LONG = child(90);
+
+const scrubbers = [];
+const scrub = (t) => {
+  let out = t;
+  for (const [from, to] of scrubbers) out = out.replaceAll(from, to);
+  return out.replace(/(started|finished): \S+/g, '$1: <TIME>').replace(/CHILD=\d+/g, 'CHILD=<PID>');
 };
-const ran = await text('shell', { command });
-const id = /task_id: (\S+)/.exec(ran)[1];
-const cancelled = await text('task', { action: 'cancel', task_id: id });
-const read = await text('task', { action: 'read', task_id: id });
-const scrub = (t) => t.replaceAll(id, '<TASK>').replace(/(started|finished): \S+/g, '$1: <TIME>');
+const start = async (command) => {
+  const t0 = Date.now();
+  const ran = await text('shell', { command });
+  const callMs = Date.now() - t0;
+  const id = /task_id: (\S+)/.exec(ran)[1];
+  scrubbers.push([id, '<TASK>']);
+  const startedMs = Date.parse(/started: (\S+)/.exec(ran)[1]);
+  return { ran, id, timing: { callMs, startedAfterCallBeganMs: startedMs - t0, startedAtCommandStart: startedMs - t0 < callMs / 2 } };
+};
+
+const natural = await start(NATURAL);
+const naturalOut = {
+  command: NATURAL,
+  run: natural.ran,
+  readRunning: await text('task', { action: 'read', task_id: natural.id }),
+  wait: await text('task', { action: 'wait', task_id: natural.id, timeout_ms: 20000 }),
+  read: await text('task', { action: 'read', task_id: natural.id }),
+  tail: await text('task', { action: 'read', task_id: natural.id, output: 'tail' }),
+  cancelAfterEnd: await text('task', { action: 'cancel', task_id: natural.id }),
+};
+const cancelled = await start(LONG);
+const cancelOut = {
+  command: LONG,
+  run: cancelled.ran,
+  readRunning: await text('task', { action: 'read', task_id: cancelled.id }),
+  cancel: await text('task', { action: 'cancel', task_id: cancelled.id }),
+  cancelAgain: await text('task', { action: 'cancel', task_id: cancelled.id }),
+  read: await text('task', { action: 'read', task_id: cancelled.id }),
+  tail: await text('task', { action: 'read', task_id: cancelled.id, output: 'tail' }),
+};
+// The observer sees the killed tree end on its next recheck; that exit must not complete the cancelled task.
+await new Promise((resolve) => setTimeout(resolve, 6_500));
+cancelOut.readAfterObserverRecheck = await text('task', { action: 'read', task_id: cancelled.id });
+const list = await text('task', { action: 'list' });
+
 const dir = join(FIXTURES_ROOT, 'shell-survivors');
+rmSync(dir, { recursive: true, force: true });
 mkdirSync(dir, { recursive: true });
+const finish = (section) => Object.fromEntries(Object.entries(section).map(([k, v]) => [k, k === 'command' ? v : scrub(v)]));
 writeJson(join(dir, 'golden.json'), {
-  recorder: 'benchmarks/rust-core/recorders/record-shell-survivors.mjs',
-  nodeCommit: 'b6f10295a',
-  platform: 'win32',
-  command,
-  shell: scrub(ran),
-  cancel: scrub(cancelled),
-  read: scrub(read),
+  platform: process.platform,
+  arch: process.arch,
+  node: process.version,
+  nodeCommit: commit,
+  normalization: 'task id -> <TASK>; started/finished values -> <TIME>; CHILD=<digits> -> CHILD=<PID>',
+  natural: finish(naturalOut),
+  cancelled: finish(cancelOut),
+  list: scrub(list),
+  timing: { natural: natural.timing, cancelled: cancelled.timing },
 });
+const command = `node benchmarks/rust-core/recorders/record-shell-survivors.mjs --tree <git checkout of ${commit}> --commit ${commit} --spawn-bin <mixdog-spawn built from it> --spawn-build-command <cargo command> --spawn-target-dir <dir> --rustc <rustc>`;
+writeSetManifest(dir, {
+  set: 'shell-survivors',
+  recorder: 'benchmarks/rust-core/recorders/record-shell-survivors.mjs',
+  command,
+  identity,
+  extra: { spawn: spawnIdentity, scenarios: ['natural end', 'cancel while running', 'cancel after the natural end', 'cancel twice', 'observer exit after a cancel'], blocked: ['unconfirmed cancel: a Windows job object ends every member, nothing here resists the kill', 'POSIX recordings (no-pidfd termination, SIGTERM/SIGKILL sequence): this machine is Windows'] },
+});
+clearInterval(keepAlive);
 rmSync(work, { recursive: true, force: true });
 console.log('recorded shell-survivors');
 process.exit(0);

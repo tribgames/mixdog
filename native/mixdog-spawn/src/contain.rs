@@ -235,6 +235,22 @@ mod imp {
             unsafe { TerminateJobObject(self.job, KILL_EXIT_CODE) };
         }
 
+        /// A job holds every process it started, so ending the job is also the sweep of the observed targets.
+        pub(crate) fn sweep(&self) {
+            self.kill();
+        }
+
+        /// How long a kill waits, woken by the job's own message, for the job to empty: there is no gentle first stop
+        /// and no grace to give, only the operating system's time to end the processes.
+        pub(crate) const TERM_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+        pub(crate) const SWEEP_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+        /// Whether the job is empty within `within`; returns as soon as the last process ends.
+        pub(crate) async fn gone_within(&self, within: std::time::Duration) -> bool {
+            let _ = tokio::time::timeout(within, self.wait_empty()).await;
+            !self.occupied()
+        }
+
         /// A job object has no gentle stop: the first stop is the forced one, so only the Unix path
         /// of an escalating stop differs.
         pub(crate) fn terminate(&self) {
@@ -257,6 +273,8 @@ mod imp {
     use std::sync::atomic::AtomicBool;
     use std::sync::atomic::AtomicI32;
     use std::sync::atomic::Ordering;
+    #[cfg(target_os = "linux")]
+    use std::sync::Mutex;
     use std::time::Duration;
 
     /// `TERMINATION_RECHECK_MS` of `lib/shell-descendants.mjs`.
@@ -268,6 +286,10 @@ mod imp {
         /// The group was seen empty. Its id may be reused by an unrelated group from then on, so
         /// nothing is sent to it or asked of it again.
         emptied: AtomicBool,
+        /// Linux: the identities (pid and start time) of the group's members and their descendants, as of the last look, so a
+        /// process that left the group is still found and a recycled pid is never taken for it.
+        #[cfg(target_os = "linux")]
+        tracked: Mutex<Vec<(u32, String)>>,
     }
 
     impl Containment {
@@ -275,6 +297,8 @@ mod imp {
             Ok(Self {
                 group: AtomicI32::new(0),
                 emptied: AtomicBool::new(false),
+                #[cfg(target_os = "linux")]
+                tracked: Mutex::new(Vec::new()),
             })
         }
 
@@ -325,11 +349,55 @@ mod imp {
             #[cfg(target_os = "linux")]
             {
                 let group = self.group.load(Ordering::Acquire);
-                if group <= 0 || linux::live_members(group).is_empty() {
+                if group <= 0 || self.look().is_empty() {
                     return None;
                 }
+                // Alive but possibly outside the group (a process that left it): reachable by its pid.
+                return Some(self.probe().unwrap_or(true));
             }
+            #[cfg(not(target_os = "linux"))]
             self.probe()
+        }
+
+        /// Linux: the live processes of the group and of their descendants, remembered by identity.
+        #[cfg(target_os = "linux")]
+        fn look(&self) -> Vec<u32> {
+            let group = self.group.load(Ordering::Acquire);
+            let mut tracked = self.tracked.lock().unwrap_or_else(|e| e.into_inner());
+            linux::members(group, &mut tracked)
+        }
+
+        /// Sends the second kill of a sweep: the group, and every remembered process that is still the one that was seen
+        /// (`killShellDescendants` kills the observed identities, never a bare pid). Linux only: the other platforms have no
+        /// process table to remember them in, so the group is all there is.
+        pub(crate) fn sweep(&self) {
+            self.kill();
+            #[cfg(target_os = "linux")]
+            {
+                let tracked = self.tracked.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                linux::kill_tracked(&tracked);
+            }
+        }
+
+        /// How long the gentle stop gets before the forced one (`delay(200)` of `killShellDescendants`), and how long the
+        /// group gets to show empty after a forced one (`delay(100)`).
+        pub(crate) const TERM_GRACE: Duration = Duration::from_millis(200);
+        pub(crate) const SWEEP_WAIT: Duration = Duration::from_millis(100);
+
+        /// Whether nothing is left within `within`. With pidfd the members' exits end the wait early; otherwise it is
+        /// the whole span and then one look.
+        pub(crate) async fn gone_within(&self, within: Duration) -> bool {
+            #[cfg(target_os = "linux")]
+            if linux::pidfd_supported() {
+                let group = self.group.load(Ordering::Acquire);
+                if group > 0 {
+                    let tracked = self.tracked.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                    let _ = tokio::time::timeout(within, linux::wait_group_empty(group, tracked)).await;
+                }
+                return self.remaining().is_none();
+            }
+            tokio::time::sleep(within).await;
+            self.remaining().is_none()
         }
 
         /// Every group can be watched: `lib/shell-descendants.mjs` probes the process group on all
@@ -347,7 +415,8 @@ mod imp {
             if linux::pidfd_supported() {
                 let group = self.group.load(Ordering::Acquire);
                 if group > 0 {
-                    linux::wait_group_empty(group).await;
+                    let tracked = self.tracked.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                    linux::wait_group_empty(group, tracked).await;
                 }
                 return;
             }
@@ -364,23 +433,66 @@ mod imp {
         use std::os::fd::OwnedFd;
         use std::sync::Arc;
 
-        /// The live (not zombie) processes whose process group is `group`.
-        pub(super) fn live_members(group: i32) -> Vec<u32> {
+        /// One live process of the table: its parent, group and start time (the identity that survives pid reuse).
+        struct Entry {
+            pid: u32,
+            ppid: u32,
+            pgrp: i32,
+            start: String,
+        }
+
+        /// `/proc/<pid>/stat` of a live (not zombie) process.
+        fn entry_of(pid: u32) -> Option<Entry> {
+            let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+            // The command name may hold spaces and parentheses: the fields follow the last ')'.
+            let rest = &stat[stat.rfind(')')? + 2..];
+            let mut fields = rest.split(' ');
+            let state = fields.next()?;
+            let ppid: u32 = fields.next()?.parse().ok()?;
+            let pgrp: i32 = fields.next()?.parse().ok()?;
+            // Fields 4..19 follow the group (session ... itrealvalue); the 20th is the start time.
+            let start = fields.nth(16)?.to_owned();
+            (state != "Z" && state != "X").then_some(Entry { pid, ppid, pgrp, start })
+        }
+
+        fn table() -> Vec<Entry> {
             let Ok(dir) = std::fs::read_dir("/proc") else {
                 return Vec::new();
             };
-            dir.filter_map(|entry| {
-                let pid: u32 = entry.ok()?.file_name().to_str()?.parse().ok()?;
-                let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-                // The command name may hold spaces and parentheses: the fields follow the last ')'.
-                let rest = &stat[stat.rfind(')')? + 2..];
-                let mut fields = rest.split(' ');
-                let state = fields.next()?;
-                fields.next()?;
-                let pgrp: i32 = fields.next()?.parse().ok()?;
-                (pgrp == group && state != "Z" && state != "X").then_some(pid)
-            })
-            .collect()
+            dir.filter_map(|entry| entry_of(entry.ok()?.file_name().to_str()?.parse().ok()?)).collect()
+        }
+
+        /// The live processes of the group `group`, those of `tracked` that are still the processes that were seen, and
+        /// every descendant of either (the tracker of `shell-descendants.mjs` follows parent links the same way). `tracked`
+        /// becomes that set.
+        pub(super) fn members(group: i32, tracked: &mut Vec<(u32, String)>) -> Vec<u32> {
+            let table = table();
+            let mut found: Vec<u32> = table
+                .iter()
+                .filter(|e| e.pgrp == group || tracked.iter().any(|(pid, start)| *pid == e.pid && *start == e.start))
+                .map(|e| e.pid)
+                .collect();
+            let mut at = 0;
+            while at < found.len() {
+                let parent = found[at];
+                at += 1;
+                for e in table.iter().filter(|e| e.ppid == parent) {
+                    if !found.contains(&e.pid) {
+                        found.push(e.pid);
+                    }
+                }
+            }
+            *tracked = table.iter().filter(|e| found.contains(&e.pid)).map(|e| (e.pid, e.start.clone())).collect();
+            found
+        }
+
+        /// SIGKILL to each remembered process that still has the start time it was seen with.
+        pub(super) fn kill_tracked(tracked: &[(u32, String)]) {
+            for (pid, start) in tracked {
+                if entry_of(*pid).is_some_and(|e| e.start == *start) {
+                    unsafe { libc::kill(*pid as libc::pid_t, libc::SIGKILL) };
+                }
+            }
         }
 
         fn pidfd_open(pid: u32) -> Option<OwnedFd> {
@@ -402,7 +514,7 @@ mod imp {
             }
         }
 
-        pub(super) async fn wait_group_empty(group: i32) {
+        pub(super) async fn wait_group_empty(group: i32, tracked: Vec<(u32, String)>) {
             let raw = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC) };
             if raw < 0 {
                 return;
@@ -411,7 +523,7 @@ mod imp {
             let (done, finished) = tokio::sync::oneshot::channel();
             let waiter_fd = Arc::clone(&cancel);
             let spawned = std::thread::Builder::new().name("group-wait".to_owned()).spawn(move || {
-                block_until_empty(group, waiter_fd.as_raw_fd());
+                block_until_empty(group, tracked, waiter_fd.as_raw_fd());
                 let _ = done.send(());
             });
             if spawned.is_err() {
@@ -421,9 +533,9 @@ mod imp {
             let _ = finished.await;
         }
 
-        fn block_until_empty(group: i32, cancel: i32) {
+        fn block_until_empty(group: i32, mut tracked: Vec<(u32, String)>, cancel: i32) {
             loop {
-                let members = live_members(group);
+                let members = members(group, &mut tracked);
                 if members.is_empty() {
                     return;
                 }

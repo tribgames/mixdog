@@ -160,6 +160,29 @@ export function tagCheckoutIdentity(tree, tag) {
 }
 
 /** Nearest-rank percentile of an ascending numeric array. */
+/**
+ * `tagCheckoutIdentity` for a commit that has no tag: the tree is a git checkout whose HEAD is `commit` (full
+ * 40-hex id) and whose working tree has no change or untracked file (ignored files such as node_modules aside).
+ */
+export function commitCheckoutIdentity(tree, commit) {
+  if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error(`commit must be a full id, got ${commit}`);
+  if (!existsSync(join(tree, '.git'))) throw new Error(`tree ${tree} is not a git checkout (no .git): record from a clone at ${commit}`);
+  const git = (...a) => execFileSync('git', ['-C', tree, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }).trim();
+  const head = git('rev-parse', 'HEAD');
+  if (head !== commit) throw new Error(`tree ${tree} is at ${head}, not at ${commit}`);
+  const changed = git('status', '--porcelain', '--untracked-files=all');
+  if (changed) throw new Error(`tree ${tree} has changes against ${commit}:\n${changed}`);
+  return {
+    tree: 'product tree loaded by the recorder',
+    treeKind: 'git-checkout',
+    version: JSON.parse(readFileSync(join(tree, 'package.json'), 'utf8')).version,
+    commit,
+    exact: true,
+    comparedAgainst: commit,
+    refComparison: { closestCommit: commit, exact: true, filesDifferingFromCommit: 0, commitFilesMissingFromTree: 0 },
+  };
+}
+
 export function percentile(sorted, p) {
   if (!sorted.length) return null;
   const rank = Math.min(sorted.length, Math.max(1, Math.ceil((p / 100) * sorted.length)));

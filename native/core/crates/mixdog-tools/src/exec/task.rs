@@ -130,7 +130,7 @@ async fn read_or_wait(
     let status = job.status();
     let running = status == JobStatus::Running;
     let pending = if !running && !tail { job.pending_completion_output() } else { None };
-    let body = pending.unwrap_or_else(|| {
+    let body = if job.survivors { Some(job.survivor_body(tail)) } else { pending }.unwrap_or_else(|| {
         job.read_output(ReadOptions {
             tail,
             terminal: !running,
@@ -177,6 +177,9 @@ pub(super) enum CancelOutcome {
     Unconfirmed,
     /// The command exited but processes it started are still alive.
     Pending,
+    /// A survivors task that already ended (naturally, or by an earlier confirmed cancel): Node answers `task not found`, since
+    /// neither a shell job nor a running task is left to cancel.
+    NotFound,
 }
 
 /// The one cancel path of a task: the `task` tool's `cancel` and the surfaces' stop go through it.
@@ -185,7 +188,7 @@ pub(super) enum CancelOutcome {
 /// the user releases it.
 pub(super) async fn cancel_job(runtime: &ExecRuntime, processes: &dyn ProcessManager, job: &Job) -> CancelOutcome {
     let outcome = cancel_outcome(runtime, processes, job).await;
-    if outcome != CancelOutcome::Cancelled {
+    if matches!(outcome, CancelOutcome::Unconfirmed | CancelOutcome::Pending) {
         runtime.hold_unconfirmed(job);
     }
     outcome
@@ -198,13 +201,14 @@ pub(super) fn send_kill(runtime: &ExecRuntime, processes: &dyn ProcessManager, j
 }
 
 async fn cancel_outcome(runtime: &ExecRuntime, processes: &dyn ProcessManager, job: &Job) -> CancelOutcome {
-    // Node answers a cancel of a task it still retains with the success text.
-    if !job.is_running() {
-        return CancelOutcome::Cancelled;
-    }
     if job.survivors {
-        // What a finished command left running: the observer terminates the set and reports
-        // whether a re-observation found every process gone.
+        // What a finished command left running (`trackSurvivingDescendants`): the cancel is latched and the registry state turns
+        // terminal before anything is signalled; the kill then terminates the set and reports whether a re-observation found every
+        // process gone. A task that was already cancelled with its processes still alive is terminated again (the observer's
+        // `sweep`); one that ended on its own, or whose cancel was confirmed, is no task to cancel.
+        if !runtime.cancel_survivors_intent(job) && !job.termination_pending() {
+            return CancelOutcome::NotFound;
+        }
         let terminated = match &runtime.config.survivors {
             Some(watch) => watch.kill(&job.handle).await,
             None => false,
@@ -212,7 +216,11 @@ async fn cancel_outcome(runtime: &ExecRuntime, processes: &dyn ProcessManager, j
         if !terminated {
             return CancelOutcome::Pending;
         }
-        runtime.finish_survivors(job, true).await;
+        runtime.finish_survivors(job).await;
+        return CancelOutcome::Cancelled;
+    }
+    // Node answers a cancel of a task it still retains with the success text.
+    if !job.is_running() {
         return CancelOutcome::Cancelled;
     }
     if !send_kill(runtime, processes, job) {
@@ -230,6 +238,7 @@ async fn cancel(runtime: &ExecRuntime, ctx: &ToolContext, job: Arc<Job>) -> Tool
         CancelOutcome::Cancelled => ok(format!("status: completed\ntask_id: {id}\ncancelled: shell/shell")),
         CancelOutcome::Unconfirmed => ok(cancel_unconfirmed(&id)),
         CancelOutcome::Pending => ok(cancel_pending(&id)),
+        CancelOutcome::NotFound => not_found(&id),
     }
 }
 
