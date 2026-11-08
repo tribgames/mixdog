@@ -110,7 +110,8 @@ const STORED_READS: [&str; 6] = [
 /// Thread methods the directory serves whether or not the thread opens: `thread/delete` answers
 /// for a session that is not there as Node does (`deleted: false` / `not-archived`), not
 /// `threadNotFound`. `thread/fork` is served there for `inheritFrom`, which creates the heir's session before it looks the source up.
-const DIRECTORY_SERVED: [&str; 2] = ["thread/delete", "thread/fork"];
+/// `thread/inheritancePreflight` reads its own thread and the source the directory looks up; no session actor serves it.
+const DIRECTORY_SERVED: [&str; 3] = ["thread/delete", "thread/fork", "thread/inheritancePreflight"];
 
 /// What a transport does after handing a message over.
 pub enum Inbound {

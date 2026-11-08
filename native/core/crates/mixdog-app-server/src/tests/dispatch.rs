@@ -102,6 +102,22 @@ async fn a_delete_of_a_thread_that_is_not_there_is_the_directorys_answer() {
     assert_eq!(client.response(1).await["result"], json!({ "via": "directory" }));
 }
 
+/// The preflight names its own thread, but the directory answers it (it measures a source the directory looks up); a
+/// session actor has no such method.
+#[tokio::test(start_paused = true)]
+async fn an_inheritance_preflight_naming_a_thread_is_the_directorys_answer() {
+    let rig = Rig::new();
+    let thread = rig.core.mock.directory().insert(ThreadId::from("t1"));
+    thread.set_handler(Arc::new(|_| Ok(Reply::Value(json!({ "via": "thread" })))));
+    rig.core
+        .mock
+        .directory()
+        .set_handler(Arc::new(|_| Ok(Reply::Value(json!({ "via": "directory" })))));
+    let client = rig.ready(1, json!({}));
+    client.request(1, "thread/inheritancePreflight", json!({ "threadId": "t1", "sourceThreadId": "missing", "selection": {} }));
+    assert_eq!(client.response(1).await["result"], json!({ "via": "directory" }));
+}
+
 #[tokio::test(start_paused = true)]
 async fn mutations_carry_their_op_id_to_the_core() {
     let rig = Rig::new();
