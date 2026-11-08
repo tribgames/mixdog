@@ -69,9 +69,11 @@ await_holding_refcell_ref = "deny"
 dbg_macro = "deny"
 
 # ~47 packages build in parallel on one PC: keep dev/test artefacts small (no incremental
-# cache, line tables only) so the shared target groups stay within disk budget.
+# cache, no debug info) so the shared target groups stay within disk budget and links stay short.
+# Test failure locations do not need debug info; set CARGO_PROFILE_DEV_DEBUG=line-tables-only
+# for line numbers in backtraces.
 [profile.dev]
-debug = "line-tables-only"
+debug = false
 incremental = false
 
 [profile.dev.package."*"]

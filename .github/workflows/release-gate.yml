@@ -396,7 +396,7 @@ jobs:
           node-version: "22"
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
-          toolchain: "1.95.0"
+          toolchain: "1.99.1"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -714,15 +714,15 @@ jobs:
           cache-dependency-path: package-lock.json
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
-          toolchain: "1.95.0"
+          toolchain: "1.99.1"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             native/mixdog-patch/target
-          key: patch-test-cargo-1.95.0-${{ hashFiles('native/mixdog-patch/Cargo.lock', 'native/mixdog-patch/src/**') }}
-          restore-keys: patch-test-cargo-1.95.0-
+          key: patch-test-cargo-1.99.1-${{ hashFiles('native/mixdog-patch/Cargo.lock', 'native/mixdog-patch/src/**') }}
+          restore-keys: patch-test-cargo-1.99.1-
       - name: Install root dependencies
         shell: bash
         run: |
@@ -754,7 +754,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
-          toolchain: "1.95.0"
+          toolchain: "1.99.1"
       # The graph gate runs only when its sources changed, so the exact key
       # rarely hits; the prefix still restores the compiled dependency tree.
       - name: Cache the graph test build
@@ -764,8 +764,8 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             native/mixdog-graph/target
-          key: graph-test-cargo-1.95.0-${{ hashFiles('native/mixdog-graph/Cargo.lock', 'native/mixdog-graph/src/**') }}
-          restore-keys: graph-test-cargo-1.95.0-
+          key: graph-test-cargo-1.99.1-${{ hashFiles('native/mixdog-graph/Cargo.lock', 'native/mixdog-graph/src/**') }}
+          restore-keys: graph-test-cargo-1.99.1-
       - run: cargo test --locked --manifest-path native/mixdog-graph/Cargo.toml
 
   # The Chrome login importer's Rust tests (cookie decryption and schema
@@ -787,7 +787,7 @@ jobs:
           node-version: "22"
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
-          toolchain: "1.95.0"
+          toolchain: "1.99.1"
       # The commit is read from build.ps1 so the tests and the shipped binary
       # can never be built from different upstream sources.
       - name: Fetch the pinned upstream importer source
@@ -819,7 +819,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
-          toolchain: "1.95.0"
+          toolchain: "1.99.1"
       - name: Run the secure-desktop helper's Rust tests
         run: cargo test --locked --manifest-path native/mixdog-secure-desktop/Cargo.toml
 

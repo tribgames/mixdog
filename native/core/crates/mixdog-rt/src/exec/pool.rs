@@ -276,7 +276,7 @@ impl LaneExec {
         let reserved = self
             .stats
             .live
-            .fetch_update(AcqRel, Acquire, |live| (live < max_live).then_some(live + 1));
+            .try_update(AcqRel, Acquire, |live| (live < max_live).then_some(live + 1));
         if reserved.is_err() {
             return false;
         }

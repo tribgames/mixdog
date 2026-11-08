@@ -54,7 +54,7 @@ struct EventBudget {
 impl EventBudget {
     fn try_take(&self, bytes: usize) -> bool {
         self.free
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |free| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |free| {
                 free.checked_sub(bytes)
             })
             .is_ok()

@@ -1,0 +1,3 @@
+# rustup's own linker links the core's 230 MB binaries several times faster than MSVC link.exe.
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"

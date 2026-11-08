@@ -16,7 +16,7 @@ concurrency:
 
 env:
   CARGO_BUILD_JOBS: "3"
-  RUST_TOOLCHAIN: "1.95.0"
+  RUST_TOOLCHAIN: "1.99.1"
   # Satisfies `^22.19.0 || >=24.0.0`; the same pin as apps/desktop/scripts/node-pin.json.
   NODE_VERSION: "22.19.0"
   TAG_COMMIT: 69fe41b05

@@ -166,7 +166,7 @@ impl Connection {
         request_started: impl FnOnce() -> mixdog_core_api::handle::RequestGuard,
     ) -> Result<Slot, u32> {
         self.inflight[class_index(class)]
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |count| {
                 (count < cap).then_some(count + 1)
             })
             .map(|_| Slot {

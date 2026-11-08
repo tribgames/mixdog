@@ -5,7 +5,7 @@
 set -euo pipefail
 dnf install -y cmake pkgconf-pkg-config
 curl -fsSL -o /tmp/rustup-init.sh https://sh.rustup.rs
-sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain 1.95.0
+sh /tmp/rustup-init.sh -y --profile minimal --default-toolchain 1.99.1
 export PATH=$HOME/.cargo/bin:$PATH
 export RUSTFLAGS="-C link-arg=-Wl,--build-id=sha1"
 mkdir -p /w/native-out
