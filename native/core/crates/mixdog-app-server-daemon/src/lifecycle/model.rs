@@ -128,12 +128,23 @@ pub struct DrainNotice {
 pub enum ReleaseCause {
     Stop(StopReason),
     Fenced(FenceReason),
+    /// The discovery file could not be published: Node's `main().catch` -> `shutdown('fatal boot error', 2)`.
+    FatalBoot,
 }
 
 impl ReleaseCause {
+    /// The process exit code: Node's `shutdown(reason, code)` code.
+    pub fn exit_code(self) -> i32 {
+        match self {
+            ReleaseCause::FatalBoot => 2,
+            ReleaseCause::Stop(_) | ReleaseCause::Fenced(_) => 0,
+        }
+    }
+
     /// The `reason` recorded in `last-exit.json`.
     pub fn text(self) -> String {
         let value = match self {
+            ReleaseCause::FatalBoot => return "fatalBoot".to_owned(),
             ReleaseCause::Stop(reason) => serde_json::to_value(reason),
             ReleaseCause::Fenced(reason) => serde_json::to_value(reason),
         };
@@ -163,6 +174,7 @@ impl ReleaseCause {
     pub fn node_text(self) -> String {
         match self {
             ReleaseCause::Stop(StopReason::Quit | StopReason::UserStop) => ClientKind::Session.node_text().to_owned(),
+            ReleaseCause::FatalBoot => "fatal boot error".to_owned(),
             _ => self.text(),
         }
     }

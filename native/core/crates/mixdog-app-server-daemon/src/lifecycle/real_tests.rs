@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
+use std::sync::mpsc;
 
 use mixdog_app_protocol::limits::Limits;
 use mixdog_app_protocol::mgmt::ActivityKind;
@@ -275,7 +276,7 @@ fn read(root: &std::path::Path) -> serde_json::Value {
 #[test]
 fn discovery_names_the_phase_and_the_rpc_port_only_while_serving() {
     let root = tempfile::tempdir().unwrap();
-    let publication = DiscoveryPublication::new(root.path().to_path_buf(), template());
+    let publication = DiscoveryPublication::new(root.path().to_path_buf(), template(), Box::new(|_| {}));
     publication.set_rpc_port(5005);
     let state = |phase, drain_id| DiscoveryState { phase, blocked: None, drain_id };
 
@@ -325,10 +326,11 @@ fn publishing_never_writes_on_the_calling_thread_and_the_last_state_wins() {
             std::thread::sleep(std::time::Duration::from_millis(2));
             let phase = serde_json::to_value(document.core.state).unwrap().as_str().unwrap().to_owned();
             written.lock().unwrap().push((std::thread::current().id(), phase));
+            Ok(())
         })
     };
     let root = tempfile::tempdir().unwrap();
-    let publication = DiscoveryPublication::with_writer(root.path().to_path_buf(), template(), write);
+    let publication = DiscoveryPublication::with_writer(root.path().to_path_buf(), template(), write, Box::new(|_| {}));
     let state = |phase| DiscoveryState { phase, blocked: None, drain_id: None };
     for phase in [DiscoveryPhase::Booting, DiscoveryPhase::Serving, DiscoveryPhase::Draining, DiscoveryPhase::Serving] {
         publication.publish(&state(phase));
@@ -347,6 +349,29 @@ fn withdraw_leaves_a_file_another_core_published() {
     let mut other = template();
     other.core.instance_id = "someone-else".into();
     discovery::publish(root.path(), &other).unwrap();
-    DiscoveryPublication::new(root.path().to_path_buf(), template()).withdraw();
+    DiscoveryPublication::new(root.path().to_path_buf(), template(), Box::new(|_| {})).withdraw();
     assert_eq!(read(root.path())["core"]["instanceId"], "someone-else");
+}
+
+/// A publication whose every write fails with the error the discovery file's reader causes on Windows.
+fn failing_publication(fatal: mpsc::Sender<String>) -> (DiscoveryPublication, tempfile::TempDir) {
+    let root = tempfile::tempdir().unwrap();
+    let write: WriteDocument = Box::new(|_root, _document| Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)));
+    let on_fatal: OnFatal = Box::new(move |error| fatal.send(error.to_string()).unwrap());
+    (DiscoveryPublication::with_writer(root.path().to_path_buf(), template(), write, on_fatal), root)
+}
+
+#[test]
+fn a_boot_state_that_cannot_be_published_is_fatal_and_a_draining_one_is_only_logged() {
+    let (fatal, failures) = mpsc::channel();
+    let (publication, _root) = failing_publication(fatal);
+    let state = |phase| DiscoveryState { phase, blocked: None, drain_id: None };
+
+    publication.publish(&state(DiscoveryPhase::Draining));
+    publication.flush();
+    assert!(failures.try_recv().is_err(), "a failed draining publication is not fatal");
+
+    publication.publish(&state(DiscoveryPhase::Serving));
+    publication.flush();
+    assert!(failures.try_recv().is_ok(), "a failed serving publication is fatal");
 }

@@ -207,6 +207,16 @@ impl Machine {
         self.begin_release(ReleaseCause::Fenced(reason));
     }
 
+    /// The discovery file cannot be published: admission closes and the process leaves with Node's fatal-boot code, from any phase.
+    pub fn fail_boot(&mut self) {
+        if matches!(self.phase, Phase::Stopped | Phase::Fenced(_)) {
+            return;
+        }
+        self.phase = Phase::Stopped;
+        self.seq += 1;
+        self.begin_release(ReleaseCause::FatalBoot);
+    }
+
     pub fn mark_stopped(&mut self) {
         self.phase = Phase::Stopped;
         self.seq += 1;
