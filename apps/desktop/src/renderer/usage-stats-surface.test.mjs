@@ -154,6 +154,7 @@ test('closing statistics keeps a shared read without allowing it to reopen the d
   assert.equal(document.querySelectorAll('.stats-card > b')[2].textContent, '1.2K');
   await render({ ...props, open: false });
   const background = refreshStatsDataCache(props.api);
+  await new Promise(setImmediate); // the read reaches the host after the section lane's async check
   await act(async () => {
     resolvers[1]({ value: snapshot('hour', 2400) });
     await background;
@@ -214,6 +215,7 @@ test('entry during usage warmup paints the last figures at once and swaps in the
   const release = holdStatsDataCache(api);
   context.after(release);
   const initial = refreshStatsDataCache(api);
+  await new Promise(setImmediate); // the read reaches the host after the section lane's async check
   resolvers[0]({ value: snapshot() });
   await initial;
   const props = { surface: 'stats', open: false, onClose() {}, api };

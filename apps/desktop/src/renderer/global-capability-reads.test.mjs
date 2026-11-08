@@ -3,6 +3,10 @@ import test from 'node:test';
 import { readGlobalCapabilities } from './global-capability-reads.ts';
 import { callCapability } from './studio-support.ts';
 
+const settle = async () => {
+  for (let index = 0; index < 12; index += 1) await Promise.resolve();
+};
+
 test('global read batches preserve every value and position within the transport limit', async () => {
   const requests = Array.from({ length: 35 }, (_, id) => ({ capability: 'getMediaJob', args: [id] }));
   const batches = [];
@@ -17,6 +21,8 @@ test('global read batches preserve every value and position within the transport
     },
   };
   const reading = readGlobalCapabilities(api, requests);
+  // Each request is first offered to the section lane (an async check), so the host batches follow a few ticks later.
+  await settle();
   assert.deepEqual(
     batches.map((chunk) => chunk.length),
     [32, 3]

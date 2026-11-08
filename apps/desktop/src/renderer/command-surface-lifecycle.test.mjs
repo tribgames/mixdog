@@ -246,6 +246,8 @@ test('statistics changes during a shared read publish only the newest complete r
   update({ sessionId: 'one', stats: { inputTokens: 100 } });
   update({ sessionId: 'one', stats: { inputTokens: 200 } });
   assert.equal(refreshStatsDataCache(api), pending);
+  // The read first asks the section lane whether a section answers it, so the host call follows a few ticks later.
+  await new Promise(setImmediate);
   assert.equal(resolvers.length, 1);
   resolvers[0]({ value: { totals: { tokens: 100 } } });
   await new Promise(setImmediate);
@@ -295,6 +297,7 @@ test('opening the usage dialog on stale statistics paints the last figures at on
   const release = holdStatsDataCache(api);
   context.after(release);
   const warm = refreshStatsDataCache(api);
+  await new Promise(setImmediate);
   resolvers[0]({ value: { totals: { tokens: 1000 } } });
   await warm;
   // A turn lands while the dialog is closed: no re-read, the cache goes stale.
@@ -414,6 +417,7 @@ test('desktop state warms statistics before the dialog mounts without blocking b
       snapshot: { stats: { inputTokens: 2000 } },
     });
   }
+  await act(async () => new Promise(setImmediate));
   await act(async () => resolvers[1]({ value: { totals: { tokens: 2000 } } }));
   closeDialog();
   assert.equal(getStatsDataCache(api).getUsageStats.totals.tokens, 2000);
