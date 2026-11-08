@@ -73,6 +73,26 @@ test('a coded worktree refusal reaches the page in the shape worktreeFailure rea
   assert.deepEqual(failure.details, { reason: 'project-dirty', count: 2, paths: ['a.ts', 'b.ts'] });
 });
 
+test('an unregistered Project reads on the Rust path as the Node desktop shows it', () => {
+  // Node's daemon sends `code` and `details` (project-branches.mjs throws worktreeError('WORKTREE_PROJECT_UNKNOWN',
+  // undefined, { projectPath })); the desktop session host frames it with worktreeErrorWithCode (session-host-lifecycle.ts).
+  const projectPath = 'C:\\work\\app';
+  const node = worktreeErrorWithCode(
+    Object.assign(new Error('Project is not available.'), { code: 'WORKTREE_PROJECT_UNKNOWN', details: { projectPath } })
+  );
+  const shown = coreErrorForWindow(
+    rpcFailure({
+      reason: 'domainError',
+      domain: 'worktree',
+      code: 'WORKTREE_PROJECT_UNKNOWN',
+      message: 'Project is not available.',
+      detail: { type: 'worktreeProjectUnknown', projectPath },
+    })
+  );
+  assert.equal(shown.message, node.message);
+  assert.equal(shown.code, node.code);
+});
+
 test('a coded refusal of another family goes through the IPC envelope with its code', () => {
   const shown = coreErrorForWindow(
     rpcFailure({
