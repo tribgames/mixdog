@@ -312,16 +312,25 @@ fn child(base: &Path, stop: Option<usize>, log: Option<&Path>) -> Option<i32> {
     command.status().expect("spawn the child").code()
 }
 
-/// A kill at every mutating step of a run over the recorded directory, then a resume in a fresh run: the whole tree,
-/// the journal and the completion marker included, is the one an uninterrupted run leaves.
-#[test]
-fn every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory() {
-    let scratch = tempfile::tempdir().expect("scratch dir");
-    let log = scratch.path().join("steps.log");
-    let probe = scratch.path().join("probe");
+/// The crash matrix is split by step index: step `i` is killed in chunk `i % CRASH_CHUNKS`, so the chunks run side by side.
+const CRASH_CHUNKS: usize = 16;
+/// Threads within one chunk, each killing and resuming in its own directory.
+const CHUNK_WORKERS: usize = 3;
+
+/// The steps of an unstopped run over the recorded directory, as the hook of its child logged them.
+fn recorded_steps(scratch: &Path) -> Vec<String> {
+    let log = scratch.join("steps.log");
+    let probe = scratch.join("probe");
     copy_at(&probe);
     assert_eq!(child(&probe, None, Some(&log)), Some(0), "the unstopped child completes");
-    let steps: Vec<String> = std::fs::read_to_string(&log).expect("step log").lines().map(str::to_owned).collect();
+    std::fs::read_to_string(&log).expect("step log").lines().map(str::to_owned).collect()
+}
+
+/// Every boundary kind is a step of the recorded run: a kill at each is in the crash matrix.
+#[test]
+fn the_recorded_run_reaches_every_boundary_kind() {
+    let scratch = tempfile::tempdir().expect("scratch dir");
+    let steps = recorded_steps(scratch.path());
     // Every boundary of a publication is a step of the recorded run, for the quarantine it publishes into as well.
     let on = |step: &str, needle: &str| steps.iter().any(|s| s.starts_with(&format!("{step} ")) && s.contains(needle));
     for step in ["Create", "Write", "Sync", "Rename", "SyncDir"] {
@@ -331,10 +340,43 @@ fn every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory() {
     for step in ["Remove", "RemoveDir", "Append", "Projected", "SqliteCommit"] {
         assert!(steps.iter().any(|s| s.starts_with(&format!("{step} "))), "no {step} boundary in the run");
     }
-    const WORKERS: usize = 8;
+    assert!(steps.len() >= CRASH_CHUNKS, "every crash chunk holds a step ({} recorded)", steps.len());
+}
+
+mixdog_rt::replay_chunks!(CRASH_TESTS, #[test] crash_points_chunk; [
+    every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_00 = 0,
+    every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_01 = 1,
+    every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_02 = 2,
+    every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_03 = 3,
+    every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_04 = 4,
+    every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_05 = 5,
+    every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_06 = 6,
+    every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_07 = 7,
+    every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_08 = 8,
+    every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_09 = 9,
+    every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_10 = 10,
+    every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_11 = 11,
+    every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_12 = 12,
+    every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_13 = 13,
+    every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_14 = 14,
+    every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory_15 = 15,
+]);
+
+#[test]
+fn every_crash_chunk_has_its_test() {
+    mixdog_rt::testing::assert_chunks_registered(CRASH_TESTS, CRASH_CHUNKS, 1);
+}
+
+/// A kill at every mutating step of chunk `chunk` of a run over the recorded directory, then a resume in a fresh run: the
+/// whole tree, the journal and the completion marker included, is the one an uninterrupted run leaves.
+fn crash_points_chunk(chunk: usize) {
+    let scratch = tempfile::tempdir().expect("scratch dir");
+    let steps = recorded_steps(scratch.path());
+    let mine: Vec<(usize, &String)> = steps.iter().enumerate().skip(chunk).step_by(CRASH_CHUNKS).collect();
+    assert!(!mine.is_empty(), "chunk {chunk} holds no step of the {} recorded", steps.len());
     std::thread::scope(|scope| {
-        for worker in 0..WORKERS {
-            let (steps, base) = (&steps, scratch.path().join(format!("w{worker}")));
+        for worker in 0..CHUNK_WORKERS {
+            let (mine, base) = (&mine, scratch.path().join(format!("w{worker}")));
             scope.spawn(move || {
                 // The manifest names the dir a run was in, so every run of this worker is in one path: the
                 // uninterrupted run first, then a kill and a resume for each of its steps.
@@ -342,7 +384,7 @@ fn every_crash_point_resumes_to_the_same_tree_on_the_recorded_directory() {
                 migrator(&roots_at(&base), MigrateOptions { workers: 1, fault: None }).run().expect("the uninterrupted run");
                 let want = tree_digest(&roots_at(&base));
                 durable::remove_dir_all(&base).expect("clean");
-                for (stop_at, step) in steps.iter().enumerate().skip(worker).step_by(WORKERS) {
+                for &(stop_at, step) in mine.iter().skip(worker).step_by(CHUNK_WORKERS) {
                     let roots = copy_at(&base);
                     assert_eq!(child(&base, Some(stop_at), None), Some(KILLED), "step {stop_at} ({step}) was not reached");
                     migrator(&roots, MigrateOptions { workers: 1, fault: None })
