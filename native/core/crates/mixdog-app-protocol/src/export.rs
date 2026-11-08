@@ -273,7 +273,8 @@ fn typescript() -> String {
          // (cargo test -p mixdog-app-protocol with MIXDOG_UPDATE_PROTOCOL_GOLDEN=1). Do not edit.\n\n",
     );
     for decl in collector.decls.values() {
-        out.push_str(decl);
+        // ts-rs leaves a space before the newline that precedes a documented field.
+        out.push_str(&decl.lines().map(str::trim_end).collect::<Vec<_>>().join("\n"));
         out.push_str("\n\n");
     }
     out.push_str(
