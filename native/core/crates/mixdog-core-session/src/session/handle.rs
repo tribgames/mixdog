@@ -545,6 +545,14 @@ impl SessionHandle {
         if rebuild && self.cell.run.load().is_some() {
             return Err(mixdog_core_base::support::failed("session", "The session is running a turn; wait for it to finish."));
         }
+        // `runtime.clear` answers false without a session, which the host turns into this refusal for a rebuilding reset
+        // (`session-reset.mjs`: `result === false && (archiveAs || reset.rebuildPrompt)`).
+        if rebuild {
+            let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
+            if !super::SessionDirectory::over(directory).holds_session(&self.id).await? {
+                return Err(mixdog_core_base::support::failed("session", "The conversation could not be cleared."));
+            }
+        }
         let reply = self.to_actor(req).await?;
         if !rebuild {
             return Ok(reply);

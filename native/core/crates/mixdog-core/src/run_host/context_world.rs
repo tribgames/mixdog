@@ -497,13 +497,10 @@ mod tests {
             Ok(self.cells.route(thread))
         }
         async fn seat(&self, thread: &ThreadId) -> Result<(), String> {
-            use mixdog_core_ports::ports::route::FollowOptions;
             if text(&self.cells.route(thread), "model").is_empty() {
                 return Ok(());
             }
-            let follow = self.follow.get().expect("the follow is bound");
-            let options = FollowOptions { apply_to_current_session: true, lease: Some(follow.open_lease(thread, None)), ..FollowOptions::default() };
-            follow.follow(thread, &options).await.map(|_| ()).map_err(|e| format!("{e:?}"))
+            self.follow.get().expect("the follow is bound").seat(thread).await.map_err(|e| format!("{e:?}"))
         }
     }
 
@@ -868,6 +865,8 @@ mod tests {
         async fn seed(&self, name: &str, prompt: &str) {
             use mixdog_core_session::session::room_log::RoomLog;
             let row = json!({ "role": "user", "content": prompt, "meta": { "transcript": { "messageId": "seed" } } });
+            // The turn creates the session on the route it has (`turn-prepare.mjs`: `createCurrentSession`).
+            self.follow.seat(&self.id(name)).await.expect("the turn's session");
             let log = mixdog_core_session::session::room_log::SessionRoomLog::new(self.directory.clone());
             assert_eq!(log.append_rows(self.id(name).as_str(), vec![row]).await.expect("store the prompt"), 1);
         }
