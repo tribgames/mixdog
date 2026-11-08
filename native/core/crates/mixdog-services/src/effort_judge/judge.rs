@@ -509,15 +509,16 @@ impl EffortJudgeModel {
             None => {
                 let this = self.clone();
                 mixdog_rt::spawn("services.effort-judge.prewarm", TaskClass::Work, async move {
-                    drop(
-                        this.turn
-                            .run(&this.cancel, async {
-                                if !this.is_installing() {
-                                    let _ = this.ensure_loaded().await;
-                                }
-                            })
-                            .await,
-                    );
+                    // A cancelled gate means the instance's background work was ended: no model is
+                    // wanted, and nothing awaits this task's result.
+                    let _ = this
+                        .turn
+                        .run(&this.cancel, async {
+                            if !this.is_installing() {
+                                let _ = this.ensure_loaded().await;
+                            }
+                        })
+                        .await;
                 });
                 true
             }
