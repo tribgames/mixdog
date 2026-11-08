@@ -566,12 +566,34 @@ fn login_shim(dir: &std::path::Path, quick: bool) -> String {
     path.to_string_lossy().into_owned()
 }
 
+/// `AuthOk` once `open` turns true. `next` hands over the latest state, not every state, so a
+/// reader that is not polling when gh's output and exit come together would never see the code;
+/// the verification that ends the flow waits for the test to have read it.
+struct AuthOkWhenOpen(tokio::sync::watch::Receiver<bool>);
+#[async_trait::async_trait]
+impl crate::gh::client::GhRunner for AuthOkWhenOpen {
+    async fn raw(
+        &self,
+        command: &crate::gh::commands::GhCommand,
+        cwd: &std::path::Path,
+        cancel: &CancellationToken,
+    ) -> Result<crate::gh::client::GhOutput, crate::error::ScmFailure> {
+        let mut open = self.0.clone();
+        open.wait_for(|open| *open).await.expect("the test holds the sender");
+        AuthOk.raw(command, cwd, cancel).await
+    }
+}
+
 fn login_for(program: String) -> crate::gh::login::GithubLogin {
+    login_with(program, std::sync::Arc::new(AuthOk))
+}
+
+fn login_with(program: String, runner: std::sync::Arc<dyn crate::gh::client::GhRunner>) -> crate::gh::login::GithubLogin {
     let scm = Scm::with_gh(
         TestProcesses::shared(),
         mixdog_rt::testing::tokens().maintenance_io,
         std::env::temp_dir().join("mixdog-scm-login"),
-        std::sync::Arc::new(AuthOk),
+        runner,
         std::sync::Arc::new(move || program.clone()),
     );
     scm.github_login()
@@ -588,13 +610,15 @@ async fn a_login_flow_shows_its_code_to_a_reconnect_and_finishes_when_gh_exits()
     use mixdog_core_api::domain::login::LoginFlow;
     use mixdog_core_api::domain::login::LoginState;
     let dir = tempfile::tempdir().unwrap();
-    let flow = login_for(login_shim(dir.path(), true));
+    let (finish, finished) = tokio::sync::watch::channel(false);
+    let flow = login_with(login_shim(dir.path(), true), std::sync::Arc::new(AuthOkWhenOpen(finished)));
     let session = flow.start().await.unwrap();
     let mut seen_code = None;
     let last = loop {
         let state = next_state(session.as_ref()).await;
         if let LoginState::DeviceCode { user_code, verification_uri, .. } = &state {
             seen_code = Some((user_code.clone(), verification_uri.clone()));
+            finish.send_replace(true);
         }
         if state.is_terminal() {
             break state;
