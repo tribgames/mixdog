@@ -338,6 +338,7 @@ fn cancel_drain_returns_to_serving_and_republishes_discovery() {
     fx.lifecycle.cancel_drain(&drain_id).unwrap();
     assert_eq!(*fx.lifecycle.state().borrow(), CoreState::Serving);
     assert_eq!(fx.recorder.published().last().unwrap().phase, DiscoveryPhase::Serving);
+    assert_eq!(fx.recorder.serving_count(), 2, "the core is told it serves at the boot and again when the drain is cancelled");
     drop(work);
     assert!(!fx.recorder.has_exited(), "back to serving: nothing stops it");
 }

@@ -25,6 +25,8 @@ pub struct Recorder {
     notices: Mutex<Vec<DrainNotice>>,
     published: Mutex<Vec<DiscoveryState>>,
     cancelled: Mutex<Vec<Vec<Running>>>,
+    /// How many times the core was told it serves; kept out of `events` so their order stays what the tests read.
+    serving: std::sync::atomic::AtomicUsize,
     /// Run inside `cancel_running`, on the caller's thread.
     pub on_cancel: Mutex<Option<CancelHook>>,
 }
@@ -54,6 +56,10 @@ impl Recorder {
         lock(&self.cancelled).clone()
     }
 
+    pub fn serving_count(&self) -> usize {
+        self.serving.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     pub fn has_exited(&self) -> bool {
         *lock(&self.exited)
     }
@@ -72,6 +78,9 @@ impl CorePort for Recorder {
     fn drain_notice(&self, notice: &DrainNotice) {
         self.note("drain_notice");
         lock(&self.notices).push(notice.clone());
+    }
+    fn serving(&self) {
+        self.serving.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
     fn health(&self, stalled_ms: u64) {
         self.note(format!("health:{}", stalled_ms > 0));

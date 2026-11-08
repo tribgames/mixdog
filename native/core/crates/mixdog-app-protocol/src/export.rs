@@ -240,6 +240,7 @@ fn typescript() -> String {
     collector.visit::<crate::common::Delivery>();
     collector.visit::<crate::common::Origin>();
     collector.visit::<mixdog_protocol::ComputerSection>();
+    collector.visit::<mixdog_protocol::ComputerSessionSection>();
     collector.visit::<mixdog_protocol::ToolCallId>();
     collector.visit::<mixdog_protocol::ProviderId>();
     collector.visit::<mixdog_protocol::NotificationPreferences>();

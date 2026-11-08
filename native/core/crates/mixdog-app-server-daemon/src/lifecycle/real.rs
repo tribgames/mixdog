@@ -160,6 +160,11 @@ impl CorePort for RuntimeCore {
         });
     }
 
+    /// The `core` section as `CoreState::Serving` (`mixdog-app-protocol/src/v1.rs`).
+    fn serving(&self) {
+        self.publish(SectionName::Core, &serde_json::json!({ "state": "serving" }));
+    }
+
     fn health(&self, stalled_ms: u64) {
         self.publish(SectionName::CoreHealth, &serde_json::json!({ "stalledMs": stalled_ms }));
     }

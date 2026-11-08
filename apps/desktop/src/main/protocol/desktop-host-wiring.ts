@@ -36,7 +36,7 @@ export function createLocalHostRole({ protocol, onClaimFailed, ...options }: Loc
   protocol.watchSection('computer', (entry) => {
     const value = entry?.value as ComputerSectionValue | null | undefined;
     computerPill.apply(
-      value ?? { active: false, observeOnly: false, controller: null, sessionThreadId: null }
+      value ?? { active: false, observeOnly: false, controller: null, sessionThreadId: null, sessions: [] }
     );
   });
   let wasReady = false;

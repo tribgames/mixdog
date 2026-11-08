@@ -37,7 +37,13 @@ use mixdog_tools::state::secrets::ComputerSecretHost;
 use mixdog_core_api::domain::fs::FileService;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_rt::InteractiveIo;
+use mixdog_core_api::state::StatePublisher;
+use mixdog_core_base::state::change_of;
+use mixdog_protocol::ComputerSection;
+use mixdog_protocol::ComputerSessionSection;
+use mixdog_protocol::SectionName;
 use mixdog_tools::desktop::computer_backend::ComputerConfig;
+use mixdog_tools::desktop::computer_backend::ExecutionObserver;
 use mixdog_tools::desktop::computer_backend::ProcessComputerBackend;
 
 use crate::run_host::run_seams::EnvReader;
@@ -154,9 +160,14 @@ impl NativeToolPaths {
     /// `manager`, one helper state per session, or `None` where no place has it (the tool is then
     /// not registered). `wrap` decorates each session's backend as it is made (the secret
     /// redaction of that session).
-    pub async fn computer_sessions(&self, manager: Arc<dyn ProcessManager>, wrap: WrapBackend) -> Option<Arc<ComputerSessionPool>> {
+    pub async fn computer_sessions(
+        &self,
+        manager: Arc<dyn ProcessManager>,
+        wrap: WrapBackend,
+        publisher: Arc<dyn StatePublisher>,
+    ) -> Option<Arc<ComputerSessionPool>> {
         let binary = self.resolve(NativeTool::Computer).await?;
-        Some(Arc::new(ComputerSessionPool::new(binary, manager, wrap)))
+        Some(Arc::new(ComputerSessionPool::new(binary, manager, wrap, publisher)))
     }
 
     async fn present(&self, path: PathBuf) -> Option<PathBuf> {
@@ -200,6 +211,60 @@ pub struct ComputerSessionPool {
     manager: Arc<dyn ProcessManager>,
     wrap: WrapBackend,
     entries: Mutex<HashMap<String, Entry>>,
+    presence: Arc<ComputerPresence>,
+}
+
+/// The sessions with an open execution, oldest first, and the `computer` section that says so (SPEC R40): the pill
+/// the desktop shows while an agent drives the desktop. Node's coordinator keeps a session present from its first
+/// command (`beginCommand`) until the turn settles (`endExecution`) and its snapshot lists every one of them
+/// (`coordinator.ts` `snapshot().activities`); the section lists them all, and names the latest in its own fields.
+struct ComputerPresence {
+    publisher: Arc<dyn StatePublisher>,
+    open: Mutex<Vec<(String, bool)>>,
+}
+
+impl ComputerPresence {
+    fn publish(&self, open: &[(String, bool)]) {
+        let latest = open.last();
+        let section = ComputerSection {
+            active: latest.is_some(),
+            observe_only: latest.is_some_and(|(_, observe_only)| *observe_only),
+            controller: None,
+            sessions: open
+                .iter()
+                .map(|(session, observe_only)| ComputerSessionSection {
+                    session_thread_id: ThreadId::from(session.as_str()),
+                    observe_only: *observe_only,
+                })
+                .collect(),
+            session_thread_id: latest.map(|(session, _)| ThreadId::from(session.as_str())),
+        };
+        self.publisher.publish(SectionName::Computer, None, change_of(&section));
+    }
+}
+
+/// One session's edges into [`ComputerPresence`].
+struct SessionPresence {
+    presence: Arc<ComputerPresence>,
+    session: String,
+}
+
+impl ExecutionObserver for SessionPresence {
+    fn began(&self, observe_only: bool) {
+        let mut open = self.presence.open.lock().unwrap_or_else(PoisonError::into_inner);
+        open.retain(|(session, _)| *session != self.session);
+        open.push((self.session.clone(), observe_only));
+        self.presence.publish(&open);
+    }
+
+    fn ended(&self) {
+        let mut open = self.presence.open.lock().unwrap_or_else(PoisonError::into_inner);
+        let before = open.len();
+        open.retain(|(session, _)| *session != self.session);
+        if open.len() != before {
+            self.presence.publish(&open);
+        }
+    }
 }
 
 fn session_key(session: &str) -> String {
@@ -208,8 +273,8 @@ fn session_key(session: &str) -> String {
 }
 
 impl ComputerSessionPool {
-    pub fn new(binary: PathBuf, manager: Arc<dyn ProcessManager>, wrap: WrapBackend) -> Self {
-        Self { binary, manager, wrap, entries: Mutex::new(HashMap::new()) }
+    pub fn new(binary: PathBuf, manager: Arc<dyn ProcessManager>, wrap: WrapBackend, publisher: Arc<dyn StatePublisher>) -> Self {
+        Self { binary, manager, wrap, entries: Mutex::new(HashMap::new()), presence: Arc::new(ComputerPresence { publisher, open: Mutex::default() }) }
     }
 
     fn entries(&self) -> MutexGuard<'_, HashMap<String, Entry>> {
@@ -221,7 +286,10 @@ impl ComputerSessionPool {
         let key = session_key(session);
         let mut entries = self.entries();
         let entry = entries.entry(key.clone()).or_insert_with(|| {
-            let process = Arc::new(ProcessComputerBackend::new(ComputerConfig::new(self.binary.clone(), key.as_str()), self.manager.clone()));
+            let observer = Arc::new(SessionPresence { presence: self.presence.clone(), session: key.clone() });
+            let process = Arc::new(
+                ProcessComputerBackend::new(ComputerConfig::new(self.binary.clone(), key.as_str()), self.manager.clone()).with_observer(observer),
+            );
             let backend = (self.wrap)(&key, process.clone());
             Entry { process, backend, idle: None }
         });
@@ -374,6 +442,7 @@ mod tests {
     use std::collections::HashSet;
     use std::collections::HashMap;
 
+    use mixdog_core_api::state::SectionChange;
     use mixdog_core_api::domain::computer::ComputerAction;
     use mixdog_core_api::domain::computer::ComputerRequest;
     use serde_json::json;
@@ -460,13 +529,74 @@ mod tests {
         Arc::new(|_: &str, inner: Arc<dyn ComputerBackend>| inner)
     }
 
+    /// Every `computer` publication, in order.
+    #[derive(Default)]
+    struct Published(Mutex<Vec<(SectionName, Option<String>, SectionChange)>>);
+
+    impl StatePublisher for Published {
+        fn publish(&self, section: SectionName, key: Option<String>, change: SectionChange) {
+            self.0.lock().unwrap_or_else(PoisonError::into_inner).push((section, key, change));
+        }
+    }
+
+    fn quiet() -> Arc<dyn StatePublisher> {
+        Arc::new(Published::default())
+    }
+
+    fn computer_values(published: &Published) -> Vec<mixdog_protocol::ComputerSection> {
+        published
+            .0
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .map(|(section, key, change)| {
+                assert_eq!((*section, key.as_deref()), (SectionName::Computer, None));
+                let SectionChange::Set(bytes) = change else { panic!("a small section value is inline") };
+                serde_json::from_slice(bytes).unwrap()
+            })
+            .collect()
+    }
+
+    /// The `computer` section (SPEC R40) follows the sessions' open executions: the pill shows while an agent
+    /// drives the desktop. An action opens a session's execution (the helper cannot start here, but the action
+    /// reached it); a second session opens beside the first, not instead of it; each settled turn closes its own.
+    #[tokio::test]
+    async fn the_computer_section_follows_the_open_executions() {
+        let published = Arc::new(Published::default());
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), published.clone()).await.expect("helper");
+        let read = || ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
+        // `open` is every session with an open execution, oldest first; the section's own fields name the last.
+        let section = |open: &[&str]| mixdog_protocol::ComputerSection {
+            active: !open.is_empty(),
+            observe_only: false,
+            controller: None,
+            sessions: open
+                .iter()
+                .map(|session| ComputerSessionSection { session_thread_id: ThreadId::from(*session), observe_only: false })
+                .collect(),
+            session_thread_id: open.last().map(|session| ThreadId::from(*session)),
+        };
+
+        assert!(pool.backend("a").run(read(), CancellationToken::new()).await.is_err());
+        assert!(pool.backend("b").run(read(), CancellationToken::new()).await.is_err());
+        assert!(pool.backend("a").run(read(), CancellationToken::new()).await.is_err());
+        assert!(pool.end_execution("a").await);
+        assert!(pool.end_execution("b").await);
+        assert!(!pool.end_execution("b").await, "an ended execution publishes nothing again");
+        assert_eq!(
+            computer_values(&published),
+            [section(&["a"]), section(&["a", "b"]), section(&["b"]), section(&[])],
+            "b opening beside a lists both, a's second action opens nothing, a closing leaves b, b closing leaves none"
+        );
+    }
+
     /// The sessions exist exactly when the helper does, wherever Node's order finds it.
     #[tokio::test]
     async fn the_computer_sessions_are_built_only_where_the_helper_is() {
         let tool = NativeTool::Computer;
-        assert!(paths(&[], &[bundled(tool)], None).computer_sessions(manager(), plain()).await.is_some());
-        assert!(paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[PathBuf::from("/x/c")], None).computer_sessions(manager(), plain()).await.is_some());
-        assert!(paths(&[], &[], None).computer_sessions(manager(), plain()).await.is_none());
+        assert!(paths(&[], &[bundled(tool)], None).computer_sessions(manager(), plain(), quiet()).await.is_some());
+        assert!(paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[PathBuf::from("/x/c")], None).computer_sessions(manager(), plain(), quiet()).await.is_some());
+        assert!(paths(&[], &[], None).computer_sessions(manager(), plain(), quiet()).await.is_none());
     }
 
     /// Node keeps the helper's state per request session: two threads never share a backend, a
@@ -494,7 +624,7 @@ mod tests {
     /// teardown stops both under one gate; another session keeps its state.
     #[tokio::test]
     async fn closing_a_session_releases_its_computer_state_with_its_shells() {
-        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain()).await.expect("helper");
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), quiet()).await.expect("helper");
         let _ = (pool.backend("closing"), pool.backend("other"));
         let shells = Arc::new(Shells(Mutex::default()));
         ReapingShells::new(shells.clone(), pool.clone()).cancel_owned(&ThreadId::from("closing"));
@@ -517,7 +647,7 @@ mod tests {
     /// session that never did owns nothing there.
     #[tokio::test]
     async fn a_settled_turn_arms_the_idle_release_of_a_session_that_reached_the_helper() {
-        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain()).await.expect("helper");
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), quiet()).await.expect("helper");
         let backend = pool.backend("used");
         // The helper cannot start, but the action reached it: the session is bound.
         let read = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
@@ -533,7 +663,7 @@ mod tests {
 
     #[tokio::test]
     async fn two_threads_get_separate_helper_state() {
-        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain()).await.expect("helper");
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(manager(), plain(), quiet()).await.expect("helper");
         let (a, b) = (pool.backend("thread-a"), pool.backend("thread-b"));
         assert!(!Arc::ptr_eq(&a, &b), "separate threads, separate state");
         assert!(Arc::ptr_eq(&a, &pool.backend("thread-a")), "a thread keeps its state");
@@ -586,7 +716,7 @@ mod tests {
     /// (memory, PostgreSQL) still run. Paused time: the timeout elapses without a sleep.
     #[tokio::test(start_paused = true)]
     async fn a_stuck_helper_release_ends_at_the_shutdown_timeout() {
-        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(Arc::new(Stuck), plain()).await.expect("helper");
+        let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(Arc::new(Stuck), plain(), quiet()).await.expect("helper");
         let backend = pool.backend("stuck");
         let read = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
         let call = tokio::spawn(async move { backend.run(read, CancellationToken::new()).await });

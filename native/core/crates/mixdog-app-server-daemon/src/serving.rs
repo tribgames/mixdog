@@ -168,6 +168,12 @@ impl crate::lifecycle::CorePort for LateCorePort {
         }
     }
 
+    fn serving(&self) {
+        if let Some(core) = self.core.get() {
+            core.serving();
+        }
+    }
+
     fn health(&self, stalled_ms: u64) {
         if let Some(core) = self.core.get() {
             core.health(stalled_ms);

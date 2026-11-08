@@ -520,7 +520,17 @@ order: number, };
 /**
  * Section value of `computer` (SPEC R40).
  */
-export type ComputerSection = { active: boolean, observeOnly: boolean, controller: string | null, sessionThreadId: ThreadId | null, };
+export type ComputerSection = { active: boolean, observeOnly: boolean, controller: string | null, 
+/**
+ * Every session with an open execution, oldest first (the overlay draws one activity per session,
+ * `overlay/model.ts`); `active`, `observeOnly` and `sessionThreadId` describe the latest of them.
+ */
+sessions: Array<ComputerSessionSection>, sessionThreadId: ThreadId | null, };
+
+/**
+ * One session's open execution in `computer`.
+ */
+export type ComputerSessionSection = { sessionThreadId: ThreadId, observeOnly: boolean, };
 
 export type ConfigBatchWriteParams = { opId: OpId, edits: Array<ConfigEdit>, };
 
