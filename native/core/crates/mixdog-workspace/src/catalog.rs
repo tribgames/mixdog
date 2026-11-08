@@ -7,6 +7,7 @@
 use std::path::Path;
 use std::path::PathBuf;
 
+use mixdog_store::registry::ensure_project_id_marker;
 use mixdog_store::state::CoreState;
 use mixdog_store::state::OpRow;
 use mixdog_store::state::OpRowState;
@@ -20,6 +21,7 @@ use crate::error::WsError;
 use crate::error::WsResult;
 use crate::lanes::Lanes;
 use crate::lanes::run_fallible;
+use crate::lanes::run_in;
 use crate::pathguard::absolute_local_path;
 use crate::pathguard::canonical;
 use crate::pathguard::comparable;
@@ -43,14 +45,18 @@ fn store(error: mixdog_store::sqlite::DbError) -> WsError {
 
 /// The wire shape of a project: its display name is the alias, else the folder name.
 pub fn project_json(row: &ProjectRow) -> Value {
-    let folder = Path::new(&row.path).file_name().map_or_else(|| row.path.clone(), |n| n.to_string_lossy().into_owned());
     json!({
         "path": row.path,
-        "name": row.alias.clone().filter(|a| !a.is_empty()).unwrap_or(folder),
+        "name": display_name(row),
         "alias": row.alias,
         "hidden": row.hidden,
         "lastUsedAt": row.last_used_at,
     })
+}
+
+fn display_name(row: &ProjectRow) -> String {
+    let folder = Path::new(&row.path).file_name().map_or_else(|| row.path.clone(), |n| n.to_string_lossy().into_owned());
+    row.alias.clone().filter(|a| !a.is_empty()).unwrap_or(folder)
 }
 
 pub fn now_ms() -> i64 {
@@ -112,6 +118,13 @@ impl Catalog {
             .map_err(store)
     }
 
+    /// `ensureProjectIdMarker` for the project's current name, after its registry change
+    /// committed: memory classification reads only this marker. Best effort, as in Node.
+    async fn write_marker(&self, row: &ProjectRow, cancel: &CancellationToken) {
+        let (path, name) = (row.path.clone(), display_name(row));
+        let _ = run_in(self.lanes.durability, cancel, move |lane| ensure_project_id_marker(lane, &path, &name)).await;
+    }
+
     pub async fn add(&self, path: &str, cancel: &CancellationToken, op: Option<OpRecord>) -> WsResult<Value> {
         let requested = absolute_local_path(path)?;
         let folder = run_fallible(self.lanes.interactive, cancel, move || {
@@ -125,7 +138,8 @@ impl Catalog {
             None => ProjectRow { path, alias: None, hidden: false, hidden_rank: None, last_used_at: None },
         };
         let out = project_json(&row);
-        self.commit(Some(row), None, op.map(|o| finish(o, &out))).await?;
+        self.commit(Some(row.clone()), None, op.map(|o| finish(o, &out))).await?;
+        self.write_marker(&row, cancel).await;
         Ok(out)
     }
 
@@ -133,7 +147,8 @@ impl Catalog {
         let mut row = self.find(path).await?;
         row.last_used_at = Some(now_ms());
         let out = project_json(&row);
-        self.commit(Some(row), None, op.map(|o| finish(o, &out))).await?;
+        self.commit(Some(row.clone()), None, op.map(|o| finish(o, &out))).await?;
+        self.write_marker(&row, &CancellationToken::new()).await;
         Ok(out)
     }
 

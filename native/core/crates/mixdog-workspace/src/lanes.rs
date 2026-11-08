@@ -3,6 +3,7 @@
 
 use mixdog_rt::CpuBulk;
 use mixdog_rt::DurabilityIo;
+use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneToken;
 use mixdog_rt::MaintenanceIo;
@@ -96,8 +97,17 @@ where
     R: Send + 'static,
     F: FnOnce() -> R + Send + 'static,
 {
-    let job = counted(job);
-    let handle = lane.submit(cancel, move |_| job())?;
+    run_in(lane, cancel, move |_| job()).await
+}
+
+/// [`run`] for a job that needs the lane's proof (the lane-typed store functions).
+pub async fn run_in<L, R, F>(lane: L, cancel: &CancellationToken, job: F) -> WsResult<R>
+where
+    L: LaneToken,
+    R: Send + 'static,
+    F: FnOnce(&InLane<L>) -> R + Send + 'static,
+{
+    let handle = lane.submit(cancel, move |proof| counted(|| job(proof))())?;
     handle.await.map_err(|_| WsError::new(Reason::Cancelled, "The request was cancelled."))
 }
 
