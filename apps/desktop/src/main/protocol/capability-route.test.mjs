@@ -591,10 +591,23 @@ test('the queue, review and model actions send the exact op and params of deskto
   assert.deepEqual(at('setModel', ['gpt']), { method: 'route/set', params: { threadId: 's1', route: { model: 'gpt' } } });
 });
 
-test('noteUserInput is the client/activity notification: it sends no request and has no value', async () => {
+test('setEffort, setToolMode and setModel answer as the Node session-api wrapper does, not with the core route reply', async () => {
+  const value = async (capability, args, reply) => {
+    const { lane } = recordingLane(async () => reply);
+    return (await lane.invoke(capability, args, 'pane-1')).value;
+  };
+  assert.equal(await value('setEffort', ['high'], { model: 'gpt', effort: 'low', effectiveEffort: 'high' }), 'high');
+  assert.equal(await value('setEffort', ['low'], { model: 'gpt', effort: 'low' }), 'low');
+  assert.equal(await value('setEffort', ['x'], { model: 'gpt', preset: { effort: 'medium' } }), 'medium');
+  assert.equal(await value('setEffort', ['auto'], { model: 'gpt' }), 'auto');
+  assert.equal(await value('setToolMode', ['full'], 'full'), undefined);
+  assert.equal(await value('setModel', ['gpt'], { model: 'gpt', provider: 'openai' }), true);
+});
+
+test('noteUserInput is the client/activity notification: it sends no request and answers { ok: true }', async () => {
   const { all, lane, world } = recordingLane();
   const result = await lane.invoke('noteUserInput', [1234], 'pane-1');
-  assert.equal(result.value, undefined);
+  assert.deepEqual(result.value, { ok: true });
   assert.deepEqual(world.inputs, [1234]);
   assert.deepEqual(all.filter((call) => call.method !== 'thread/read'), []);
 });
