@@ -104,7 +104,7 @@ impl ExtensionHost for Host {
         Ok(Value::Object(Map::new()))
     }
 
-    async fn skills_status(&self) -> Value {
+    async fn skills_status(&self, _: Option<&str>) -> Value {
         Value::Null
     }
 }

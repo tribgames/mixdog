@@ -102,8 +102,8 @@ pub trait ExtensionHost: Send + Sync {
     async fn flush_skills_save(&self);
     /// The folder the caller's session works in (`getCurrentCwd()`).
     async fn current_cwd(&self, thread_id: Option<&str>) -> Result<PathBuf, String>;
-    /// The skills status (`skillsStatus()`), undecorated.
-    async fn skills_status(&self) -> Value;
+    /// The skills status (`skillsStatus()`), undecorated, in the folder the caller's session works in.
+    async fn skills_status(&self, thread_id: Option<&str>) -> Value;
     /// `pluginMcpSummary()`: per plugin id `{ format, errors, servers }`, the servers as the MCP status
     /// rows list them, read in the MCP scope the caller's session addresses (its runtime's
     /// `getMcpScopeId()`; no thread is the runtime's own scope). An error when that scope cannot be read.
@@ -330,7 +330,7 @@ impl PluginsService {
         let cwd = self.host.current_cwd(thread).await.map_err(|e| domain_error("config", e))?;
         let scopes = self.scopes();
         Ok(match change.kind {
-            ScopeKind::Skills => decorate_skills(&self.host.skills_status().await, &scopes, &cwd),
+            ScopeKind::Skills => decorate_skills(&self.host.skills_status(thread).await, &scopes, &cwd),
             _ => decorate_plugins(&self.status(thread).await?, &scopes, &cwd),
         })
     }

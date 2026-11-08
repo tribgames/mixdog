@@ -291,7 +291,7 @@ impl ExtensionHost for Quiet {
         Ok(Value::Object(serde_json::Map::new()))
     }
 
-    async fn skills_status(&self) -> Value {
+    async fn skills_status(&self, _: Option<&str>) -> Value {
         json!({})
     }
 }
