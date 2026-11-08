@@ -217,8 +217,8 @@ mod sys {
         false
     }
 
-    /// libproc's view of a live (not zombie) process; `None` once there is no such process, or when
-    /// the kernel does not let us inspect it (none of our descendants is another user's).
+    /// libproc's view of a live (not zombie) process; `None` once there is no such process. A
+    /// process the kernel does not let us inspect exists: that is a `PermissionDenied` error, never `None`.
     pub(super) fn proc_of(pid: u32) -> io::Result<Option<Proc>> {
         let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
         let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
@@ -228,7 +228,7 @@ mod sys {
         if got <= 0 {
             let error = io::Error::last_os_error();
             return match error.raw_os_error() {
-                Some(libc::ESRCH | libc::EPERM) => Ok(None),
+                Some(libc::ESRCH) => Ok(None),
                 _ => Err(error),
             };
         }
@@ -260,12 +260,16 @@ mod sys {
         }
         pids.truncate(got as usize);
         let mut procs = Vec::new();
+        let mut unreadable = Vec::new();
         for pid in pids.into_iter().filter(|&pid| pid > 0) {
-            if let Some(proc) = proc_of(pid as u32)? {
-                procs.push(proc);
+            match proc_of(pid as u32) {
+                Ok(Some(proc)) => procs.push(proc),
+                Ok(None) => {}
+                Err(error) if error.kind() == io::ErrorKind::PermissionDenied => unreadable.push(pid as u32),
+                Err(error) => return Err(error),
             }
         }
-        Ok(Table::new(procs))
+        Ok(Table::with_unreadable(procs, unreadable))
     }
 }
 

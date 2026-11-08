@@ -247,12 +247,11 @@ mod tests {
     use mixdog_tools::exec::TaskTool;
     use tokio_util::sync::CancellationToken;
     use windows_sys::Win32::Foundation::CloseHandle;
-    use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
+    use windows_sys::Win32::System::Threading::CreateEventW;
     use windows_sys::Win32::System::Threading::GetExitCodeProcess;
-    use windows_sys::Win32::System::Threading::INFINITE;
     use windows_sys::Win32::System::Threading::OpenProcess;
     use windows_sys::Win32::System::Threading::PROCESS_QUERY_LIMITED_INFORMATION;
-    use windows_sys::Win32::System::Threading::WaitForSingleObject;
+    use windows_sys::Win32::System::Threading::SetEvent;
 
     /// `STILL_ACTIVE` (minwinbase.h): the exit code of a process that has not ended.
     const STILL_ACTIVE: u32 = 259;
@@ -280,17 +279,52 @@ mod tests {
             + tail
     }
 
-    /// `SYNCHRONIZE` (winnt.h): the right to wait on the process handle.
-    const SYNCHRONIZE: u32 = 0x0010_0000;
+    /// A named event the test owns. The fixture child (the recording's `<GATE>`) blocks on it before it does anything, so it
+    /// cannot end, and its pid cannot be reused, until the test has opened its handle and sets the event.
+    struct Gate {
+        name: String,
+        handle: windows_sys::Win32::Foundation::HANDLE,
+    }
 
-    /// An owned handle on the child the command printed, opened while the child is known to be running (the shell result
-    /// that reports its survivors is the handshake). The handle names that process for good, so a pid reused later cannot
-    /// be mistaken for it, and every check and the exit wait go through it. A failure to open or to query is a test error.
+    impl Gate {
+        fn new(tag: &str) -> Self {
+            let name = format!("mixdog-survivor-gate-{}-{tag}", std::process::id());
+            let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+            // Manual reset, not signalled.
+            let handle = unsafe { CreateEventW(std::ptr::null(), 1, 0, wide.as_ptr()) };
+            assert!(!handle.is_null(), "the gate could not be created: {}", std::io::Error::last_os_error());
+            Self { name, handle }
+        }
+
+        /// The recorded command with this gate's name in place of the recording's placeholder.
+        fn command(&self, template: &str) -> String {
+            template.replace("<GATE>", &self.name)
+        }
+
+        /// What the agent saw, as the recording writes it: the gate's name is a placeholder there.
+        fn view(&self, text: &str, id: &str) -> String {
+            node_view(&text.replace(&self.name, "<GATE>"), id)
+        }
+
+        fn open(&self) {
+            let set = unsafe { SetEvent(self.handle) };
+            assert!(set != 0, "the gate could not be opened: {}", std::io::Error::last_os_error());
+        }
+    }
+
+    impl Drop for Gate {
+        fn drop(&mut self) {
+            unsafe { CloseHandle(self.handle) };
+        }
+    }
+
+    /// An owned handle on the child the command printed. It is opened while the child is held at its gate, so it is
+    /// certainly that process and a pid reused later cannot be mistaken for it. A failure to open or to query is a test error.
     struct Child(windows_sys::Win32::Foundation::HANDLE);
 
     impl Child {
         fn open(pid: u32) -> Self {
-            let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, pid) };
+            let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
             assert!(!handle.is_null(), "the child {pid} could not be opened: {}", std::io::Error::last_os_error());
             Self(handle)
         }
@@ -300,12 +334,6 @@ mod tests {
             let known = unsafe { GetExitCodeProcess(self.0, &mut code) } != 0;
             assert!(known, "the child's exit code could not be queried: {}", std::io::Error::last_os_error());
             code == STILL_ACTIVE
-        }
-
-        /// Returns when the child has ended: the process handle is signalled by its exit.
-        fn wait_exit(&self) {
-            let waited = unsafe { WaitForSingleObject(self.0, INFINITE) };
-            assert_eq!(waited, WAIT_OBJECT_0, "waiting on the child failed: {}", std::io::Error::last_os_error());
         }
     }
 
@@ -391,11 +419,13 @@ mod tests {
     async fn a_cancelled_survivors_task_reads_as_nodes_and_its_child_is_gone() {
         let want = golden();
         let rig = rig().await;
-        let command = want["cancelled"]["command"].as_str().unwrap();
+        // The child waits at this gate, never opened: it can only end by the cancel.
+        let gate = Gate::new("cancelled");
+        let command = gate.command(want["cancelled"]["command"].as_str().unwrap());
         let before = chrono::Utc::now().timestamp_millis();
-        let ran = rig.run("s1", command).await;
+        let ran = rig.run("s1", &command).await;
         let returned = chrono::Utc::now().timestamp_millis();
-        assert_eq!(node_view(&ran, "task-s1"), want["cancelled"]["run"].as_str().unwrap());
+        assert_eq!(gate.view(&ran, "task-s1"), want["cancelled"]["run"].as_str().unwrap());
         // `started` lies inside the call; that it is the command's start rather than the moment its survivors were observed
         // is asserted on a clock the test advances (mixdog-tools `a_survivors_task_starts_when_its_command_started`).
         let started = ran.lines().find_map(|line| line.strip_prefix("started: ")).unwrap();
@@ -404,15 +434,15 @@ mod tests {
         let child = Child::open(Rig::child_of(&ran));
         assert!(child.running(), "the child runs while it is tracked");
         let read = serde_json::json!({"action": "read", "task_id": "task-s1"});
-        assert_eq!(node_view(&rig.task("r1", read.clone()).await, "task-s1"), want["cancelled"]["readRunning"].as_str().unwrap());
+        assert_eq!(gate.view(&rig.task("r1", read.clone()).await, "task-s1"), want["cancelled"]["readRunning"].as_str().unwrap());
         let cancel = serde_json::json!({"action": "cancel", "task_id": "task-s1"});
-        assert_eq!(node_view(&rig.task("c1", cancel.clone()).await, "task-s1"), want["cancelled"]["cancel"].as_str().unwrap());
-        child.wait_exit();
-        assert!(!child.running(), "the child is gone once the cancel reports");
-        assert_eq!(node_view(&rig.task("c2", cancel).await, "task-s1"), want["cancelled"]["cancelAgain"].as_str().unwrap());
-        assert_eq!(node_view(&rig.task("r2", read).await, "task-s1"), want["cancelled"]["read"].as_str().unwrap());
+        assert_eq!(gate.view(&rig.task("c1", cancel.clone()).await, "task-s1"), want["cancelled"]["cancel"].as_str().unwrap());
+        // Checked as the call returns, without waiting: a cancel that reports success must already have ended the child.
+        assert!(!child.running(), "the child is gone when the cancel reports");
+        assert_eq!(gate.view(&rig.task("c2", cancel).await, "task-s1"), want["cancelled"]["cancelAgain"].as_str().unwrap());
+        assert_eq!(gate.view(&rig.task("r2", read).await, "task-s1"), want["cancelled"]["read"].as_str().unwrap());
         let tail = serde_json::json!({"action": "read", "task_id": "task-s1", "output": "tail"});
-        assert_eq!(node_view(&rig.task("r3", tail).await, "task-s1"), want["cancelled"]["tail"].as_str().unwrap());
+        assert_eq!(gate.view(&rig.task("r3", tail).await, "task-s1"), want["cancelled"]["tail"].as_str().unwrap());
     }
 
     /// A survivors task whose child ends on its own completes with Node's result body, and has nothing left to cancel.
@@ -420,20 +450,23 @@ mod tests {
     async fn a_survivors_task_whose_child_ends_on_its_own_completes_as_nodes_does() {
         let want = golden();
         let rig = rig().await;
-        let ran = rig.run("s1", want["natural"]["command"].as_str().unwrap()).await;
-        assert_eq!(node_view(&ran, "task-s1"), want["natural"]["run"].as_str().unwrap());
+        // The child waits at this gate until the test holds its handle and the task has been read once, as in the recording.
+        let gate = Gate::new("natural");
+        let ran = rig.run("s1", &gate.command(want["natural"]["command"].as_str().unwrap())).await;
+        assert_eq!(gate.view(&ran, "task-s1"), want["natural"]["run"].as_str().unwrap());
         let child = Child::open(Rig::child_of(&ran));
         assert!(child.running());
         let read = serde_json::json!({"action": "read", "task_id": "task-s1"});
-        assert_eq!(node_view(&rig.task("r1", read.clone()).await, "task-s1"), want["natural"]["readRunning"].as_str().unwrap());
+        assert_eq!(gate.view(&rig.task("r1", read.clone()).await, "task-s1"), want["natural"]["readRunning"].as_str().unwrap());
+        gate.open();
         let wait = serde_json::json!({"action": "wait", "task_id": "task-s1", "timeout_ms": 30000});
-        assert_eq!(node_view(&rig.task("w", wait).await, "task-s1"), want["natural"]["wait"].as_str().unwrap());
-        child.wait_exit();
-        assert!(!child.running(), "the task completed because its child ended");
-        assert_eq!(node_view(&rig.task("r2", read).await, "task-s1"), want["natural"]["read"].as_str().unwrap());
+        assert_eq!(gate.view(&rig.task("w", wait).await, "task-s1"), want["natural"]["wait"].as_str().unwrap());
+        // Checked as the wait returns, without waiting: the task completed because its child had ended.
+        assert!(!child.running(), "the task completed while its child still runs");
+        assert_eq!(gate.view(&rig.task("r2", read).await, "task-s1"), want["natural"]["read"].as_str().unwrap());
         let tail = serde_json::json!({"action": "read", "task_id": "task-s1", "output": "tail"});
-        assert_eq!(node_view(&rig.task("r3", tail).await, "task-s1"), want["natural"]["tail"].as_str().unwrap());
+        assert_eq!(gate.view(&rig.task("r3", tail).await, "task-s1"), want["natural"]["tail"].as_str().unwrap());
         let cancel = serde_json::json!({"action": "cancel", "task_id": "task-s1"});
-        assert_eq!(node_view(&rig.task("c1", cancel).await, "task-s1"), want["natural"]["cancelAfterEnd"].as_str().unwrap());
+        assert_eq!(gate.view(&rig.task("c1", cancel).await, "task-s1"), want["natural"]["cancelAfterEnd"].as_str().unwrap());
     }
 }
