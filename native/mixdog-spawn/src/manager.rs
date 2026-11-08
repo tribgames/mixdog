@@ -680,9 +680,9 @@ fn wait_and_finish(
 ) {
     let status = root.wait();
     proc.life().running = false;
-    // Looks at the group once the root is reaped: an empty group is remembered, so its id (free
-    // for reuse from now on) is never signalled later.
-    let _ = proc.containment.occupied();
+    // The root's pid, and the group id it named, are free for reuse from now on: a later signal to the
+    // group is sent only after the process table shows the id still names our group.
+    proc.containment.root_reaped();
     // The readers' flow gate opens before anything waits on them: a reader parked on a paused
     // or stalled consumer would never reach the end of its stream, and closing a ConPTY waits
     // for its output to be read. What is left in the OS buffers is small and goes into the ring.

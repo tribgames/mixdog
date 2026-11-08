@@ -14,12 +14,16 @@ pub mod detached;
 mod feed;
 mod launch;
 pub mod manager;
+#[cfg(unix)]
+mod osproc;
 pub mod ports;
 mod pty;
 pub mod service;
 pub mod survivors;
 pub mod tasks;
 pub mod terminal;
+#[cfg(any(unix, test))]
+mod tree;
 
 /// Seams for the library's integration tests.
 #[cfg(feature = "core-test")]

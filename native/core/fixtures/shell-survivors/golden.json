@@ -20,20 +20,7 @@
     "cancel": "status: completed\ntask_id: <TASK>\ncancelled: shell/shell",
     "cancelAgain": "Error: task not found: <TASK>",
     "read": "background task\ntask_id: <TASK>\nsurface: shell\nstatus: cancelled\nstarted: <TIME>\nfinished: <TIME>\nerror: cancelled by task control",
-    "tail": "background task\ntask_id: <TASK>\nsurface: shell\nstatus: cancelled\nstarted: <TIME>\nfinished: <TIME>\nerror: cancelled by task control",
-    "readAfterObserverRecheck": "background task\ntask_id: <TASK>\nsurface: shell\nstatus: cancelled\nstarted: <TIME>\nfinished: <TIME>\nerror: cancelled by task control"
+    "tail": "background task\ntask_id: <TASK>\nsurface: shell\nstatus: cancelled\nstarted: <TIME>\nfinished: <TIME>\nerror: cancelled by task control"
   },
-  "list": "background tasks: 2\n- <TASK> shell/shell completed label=$p = Start-Process ping -ArgumentList '-n','3','127.0.0.1' -PassThru -WindowStyle Hidden; Write-Output \"CHILD=$($p.Id)\"\n- <TASK> shell/shell cancelled label=$p = Start-Process ping -ArgumentList '-n','90','127.0.0.1' -PassThru -WindowStyle Hidden; Write-Output \"CHILD=$($p.Id)\" error=cancelled by task control",
-  "timing": {
-    "natural": {
-      "callMs": 1760,
-      "startedAfterCallBeganMs": 39,
-      "startedAtCommandStart": true
-    },
-    "cancelled": {
-      "callMs": 1629,
-      "startedAfterCallBeganMs": 2,
-      "startedAtCommandStart": true
-    }
-  }
+  "list": "background tasks: 2\n- <TASK> shell/shell completed label=$p = Start-Process ping -ArgumentList '-n','3','127.0.0.1' -PassThru -WindowStyle Hidden; Write-Output \"CHILD=$($p.Id)\"\n- <TASK> shell/shell cancelled label=$p = Start-Process ping -ArgumentList '-n','90','127.0.0.1' -PassThru -WindowStyle Hidden; Write-Output \"CHILD=$($p.Id)\" error=cancelled by task control"
 }

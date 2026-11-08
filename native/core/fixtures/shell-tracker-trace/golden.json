@@ -1,0 +1,767 @@
+{
+  "platform": "win32",
+  "presentedPlatform": "linux",
+  "node": "v22.20.0",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "note": "POSIX branch of shell-descendants.mjs driven with a scripted process table, process.kill and timers; events are in call order",
+  "scenarios": [
+    {
+      "name": "a member that left the group stays tracked; a recycled root pid is never adopted",
+      "kind": "observe",
+      "root": 5100,
+      "tables": [
+        [
+          {
+            "pid": 5101,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "a"
+          },
+          {
+            "pid": 5102,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "b"
+          }
+        ],
+        [
+          {
+            "pid": 5102,
+            "ppid": 1,
+            "pgid": 5102,
+            "token": "b"
+          }
+        ],
+        [
+          {
+            "pid": 5100,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "reused"
+          },
+          {
+            "pid": 5190,
+            "ppid": 5100,
+            "pgid": 5100,
+            "token": "u1"
+          },
+          {
+            "pid": 5191,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "u2"
+          },
+          {
+            "pid": 5102,
+            "ppid": 1,
+            "pgid": 5102,
+            "token": "b"
+          }
+        ],
+        [
+          {
+            "pid": 5100,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "reused"
+          },
+          {
+            "pid": 5190,
+            "ppid": 5100,
+            "pgid": 5100,
+            "token": "u1"
+          }
+        ]
+      ],
+      "result": {
+        "steps": [
+          {
+            "state": "running",
+            "live": [
+              {
+                "pid": 5101,
+                "token": "a"
+              },
+              {
+                "pid": 5102,
+                "token": "b"
+              }
+            ]
+          },
+          {
+            "state": "running",
+            "live": [
+              {
+                "pid": 5102,
+                "token": "b"
+              }
+            ]
+          },
+          {
+            "state": "running",
+            "live": [
+              {
+                "pid": 5102,
+                "token": "b"
+              }
+            ]
+          },
+          {
+            "state": "gone",
+            "live": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "a root whose token was taken while it was ours owns its links; a different token under its pid does not",
+      "kind": "observe",
+      "root": 5100,
+      "tables": [
+        [
+          {
+            "pid": 5100,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "rt"
+          },
+          {
+            "pid": 5120,
+            "ppid": 5100,
+            "pgid": 5100,
+            "token": "c"
+          }
+        ],
+        [
+          {
+            "pid": 5100,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "rt2"
+          },
+          {
+            "pid": 5121,
+            "ppid": 5100,
+            "pgid": 5100,
+            "token": "d"
+          }
+        ]
+      ],
+      "capture": [
+        {
+          "pid": 5100,
+          "ppid": 1,
+          "pgid": 5100,
+          "token": "rt"
+        }
+      ],
+      "result": {
+        "steps": [
+          {
+            "state": "running",
+            "live": [
+              {
+                "pid": 5120,
+                "token": "c"
+              }
+            ]
+          },
+          {
+            "state": "gone",
+            "live": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "a table that cannot be read is unknown, never empty",
+      "kind": "observe",
+      "root": 5100,
+      "tables": [
+        {
+          "error": "process enumeration denied"
+        },
+        [
+          {
+            "pid": 5101,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "a"
+          }
+        ],
+        {
+          "error": "process enumeration denied"
+        },
+        []
+      ],
+      "result": {
+        "steps": [
+          {
+            "state": "unknown",
+            "live": []
+          },
+          {
+            "state": "running",
+            "live": [
+              {
+                "pid": 5101,
+                "token": "a"
+              }
+            ]
+          },
+          {
+            "state": "unknown",
+            "live": []
+          },
+          {
+            "state": "gone",
+            "live": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "the group ends on SIGTERM: no SIGKILL, the target gets SIGTERM and a grace",
+      "kind": "cancel",
+      "root": 5100,
+      "tables": [
+        [
+          {
+            "pid": 5101,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "a"
+          }
+        ],
+        [
+          {
+            "pid": 5101,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "a"
+          }
+        ],
+        []
+      ],
+      "groupProbes": [
+        false
+      ],
+      "pidProbes": [
+        false
+      ],
+      "result": {
+        "terminated": true
+      },
+      "events": [
+        {
+          "op": "read"
+        },
+        {
+          "op": "kill",
+          "target": "group",
+          "id": 5100,
+          "signal": "SIGTERM"
+        },
+        {
+          "op": "sleep",
+          "ms": 200
+        },
+        {
+          "op": "kill",
+          "target": "group",
+          "id": 5100,
+          "signal": 0
+        },
+        {
+          "op": "kill",
+          "target": "pid",
+          "id": 5101,
+          "signal": "SIGTERM"
+        },
+        {
+          "op": "sleep",
+          "ms": 300
+        },
+        {
+          "op": "kill",
+          "target": "pid",
+          "id": 5101,
+          "signal": 0
+        },
+        {
+          "op": "read"
+        }
+      ]
+    },
+    {
+      "name": "what ignores SIGTERM gets SIGKILL after the grace, and a second round ends the target",
+      "kind": "cancel",
+      "root": 5100,
+      "tables": [
+        [
+          {
+            "pid": 5101,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "a"
+          }
+        ],
+        [
+          {
+            "pid": 5101,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "a"
+          }
+        ],
+        [
+          {
+            "pid": 5101,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "a"
+          }
+        ],
+        []
+      ],
+      "groupProbes": [
+        true
+      ],
+      "pidProbes": [
+        true,
+        false
+      ],
+      "result": {
+        "terminated": true
+      },
+      "events": [
+        {
+          "op": "read"
+        },
+        {
+          "op": "kill",
+          "target": "group",
+          "id": 5100,
+          "signal": "SIGTERM"
+        },
+        {
+          "op": "sleep",
+          "ms": 200
+        },
+        {
+          "op": "kill",
+          "target": "group",
+          "id": 5100,
+          "signal": 0
+        },
+        {
+          "op": "kill",
+          "target": "group",
+          "id": 5100,
+          "signal": "SIGKILL"
+        },
+        {
+          "op": "sleep",
+          "ms": 100
+        },
+        {
+          "op": "kill",
+          "target": "pid",
+          "id": 5101,
+          "signal": "SIGTERM"
+        },
+        {
+          "op": "sleep",
+          "ms": 300
+        },
+        {
+          "op": "kill",
+          "target": "pid",
+          "id": 5101,
+          "signal": 0
+        },
+        {
+          "op": "kill",
+          "target": "pid",
+          "id": 5101,
+          "signal": "SIGKILL"
+        },
+        {
+          "op": "read"
+        },
+        {
+          "op": "kill",
+          "target": "pid",
+          "id": 5101,
+          "signal": "SIGTERM"
+        },
+        {
+          "op": "sleep",
+          "ms": 300
+        },
+        {
+          "op": "kill",
+          "target": "pid",
+          "id": 5101,
+          "signal": 0
+        },
+        {
+          "op": "read"
+        }
+      ]
+    },
+    {
+      "name": "a root pid held by another process: the group is not signalled, the observed target still is",
+      "kind": "cancel",
+      "root": 5100,
+      "tables": [
+        [
+          {
+            "pid": 5101,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "a"
+          }
+        ],
+        [
+          {
+            "pid": 5100,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "other"
+          },
+          {
+            "pid": 5101,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "a"
+          }
+        ],
+        []
+      ],
+      "groupProbes": [
+        true
+      ],
+      "pidProbes": [
+        false
+      ],
+      "result": {
+        "terminated": true
+      },
+      "events": [
+        {
+          "op": "read"
+        },
+        {
+          "op": "kill",
+          "target": "pid",
+          "id": 5101,
+          "signal": "SIGTERM"
+        },
+        {
+          "op": "sleep",
+          "ms": 300
+        },
+        {
+          "op": "kill",
+          "target": "pid",
+          "id": 5101,
+          "signal": 0
+        },
+        {
+          "op": "read"
+        }
+      ]
+    },
+    {
+      "name": "a table that cannot be read at the start signals nothing",
+      "kind": "cancel",
+      "root": 5100,
+      "tables": [
+        [
+          {
+            "pid": 5101,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "a"
+          }
+        ],
+        {
+          "error": "process enumeration denied"
+        }
+      ],
+      "groupProbes": [
+        true
+      ],
+      "pidProbes": [
+        false
+      ],
+      "result": {
+        "terminated": false
+      },
+      "events": [
+        {
+          "op": "read"
+        }
+      ]
+    },
+    {
+      "name": "survivors that outlast every round are reported as not terminated after three rounds",
+      "kind": "cancel",
+      "root": 5100,
+      "tables": [
+        [
+          {
+            "pid": 5101,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "a"
+          }
+        ]
+      ],
+      "groupProbes": [
+        false
+      ],
+      "pidProbes": [
+        false
+      ],
+      "result": {
+        "terminated": false
+      },
+      "events": [
+        {
+          "op": "read"
+        },
+        {
+          "op": "kill",
+          "target": "group",
+          "id": 5100,
+          "signal": "SIGTERM"
+        },
+        {
+          "op": "sleep",
+          "ms": 200
+        },
+        {
+          "op": "kill",
+          "target": "group",
+          "id": 5100,
+          "signal": 0
+        },
+        {
+          "op": "kill",
+          "target": "pid",
+          "id": 5101,
+          "signal": "SIGTERM"
+        },
+        {
+          "op": "sleep",
+          "ms": 300
+        },
+        {
+          "op": "kill",
+          "target": "pid",
+          "id": 5101,
+          "signal": 0
+        },
+        {
+          "op": "read"
+        },
+        {
+          "op": "kill",
+          "target": "pid",
+          "id": 5101,
+          "signal": "SIGTERM"
+        },
+        {
+          "op": "sleep",
+          "ms": 300
+        },
+        {
+          "op": "kill",
+          "target": "pid",
+          "id": 5101,
+          "signal": 0
+        },
+        {
+          "op": "read"
+        },
+        {
+          "op": "kill",
+          "target": "pid",
+          "id": 5101,
+          "signal": "SIGTERM"
+        },
+        {
+          "op": "sleep",
+          "ms": 300
+        },
+        {
+          "op": "kill",
+          "target": "pid",
+          "id": 5101,
+          "signal": 0
+        },
+        {
+          "op": "read"
+        }
+      ]
+    },
+    {
+      "name": "a table that cannot be read after the kill is not a termination",
+      "kind": "cancel",
+      "root": 5100,
+      "tables": [
+        [
+          {
+            "pid": 5101,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "a"
+          }
+        ],
+        [
+          {
+            "pid": 5101,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "a"
+          }
+        ],
+        {
+          "error": "process enumeration denied"
+        }
+      ],
+      "groupProbes": [
+        false
+      ],
+      "pidProbes": [
+        false
+      ],
+      "result": {
+        "terminated": false
+      },
+      "events": [
+        {
+          "op": "read"
+        },
+        {
+          "op": "kill",
+          "target": "group",
+          "id": 5100,
+          "signal": "SIGTERM"
+        },
+        {
+          "op": "sleep",
+          "ms": 200
+        },
+        {
+          "op": "kill",
+          "target": "group",
+          "id": 5100,
+          "signal": 0
+        },
+        {
+          "op": "kill",
+          "target": "pid",
+          "id": 5101,
+          "signal": "SIGTERM"
+        },
+        {
+          "op": "sleep",
+          "ms": 300
+        },
+        {
+          "op": "kill",
+          "target": "pid",
+          "id": 5101,
+          "signal": 0
+        },
+        {
+          "op": "read"
+        }
+      ]
+    },
+    {
+      "name": "the passive wait looks at every recheck, an unreadable table is not an end, the end is the first empty look",
+      "kind": "wait",
+      "root": 5100,
+      "tables": [
+        [
+          {
+            "pid": 5101,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "a"
+          }
+        ],
+        [
+          {
+            "pid": 5101,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "a"
+          }
+        ],
+        {
+          "error": "process enumeration denied"
+        },
+        [
+          {
+            "pid": 5101,
+            "ppid": 1,
+            "pgid": 5100,
+            "token": "a"
+          }
+        ],
+        []
+      ],
+      "result": {
+        "reads": 4,
+        "recheckMs": 5000
+      },
+      "events": [
+        {
+          "op": "read"
+        },
+        {
+          "op": "sleep",
+          "ms": 5000
+        },
+        {
+          "op": "sleep",
+          "ms": 5000
+        },
+        {
+          "op": "read"
+        },
+        {
+          "op": "sleep",
+          "ms": 5000
+        },
+        {
+          "op": "sleep",
+          "ms": 5000
+        },
+        {
+          "op": "read"
+        },
+        {
+          "op": "sleep",
+          "ms": 5000
+        },
+        {
+          "op": "sleep",
+          "ms": 5000
+        },
+        {
+          "op": "read"
+        },
+        {
+          "op": "sleep",
+          "ms": 5000
+        }
+      ]
+    }
+  ]
+}

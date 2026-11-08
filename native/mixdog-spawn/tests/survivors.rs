@@ -4,7 +4,6 @@
 mod common;
 
 use std::time::Duration;
-use std::time::Instant;
 
 use common::*;
 use mixdog_core_api::domain::process::CommandSpec;
@@ -72,8 +71,8 @@ async fn a_survivor_is_listed_and_its_end_wakes_the_waiter() {
         async move { watch.wait_gone(&h).await }
     });
     // Nothing ends while the sleeper runs, however long the waiter has been parked.
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert!(!waiter.is_finished(), "the waiter returned with a survivor running");
+    let mut waiter = waiter;
+    assert!(tokio::time::timeout(Duration::from_millis(300), &mut waiter).await.is_err(), "the waiter returned with a survivor running");
 
     end_externally(sleeper);
     tokio::time::timeout(Duration::from_secs(10), waiter)
@@ -91,11 +90,7 @@ async fn kill_ends_the_survivors_and_a_second_look_finds_none() {
     let sleeper = run_and_find_sleeper(&m, &h).await;
     assert!(watch.survivors(&h).is_some());
     assert!(watch.kill(&h).await, "a fresh look finds every survivor gone");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while pid_alive(sleeper) {
-        assert!(Instant::now() < deadline, "the sleeper survived the kill");
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    assert!(!pid_alive(sleeper), "the sleeper survived the kill");
     assert_eq!(watch.survivors(&h), None);
     // Nothing left: waiting returns at once.
     tokio::time::timeout(Duration::from_secs(2), watch.wait_gone(&h)).await.expect("nothing to wait for");
@@ -116,10 +111,6 @@ async fn a_survivor_that_ignores_sigterm_is_ended_by_the_forced_stop() {
     let sleeper = run_and_find(&m, &h, ignoring).await;
     assert!(watch.survivors(&h).is_some());
     assert!(watch.kill(&h).await, "the forced stop ends what SIGTERM did not");
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while pid_alive(sleeper) {
-        assert!(Instant::now() < deadline, "the sleeper survived the kill");
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    assert!(!pid_alive(sleeper), "the sleeper survived the kill");
     assert_eq!(watch.survivors(&h), None);
 }

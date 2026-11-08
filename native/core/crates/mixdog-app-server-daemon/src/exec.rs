@@ -247,9 +247,12 @@ mod tests {
     use mixdog_tools::exec::TaskTool;
     use tokio_util::sync::CancellationToken;
     use windows_sys::Win32::Foundation::CloseHandle;
+    use windows_sys::Win32::Foundation::WAIT_OBJECT_0;
     use windows_sys::Win32::System::Threading::GetExitCodeProcess;
+    use windows_sys::Win32::System::Threading::INFINITE;
     use windows_sys::Win32::System::Threading::OpenProcess;
     use windows_sys::Win32::System::Threading::PROCESS_QUERY_LIMITED_INFORMATION;
+    use windows_sys::Win32::System::Threading::WaitForSingleObject;
 
     /// `STILL_ACTIVE` (minwinbase.h): the exit code of a process that has not ended.
     const STILL_ACTIVE: u32 = 259;
@@ -277,20 +280,40 @@ mod tests {
             + tail
     }
 
-    /// Whether the process `pid` is still running, asked of the operating system directly.
-    fn alive(pid: u32) -> bool {
-        unsafe {
-            let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-            if process.is_null() {
-                return false;
-            }
+    /// `SYNCHRONIZE` (winnt.h): the right to wait on the process handle.
+    const SYNCHRONIZE: u32 = 0x0010_0000;
+
+    /// An owned handle on the child the command printed, opened while the child is known to be running (the shell result
+    /// that reports its survivors is the handshake). The handle names that process for good, so a pid reused later cannot
+    /// be mistaken for it, and every check and the exit wait go through it. A failure to open or to query is a test error.
+    struct Child(windows_sys::Win32::Foundation::HANDLE);
+
+    impl Child {
+        fn open(pid: u32) -> Self {
+            let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, pid) };
+            assert!(!handle.is_null(), "the child {pid} could not be opened: {}", std::io::Error::last_os_error());
+            Self(handle)
+        }
+
+        fn running(&self) -> bool {
             let mut code = 0u32;
-            let known = GetExitCodeProcess(process, &mut code) != 0;
-            CloseHandle(process);
-            known && code == STILL_ACTIVE
+            let known = unsafe { GetExitCodeProcess(self.0, &mut code) } != 0;
+            assert!(known, "the child's exit code could not be queried: {}", std::io::Error::last_os_error());
+            code == STILL_ACTIVE
+        }
+
+        /// Returns when the child has ended: the process handle is signalled by its exit.
+        fn wait_exit(&self) {
+            let waited = unsafe { WaitForSingleObject(self.0, INFINITE) };
+            assert_eq!(waited, WAIT_OBJECT_0, "waiting on the child failed: {}", std::io::Error::last_os_error());
         }
     }
 
+    impl Drop for Child {
+        fn drop(&mut self) {
+            unsafe { CloseHandle(self.0) };
+        }
+    }
     fn ctx(dir: &Path, call: &str, processes: LocalProcessManager) -> ToolContext {
         let tokens = mixdog_rt::testing::tokens();
         ToolContext {
@@ -373,18 +396,19 @@ mod tests {
         let ran = rig.run("s1", command).await;
         let returned = chrono::Utc::now().timestamp_millis();
         assert_eq!(node_view(&ran, "task-s1"), want["cancelled"]["run"].as_str().unwrap());
-        // `started` is the command's start, not the moment its survivors were observed: the recording's own rule.
+        // `started` lies inside the call; that it is the command's start rather than the moment its survivors were observed
+        // is asserted on a clock the test advances (mixdog-tools `a_survivors_task_starts_when_its_command_started`).
         let started = ran.lines().find_map(|line| line.strip_prefix("started: ")).unwrap();
         let started = chrono::DateTime::parse_from_rfc3339(started).unwrap().timestamp_millis();
-        assert!(want["timing"]["cancelled"]["startedAtCommandStart"].as_bool().unwrap());
-        assert!((started - before) * 2 < returned - before, "started {started} is not near the call's start {before} (returned {returned})");
-        let child = Rig::child_of(&ran);
-        assert!(alive(child), "the child runs while it is tracked");
+        assert!(before <= started && started <= returned, "started {started} is outside the call ({before}..{returned})");
+        let child = Child::open(Rig::child_of(&ran));
+        assert!(child.running(), "the child runs while it is tracked");
         let read = serde_json::json!({"action": "read", "task_id": "task-s1"});
         assert_eq!(node_view(&rig.task("r1", read.clone()).await, "task-s1"), want["cancelled"]["readRunning"].as_str().unwrap());
         let cancel = serde_json::json!({"action": "cancel", "task_id": "task-s1"});
         assert_eq!(node_view(&rig.task("c1", cancel.clone()).await, "task-s1"), want["cancelled"]["cancel"].as_str().unwrap());
-        assert!(!alive(child), "the child is gone once the cancel reports");
+        child.wait_exit();
+        assert!(!child.running(), "the child is gone once the cancel reports");
         assert_eq!(node_view(&rig.task("c2", cancel).await, "task-s1"), want["cancelled"]["cancelAgain"].as_str().unwrap());
         assert_eq!(node_view(&rig.task("r2", read).await, "task-s1"), want["cancelled"]["read"].as_str().unwrap());
         let tail = serde_json::json!({"action": "read", "task_id": "task-s1", "output": "tail"});
@@ -398,13 +422,14 @@ mod tests {
         let rig = rig().await;
         let ran = rig.run("s1", want["natural"]["command"].as_str().unwrap()).await;
         assert_eq!(node_view(&ran, "task-s1"), want["natural"]["run"].as_str().unwrap());
-        let child = Rig::child_of(&ran);
-        assert!(alive(child));
+        let child = Child::open(Rig::child_of(&ran));
+        assert!(child.running());
         let read = serde_json::json!({"action": "read", "task_id": "task-s1"});
         assert_eq!(node_view(&rig.task("r1", read.clone()).await, "task-s1"), want["natural"]["readRunning"].as_str().unwrap());
         let wait = serde_json::json!({"action": "wait", "task_id": "task-s1", "timeout_ms": 30000});
         assert_eq!(node_view(&rig.task("w", wait).await, "task-s1"), want["natural"]["wait"].as_str().unwrap());
-        assert!(!alive(child), "the task completed because its child ended");
+        child.wait_exit();
+        assert!(!child.running(), "the task completed because its child ended");
         assert_eq!(node_view(&rig.task("r2", read).await, "task-s1"), want["natural"]["read"].as_str().unwrap());
         let tail = serde_json::json!({"action": "read", "task_id": "task-s1", "output": "tail"});
         assert_eq!(node_view(&rig.task("r3", tail).await, "task-s1"), want["natural"]["tail"].as_str().unwrap());
