@@ -51,15 +51,17 @@ pub struct StdioTransport {
 
 /// The `cmd.exe /d /s /c "<line>"` of a command cross-spawn hands to the shell: the line is already
 /// escaped, so it goes on the command line as it is.
-fn shell_command(file: &str, line: &str) -> Command {
+fn shell_command(file: &str, args: &[String]) -> Command {
     let mut command = Command::new(file);
     #[cfg(windows)]
     {
-        command.raw_arg("/d").raw_arg("/s").raw_arg("/c").raw_arg(line);
+        for arg in args {
+            command.raw_arg(arg);
+        }
     }
     #[cfg(not(windows))]
     {
-        command.args(["/d", "/s", "/c", line]);
+        command.args(args);
     }
     command
 }
@@ -73,7 +75,7 @@ fn start(lane: &InLane<SpawnIo>, command: &str, args: &[String], cwd: Option<&st
             process.args(args);
             (shown, process)
         }
-        Launch::Shell { file, line } => (file.clone(), shell_command(&file, &line)),
+        Launch::Shell { file, args } => (file.clone(), shell_command(&file, &args)),
     };
     process
         .env_clear()
@@ -246,8 +248,13 @@ async fn supervise(
         let _ = tokio::time::timeout(grace, reader).await;
     }
     // The tail is complete only once stderr was read to its end.
-    if let Some(stderr_reader) = stderr_reader {
-        let _ = tokio::time::timeout(grace, stderr_reader).await;
+    // A descendant that keeps the pipe open ends the wait by abort, so the reader neither outlives
+    // this task nor races the snapshot below.
+    if let Some(mut stderr_reader) = stderr_reader
+        && tokio::time::timeout(grace, &mut stderr_reader).await.is_err()
+    {
+        stderr_reader.abort();
+        let _ = stderr_reader.await;
     }
     let reason = match status {
         Ok(status) => format!("process exited: {status}"),

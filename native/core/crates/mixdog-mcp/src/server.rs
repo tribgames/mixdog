@@ -109,6 +109,9 @@ pub enum ConnectError {
     Transport(#[from] TransportError),
     #[error(transparent)]
     Rpc(#[from] RpcError),
+    /// The attempt failed; the text is the one the server row shows (scrubbed, with the stderr tail).
+    #[error("{0}")]
+    Failed(String),
     #[error(
         "MCP server \"{name}\" startup exceeded {ms}ms budget — raise per-server \"startupTimeoutSec\"/\"startupTimeoutMs\" or env MIXDOG_MCP_STARTUP_TIMEOUT_MS"
     )]
@@ -290,7 +293,7 @@ impl McpServer {
             };
             return match &*settled {
                 ServerState::Ready(_) => Ok(()),
-                ServerState::Failed { cause } => Err(ConnectError::Transport(TransportError::Request(cause.clone()))),
+                ServerState::Failed { cause } => Err(ConnectError::Failed(cause.clone())),
                 _ => Err(ConnectError::Closed),
             };
         }
@@ -322,8 +325,8 @@ impl McpServer {
                     client.close().await;
                 }
                 let cause = scrub(&message, &self.secrets);
-                self.publish(generation, ServerState::Failed { cause });
-                Err(error)
+                self.publish(generation, ServerState::Failed { cause: cause.clone() });
+                Err(ConnectError::Failed(cause))
             }
         }
     }
