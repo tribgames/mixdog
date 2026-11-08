@@ -976,9 +976,8 @@ impl LeadSurfaceHost {
         // `seedToolSurface`: a fresh session (never a resumed one) is eligible for the first turn's MCP fold, which
         // re-folds a server that finished its handshake between creation and that turn.
         session["deferredInitialRefreshPending"] = json!(true);
-        // `noteToolAvailability`: built from the settings as they stand, its first turn need not rebuild it.
-        let settings = composed.prompt_settings.get("revision").and_then(Value::as_str).unwrap_or_default().to_owned();
-        self.note_applied(thread, Applied { gates: self.gates(&feature_denied), settings });
+        // No applied key is noted: a daemon thread's first turn reconciles it (Node's recorded task session gets its
+        // surface, standalone tools as whole definitions, at that turn), so the deferred catalog lists their triggers.
         land_prompt(&mut session, composed, &model)?;
         let mut seeded = session.as_object().cloned().ok_or_else(|| "the seeded session is not an object".to_owned())?;
         seeded.shift_remove("messages");
