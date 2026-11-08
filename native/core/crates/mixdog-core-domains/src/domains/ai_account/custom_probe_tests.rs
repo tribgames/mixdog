@@ -205,6 +205,33 @@ async fn a_send_that_never_answers_is_thrown_at_twenty_seconds() {
     assert_eq!(started.elapsed(), Duration::from_secs(20));
 }
 
+/// A refused port and a restricted port (`127.0.0.1:9`) through the real transport, the real listing and the real
+/// send path: the settings page shows what Node's probes recorded (`connect_errors.json` `probes`): `fetch failed` for
+/// the discovery's raw `fetch`, `Connection error.` for the connection test's SDK send.
+#[tokio::test]
+async fn an_unreachable_endpoint_reads_as_node_shows_it() {
+    use super::collaborators::CustomProviders as _;
+    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
+    let closed = {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        format!("http://{}/v1", listener.local_addr().unwrap())
+    };
+    for (name, base) in [("refused", closed.as_str()), ("badPort", "http://127.0.0.1:9/v1")] {
+        let recorded = &golden["probes"][name];
+        let w = super::custom_admin_tests::world(std::collections::HashMap::new()).await;
+        let input = json!({ "name": "Probe", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-DUMMY-probe-secret-0123456789" });
+        let manual = json!({ "name": "Probe", "protocol": "openai-chat", "baseURL": base, "apiKey": "sk-DUMMY-probe-secret-0123456789", "schemaVersion": 2, "modelOverrides": { "m-manual": { "manual": true } } });
+        assert_eq!(w.admin.discover_models(input.clone()).await.unwrap(), recorded["discover"]["result"], "{name}: discover");
+        assert_eq!(w.admin.test(input).await.unwrap(), recorded["testDiscovery"]["result"], "{name}: test through discovery");
+        // The send retries on the 1, 2, 4, 8 s ladder before it throws; a refused loopback connect on Windows
+        // takes seconds per attempt and would outlast the 20 s limit, so only the restricted port (no connect) sends.
+        if name == "badPort" {
+            let thrown = w.admin.test(manual).await.unwrap_err();
+            assert_eq!(thrown.message(), recorded["testSend"]["thrown"].as_str().unwrap(), "{name}: test send");
+        }
+    }
+}
+
 #[test]
 fn credential_looking_text_is_redacted_to_one_short_line() {
     let secrets = vec!["hunter2hunter2".to_owned(), String::new()];

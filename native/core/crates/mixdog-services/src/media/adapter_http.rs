@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_ai::netproxy::RoutedClients;
+use mixdog_ai::transport::FETCH_FAILED;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
@@ -48,7 +49,7 @@ fn failure(message: &str, timed_out: bool) -> HttpFailure {
 }
 
 fn transport(error: &reqwest::Error) -> HttpFailure {
-    if error.is_timeout() { failure("The operation was aborted due to timeout", true) } else { failure("fetch failed", false) }
+    if error.is_timeout() { failure("The operation was aborted due to timeout", true) } else { failure(FETCH_FAILED, false) }
 }
 
 impl RoutedJsonPost {
@@ -69,7 +70,7 @@ impl RoutedJsonPost {
         };
         // `redirect: 'error'`
         if response.status().is_redirection() {
-            return Err(failure("fetch failed", false));
+            return Err(failure(FETCH_FAILED, false));
         }
         let status = response.status().as_u16();
         let headers = response.headers().iter().map(|(name, value)| (name.to_string(), String::from_utf8_lossy(value.as_bytes()).into_owned())).collect();

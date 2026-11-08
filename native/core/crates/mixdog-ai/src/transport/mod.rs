@@ -17,6 +17,8 @@ pub mod tcp;
 pub mod ws;
 
 pub use link::BidiOpen;
+pub use link::CONNECTION_ERROR;
+pub use link::FETCH_FAILED;
 pub use link::BodyStream;
 pub use link::Exchange;
 pub use link::FrameSink;
@@ -25,6 +27,7 @@ pub use link::HttpSend;
 pub use link::KeepaliveDialer;
 pub use link::Redirect;
 pub use link::ReqwestLink;
+pub use link::Surface;
 pub use link::WsDial;
 pub use link::WsSocket;
 
