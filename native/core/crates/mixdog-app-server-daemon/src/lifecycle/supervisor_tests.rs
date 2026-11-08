@@ -173,7 +173,11 @@ async fn an_async_step_over_its_budget_is_abandoned_at_the_budget() {
     drop(release);
 }
 
-#[tokio::test(start_paused = true)]
+/// The two tests below run on the real clock with an ample budget. Under paused time the runtime
+/// auto-advances the clock whenever it has nothing to poll, and a step on a plain `std` thread
+/// (unlike `spawn_blocking`) does not hold that back: the budget would run out before the thread
+/// reported, whatever the step did.
+#[tokio::test]
 async fn an_async_step_that_ends_inside_its_budget_finished() {
     let (done, finished) = tokio::sync::oneshot::channel::<()>();
     let end = supervise_async("quick", AMPLE, async move {
@@ -184,7 +188,7 @@ async fn an_async_step_that_ends_inside_its_budget_finished() {
     assert!(finished.await.is_ok(), "the step ran to its end");
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn an_async_step_that_panics_is_reported_and_the_caller_goes_on() {
     let end = supervise_async("broken", AMPLE, async { panic!("injected failure in an async step") }).await;
     assert_eq!(end, StepEnd::Panicked);
