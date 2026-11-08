@@ -453,36 +453,56 @@ async fn the_registered_providers_listings_are_the_catalogs_sources() {
     assert_eq!(refreshed, ["custom-aaaa"]);
 }
 
-// A quick read starts the warm load; the endpoint holds it between `begin` and `adopt` while the cache is invalidated,
-// so the order is the test's, not the scheduler's. The load that began under the old epoch must not fill the new one.
-async fn warm_held_while(change: impl FnOnce(&Rig)) -> Rig {
+// A quick read starts the warm load; the endpoint holds it between its preparation and `adopt` while something else
+// moves the cache's state, so the order is the test's, not the scheduler's. The load that listed under the old state must
+// not fill the new one. The gate is closed before the quick read and opened by `finish`.
+async fn warm_parked() -> Rig {
     let recording = recording();
     let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "custom-discovery").unwrap();
     let rig = rig(scenario, &recording["seeds"], false).await;
     rig.gate.send_replace(false);
     rig.service.rows(false, true).await.unwrap();
     rig.arrived.acquire().await.unwrap().forget();
-    change(&rig);
+    rig
+}
+
+async fn finish(rig: &Rig) -> bool {
     rig.gate.send_replace(true);
     rig.host.settle_warm().await;
-    rig
+    rig.service.cache_loaded()
 }
 
 #[tokio::test]
 async fn a_warm_load_overtaken_by_an_invalidation_does_not_fill_the_new_cache() {
-    let rig = warm_held_while(|rig| rig.service.invalidate()).await;
-    assert!(!rig.service.cache_loaded());
+    let rig = warm_parked().await;
+    rig.service.invalidate();
+    assert!(!finish(&rig).await);
 }
 
 #[tokio::test]
 async fn a_warm_load_overtaken_by_a_registry_revision_change_does_not_fill_the_cache() {
     // No invalidation hook is bound: only the revision moves (`model-meta.mjs` `syncCatalogRevision`, run before the sequence check).
-    let rig = warm_held_while(|rig| rig.readiness.invalidate_provider_caches(true)).await;
-    assert!(!rig.service.cache_loaded());
+    let rig = warm_parked().await;
+    rig.readiness.invalidate_provider_caches(true);
+    assert!(!finish(&rig).await);
+}
+
+// The path an outside caller takes to register a provider: `ensure_providers_ready` with a config naming one more.
+#[tokio::test]
+async fn a_warm_load_overtaken_by_an_outside_registration_does_not_fill_the_cache() {
+    let rig = warm_parked().await;
+    let mut providers = rig.loaded.get()["providers"].as_object().cloned().unwrap();
+    let mut second = providers["custom-dddd"].clone();
+    second["name"] = json!("Echo");
+    providers.insert("custom-eeee".into(), second);
+    let before = rig.readiness.catalog_revision();
+    rig.readiness.ensure_providers_ready(Some(providers)).await.unwrap();
+    assert!(rig.readiness.catalog_revision() > before, "the registration moved the registry revision");
+    assert!(!finish(&rig).await);
 }
 
 #[tokio::test]
 async fn an_undisturbed_warm_load_fills_the_cache() {
-    let rig = warm_held_while(|_| {}).await;
-    assert!(rig.service.cache_loaded());
+    let rig = warm_parked().await;
+    assert!(finish(&rig).await);
 }
