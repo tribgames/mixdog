@@ -26,6 +26,7 @@ fn twin(rel: &str) -> Value {
     let text = match rel {
         "desktop/settings/agent-home-api-twin.json" => include_str!("../../../../fixtures/desktop/settings/agent-home-api-twin.json"),
         "agent-pool/pool-twin.json" => include_str!("../../../../fixtures/agent-pool/pool-twin.json"),
+        "section-producers/agent-pool.json" => include_str!("../../../../fixtures/section-producers/agent-pool.json"),
         other => panic!("unknown twin {other}"),
     };
     serde_json::from_str(text).unwrap()
@@ -443,6 +444,49 @@ async fn the_pool_lists_what_node_listed() {
     assert!(rows > 300 && errors == 6, "{rows} rows, {errors} errors");
 }
 
+fn section_rows(change: &mixdog_core_api::state::SectionChange) -> Value {
+    match change {
+        mixdog_core_api::state::SectionChange::Set(bytes) => serde_json::from_slice(bytes).unwrap(),
+        other => panic!("not an inline value: {other:?}"),
+    }
+}
+
+/// `section-producers/agent-pool.json` by `record-section-producers.mjs`: per step the files Node read and
+/// the rows its `listStoredAgentWorkersAsync` + progress chain answered. A step's section push is those rows,
+/// and a step whose rows equal the one before pushes nothing.
+#[tokio::test]
+async fn the_pool_section_pushes_the_rows_node_listed_and_only_when_they_change() {
+    let twin = twin("section-producers/agent-pool.json");
+    let rig = Arc::new(Rig { stall: twin["stallWarnMs"].clone(), ..Rig::default() });
+    let pool = AgentPool::new(rig.clone(), rig.clone());
+    let (mut pushed, mut quiet) = (0, 0);
+    for (index, case) in twin["cases"].as_array().unwrap().iter().enumerate() {
+        let publisher = mixdog_core_api::mock::MockStatePublisher::default();
+        let mut last = None;
+        let mut previous: Option<Value> = None;
+        for (step_index, step) in case["steps"].as_array().unwrap().iter().enumerate() {
+            *rig.files.lock().unwrap() = files_of(step);
+            *rig.step.lock().unwrap() = step.clone();
+            let before = publisher.published().len();
+            super::pool_section::pass(&pool, &mut last, &publisher).await;
+            let label = format!("case {index} step {step_index}");
+            let published = publisher.published();
+            if previous.as_ref() == Some(&step["rows"]) {
+                quiet += 1;
+                assert_eq!(published.len(), before, "{label}: unchanged rows push nothing");
+            } else {
+                pushed += 1;
+                assert_eq!(published.len(), before + 1, "{label}: changed rows push once");
+                let (section, key, change) = published.last().unwrap();
+                assert_eq!((*section, key.as_deref()), (mixdog_protocol::SectionName::AgentPool, None), "{label}");
+                assert_eq!(section_rows(change), step["rows"], "{label}: rows");
+            }
+            previous = Some(step["rows"].clone());
+        }
+    }
+    assert!(pushed > 0 && quiet > 0, "{pushed} pushes, {quiet} quiet steps");
+}
+
 // ---- the service --------------------------------------------------------------------------------
 
 struct Nothing;
@@ -506,7 +550,7 @@ async fn the_service_claims_its_five_methods_and_reads_the_ipc_inputs_as_node_do
     let scenario = json!({ "world": { "agents": ["ada"], "mixyRoute": null, "mixyCreated": false, "sessions": {}, "archived": [], "retired": [], "running": [], "setRouteFails": false, "clearFails": false } });
     let home = home_world(&scenario, &twin);
     let runtime = replies(&["core deleted 3".to_owned(), "{\"entries\":[{\"id\":1,\"index_revision\":\"r1\",\"summary\":\"a\"}],\"nextOffset\":null}".to_owned()]);
-    let service = AgentHomeService::new(AgentHomeSessions::new(home.clone()), AgentMemoryHost::new(runtime.clone()), AgentPool::new(Arc::new(Nothing), Arc::new(Nothing)));
+    let service = AgentHomeService::new(AgentHomeSessions::new(home.clone()), AgentMemoryHost::new(runtime.clone()), Arc::new(AgentPool::new(Arc::new(Nothing), Arc::new(Nothing))));
     assert_eq!(service.methods(), HOME_METHODS);
     // `requiredString`: trimmed, then the home flow.
     assert_eq!(call(&service, "agent/home/open", json!({ "agentId": "  ada  " })).await.unwrap(), json!({ "sessionId": "sess_home_ada" }));

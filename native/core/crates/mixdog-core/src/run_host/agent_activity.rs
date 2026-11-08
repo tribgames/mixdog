@@ -11,6 +11,7 @@
 use std::sync::Arc;
 
 use mixdog_core_api::ids::ThreadId;
+use tokio::sync::Notify;
 use mixdog_core_session::session::agent_registry::signals::StatusSignals;
 
 use super::compose_parts::LateDirectory;
@@ -37,17 +38,25 @@ impl ActivitySink for LateDirectory {
 
 pub struct AgentActivity {
     sink: Arc<dyn ActivitySink>,
+    /// Woken by every signal, loaded owners or not: the `agentPool` section re-lists on it.
+    changed: Arc<Notify>,
 }
 
 impl AgentActivity {
     pub fn new(sink: Arc<dyn ActivitySink>) -> Arc<Self> {
-        Arc::new(Self { sink })
+        Arc::new(Self { sink, changed: Arc::new(Notify::new()) })
+    }
+
+    /// The wake of the `agentPool` section: one permit however many signals arrived since it was last awaited.
+    pub fn changed(&self) -> Arc<Notify> {
+        self.changed.clone()
     }
 
     /// A source that names the session it concerns: `emitSessionActivityChange(ownerSessionId)` of a
     /// background task added or finished (`JobBoard::new`'s `on_change`).
     pub fn owner(&self, owner: &str) {
         self.sink.agent_activity(owner);
+        self.changed.notify_one();
     }
 
     /// A source with no owner of its own: `registry.onWorkerRowsChange`, `sessionRecords.onChange`,
@@ -56,6 +65,7 @@ impl AgentActivity {
         for thread in self.sink.loaded() {
             self.sink.agent_activity(thread.as_str());
         }
+        self.changed.notify_one();
     }
 
     /// The registry's emitter (`StoreWorkers::bind_signals`) reaches the same listener.
@@ -135,6 +145,22 @@ mod tests {
         let signals = AgentActivity::new(sink.clone()).signals();
         signals.worker_rows("w");
         assert_eq!(*sink.1.lock().unwrap(), ["a", "b"]);
+    }
+
+    /// The pool section's wake: every kind of signal sets it, a burst is one permit, and with no signal it is not set.
+    #[test]
+    fn every_signal_wakes_the_pool_section_once() {
+        use futures::FutureExt;
+        use mixdog_core_session::session::agent_activity::AgentSignals;
+        let activity = AgentActivity::new(Arc::new(LateDirectory::default()));
+        let changed = activity.changed();
+        assert!(changed.notified().now_or_never().is_none(), "no signal, no wake");
+        for signal in [|a: &AgentActivity| a.owner("a"), |a: &AgentActivity| a.everyone(), |a: &AgentActivity| a.approval_wait("w"), |a: &AgentActivity| a.session_record("w")] {
+            signal(&activity);
+            signal(&activity);
+            assert!(changed.notified().now_or_never().is_some(), "a signal wakes the section");
+            assert!(changed.notified().now_or_never().is_none(), "a burst is one wake");
+        }
     }
 
     #[test]
