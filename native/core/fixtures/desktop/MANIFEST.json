@@ -6,8 +6,18 @@
     "ports": 3,
     "search": 10
   },
-  "fileCount": 50,
+  "fileCount": 65,
   "files": [
+    {
+      "bytes": 1973,
+      "path": "chunks/corpus.json",
+      "sha256": "813c025e721c60d88058995dbc5d0c02209939222b6aed373fa9d7cc29499239"
+    },
+    {
+      "bytes": 2440,
+      "path": "chunks/record.mjs",
+      "sha256": "0e9403daaebbc9af04cf38b07582210fabaa54275e511ba01082f8551b29de71"
+    },
     {
       "bytes": 43749,
       "path": "editor-config/corpus.json",
@@ -24,9 +34,49 @@
       "sha256": "49a341fe2f63c9e5eb2d60f68c24a112a9e0ee37328c40f677e6bbd07a2da1d5"
     },
     {
+      "bytes": 2005,
+      "path": "git/record-review-cap.mjs",
+      "sha256": "8172d51b36f9ecdfa3ec6e128d3abe8d7ebea957d183ec67f13e7f49e02c5e15"
+    },
+    {
+      "bytes": 2197,
+      "path": "git/record-review-nested.mjs",
+      "sha256": "f9496b100e226cf42528f87146c284bd19a288e4c428d3e66ebbcec11b167ba9"
+    },
+    {
+      "bytes": 2557,
+      "path": "git/record-review.mjs",
+      "sha256": "d1c9262014e30e465a9fd64f9902bc95187f5d6d5978f5c5eb707a2cad48b4f2"
+    },
+    {
+      "bytes": 32439,
+      "path": "git/review-cap.json",
+      "sha256": "4f28fbe86f5881bc632d3bad3d65ea16057606f1b89ec33e3c0f72ad0fc80d75"
+    },
+    {
+      "bytes": 708,
+      "path": "git/review-nested.json",
+      "sha256": "e4d44ce9ec50dda03f26922bce72835c527fe1ac486a6534acccd502aa8ad8f9"
+    },
+    {
+      "bytes": 3507,
+      "path": "git/review.json",
+      "sha256": "0bbf6c5c373663aa9a312cf5dd7d0e5299eeea247544d4809a600210c7a8e733"
+    },
+    {
       "bytes": 9323,
       "path": "github/corpus.json",
       "sha256": "4fef8e5fa252b53011417f9c7f15e8cbf5d0e2f64b08cde8cc5297ff7043c985"
+    },
+    {
+      "bytes": 5024,
+      "path": "grants/corpus.json",
+      "sha256": "84ac817aa5ffe3a4c60e37b08613b934db0fc5cf096bb3d5ab759b7216cb48dd"
+    },
+    {
+      "bytes": 5896,
+      "path": "grants/record.mjs",
+      "sha256": "0fe7283bbb283aed5bb7c1e119165fbdfab402d1af9252caaa15d3265bbd7440"
     },
     {
       "bytes": 17419,
@@ -49,9 +99,34 @@
       "sha256": "eb34d2f00c7767c44566ed40d85cff4c09bef7196337138955c3a64a6dfd70c1"
     },
     {
+      "bytes": 11825,
+      "path": "queue/restore-queued-twin.json",
+      "sha256": "b388e638fc3bf0506ec16b46ce2a378fcd098919b22b4f5647f59d6fe1510b13"
+    },
+    {
       "bytes": 2261,
       "path": "remote-relay/corpus.json",
       "sha256": "a68d7fba42985800d3fe236f935089561e5bc9f06d599394f9ea6bd919c8acb2"
+    },
+    {
+      "bytes": 116466,
+      "path": "review-batch/corpus.json",
+      "sha256": "3161437280c54cc3c732c68c3cf2db27e35601e5ed1205933e29af85138ebbbc"
+    },
+    {
+      "bytes": 3822,
+      "path": "review-batch/record.mjs",
+      "sha256": "173d73f16efea79c425dd62d342bfc1cafdadd7f1fd2effaa1b02fb87fb2f2ef"
+    },
+    {
+      "bytes": 1065,
+      "path": "revision/corpus.json",
+      "sha256": "e8d25a62ca8f5bc7a8e57808cffaca59952e72f5dd9c0b637a6f0c49c9c7022e"
+    },
+    {
+      "bytes": 1185,
+      "path": "revision/record.mjs",
+      "sha256": "10ce29b098546f687b8ecf77094a4debb480199cfaee4fd8a605ae99bf16f2d2"
     },
     {
       "bytes": 10029,
@@ -79,9 +154,9 @@
       "sha256": "2cb05c6b3ca683eaf7fbdd869235eb7abe16aefd152a9ff252c736db437be8d6"
     },
     {
-      "bytes": 395208,
+      "bytes": 414524,
       "path": "settings/agent-home-api-twin.json",
-      "sha256": "8ba8df88edd542e1de30989d51b0581caac2b7f7075c90a49344449c7025b7a5"
+      "sha256": "1b7a54721601fe576bedd3314b685260c66820602bdf91a32beb10f90ee9b091"
     },
     {
       "bytes": 325962,
@@ -260,22 +335,22 @@
     }
   ],
   "product": {
-    "appsSha256": "11fd0cace58d4ba8ceecf5b8bf6e92790d2c4b4e8cbe855e14a49ea54cb55bf9",
-    "commit": "ebdcca97de789757ba048e43d8b2a42ed028fa09",
-    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9248,
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a",
+    "files": 9139,
     "refComparison": {
-      "closestCommit": "ebdcca97de789757ba048e43d8b2a42ed028fa09",
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
       "commitFilesMissingFromTree": 0,
       "exact": true,
       "filesDifferingFromCommit": 0
     },
-    "srcSha256": "66da711a06308f740334e8a8b023e7d1d713f77d44c23993d11203fe04e2c710",
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "git-checkout",
+    "treeKind": "archive",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-desktop.mjs",
   "set": "desktop",
-  "totalBytes": 40766154
+  "totalBytes": 40978579
 }

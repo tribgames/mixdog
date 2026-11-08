@@ -15,7 +15,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FIXTURES_ROOT, importFrom, parseArgs, refreshSetManifest, resolveTree } from './lib/common.mjs';
 
-const tree = resolveTree(parseArgs());
+const args = parseArgs();
+const tree = resolveTree(args);
 // A refused route refresh is warned about and never fails an open: the scripted failure is expected.
 console.warn = () => {};
 const { createAgentHomeSessions } = await importFrom(tree, 'apps/desktop/src/main/agent-home-sessions.ts');
@@ -231,10 +232,16 @@ const flightWorld = (over = {}) => ({
   catalogFailures: 0,
   ...over,
 });
-const start = (call, kind) => ({ op: 'start', call, kind, agent: 'ada' });
+// `then = [call, kind]` makes that call in the continuation of the started one, the moment it settles,
+// with nothing in between (a caller that awaits a reset and opens at once).
+const start = (call, kind, then = null) => ({ op: 'start', call, kind, agent: 'ada', ...(then ? { then: { call: then[0], kind: then[1], agent: 'ada' } } : {}) });
+// `abandon` drops the caller of a started call: nothing waits for its answer any more.
+const abandon = (call) => ({ op: 'abandon', call });
 const HOLD = { op: 'hold' };
 const RELEASE = { op: 'release' };
 const SETTLE = { op: 'settle' };
+// `drain` lets every flight run to its end with nobody waiting, and records the dependency calls made.
+const DRAIN = { op: 'drain' };
 const FLIGHT_CASES = [
   { name: 'concurrent opens of a new home share one create; a later open starts a new flight', world: flightWorld(), ops: [HOLD, start('a', 'open'), start('b', 'open'), start('c', 'open'), RELEASE, SETTLE, start('d', 'open'), SETTLE] },
   { name: 'concurrent opens share a failure; the next open retries', world: flightWorld({ catalogFailures: 1 }), ops: [HOLD, start('a', 'open'), start('b', 'open'), RELEASE, SETTLE, start('c', 'open'), SETTLE] },
@@ -246,6 +253,18 @@ const FLIGHT_CASES = [
   { name: 'resets queue one behind another and an open joins the last', world: flightWorld({ sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('first', 'reset'), start('second', 'reset'), start('open', 'open'), RELEASE, SETTLE] },
   { name: 'a reset runs on after the reset before it failed', world: flightWorld({ clearFails: true, sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('first', 'reset'), start('second', 'reset'), RELEASE, SETTLE] },
   { name: 'an open after a reset after an open joins the reset', world: flightWorld({ sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('first', 'open'), start('reset', 'reset'), start('second', 'open'), RELEASE, SETTLE] },
+  // The reset's flight leaves the map a few turns after its caller resumes; an open's before.
+  { name: 'an open made the moment an awaited reset returns joins that reset', world: flightWorld({ sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('reset', 'reset', ['now', 'open']), RELEASE, SETTLE, start('later', 'open'), SETTLE] },
+  { name: 'an open made the moment a failed reset rejects joins its failure', world: flightWorld({ clearFails: true, sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('reset', 'reset', ['now', 'open']), RELEASE, SETTLE, { op: 'world', patch: { clearFails: false } }, start('later', 'open'), SETTLE] },
+  { name: 'an open that joined a reset and opens again at once joins it again', world: flightWorld({ sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('reset', 'reset'), start('open', 'open', ['again', 'open']), RELEASE, SETTLE] },
+  { name: 'a call made the moment an awaited open returns starts its own flight', world: flightWorld(), ops: [HOLD, start('first', 'open', ['second', 'open']), RELEASE, SETTLE] },
+  { name: 'a reset made the moment an awaited open returns runs its own reset', world: flightWorld({ sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('open', 'open', ['reset', 'reset']), RELEASE, SETTLE] },
+  // Promises run whether or not anything awaits them.
+  { name: 'a flight whose caller is gone still completes and leaves the map', world: flightWorld(), ops: [HOLD, start('gone', 'open'), abandon('gone'), RELEASE, DRAIN, start('later', 'open'), SETTLE] },
+  { name: 'a flight with every caller gone but one still answers that one', world: flightWorld(), ops: [HOLD, start('gone', 'open'), start('stays', 'open'), abandon('gone'), RELEASE, SETTLE] },
+  { name: 'a failed flight with every caller gone leaves the map and the next open retries', world: flightWorld({ catalogFailures: 1 }), ops: [HOLD, start('gone', 'open'), abandon('gone'), RELEASE, DRAIN, start('later', 'open'), SETTLE] },
+  { name: 'a reset queued behind an open still runs when both callers are gone', world: flightWorld({ sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('open', 'open'), start('reset', 'reset'), abandon('open'), abandon('reset'), RELEASE, DRAIN, start('later', 'open'), SETTLE] },
+  { name: 'resets whose callers are all gone run one behind another and leave the map', world: flightWorld({ sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('first', 'reset'), start('second', 'reset'), abandon('first'), abandon('second'), RELEASE, DRAIN, start('later', 'open'), SETTLE] },
 ];
 const flights = [];
 for (const flight of FLIGHT_CASES) {
@@ -255,18 +274,39 @@ for (const flight of FLIGHT_CASES) {
   const home = createAgentHomeSessions(rig.deps);
   const pending = [];
   const ops = [];
+  // A call is made, and its answer noted by the very first reaction on its promise, so that the call
+  // `then` names is made in the same turn the first one settles.
+  const call = (op) => {
+    const record = { call: op.call, outcome: null, followed: null, gone: false };
+    const note = (outcome) => {
+      record.outcome = outcome;
+      if (op.then) record.followed = call(op.then);
+    };
+    const promise = op.kind === 'open' ? home.open(op.agent) : home.reset(op.agent);
+    record.done = promise.then(
+      (result) => note({ result }),
+      (error) => note({ error: error instanceof Error ? error.message : String(error) })
+    );
+    return record;
+  };
+  const answered = async (record) => {
+    await record.done;
+    return [{ call: record.call, ...record.outcome }, ...(record.followed ? await answered(record.followed) : [])];
+  };
+  // The next request arrives in a later turn of the event loop, after every flight's cleanup.
+  const barrier = () => new Promise((resolve) => setImmediate(resolve));
   for (const op of flight.ops) {
     if (op.op === 'hold') gate.promise = new Promise((resolve) => (gate.open = resolve));
     else if (op.op === 'release') gate.open();
     else if (op.op === 'world') Object.assign(world, structuredClone(op.patch));
-    else if (op.op === 'start') pending.push({ call: op.call, run: unwrap(() => (op.kind === 'open' ? home.open(op.agent) : home.reset(op.agent))) });
+    else if (op.op === 'start') pending.push(call(op));
+    else if (op.op === 'abandon') pending.find((record) => record.call === op.call).gone = true;
     else {
       const calls = [];
-      for (const { call, run } of pending) calls.push({ call, ...(await run) });
+      for (const record of pending) if (!record.gone) calls.push(...(await answered(record)));
       pending.length = 0;
-      // The next request arrives in a later turn of the event loop, after the settled flights' cleanup.
-      await new Promise((resolve) => setImmediate(resolve));
-      ops.push({ op: 'settle', calls, log: structuredClone(rig.log) });
+      await barrier();
+      ops.push({ op: op.op, ...(op.op === 'settle' ? { calls } : {}), log: structuredClone(rig.log) });
       rig.log.length = 0;
       continue;
     }
@@ -383,7 +423,8 @@ writeFileSync(
   `${FIXTURES_ROOT}/desktop/settings/agent-home-api-twin.json`,
   `${JSON.stringify({ domain: 'agent-home-api-twin', recorder: 'benchmarks/rust-core/recorders/record-agent-home-api.mjs', routes: ROUTES, catalogExtras: CATALOG_EXTRAS, homes, flights, memoryList, memoryDelete, poolCases }, null, 1)}\n`
 );
-refreshSetManifest(join(FIXTURES_ROOT, 'desktop'), tree);
+// `--ref <commit>` names the commit the tree is compared against for the manifest's identity (default HEAD).
+refreshSetManifest(join(FIXTURES_ROOT, 'desktop'), tree, args.get('ref'));
 console.log(`recorded ${homes.length} home scenarios, ${flights.length} flight scenarios, ${memoryList.length} list, ${memoryDelete.length} delete, ${poolCases.length} pool cases`);
 // Node's header cache keeps a timer for its persisted headers.
 process.exit(0);

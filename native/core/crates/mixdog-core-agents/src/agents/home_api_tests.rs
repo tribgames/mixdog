@@ -262,19 +262,28 @@ fn home_world(scenario: &Value, twin: &Value) -> Arc<Home> {
     })
 }
 
-/// A call started and not yet awaited: its first poll ran it to its first wait, as Node's call
-/// runs to its first `await` when it is made.
-enum Started {
-    Done(Result<Value, CoreError>),
-    Waiting(Pin<Box<dyn Future<Output = Result<Value, CoreError>> + Send>>),
+type Answers = Pin<Box<dyn Future<Output = Vec<Result<Value, CoreError>>> + Send>>;
+
+/// A call started and not yet awaited, with the call made in its continuation when the recording has
+/// one: its first poll ran it to its first wait, as Node's call runs to its first `await` when it is made.
+struct Started {
+    call: String,
+    answers: Answers,
+}
+
+fn start_call(homes: &AgentHomeSessions, op: &Value) -> impl Future<Output = Result<Value, CoreError>> + Send + use<> {
+    let (homes, agent, reset) = (homes.clone(), op["agent"].as_str().unwrap().to_owned(), op["kind"] == "reset");
+    async move { if reset { homes.reset(&agent).await } else { homes.open(&agent).await } }
 }
 
 /// `flights` of the twin: calls of one agent started together while the gate is closed share the
 /// flight Node's `opening` map gives them, failures included; a reset queues behind the flight it
-/// finds; a settled flight leaves the map. Each `settle` answers what Node's calls answered, in
-/// start order, and the dependency calls made are Node's.
+/// finds; an open's flight leaves the map before its caller resumes and a reset's after, so a call
+/// made at once on an awaited reset joins it; a flight runs on when every caller is gone. Each
+/// `settle` answers what Node's calls answered, in start order, and the dependency calls made are Node's.
 #[tokio::test]
 async fn calls_of_one_agent_in_flight_together_share_what_node_shared() {
+    mixdog_rt::testing::tokens();
     let twin = twin("desktop/settings/agent-home-api-twin.json");
     let mut settled = 0;
     for flight in twin["flights"].as_array().unwrap() {
@@ -293,30 +302,46 @@ async fn calls_of_one_agent_in_flight_together_share_what_node_shared() {
                 }
                 "world" => home.apply(&op["patch"]),
                 "start" => {
-                    let (homes, agent, reset) = (homes.clone(), op["agent"].as_str().unwrap().to_owned(), op["kind"] == "reset");
-                    let mut call: Pin<Box<dyn Future<Output = Result<Value, CoreError>> + Send>> =
-                        Box::pin(async move { if reset { homes.reset(&agent).await } else { homes.open(&agent).await } });
-                    started.push(match futures::poll!(call.as_mut()) {
-                        std::task::Poll::Ready(done) => Started::Done(done),
-                        std::task::Poll::Pending => Started::Waiting(call),
+                    let first = start_call(&homes, op);
+                    let then = op.get("then").map(|then| start_call(&homes, then));
+                    // The second call is made the moment the first returns, with nothing between.
+                    let mut answers: Answers = Box::pin(async move {
+                        let mut answers = vec![first.await];
+                        if let Some(then) = then {
+                            answers.push(then.await);
+                        }
+                        answers
                     });
+                    let call = op["call"].as_str().unwrap().to_owned();
+                    // The first poll makes the call; a call that already finished keeps its answers.
+                    match futures::poll!(answers.as_mut()) {
+                        std::task::Poll::Ready(done) => started.push(Started { call, answers: Box::pin(async move { done }) }),
+                        std::task::Poll::Pending => started.push(Started { call, answers }),
+                    }
+                }
+                // Nobody waits for the call any more; its flight goes on.
+                "abandon" => started.retain(|call| call.call != op["call"].as_str().unwrap()),
+                "drain" => {
+                    homes.quiesced().await;
+                    assert_eq!(home.take_log(), op["log"], "{label}: dependency calls");
                 }
                 "settle" => {
                     let recorded = op["calls"].as_array().unwrap();
-                    assert_eq!(recorded.len(), started.len(), "{label}: calls started");
-                    for (call, want) in started.drain(..).zip(recorded) {
-                        let got = match call {
-                            Started::Done(done) => done,
-                            Started::Waiting(waiting) => waiting.await,
-                        };
+                    let mut got = Vec::new();
+                    for call in started.drain(..) {
+                        got.extend(call.answers.await);
+                    }
+                    assert_eq!(recorded.len(), got.len(), "{label}: calls answered");
+                    for (got, want) in got.iter().zip(recorded) {
                         let label = format!("{label}, call {}", want["call"]);
-                        match (&got, want.get("error")) {
+                        match (got, want.get("error")) {
                             (Ok(value), None) => assert_eq!(value, &want["result"], "{label}: result"),
                             (Err(error), Some(message_want)) => assert_eq!(message(error), message_want.as_str().unwrap(), "{label}: error"),
                             (got, _) => panic!("{label}: got {got:?}, Node {want}"),
                         }
                         settled += 1;
                     }
+                    homes.quiesced().await;
                     assert_eq!(home.take_log(), op["log"], "{label}: dependency calls");
                 }
                 other => panic!("{label}: unknown op {other}"),
@@ -324,11 +349,11 @@ async fn calls_of_one_agent_in_flight_together_share_what_node_shared() {
         }
         assert!(started.is_empty(), "{name}: every started call is settled");
     }
-    assert!(settled > 25, "{settled} calls settled");
+    assert!(settled > 40, "{settled} calls settled");
 }
-
 #[tokio::test]
 async fn open_and_reset_answer_what_node_answered_and_call_what_node_called() {
+    mixdog_rt::testing::tokens();
     let twin = twin("desktop/settings/agent-home-api-twin.json");
     let (mut opened, mut failed_calls) = (0, 0);
     for (index, scenario) in twin["homes"].as_array().unwrap().iter().enumerate() {
@@ -354,6 +379,8 @@ async fn open_and_reset_answer_what_node_answered_and_call_what_node_called() {
                 }
                 (got, want) => panic!("{label}: got {got:?}, Node {want:?} / {}", op["result"]),
             }
+            // The recorder's next request arrives after the settled flight's cleanup.
+            homes.quiesced().await;
             assert_eq!(home.take_log(), op["log"], "{label}: dependency calls");
         }
     }
@@ -653,6 +680,7 @@ async fn call(service: &AgentHomeService, method: &'static str, params: Value) -
 
 #[tokio::test]
 async fn the_service_claims_its_five_methods_and_reads_the_ipc_inputs_as_node_does() {
+    mixdog_rt::testing::tokens();
     let twin = twin("desktop/settings/agent-home-api-twin.json");
     let scenario = json!({ "world": { "agents": ["ada"], "mixyRoute": null, "mixyCreated": false, "sessions": {}, "archived": [], "retired": [], "running": [], "setRouteFails": false, "clearFails": false } });
     let home = home_world(&scenario, &twin);

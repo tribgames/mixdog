@@ -312,10 +312,10 @@ export function commitStage(stage, finalDir) {
  * file to a shared set): keeps recorder/command/extra, recomputes files and the
  * identity from `tree`.
  */
-export function refreshSetManifest(setDir, tree) {
+export function refreshSetManifest(setDir, tree, ref = 'HEAD') {
   const old = JSON.parse(readFileSync(join(setDir, 'MANIFEST.json'), 'utf8'));
   const { set, recorder, command, product: _p, fileCount: _c, totalBytes: _t, files: _f, ...extra } = old;
-  return writeSetManifest(setDir, { set, recorder, command, extra, identityTree: tree });
+  return writeSetManifest(setDir, { set, recorder, command, extra, identityTree: tree, identityRef: ref });
 }
 
 export const fileSize =(p) => statSync(p).size;
