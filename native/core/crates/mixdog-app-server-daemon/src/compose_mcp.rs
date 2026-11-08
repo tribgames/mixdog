@@ -166,8 +166,8 @@ impl ExtensionHost for LateExtensionHost {
     async fn current_cwd(&self, thread_id: Option<&str>) -> Result<PathBuf, String> {
         self.get().current_cwd(thread_id).await
     }
-    async fn skills_status(&self) -> Value {
-        self.get().skills_status().await
+    async fn skills_status(&self, thread_id: Option<&str>) -> Value {
+        self.get().skills_status(thread_id).await
     }
     async fn plugin_mcp_summary(&self, thread_id: Option<&str>) -> Result<Value, String> {
         self.get().plugin_mcp_summary(thread_id).await
