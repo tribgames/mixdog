@@ -489,8 +489,9 @@ mod tests {
 
     #[async_trait]
     impl mixdog_core_session::session::NewThreadRoute for Seat {
-        async fn adopt(&self, _: &ThreadId, _: Option<&Map<String, Value>>) -> Result<Map<String, Value>, String> {
-            Err("the replay starts no task through the route service".to_owned())
+        // `createCurrentSession` on a thread that is there readies its live route, which the replay's cell holds as it is.
+        async fn adopt(&self, thread: &ThreadId, _: Option<&Map<String, Value>>) -> Result<Map<String, Value>, String> {
+            Ok(self.cells.route(thread))
         }
         async fn adopt_control(&self, thread: &ThreadId) -> Result<Map<String, Value>, String> {
             Ok(self.cells.route(thread))

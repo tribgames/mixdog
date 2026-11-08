@@ -351,6 +351,39 @@ impl ManualCompaction for HostManualCompaction {
         }
     }
 
+    /// `compactConversationForHeir`: the source's whole transcript through the source's own compactor, sized by the heir's
+    /// budget. Nothing is committed: the result is returned and the source keeps every message. A pass that is asked to
+    /// `summarize` runs on a copy of the source's header whose conversation threshold is the floor (1).
+    async fn compact_for_heir(&self, source: &ThreadId, budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, CoreError> {
+        let parts = &self.parts;
+        let Some(snapshot) = parts.world.snapshot(Some(source)).await? else { return Ok(None) };
+        let Some(directory) = parts.next.bound().and_then(|(directory, _)| directory.upgrade()) else { return Ok(None) };
+        let context = directory.model_context(source).read().await?;
+        let rows: Vec<Value> = context.iter().map(|(_, row)| row.clone()).collect();
+        let messages = rows.iter().map(|row| message_of(row).map_err(|e| failed(DOMAIN, e))).collect::<Result<Vec<_>, _>>()?;
+        let mut header = snapshot.header.clone();
+        if summarize {
+            let mut compaction = header.get("compaction").and_then(Value::as_object).cloned().unwrap_or_default();
+            compaction.insert("conversationThresholdTokens".into(), json!(1));
+            header.insert("compaction".into(), Value::Object(compaction));
+        }
+        let Some(settings) = parts.config.run_settings(source, &header).compact else { return Ok(None) };
+        let input = CompactorInput {
+            settings,
+            rows: Arc::new(StoredRows::new()),
+            archive: Arc::new(ToolResultArtifacts::new(parts.io.clone(), &parts.data_dir, source.as_str())),
+            blobs: parts.blobs.clone(),
+        };
+        let Some(compactor) = parts.compactors.compactor(source, &header, &rows, input).await else { return Ok(None) };
+        compactor.prepare(&messages).await;
+        let request = CompactRequest { messages: &messages, budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false };
+        let output = compactor.compact(request).await.map_err(|error| match error {
+            CompactError::Overflow(message) | CompactError::Failed(message) => failed(DOMAIN, message),
+            CompactError::Aborted => failed(DOMAIN, "compact aborted"),
+        })?;
+        Ok(Some(output.messages.iter().map(row_of).collect()))
+    }
+
     async fn post_compact(&self, thread: &ThreadId, trigger: &str) {
         self.parts.hooks.post(thread, trigger).await;
     }

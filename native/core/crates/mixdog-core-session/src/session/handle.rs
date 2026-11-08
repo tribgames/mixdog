@@ -391,7 +391,7 @@ impl SessionHandle {
     /// message whose `meta.transcript.messageId` the conversation already holds, or an earlier
     /// message of the post carries, is skipped; the rest are stored as rows of no turn, each
     /// shown live as it lands. Answers `{added}`. Internal callers only.
-    async fn room_rows_append(&self, req: CoreRequest) -> Result<Reply, CoreError> {
+    async fn room_rows_append(&self, req: CoreRequest, dedupe: bool) -> Result<Reply, CoreError> {
         let messages = req.params.get("messages").and_then(Value::as_array).cloned().ok_or_else(|| CoreError::InvalidParams {
             path: "messages".into(),
             expected: "the room row messages".into(),
@@ -403,7 +403,8 @@ impl SessionHandle {
             thread: self.id.clone(),
             input: mixdog_core_api::ids::ItemId::from(String::new()),
         };
-        let fresh = super::room_log::fresh_rows(context.read().await?.iter().map(|(_, message)| message), messages);
+        // An inheritance carries the source's messages whole (`target.messages.push(...)`): none is judged held.
+        let fresh = if dedupe { super::room_log::fresh_rows(context.read().await?.iter().map(|(_, message)| message), messages) } else { messages };
         if fresh.is_empty() {
             return Ok(Reply::Value(json!({ "added": 0 })));
         }
@@ -482,7 +483,7 @@ impl SessionHandle {
         if let Some(heir) = &params.into_thread_id {
             let heirs = super::SessionDirectory::over(directory.clone());
             if heirs.try_stored_header(heir).await?.is_some() {
-                return heirs.carry_into(&self.id, heir).await;
+                return heirs.carry_into(&self.id, heir, params.compact == Some(true)).await;
             }
         }
         // The desktop's `inheritSession` creates the heir where the source's Project is (or in the task workspace) with a
@@ -661,7 +662,8 @@ impl ThreadHandle for SessionHandle {
             "thread/revertTurnReview" => self.revert_turn_review(&req, false).await,
             "thread/revertTurnReviewFile" => self.revert_turn_review(&req, true).await,
             "thread/reactions/set" if !matches!(req.ctx.caller, Caller::Connection(_)) => self.reactions_set(req).await,
-            "thread/roomRows/append" if !matches!(req.ctx.caller, Caller::Connection(_)) => self.room_rows_append(req).await,
+            "thread/roomRows/append" if !matches!(req.ctx.caller, Caller::Connection(_)) => self.room_rows_append(req, true).await,
+            "thread/inheritedRows/append" if !matches!(req.ctx.caller, Caller::Connection(_)) => self.room_rows_append(req, false).await,
             // The acked header, for the core's own ports; never a connection's read.
             "thread/header/read" if !matches!(req.ctx.caller, Caller::Connection(_)) => {
                 Ok(Reply::Value(json!({ "header": *self.cell.header.load_full() })))

@@ -49,6 +49,9 @@ pub struct FitBasis {
 pub trait InheritanceFit: Send + Sync {
     /// `None` for an unmeasurable route: no boundary metadata, or auto-compaction off.
     async fn basis(&self, target: &InheritTarget, messages: &[Value]) -> Option<FitBasis>;
+    /// `inheritanceCompactionPlan(target).budgetTokens`: what a conversation compacted for this heir must fit; `None` when
+    /// the route has no boundary to compact toward.
+    async fn compaction_budget(&self, target: &InheritTarget) -> Option<u64>;
 }
 
 fn clean(value: Option<&Value>) -> String {
@@ -91,29 +94,68 @@ impl SessionDirectory {
     /// two transcripts would produce a conversation neither model ever had". The checks run in Node's order: the heir is
     /// not the source, it holds no conversation, the source has one to carry. The heir has no lineage of its own to
     /// share with the source's, so the messages are appended to it as rows of no turn, as an import's are.
-    pub(super) async fn carry_into(&self, source: &ThreadId, heir: &ThreadId) -> Result<Reply, CoreError> {
+    pub(super) async fn carry_into(&self, source: &ThreadId, heir: &ThreadId, compact: bool) -> Result<Reply, CoreError> {
         let refused = |message: &str| mixdog_core_base::support::failed("inheritance", message);
         if heir == source {
             return Err(refused("inheritFrom: a session cannot inherit from itself"));
         }
-        if super::route_session::has_user_conversation(&self.rows_of(heir.as_str()).await?) {
+        let ctx = CallContext::internal("inheritance");
+        let handle = self.open_handle(heir, &ctx).await?;
+        // `hasUserConversationMessage(target.messages) || hasUserConversationMessage(target.liveTurnMessages)`.
+        let live = (**handle.cell.turn_messages.borrow()).clone();
+        if super::route_session::has_user_conversation(&self.rows_of(heir.as_str()).await?) || super::route_session::has_user_conversation(&live) {
             return Err(refused("inheritFrom: this session already holds a conversation"));
         }
-        let carried = inheritable(self.rows_of(source.as_str()).await?);
+        let mut carried = inheritable(self.rows_of(source.as_str()).await?);
         if !super::route_session::has_user_conversation(&carried) {
             return Err(refused("inheritFrom: the source session has no conversation to carry"));
         }
-        let ctx = CallContext::internal("inheritance");
-        let handle = self.open_handle(heir, &ctx).await?;
+        // Decided before anything moves, on the heir's own scale (`inheritanceFit` over the heir): an explicit `compact`
+        // summarizes whatever the size, otherwise only a conversation that cannot fit is compacted.
+        let held = handle.cell.header.load_full();
+        let target = InheritTarget {
+            provider: clean(held.get("provider")),
+            model: clean(held.get("model")),
+            selected_context_window: mixdog_agent::agent_tool::scope::positive_int(held.get("selectedContextWindow")),
+            tools_of: Some(heir.clone()),
+            source: Some(source.clone()),
+        };
+        let fit_of = |basis: Option<FitBasis>| basis.filter(|basis| basis.limit > 0);
+        let named = !target.provider.is_empty() && !target.model.is_empty();
+        let fit = if named { fit_of(self.deps().inherit.basis(&target, &carried).await) } else { None };
+        if compact || fit.as_ref().is_some_and(|fit| fit.used >= fit.limit) {
+            // `fitConversationForHeir`: a compaction that cannot run is a refusal, not a half-carry.
+            let budget = if named { self.deps().inherit.compaction_budget(&target).await } else { None };
+            let compacted = match budget {
+                Some(budget) => match self.deps().compaction.compact_for_heir(source, budget, compact).await {
+                    Ok(rows) => Some(inheritable(rows.unwrap_or_default())).filter(|rows| super::route_session::has_user_conversation(rows)),
+                    Err(_) => None,
+                },
+                None => None,
+            };
+            if compact && compacted.is_none() {
+                return Err(refused("inheritFrom: the conversation could not be compacted for the new session"));
+            }
+            let next_fit = match &compacted {
+                Some(rows) => fit_of(self.deps().inherit.basis(&target, rows).await),
+                None => fit,
+            };
+            if let Some(rows) = compacted {
+                carried = rows;
+            }
+            if let Some(fit) = next_fit.filter(|fit| fit.used >= fit.limit) {
+                return Err(refused(&fit_message(&target.provider, &target.model, fit.used, fit.limit)));
+            }
+        }
         let source_title = clean(self.read_of(source, "thread/header/read").await?.pointer("/header/title"));
         let mut set = Map::new();
         set.insert("inheritedFromSessionId".into(), json!(source.as_str()));
-        if clean(handle.cell.header.load().get("title")).is_empty() && !source_title.is_empty() {
+        if clean(held.get("title")).is_empty() && !source_title.is_empty() {
             set.insert("title".into(), json!(source_title));
         }
         let count = carried.len();
         for (method, params) in [
-            ("thread/roomRows/append", json!({ "messages": carried })),
+            ("thread/inheritedRows/append", json!({ "messages": carried })),
             ("thread/header/patch", json!({ "threadId": heir, "set": set, "unset": [] })),
         ] {
             handle.request(CoreRequest { method: Method(method), params, op: None, ctx: ctx.clone() }).await?;
@@ -126,7 +168,6 @@ impl SessionDirectory {
             "model": held.get("model").cloned().unwrap_or(Value::Null),
         })))
     }
-
     pub(super) async fn inheritance_preflight(&self, params: &Value) -> Result<Value, CoreError> {
         let params: ThreadInheritancePreflightParams = serde_json::from_value(params.clone())
             .map_err(|_| CoreError::InvalidParams { path: "params".into(), expected: "ThreadInheritancePreflightParams".into() })?;
