@@ -211,8 +211,11 @@ fn destination(kind: &Kind) -> (Contract, Target) {
     }
 }
 
-/// Adds the profile's items to `sink`. A missing profile adds nothing.
-pub(super) fn plan(profile: &Path, sink: &mut PlanSink) -> Result<()> {
+/// Adds the profile's items to `sink`. A missing profile adds nothing. `sessions_converted` is the
+/// late pass: the sessions were migrated before the profile was named, and their `meta` records
+/// are written while a session converts, so the session metadata file is neither planned nor
+/// disposed (it stays in the profile, unread).
+pub(super) fn plan(profile: &Path, sink: &mut PlanSink, sessions_converted: bool) -> Result<()> {
     let mut retired = Vec::new();
     let mut items = Vec::new();
 
@@ -240,12 +243,12 @@ pub(super) fn plan(profile: &Path, sink: &mut PlanSink) -> Result<()> {
         }
     }
 
-    if let Some(file) = source_file(profile, sink, SESSION_METADATA_FILE, true)? {
+    if !sessions_converted && let Some(file) = source_file(profile, sink, SESSION_METADATA_FILE, true)? {
         sink.add_shared(file, SESSION_METADATA_KEY);
         items.push(kind_item(ItemKind::SessionMetadata, Contract::Convert, Vec::new(), Some(Target::Sessions))?);
     }
     for (name, is_dir) in crate::durable::list_dir(profile)? {
-        if !is_dir && is_session_metadata_tmp(&name) {
+        if !sessions_converted && !is_dir && is_session_metadata_tmp(&name) {
             retired.extend(source_file(profile, sink, &name, true)?);
         }
     }

@@ -26,7 +26,7 @@ pub struct MigrateArgs {
     pub data_dir: Option<PathBuf>,
     /// `<H>`: `--home`, else `$MIXDOG_HOME`, else `~/.mixdog`.
     pub home: Option<PathBuf>,
-    /// `<P>`: the launcher's `--desktop-profile`, else `desktop_profile_dir`'s fallbacks.
+    /// `<P>`: the launcher's `--desktop-profile`, else `$MIXDOG_DESKTOP_USER_DATA`; with neither there is no profile and none is migrated.
     pub desktop_profile: Option<PathBuf>,
 }
 

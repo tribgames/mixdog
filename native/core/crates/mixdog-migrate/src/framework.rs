@@ -122,6 +122,11 @@ pub enum Verdict {
 /// One kind group's planning, conversion and verification.
 pub trait ItemDriver: Send + Sync {
     fn plan(&self, roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()>;
+    /// Plans the late pass: the migration already completed with no profile named, and `roots`
+    /// names one now. Only what a profile adds is planned; the default plans nothing.
+    fn plan_late(&self, _roots: &MigrationRoots, _sink: &mut PlanSink) -> Result<()> {
+        Ok(())
+    }
     /// Whether this driver handles `item` (by kind).
     fn owns(&self, item: &ManifestItem) -> bool;
     fn wave(&self, item: &ManifestItem) -> Wave;

@@ -44,7 +44,6 @@ use mixdog_store::schema::migration::Target;
 use serde_json::Map;
 use serde_json::Value;
 
-pub use locate::PROFILE_DIR_NAME;
 pub use locate::USER_DATA_ENV;
 pub use locate::desktop_profile_dir;
 pub use locate::desktop_profile_dir_with;
@@ -192,7 +191,14 @@ impl DesktopProfileDriver {
 impl ItemDriver for DesktopProfileDriver {
     fn plan(&self, roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
         match roots.profile.as_deref() {
-            Some(profile) => plan::plan(profile, sink),
+            Some(profile) => plan::plan(profile, sink, false),
+            None => Ok(()),
+        }
+    }
+
+    fn plan_late(&self, roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
+        match roots.profile.as_deref() {
+            Some(profile) => plan::plan(profile, sink, true),
             None => Ok(()),
         }
     }

@@ -685,7 +685,10 @@ fn final_state(roots: &MigrationRoots) -> String {
     let mut lines = Vec::new();
     for (label, root) in [("data", &roots.data), ("profile", roots.profile.as_ref().unwrap())] {
         for (name, path) in files_of(root) {
-            if name.starts_with("migration/journal") || name.starts_with("state/core.sqlite") {
+            if name.starts_with("migration/journal")
+                || name.starts_with("migration/late-journal")
+                || name.starts_with("state/core.sqlite")
+            {
                 continue;
             }
             lines.push(format!("{label}/{name} {}", hash_of(&path)));
@@ -906,4 +909,155 @@ fn a_rename_onto_an_open_destination_fails_and_the_retry_recovers() {
 
     migrator(&roots, None).run().unwrap();
     assert_eq!(final_state(&roots), expected);
+}
+/// A work dir whose migration completed with no profile named (the core ran standalone
+/// first); the returned roots name the corpus profile for the later run.
+fn completed_without_profile(work: &Work, corpus: &Path) -> (MigrationRoots, mixdog_store::schema::migration::Complete) {
+    let roots = work.prepare(corpus);
+    let bare = MigrationRoots { profile: None, ..roots.clone() };
+    let first = migrator(&bare, None).run().unwrap();
+    assert_eq!(first.kinds.desktop_profile.verified, 0);
+    assert!(!roots.data.join("remote").exists(), "nothing was migrated from the profile");
+    (roots, first)
+}
+
+#[test]
+fn a_profile_named_after_a_profileless_completion_migrates_once() {
+    let corpus = corpus_root();
+    let work = Work::new();
+    let (roots, first) = completed_without_profile(&work, &corpus);
+    let profile = roots.profile.clone().unwrap();
+
+    let late = migrator(&roots, None).run().unwrap();
+    assert!(late.kinds.desktop_profile.verified > 0);
+    assert_eq!(late.kinds.data, first.kinds.data);
+    assert!(files_of(&roots.data).contains_key("remote/device.json"));
+    assert!(!profile.join("relay-device.json").exists(), "the moved file is gone from the profile");
+    assert!(profile.join(session_metadata::SESSION_METADATA_FILE).exists(), "converted sessions are not rewritten, so the file stays");
+    let late_manifest = std::fs::read(roots.data.join("migration/late-manifest.json")).unwrap();
+    assert_eq!(late.manifest_sha256, durable::sha256_hex(&late_manifest));
+    let state = final_state(&roots);
+
+    // Run again: the marker answers and nothing moves.
+    assert_eq!(migrator(&roots, None).run().unwrap(), late);
+    assert_eq!(final_state(&roots), state);
+}
+
+#[test]
+fn a_different_profile_named_after_a_profile_migrated_changes_nothing() {
+    let corpus = corpus_root();
+    for profileless_first in [false, true] {
+        let work = Work::new();
+        let roots = if profileless_first {
+            completed_without_profile(&work, &corpus).0
+        } else {
+            work.prepare(&corpus)
+        };
+        let done = migrator(&roots, None).run().unwrap();
+        let state = final_state(&roots);
+        let migrated = std::fs::read(roots.data.join("remote/device.json")).unwrap();
+
+        let other = work.dir.path().join("profile-b");
+        copy_tree(&corpus.join("electron-profile"), &other);
+        std::fs::write(other.join("relay-device.json"), br#"{"deviceId":"b","deviceSecret":"b"}"#).unwrap();
+        let before = files_of(&other).keys().cloned().collect::<Vec<_>>();
+        let hashes: Vec<_> = files_of(&other).values().map(|p| hash_of(p)).collect();
+
+        let named_b = MigrationRoots { profile: Some(other.clone()), ..roots.clone() };
+        assert_eq!(migrator(&named_b, None).run().unwrap(), done);
+        assert_eq!(final_state(&roots), state, "profile A's migrated files are intact");
+        assert_eq!(std::fs::read(roots.data.join("remote/device.json")).unwrap(), migrated);
+        assert_eq!(files_of(&other).keys().cloned().collect::<Vec<_>>(), before);
+        assert_eq!(files_of(&other).values().map(|p| hash_of(p)).collect::<Vec<_>>(), hashes, "profile B is never touched");
+    }
+}
+
+/// What the run that resumes an interrupted late pass names.
+#[derive(Clone, Copy)]
+enum Resume {
+    /// The profile the pass was started with.
+    Same,
+    /// Another profile, `profile-b`.
+    Other,
+    /// No profile at all.
+    Nothing,
+}
+
+/// The fault points of one uninterrupted late pass, in order.
+fn late_points(corpus: &Path) -> Vec<String> {
+    let work = Work::new();
+    let (roots, _) = completed_without_profile(&work, corpus);
+    let points = Arc::new(Mutex::new(Vec::<String>::new()));
+    let record = Arc::clone(&points);
+    let recorder: FaultHook = Arc::new(move |point| {
+        record.lock().unwrap().push(point.to_owned());
+        Ok(())
+    });
+    migrator(&roots, Some(recorder)).run().unwrap();
+    let points = points.lock().unwrap().clone();
+    assert!(points.len() > 100, "{} late fault points", points.len());
+    points
+}
+
+/// Kills the late pass in a child at each of `points[worker]`, `points[worker + MATRIX_WORKERS]`,
+/// ... and resumes it naming `resume(kill_at)`. A kill from the late manifest's publication on
+/// is committed to its profile, so the resumed tree is the uninterrupted one whatever the resume
+/// names; before it nothing is committed, so only `Resume::Same` is asked of those points.
+fn kill_and_resume_each_late_point(
+    corpus: &Path,
+    points: &[String],
+    worker: usize,
+    resume: impl Fn(usize) -> Resume,
+) {
+    let committed_from = points.iter().position(|p| p == "manifest:after").unwrap();
+    let work = Work::new();
+    let (roots, _) = completed_without_profile(&work, corpus);
+    migrator(&roots, None).run().unwrap();
+    let expected = final_state(&roots);
+    let other = work.dir.path().join("profile-b");
+    copy_tree(&corpus.join("electron-profile"), &other);
+    std::fs::write(other.join("relay-device.json"), br#"{"deviceId":"b","deviceSecret":"b"}"#).unwrap();
+    let other_hashes: Vec<_> = files_of(&other).values().map(|p| hash_of(p)).collect();
+
+    for (kill_at, point) in points.iter().enumerate().skip(worker).step_by(MATRIX_WORKERS) {
+        let mode = resume(kill_at);
+        if kill_at < committed_from && !matches!(mode, Resume::Same) {
+            continue;
+        }
+        let (roots, _) = completed_without_profile(&work, corpus);
+        let status = run_child_killed_at(work.dir.path(), kill_at);
+        assert!(!status.success(), "the child survived the kill at {kill_at} ({point})");
+        let named = match mode {
+            Resume::Same => roots.profile.clone(),
+            Resume::Other => Some(other.clone()),
+            Resume::Nothing => None,
+        };
+        migrator(&MigrationRoots { profile: named, ..roots.clone() }, None)
+            .run()
+            .unwrap_or_else(|error| panic!("resume after {point}: {error}"));
+        assert_eq!(final_state(&roots), expected, "after a kill at {point}");
+        let now: Vec<_> = files_of(&other).values().map(|p| hash_of(p)).collect();
+        assert_eq!(now, other_hashes, "profile B is never touched (kill at {point})");
+    }
+}
+
+fn kill_every_late_point(resume: impl Fn(usize) -> Resume + Sync) {
+    let corpus = corpus_root();
+    let points = late_points(&corpus);
+    std::thread::scope(|scope| {
+        for worker in 0..MATRIX_WORKERS {
+            let (corpus, points, resume) = (&corpus, &points, &resume);
+            scope.spawn(move || kill_and_resume_each_late_point(corpus, points, worker, resume));
+        }
+    });
+}
+
+#[test]
+fn a_late_pass_killed_at_every_point_resumes_to_the_uninterrupted_tree() {
+    kill_every_late_point(|_| Resume::Same);
+}
+
+#[test]
+fn a_late_pass_started_with_a_profile_resumes_with_it_whatever_the_restart_names() {
+    kill_every_late_point(|kill_at| if kill_at % 2 == 0 { Resume::Other } else { Resume::Nothing });
 }

@@ -5,6 +5,7 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
@@ -23,6 +24,8 @@ use mixdog_store::schema::migration::JOURNAL_PATH;
 use mixdog_store::schema::migration::JournalRecord;
 use mixdog_store::schema::migration::KeyEntry;
 use mixdog_store::schema::migration::KindGroup;
+use mixdog_store::schema::migration::LATE_JOURNAL_PATH;
+use mixdog_store::schema::migration::LATE_MANIFEST_PATH;
 use mixdog_store::schema::migration::MANIFEST_PATH;
 use mixdog_store::schema::migration::Manifest;
 use mixdog_store::schema::migration::ManifestItem;
@@ -90,6 +93,13 @@ pub fn product_drivers(
         Arc::new(crate::index::IndexDriver::new(projector)),
         profile,
     ]
+}
+
+/// Which migration a run drives to `complete.json`.
+enum Pass {
+    First,
+    /// The late desktop-profile pass, carrying the data counts of the completed first pass.
+    Late(Counts),
 }
 
 pub struct Migrator {
@@ -182,12 +192,69 @@ impl Migrator {
     /// Runs (or resumes) the migration to its completion marker.
     pub fn run(&self) -> Result<Complete> {
         let data = &self.roots.data;
-        if let Some(bytes) = durable::read_optional(&data.join(COMPLETE_PATH))? {
-            durable::remove_dir_all(&data.join(STAGE_DIR))?;
-            return serde_json::from_slice(&bytes)
-                .map_err(|e| Blocked::journal(format!("complete.json: {e}")));
+        let Some(bytes) = durable::read_optional(&data.join(COMPLETE_PATH))? else {
+            return self.pass(Pass::First);
+        };
+        let complete: Complete = serde_json::from_slice(&bytes)
+            .map_err(|e| Blocked::journal(format!("complete.json: {e}")))?;
+        match self.late_profile(&complete)? {
+            Some(profile) => {
+                let late = Migrator::new(
+                    MigrationRoots { profile: Some(profile), ..self.roots.clone() },
+                    self.drivers.clone(),
+                    self.options.clone(),
+                );
+                late.pass(Pass::Late(complete.kinds.data))
+            }
+            None => {
+                durable::remove_dir_all(&data.join(STAGE_DIR))?;
+                Ok(complete)
+            }
         }
-        let (manifest, manifest_sha256, journal) = self.open_or_plan()?;
+    }
+
+    /// The profile a completed migration still has to migrate: one is named now and the
+    /// migration was completed with none (the core or CLI ran standalone first). A migration that
+    /// completed with a profile never takes another, so a different one named later is ignored
+    /// and its files are never read, moved or deleted; the migrated `remote/*` is never
+    /// overwritten. Once the late manifest is published every resume continues with its recorded
+    /// profile, whatever the run names (even none).
+    fn late_profile(&self, complete: &Complete) -> Result<Option<PathBuf>> {
+        let data = &self.roots.data;
+        let late = durable::read_optional(&data.join(LATE_MANIFEST_PATH))?;
+        if late.is_none() && self.roots.profile.is_none() {
+            return Ok(None);
+        }
+        let completed = |bytes: &[u8]| durable::sha256_hex(bytes) == complete.manifest_sha256;
+        // A published late manifest is the commitment, even before the journal holds its plan.
+        if let Some(bytes) = &late {
+            if completed(bytes) {
+                return Ok(None);
+            }
+            let manifest: Manifest = serde_json::from_slice(bytes)
+                .map_err(|e| Blocked::journal(format!("late-manifest.json: {e}")))?;
+            let profile = manifest
+                .roots
+                .profile
+                .as_deref()
+                .ok_or_else(|| Blocked::journal("late-manifest.json names no profile"))?;
+            return Ok(Some(PathBuf::from(profile)));
+        }
+        let base = durable::read(&data.join(MANIFEST_PATH))?;
+        if !completed(&base) {
+            return Err(Blocked::journal("complete.json names no manifest"));
+        }
+        let base: Manifest = serde_json::from_slice(&base)
+            .map_err(|e| Blocked::journal(format!("manifest.json: {e}")))?;
+        if base.roots.profile.is_some() {
+            return Ok(None);
+        }
+        Ok(self.roots.profile.clone())
+    }
+
+    fn pass(&self, pass: Pass) -> Result<Complete> {
+        let data = &self.roots.data;
+        let (manifest, manifest_sha256, journal) = self.open_or_plan(&pass)?;
         let journal = Mutex::new(journal);
         let blobs = BlobStatuses::default();
         let shared = Shared {
@@ -210,7 +277,7 @@ impl Migrator {
         // Counted before disposal (a dangling count may read a source disposal removes),
         // kept in the stage until `complete.json` carries it.
         let counts_path = data.join(STAGE_DIR).join(COUNTS_FILE);
-        let kinds: CompleteKinds = match durable::read_optional(&counts_path)? {
+        let mut kinds: CompleteKinds = match durable::read_optional(&counts_path)? {
             Some(bytes) => serde_json::from_slice(&bytes)
                 .map_err(|e| Blocked::journal(format!("{COUNTS_FILE}: {e}")))?,
             None => {
@@ -222,6 +289,10 @@ impl Migrator {
             }
         };
         self.dispose(&shared)?;
+        // The late pass planned no data item: the data counts stay the first pass's.
+        if let Pass::Late(data_counts) = pass {
+            kinds.data = data_counts;
+        }
         let complete = Complete {
             format: COMPLETE_FORMAT,
             manifest_sha256: manifest_sha256.clone(),
@@ -238,10 +309,12 @@ impl Migrator {
         Ok(complete)
     }
 
-    fn open_or_plan(&self) -> Result<(Manifest, String, Journal)> {
+    fn open_or_plan(&self, pass: &Pass) -> Result<(Manifest, String, Journal)> {
         let data = &self.roots.data;
-        let manifest_path = data.join(MANIFEST_PATH);
-        let journal_path = data.join(JOURNAL_PATH);
+        let (manifest_path, journal_path) = match pass {
+            Pass::First => (data.join(MANIFEST_PATH), data.join(JOURNAL_PATH)),
+            Pass::Late(_) => (data.join(LATE_MANIFEST_PATH), data.join(LATE_JOURNAL_PATH)),
+        };
         if let Some(sha) = Journal::plan_of(&journal_path)? {
             let bytes = durable::read(&manifest_path)?;
             if durable::sha256_hex(&bytes) != sha {
@@ -257,7 +330,10 @@ impl Migrator {
         durable::remove_dir_all(&data.join(STAGE_DIR))?;
         let mut sink = PlanSink::new(&self.roots);
         for driver in &self.drivers {
-            driver.plan(&self.roots, &mut sink)?;
+            match pass {
+                Pass::First => driver.plan(&self.roots, &mut sink)?,
+                Pass::Late(_) => driver.plan_late(&self.roots, &mut sink)?,
+            }
         }
         let manifest = sink.into_manifest(&self.roots);
         let bytes = serde_json::to_vec(&manifest).expect("manifest encodes");
