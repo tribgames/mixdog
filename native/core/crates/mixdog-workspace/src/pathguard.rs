@@ -76,6 +76,43 @@ pub fn canonical_through_existing(path: &Path) -> io::Result<PathBuf> {
     Ok(real)
 }
 
+/// Node's `path.resolve`: absolute against the process folder, separators and `.`/`..` settled
+/// lexically (a `..` at the root stays at the root), without touching the disk.
+pub fn resolve(path: &Path) -> PathBuf {
+    let path = if path.as_os_str().is_empty() { Path::new(".") } else { path };
+    let full = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut out = PathBuf::new();
+    for component in full.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// Node's `canonicalPath` (`src/runtime/shared/worktrees/paths.mjs`): `resolve`, then the real path of
+/// the nearest existing ancestor with the missing tail kept; the resolved path itself when no ancestor
+/// can be read.
+pub fn canonical_path(path: &Path) -> PathBuf {
+    let full = resolve(path);
+    let mut head = full.as_path();
+    while !head.exists() {
+        match head.parent() {
+            Some(parent) => head = parent,
+            None => return full,
+        }
+    }
+    let Ok(real) = canonical(head) else { return full };
+    match full.strip_prefix(head) {
+        Ok(rest) if !rest.as_os_str().is_empty() => real.join(rest),
+        _ => real,
+    }
+}
+
 /// Absolute path of a project-relative entry; neither `..` nor a link may
 /// leave the project.
 pub fn project_entry_path(root: &Path, rel: &str) -> WsResult<PathBuf> {

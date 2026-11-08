@@ -9,7 +9,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mixdog_workspace::pathguard::canonical_through_existing;
+use mixdog_workspace::pathguard::canonical_path;
 use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -350,13 +350,10 @@ impl Worktrees {
         })
     }
 
-    /// Node's `canonicalPath` for each path: through its nearest existing ancestor (git reports
-    /// `C:/…`, short names and links; callers compare and key by these).
+    /// Node's `canonicalPath` for each path (git reports `C:/…`, short names and links; callers
+    /// compare and key by these).
     async fn canonical_paths(&self, paths: Vec<PathBuf>, cancel: &CancellationToken) -> Result<Vec<PathBuf>, ScmFailure> {
-        on_lane(self.scm.lane, cancel, move || {
-            paths.into_iter().map(|p| canonical_through_existing(&p).unwrap_or(p)).collect()
-        })
-        .await
+        on_lane(self.scm.lane, cancel, move || paths.iter().map(|p| canonical_path(p)).collect()).await
     }
 
     pub async fn list_git_worktrees(&self, cwd: &Path, cancel: &CancellationToken) -> Result<Vec<GitWorktree>, ScmFailure> {

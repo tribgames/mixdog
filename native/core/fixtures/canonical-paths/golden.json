@@ -1,0 +1,220 @@
+{
+  "domain": "canonical-paths",
+  "recorder": "benchmarks/rust-core/recorders/record-canonical-paths.mjs",
+  "cases": [
+    {
+      "input": "<BASE>\\repo",
+      "canonical": "<BASE>\\repo",
+      "facts": {
+        "projectPath": "<BASE>\\repo",
+        "topLevel": "<BASE>\\repo",
+        "repoCommonDir": "<BASE>\\repo\\.git",
+        "currentBranch": "main"
+      },
+      "rows": [
+        "<BASE>\\repo",
+        "<BASE>\\linked"
+      ]
+    },
+    {
+      "input": "repo",
+      "canonical": "<BASE>\\repo",
+      "facts": {
+        "projectPath": "<BASE>\\repo",
+        "topLevel": "<BASE>\\repo",
+        "repoCommonDir": "<BASE>\\repo\\.git",
+        "currentBranch": "main"
+      },
+      "rows": [
+        "<BASE>\\repo",
+        "<BASE>\\linked"
+      ]
+    },
+    {
+      "input": "linked\\..\\repo",
+      "canonical": "<BASE>\\repo",
+      "facts": {
+        "projectPath": "<BASE>\\repo",
+        "topLevel": "<BASE>\\repo",
+        "repoCommonDir": "<BASE>\\repo\\.git",
+        "currentBranch": "main"
+      },
+      "rows": [
+        "<BASE>\\repo",
+        "<BASE>\\linked"
+      ]
+    },
+    {
+      "input": ".\\repo\\.",
+      "canonical": "<BASE>\\repo",
+      "facts": {
+        "projectPath": "<BASE>\\repo",
+        "topLevel": "<BASE>\\repo",
+        "repoCommonDir": "<BASE>\\repo\\.git",
+        "currentBranch": "main"
+      },
+      "rows": [
+        "<BASE>\\repo",
+        "<BASE>\\linked"
+      ]
+    },
+    {
+      "input": "<BASE>/repo/sub/..",
+      "canonical": "<BASE>\\repo",
+      "facts": {
+        "projectPath": "<BASE>\\repo",
+        "topLevel": "<BASE>\\repo",
+        "repoCommonDir": "<BASE>\\repo\\.git",
+        "currentBranch": "main"
+      },
+      "rows": [
+        "<BASE>\\repo",
+        "<BASE>\\linked"
+      ]
+    },
+    {
+      "input": "<BASE>/repo\\sub\\..",
+      "canonical": "<BASE>\\repo",
+      "facts": {
+        "projectPath": "<BASE>\\repo",
+        "topLevel": "<BASE>\\repo",
+        "repoCommonDir": "<BASE>\\repo\\.git",
+        "currentBranch": "main"
+      },
+      "rows": [
+        "<BASE>\\repo",
+        "<BASE>\\linked"
+      ]
+    },
+    {
+      "input": "<BASE_UPPER>\\REPO",
+      "canonical": "<BASE>\\repo",
+      "facts": {
+        "projectPath": "<BASE>\\repo",
+        "topLevel": "<BASE>\\repo",
+        "repoCommonDir": "<BASE>\\repo\\.git",
+        "currentBranch": "main"
+      },
+      "rows": [
+        "<BASE>\\repo",
+        "<BASE>\\linked"
+      ]
+    },
+    {
+      "input": "<BASE>\\junc",
+      "canonical": "<BASE>\\repo",
+      "facts": {
+        "projectPath": "<BASE>\\repo",
+        "topLevel": "<BASE>\\repo",
+        "repoCommonDir": "<BASE>\\repo\\.git",
+        "currentBranch": "main"
+      },
+      "rows": [
+        "<BASE>\\repo",
+        "<BASE>\\linked"
+      ]
+    },
+    {
+      "input": "<BASE>\\junc\\..\\repo",
+      "canonical": "<BASE>\\repo",
+      "facts": {
+        "projectPath": "<BASE>\\repo",
+        "topLevel": "<BASE>\\repo",
+        "repoCommonDir": "<BASE>\\repo\\.git",
+        "currentBranch": "main"
+      },
+      "rows": [
+        "<BASE>\\repo",
+        "<BASE>\\linked"
+      ]
+    },
+    {
+      "input": "<BASE>\\junc\\sub\\..\\..\\linked",
+      "canonical": "<BASE>\\linked",
+      "facts": {
+        "projectPath": "<BASE>\\linked",
+        "topLevel": "<BASE>\\linked",
+        "repoCommonDir": "<BASE>\\repo\\.git",
+        "currentBranch": "side"
+      },
+      "rows": [
+        "<BASE>\\repo",
+        "<BASE>\\linked"
+      ]
+    },
+    {
+      "input": "<BASE_SHORT>\\repo",
+      "canonical": "<BASE>\\repo",
+      "facts": {
+        "projectPath": "<BASE>\\repo",
+        "topLevel": "<BASE>\\repo",
+        "repoCommonDir": "<BASE>\\repo\\.git",
+        "currentBranch": "main"
+      },
+      "rows": [
+        "<BASE>\\repo",
+        "<BASE>\\linked"
+      ]
+    },
+    {
+      "input": "<BASE>\\linked",
+      "canonical": "<BASE>\\linked",
+      "facts": {
+        "projectPath": "<BASE>\\linked",
+        "topLevel": "<BASE>\\linked",
+        "repoCommonDir": "<BASE>\\repo\\.git",
+        "currentBranch": "side"
+      },
+      "rows": [
+        "<BASE>\\repo",
+        "<BASE>\\linked"
+      ]
+    },
+    {
+      "input": "<BASE>\\repo\\",
+      "canonical": "<BASE>\\repo",
+      "facts": {
+        "projectPath": "<BASE>\\repo",
+        "topLevel": "<BASE>\\repo",
+        "repoCommonDir": "<BASE>\\repo\\.git",
+        "currentBranch": "main"
+      },
+      "rows": [
+        "<BASE>\\repo",
+        "<BASE>\\linked"
+      ]
+    },
+    {
+      "input": "<BASE>\\repo\\sub",
+      "canonical": "<BASE>\\repo\\sub",
+      "facts": {
+        "projectPath": "<BASE>\\repo\\sub",
+        "topLevel": "<BASE>\\repo",
+        "repoCommonDir": "<BASE>\\repo\\.git",
+        "currentBranch": "main"
+      },
+      "rows": [
+        "<BASE>\\repo",
+        "<BASE>\\linked"
+      ]
+    },
+    {
+      "input": "<BASE>\\repo\\nope\\deeper\\..\\x",
+      "canonical": "<BASE>\\repo\\nope\\x",
+      "facts": {
+        "error": "WORKTREE_PROJECT_UNKNOWN",
+        "projectPath": "<BASE>\\repo\\nope\\x"
+      },
+      "rows": null
+    },
+    {
+      "input": "<BASE>\\junc\\nope",
+      "canonical": "<BASE>\\repo\\nope",
+      "facts": {
+        "error": "WORKTREE_PROJECT_UNKNOWN",
+        "projectPath": "<BASE>\\repo\\nope"
+      },
+      "rows": null
+    }
+  ]
+}
