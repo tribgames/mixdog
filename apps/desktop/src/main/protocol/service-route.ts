@@ -148,14 +148,15 @@ const ROOM_ACTIONS: Readonly<Record<string, (args: readonly any[]) => ServiceReq
   remove: ([roomId]) => ({ method: 'room/remove', params: { input: { roomId } } }),
 };
 
-/** Methods that are not requests of the core: the lane refuses them with `unknownMethod`, or (`perfLog`) drops them. */
+/** Methods that are not requests of this lane: it refuses them with `unknownMethod`. The client sends the first two through
+ *  the capability lane (`getQuotaAutoResume` reads the `config` section, `resolveToolApprovalForSession` answers the server
+ *  request), the others through the capability and operation lanes. `perfLog` is the `client/perfLog` notification. */
 export const SERVICE_NOT_ROUTED = [
   'getQuotaAutoResume',
   'resolveToolApprovalForSession',
   'invokeCapability',
   'readCapabilities',
   'invokeDesktopOperation',
-  'perfLog',
 ] as const;
 
 /** The core request for `method(...args)` of a stateless method. */
@@ -197,7 +198,7 @@ export function createServiceLane({
   protocol,
   snapshot,
 }: {
-  protocol: Pick<ProtocolConnection, 'call'> & Partial<Pick<ProtocolConnection, 'onReplaced'>>;
+  protocol: Pick<ProtocolConnection, 'call' | 'notify'> & Partial<Pick<ProtocolConnection, 'onReplaced'>>;
   snapshot(): SessionSnapshot;
 }): ServiceLane {
   const send = ({ method, params }: ServiceRequest): Promise<unknown> =>
@@ -221,7 +222,10 @@ export function createServiceLane({
   return {
     async call<T>(method: string, args: unknown[], signal?: AbortSignal): Promise<T> {
       if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error('Request aborted.');
-      if (method === 'perfLog') return undefined as T;
+      if (method === 'perfLog') {
+        protocol.notify('client/perfLog', { line: String(args[0] ?? '') });
+        return undefined as T;
+      }
       if (method === 'setVisibleSessions') {
         const [ids] = args as [string[]];
         const visible = new Set(ids);
