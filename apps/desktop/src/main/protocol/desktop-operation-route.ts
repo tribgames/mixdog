@@ -5,7 +5,6 @@
 // the Rust `v2/params.rs` structs and `operations_map.json`, not from this table.
 import { normalizeBrowserPermissionPolicy } from '../../shared/browser-permission-policy';
 import { isSessionRetentionSettingKey } from '../../shared/contract-settings';
-import { remoteClientKind } from '../../shared/remote-trust';
 import { readSettingsChange, SETTINGS_CHANGED_EVENT } from '../../shared/settings-changed';
 import { pairedDeviceInfo } from '../notification-center';
 import { desktopSettingsFromConfig, storedPinsState } from '../settings-store';

@@ -391,18 +391,16 @@ export function requestModelCatalog(api: DesktopApi): SharedModelCatalogRequest 
       // An empty answer must not replace the last good catalog on disk.
       return rows.length ? writeCachedModelCatalog(rows, scope).models : [];
     });
-  const setup = api.invokeCapability
-    ? quickSettled
-        .then(() =>
-          invokeOrHeld(api, {
-            capability: 'getProviderSetup',
-            args: forceSetup ? [{ force: true }] : [],
-          })
-        )
-        // Settings may render the offline snapshot, but a picker must retry it
-        // instead of caching an empty authenticated-provider set for a day.
-        .then((result) => requireDesktopProviders(result?.value))
-    : Promise.resolve(null);
+  const setup = quickSettled
+    .then(() =>
+      invokeOrHeld(api, {
+        capability: 'getProviderSetup',
+        args: forceSetup ? [{ force: true }] : [],
+      })
+    )
+    // Settings may render the offline snapshot, but a picker must retry it
+    // instead of caching an empty authenticated-provider set for a day.
+    .then((result) => requireDesktopProviders(result?.value));
   const request: SharedModelCatalogRequest = {
     api,
     scope,
