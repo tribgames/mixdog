@@ -21,6 +21,8 @@ use crate::domain_seams::settings_effects::ConfiguredShell;
 use mixdog_protocol::ThreadId;
 use mixdog_rt::LaneTokens;
 use mixdog_rt::TimerHandle;
+use mixdog_spawn::LocalProcessManager;
+use mixdog_spawn::survivors::ProcessSurvivors;
 use mixdog_spawn::tasks::HostShellJobs;
 use mixdog_spawn::tasks::ShellJobsState;
 use mixdog_spawn::tasks::TaskPublisher;
@@ -167,6 +169,14 @@ impl ShellSource for ConfiguredShell {
     }
 }
 
+/// What the runtime reaches outside itself. `processes` is the manager the tools spawn through
+/// (`ToolContext.processes`): the survivors of a finished command are looked up in the manager
+/// that started it, so it is the same one.
+pub struct ExecHosts {
+    pub ext_pool: Arc<dyn ExtPool>,
+    pub processes: LocalProcessManager,
+}
+
 /// `skill_launcher_dir` is the directory the skills owner ensured (`mixdog_mcp::launcher`);
 /// `shell_path` the default shell, probed on a lane (`shell_name::resolve_program_current_on`);
 /// `configured_shell` the one `ConfiguredShell` the settings effects write (its initial value is
@@ -178,7 +188,7 @@ pub fn build_exec(
     shell_path: String,
     configured_shell: Arc<ConfiguredShell>,
     skill_runtime: SkillRuntime,
-    ext_pool: Arc<dyn ExtPool>,
+    hosts: ExecHosts,
 ) -> (Exec, ExecEvents) {
     let (finished_tx, finished) = mpsc::channel(FINISHED_CAPACITY);
     let (threads, thread_strips) = watch::channel(HashMap::new());
@@ -205,14 +215,12 @@ pub fn build_exec(
         data_dir: Some(data_dir.to_path_buf()),
         skill_launcher_dir: Some(skill_launcher_dir),
         notifier: Some(Arc::new(ChannelNotifier(finished_tx))),
-        // WP-PROC's SurvivorWatch is not wired yet; until it lands a finished command's survivors
-        // are not tracked.
-        survivors: None,
+        survivors: Some(Arc::new(ProcessSurvivors::new(hosts.processes))),
         elevation: Arc::new(OsPromptElevation),
         oem: host_oem(),
         skill_runtime: Some(skill_runtime),
         shell: configured_shell.clone(),
-        script_syntax: Arc::new(ExtSyntax::new(ext_pool)),
+        script_syntax: Arc::new(ExtSyntax::new(hosts.ext_pool)),
         windows: cfg!(windows),
         // Node's default shell on Windows is PowerShell.
         powershell: cfg!(windows),
@@ -221,4 +229,87 @@ pub fn build_exec(
         now_ms: Arc::new(now_ms),
     });
     (Exec { runtime, wakes, configured_shell }, ExecEvents { finished, thread_strips, host_strip })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mixdog_core_api::domain::common::AbsPath;
+    use mixdog_core_api::domain::mock::MockApprovalGate;
+    use mixdog_core_api::domain::mock::MockExtPool;
+    use mixdog_core_api::domain::mock::MockFileService;
+    use mixdog_core_api::domain::mock::MockProgress;
+    use mixdog_core_api::domain::tool::*;
+    use mixdog_protocol::ToolCallId;
+    use mixdog_protocol::TurnId;
+    use mixdog_tools::exec::ShellTool;
+    use mixdog_tools::exec::TaskTool;
+    use tokio_util::sync::CancellationToken;
+
+    /// A command whose shell exits at once and leaves a long sleeper running that holds no output.
+    const LEAVES_A_SLEEPER: &str = if cfg!(windows) {
+        "Start-Process ping -ArgumentList '-n','90','127.0.0.1' -WindowStyle Hidden"
+    } else {
+        "sleep 90 >/dev/null 2>&1 &"
+    };
+
+    fn ctx(dir: &Path, call: &str, processes: LocalProcessManager) -> ToolContext {
+        let tokens = mixdog_rt::testing::tokens();
+        ToolContext {
+            call_id: ToolCallId::from(call),
+            thread_id: ThreadId::from("t"),
+            turn_id: TurnId::from("r"),
+            tool: "shell".into(),
+            cwd: AbsPath::new(dir).unwrap(),
+            surface: SurfaceKind::Lead,
+            cancel: CancellationToken::new(),
+            deadline: None,
+            progress: Arc::new(MockProgress::default()),
+            io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
+            approvals: Arc::new(MockApprovalGate::default()),
+            files: Arc::new(MockFileService::default()),
+            processes: Arc::new(processes),
+            options: Default::default(),
+            review: None,
+        }
+    }
+
+    fn text(outcome: ToolOutcome) -> String {
+        match outcome {
+            Ok(out) => match &out.parts[0] {
+                ToolPart::Text(t) => t.clone(),
+                _ => panic!("not text"),
+            },
+            Err(e) => e.message_for_model,
+        }
+    }
+
+    /// The runtime the daemon builds tracks what a finished command left running (Node's
+    /// `probeShellDescendants` at the shell settle): the call leaves with the survivors as a task,
+    /// and `task cancel` ends them. The expected texts are the ones Node's tool answers with
+    /// (`mixdog-tools` `surviving_descendants_become_a_tracked_task_that_cancels_and_completes`).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn a_finished_commands_survivors_are_tracked_and_cancel_ends_them() {
+        let tokens = mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        let processes = LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default());
+        let shell_path = crate::shell_name::resolve_program_current_on(tokens.interactive_io).await.unwrap();
+        let (exec, _events) = build_exec(
+            &tokens,
+            dir.path(),
+            dir.path().join("launchers"),
+            shell_path,
+            Arc::new(ConfiguredShell::default()),
+            SkillRuntime { platform: "win32".into(), interpreter: "node".into(), entry: "skill-entry.mjs".into(), electron: false },
+            ExecHosts { ext_pool: Arc::new(MockExtPool::new(1)), processes: processes.clone() },
+        );
+        let (shell, task) = (ShellTool::new(exec.runtime.clone()), TaskTool::new(exec.runtime));
+        let ran = text(shell.call(&ctx(dir.path(), "s1", processes.clone()), serde_json::json!({"command": LEAVES_A_SLEEPER})).await);
+        assert!(
+            ran.contains("⚠️ the command finished but left descendants running: they are tracked as the task below, and `task cancel` terminates them.\nbackground task\ntask_id: task-s1\n"),
+            "{ran}"
+        );
+        let cancelled = text(task.call(&ctx(dir.path(), "s2", processes), serde_json::json!({"action": "cancel", "task_id": "task-s1"})).await);
+        assert_eq!(cancelled, "status: completed\ntask_id: task-s1\ncancelled: shell/shell");
+    }
 }
