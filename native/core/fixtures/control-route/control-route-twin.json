@@ -236,6 +236,488 @@
         "autoEffort": true,
         "modelParameters": {}
       }
+    },
+    {
+      "label": "a model that arrives with a later config adoption, a custom model without fast support",
+      "config": {
+        "presets": [
+          {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "type": "agent",
+            "provider": "custom-harness",
+            "model": "harness-model"
+          }
+        ],
+        "default": "workflow-lead"
+      },
+      "live": {
+        "provider": "openai",
+        "model": "",
+        "preset": null,
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      },
+      "meta": {
+        "id": "harness-model",
+        "provider": "custom-harness",
+        "name": "harness-model",
+        "supportsFastMode": false,
+        "contextWindow": 128000,
+        "maxContextWindow": 128000
+      },
+      "fastTable": {
+        "openai": false,
+        "custom-harness": false
+      },
+      "adoptions": [
+        {},
+        {
+          "presets": [
+            {
+              "id": "workflow-lead",
+              "name": "WORKFLOW LEAD",
+              "type": "agent",
+              "provider": "custom-harness",
+              "model": "harness-model"
+            }
+          ],
+          "default": "workflow-lead"
+        }
+      ],
+      "afterAdoptions": [
+        {
+          "provider": "openai",
+          "model": "",
+          "preset": null,
+          "effort": null,
+          "fast": false,
+          "autoEffort": true,
+          "modelParameters": {}
+        },
+        {
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "preset": {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "type": "agent",
+            "provider": "custom-harness",
+            "model": "harness-model"
+          },
+          "effort": null,
+          "fast": false,
+          "autoEffort": true,
+          "modelParameters": {}
+        }
+      ],
+      "afterSync": {
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "preset": {
+          "id": "workflow-lead",
+          "name": "WORKFLOW LEAD",
+          "type": "agent",
+          "provider": "custom-harness",
+          "model": "harness-model"
+        },
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      },
+      "setFast": {
+        "error": "fast mode is not available for custom-harness/harness-model"
+      },
+      "afterSetFast": {
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "preset": {
+          "id": "workflow-lead",
+          "name": "WORKFLOW LEAD",
+          "type": "agent",
+          "provider": "custom-harness",
+          "model": "harness-model"
+        },
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      }
+    },
+    {
+      "label": "a model that arrives with a later config adoption, a model with fast support",
+      "config": {
+        "presets": [
+          {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "type": "agent",
+            "provider": "openai",
+            "model": "gpt-5"
+          }
+        ],
+        "default": "workflow-lead"
+      },
+      "live": {
+        "provider": "openai",
+        "model": "",
+        "preset": null,
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      },
+      "meta": {
+        "id": "gpt-5",
+        "provider": "openai",
+        "name": "GPT-5",
+        "supportsFastMode": true,
+        "contextWindow": 400000,
+        "maxContextWindow": 400000
+      },
+      "fastTable": {
+        "openai": true,
+        "custom-harness": false
+      },
+      "adoptions": [
+        {},
+        {
+          "presets": [
+            {
+              "id": "workflow-lead",
+              "name": "WORKFLOW LEAD",
+              "type": "agent",
+              "provider": "openai",
+              "model": "gpt-5"
+            }
+          ],
+          "default": "workflow-lead"
+        }
+      ],
+      "afterAdoptions": [
+        {
+          "provider": "openai",
+          "model": "",
+          "preset": null,
+          "effort": null,
+          "fast": false,
+          "autoEffort": true,
+          "modelParameters": {}
+        },
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "preset": {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "type": "agent",
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "effort": null,
+          "fast": false,
+          "autoEffort": true,
+          "modelParameters": {}
+        }
+      ],
+      "afterSync": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "preset": {
+          "id": "workflow-lead",
+          "name": "WORKFLOW LEAD",
+          "type": "agent",
+          "provider": "openai",
+          "model": "gpt-5"
+        },
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      },
+      "setFast": {
+        "value": true
+      },
+      "afterSetFast": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "preset": null,
+        "effort": null,
+        "fast": true,
+        "autoEffort": true,
+        "modelParameters": {}
+      }
+    },
+    {
+      "label": "a model A, then a model B: the route keeps A",
+      "config": {
+        "presets": [
+          {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "type": "agent",
+            "provider": "custom-harness",
+            "model": "harness-model"
+          }
+        ],
+        "default": "workflow-lead"
+      },
+      "live": {
+        "provider": "openai",
+        "model": "",
+        "preset": null,
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      },
+      "meta": {
+        "id": "gpt-5",
+        "provider": "openai",
+        "name": "GPT-5",
+        "supportsFastMode": true,
+        "contextWindow": 400000,
+        "maxContextWindow": 400000
+      },
+      "fastTable": {
+        "openai": true,
+        "custom-harness": false
+      },
+      "adoptions": [
+        {},
+        {
+          "presets": [
+            {
+              "id": "workflow-lead",
+              "name": "WORKFLOW LEAD",
+              "type": "agent",
+              "provider": "openai",
+              "model": "gpt-5"
+            }
+          ],
+          "default": "workflow-lead"
+        },
+        {
+          "presets": [
+            {
+              "id": "workflow-lead",
+              "name": "WORKFLOW LEAD",
+              "type": "agent",
+              "provider": "custom-harness",
+              "model": "harness-model"
+            }
+          ],
+          "default": "workflow-lead"
+        }
+      ],
+      "afterAdoptions": [
+        {
+          "provider": "openai",
+          "model": "",
+          "preset": null,
+          "effort": null,
+          "fast": false,
+          "autoEffort": true,
+          "modelParameters": {}
+        },
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "preset": {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "type": "agent",
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "effort": null,
+          "fast": false,
+          "autoEffort": true,
+          "modelParameters": {}
+        },
+        {
+          "provider": "openai",
+          "model": "gpt-5",
+          "preset": {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "type": "agent",
+            "provider": "openai",
+            "model": "gpt-5"
+          },
+          "effort": null,
+          "fast": false,
+          "autoEffort": true,
+          "modelParameters": {}
+        }
+      ],
+      "afterSync": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "preset": {
+          "id": "workflow-lead",
+          "name": "WORKFLOW LEAD",
+          "type": "agent",
+          "provider": "openai",
+          "model": "gpt-5"
+        },
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      },
+      "setFast": {
+        "value": true
+      },
+      "afterSetFast": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "preset": null,
+        "effort": null,
+        "fast": true,
+        "autoEffort": true,
+        "modelParameters": {}
+      }
+    },
+    {
+      "label": "a model A, then a model B: the route keeps A (custom first)",
+      "config": {
+        "presets": [
+          {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "type": "agent",
+            "provider": "openai",
+            "model": "gpt-5"
+          }
+        ],
+        "default": "workflow-lead"
+      },
+      "live": {
+        "provider": "openai",
+        "model": "",
+        "preset": null,
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      },
+      "meta": {
+        "id": "harness-model",
+        "provider": "custom-harness",
+        "name": "harness-model",
+        "supportsFastMode": false,
+        "contextWindow": 128000,
+        "maxContextWindow": 128000
+      },
+      "fastTable": {
+        "openai": false,
+        "custom-harness": false
+      },
+      "adoptions": [
+        {},
+        {
+          "presets": [
+            {
+              "id": "workflow-lead",
+              "name": "WORKFLOW LEAD",
+              "type": "agent",
+              "provider": "custom-harness",
+              "model": "harness-model"
+            }
+          ],
+          "default": "workflow-lead"
+        },
+        {
+          "presets": [
+            {
+              "id": "workflow-lead",
+              "name": "WORKFLOW LEAD",
+              "type": "agent",
+              "provider": "openai",
+              "model": "gpt-5"
+            }
+          ],
+          "default": "workflow-lead"
+        }
+      ],
+      "afterAdoptions": [
+        {
+          "provider": "openai",
+          "model": "",
+          "preset": null,
+          "effort": null,
+          "fast": false,
+          "autoEffort": true,
+          "modelParameters": {}
+        },
+        {
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "preset": {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "type": "agent",
+            "provider": "custom-harness",
+            "model": "harness-model"
+          },
+          "effort": null,
+          "fast": false,
+          "autoEffort": true,
+          "modelParameters": {}
+        },
+        {
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "preset": {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "type": "agent",
+            "provider": "custom-harness",
+            "model": "harness-model"
+          },
+          "effort": null,
+          "fast": false,
+          "autoEffort": true,
+          "modelParameters": {}
+        }
+      ],
+      "afterSync": {
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "preset": {
+          "id": "workflow-lead",
+          "name": "WORKFLOW LEAD",
+          "type": "agent",
+          "provider": "custom-harness",
+          "model": "harness-model"
+        },
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      },
+      "setFast": {
+        "error": "fast mode is not available for custom-harness/harness-model"
+      },
+      "afterSetFast": {
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "preset": {
+          "id": "workflow-lead",
+          "name": "WORKFLOW LEAD",
+          "type": "agent",
+          "provider": "custom-harness",
+          "model": "harness-model"
+        },
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      }
     }
   ]
 }

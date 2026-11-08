@@ -238,6 +238,18 @@ pub(crate) enum Inbox {
     /// `HeaderUpdates::update_header`: `update` computes a header change on the actor, from the
     /// header as projected, and the change is written as the next record; answered once durable.
     UpdateHeader { update: mixdog_core_ports::ports::threads::HeaderUpdate, tx: Waiter },
+    /// A test's injected unwind of the actor.
+    #[cfg(test)]
+    Unwind(UnwindAt),
+}
+
+/// Where a test's injected unwind of the actor happens.
+#[cfg(test)]
+pub(crate) enum UnwindAt {
+    /// As the actor takes the message.
+    Now,
+    /// As the actor takes the next `Ctl::Delete`, before it answers it.
+    Delete,
 }
 
 /// Results of lane jobs the actor submitted.
@@ -486,9 +498,17 @@ pub(crate) struct ActorChannels {
 }
 
 pub(crate) struct SessionActor {
+    /// The directory slot the actor holds from its launch to its end. The first field, so it is released before anything else
+    /// the actor holds is dropped, the create's reply among them: whoever learns the actor ended finds the slot gone.
+    slot: Option<super::directory::SlotLease>,
     id: ThreadId,
     /// The create's seed until the thread's first record is acknowledged (`Init::Create`).
     seed: Option<super::seams::SeededThread>,
+    /// A created thread whose `session` record has not settled yet: its failure ends the thread.
+    uncreated: bool,
+    /// A test's injected unwind waits for the next `Ctl::Delete` (`UnwindAt::Delete`).
+    #[cfg(test)]
+    unwind_at_delete: bool,
     deps: Arc<SessionDeps>,
     cell: Arc<ControlCell>,
     feed: Arc<dyn Feed>,
@@ -808,7 +828,11 @@ impl SessionActor {
             surface,
             feed_id: FeedId::from(id.as_str()),
             outbox: Outbox::new(deps.limits),
+            slot: None,
             seed: None,
+            uncreated: false,
+            #[cfg(test)]
+            unwind_at_delete: false,
             id,
             cell,
             feed,
@@ -874,11 +898,17 @@ impl SessionActor {
         }
     }
 
+    /// Takes the slot the actor holds until it ends ([`super::directory::SlotLease`]).
+    pub(crate) fn hold(&mut self, slot: super::directory::SlotLease) {
+        self.slot = Some(slot);
+    }
+
     pub async fn run(mut self, init: Init) {
         let mut created_at = None;
         match init {
             Init::Create { session, tx, value, seed, settings } => {
                 self.seed = seed;
+                self.uncreated = true;
                 created_at = settings;
                 self.accept_record(
                     session,
@@ -969,6 +999,10 @@ impl SessionActor {
         mark: oneshot::Receiver<serde_json::Map<String, Value>>,
         marked: oneshot::Sender<Result<(), RunError>>,
     ) {
+        #[cfg(test)]
+        if self.unwind_at_delete {
+            panic!("the test's injected unwind at a delete");
+        }
         // Another delete holds the thread: it is gone for this one.
         if self.deleting {
             let _ = closed.send(Err("missing"));
@@ -1949,6 +1983,7 @@ impl SessionActor {
         match effect {
             Effect::Reply { op, tx, value } => {
                 // The first reply of a created thread is its `session` record's: the thread exists.
+                self.uncreated = false;
                 if let Some(seed) = self.seed.take() {
                     seed.keep();
                 }
@@ -1989,8 +2024,12 @@ impl SessionActor {
         for effect in entry.effects {
             match effect {
                 Effect::Reply { op, tx, .. } => {
-                    // A failed `session` record: the thread is not created, the seed is abandoned.
+                    // A failed `session` record: the thread is not created, the seed is abandoned, and the thread ends here: the
+                    // actor releases its own slot (the create's caller may be gone, cancelled) and stops once its outbox is empty.
                     self.seed = None;
+                    if std::mem::take(&mut self.uncreated) && let Some(directory) = self.ch.directory.upgrade() {
+                        directory.release(&self.id, &self.cell);
+                    }
                     if let Some(op) = &op {
                         self.ops.failed(op, error);
                     }
@@ -3664,6 +3703,10 @@ impl SessionActor {
             Inbox::QuotaResumeFire { generation, tx } => self.quota_fire(generation, tx),
             Inbox::Op { call, tx } => self.op_call(call, tx),
             Inbox::UpdateHeader { update, tx } => self.update_header(update, tx),
+            #[cfg(test)]
+            Inbox::Unwind(UnwindAt::Now) => panic!("the test's injected unwind"),
+            #[cfg(test)]
+            Inbox::Unwind(UnwindAt::Delete) => self.unwind_at_delete = true,
             Inbox::Request { req, tx } => {
                 let tx = match &req.op {
                     Some(op) => {

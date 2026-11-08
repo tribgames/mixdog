@@ -170,6 +170,7 @@ mod tests {
             base: None,
             origin: None,
             op: None,
+            control: false,
             header: Slot::Inline(header.clone()),
         })];
         for (n, message) in messages.iter().enumerate() {

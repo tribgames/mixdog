@@ -28,6 +28,9 @@ pub struct CheckpointState {
     /// `base.end_ordinal_exclusive`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_cut: Option<u64>,
+    /// The session's kind, copied from the `session` frame.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub control: bool,
     /// The newest non-superseded `compacted` frame: the model-context start. A rewind
     /// past it takes the next one from the index (`compactions`).
     #[serde(skip_serializing_if = "Option::is_none")]

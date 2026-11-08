@@ -1224,6 +1224,425 @@ async fn a_start_cancelled_after_the_thread_is_published_leaves_its_scope_to_the
     assert_eq!(abandoned, [failed], "the actor abandons the seed of a thread whose first record failed");
 }
 
+/// A control `thread/start`: the started thread's id.
+async fn start_control(directory: &SessionDirectory, op: &str) -> Result<ThreadId, CoreError> {
+    match directory.request(request("thread/start", json!({ "opId": op, "kind": "control" }), op)).await? {
+        Reply::Subscribe(started) => Ok(ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id"))),
+        Reply::Value(_) => panic!("thread/start subscribes"),
+    }
+}
+
+/// Where a step waits: it tells `.0` it arrived, then waits for `.1`.
+type Gate = (Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>);
+
+fn gate() -> Gate {
+    (Arc::default(), Arc::default())
+}
+
+async fn pass(gate: &Option<Gate>) {
+    if let Some((arrived, go)) = gate {
+        arrived.notify_one();
+        go.notified().await;
+    }
+}
+
+/// The new thread's route, whose control resolution and seat wait at the gates a test sets.
+#[derive(Default)]
+struct GatedRoute {
+    resolving: Option<Gate>,
+    seating: Option<Gate>,
+}
+
+#[async_trait::async_trait]
+impl super::NewThreadRoute for GatedRoute {
+    async fn adopt(&self, _: &ThreadId, _: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
+        Ok(serde_json::Map::new())
+    }
+    async fn adopt_control(&self, _: &ThreadId) -> Result<serde_json::Map<String, Value>, String> {
+        pass(&self.resolving).await;
+        Ok(serde_json::Map::new())
+    }
+    async fn seat(&self, _: &ThreadId) -> Result<(), String> {
+        pass(&self.seating).await;
+        Ok(())
+    }
+}
+
+fn gated_directory(rig: &Rig, route: GatedRoute) -> Arc<SessionDirectory> {
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_route = Arc::new(route);
+    Arc::new(SessionDirectory::new(Arc::new(deps)))
+}
+
+/// Create succeeds. A control start is among the control threads the config's adoption syncs from before its route is first
+/// resolved (the route cell takes the config of that moment, as Node's runtime does when it subscribes), through its create,
+/// and then as the created thread, whose header names it the control session. The id it holds is not a thread yet (an open
+/// finds none) and is not another create's (a create of the same id is refused); a task thread beside it is never listed.
+#[tokio::test(start_paused = true)]
+async fn a_control_start_is_synced_from_before_its_route_is_resolved_through_its_created_thread() {
+    let rig = Rig::new();
+    let resolving = gate();
+    let directory = gated_directory(&rig, GatedRoute { resolving: Some(resolving.clone()), seating: None });
+    let start = tokio::spawn({
+        let directory = directory.clone();
+        async move { start_control(&directory, "op-control").await }
+    });
+    resolving.0.notified().await;
+    let [id] = <[ThreadId; 1]>::try_from(directory.control_ids()).expect("the start is listed while its route resolves");
+    assert!(directory.handle(&id).is_none(), "not a thread yet");
+    assert!(matches!(directory.open_handle(&id, &CallContext::internal("test")).await, Err(CoreError::ThreadNotFound { .. })));
+    assert!(matches!(directory.create_with_id(id.clone(), Default::default(), json!({})).await, Err(CoreError::PreconditionFailed { .. })), "the id is the start's");
+    assert_eq!(directory.control_ids(), [id.clone()]);
+    resolving.1.notify_one();
+    assert_eq!(start.await.expect("joined").expect("control start"), id);
+    assert_eq!(directory.control_ids(), [id.clone()]);
+    let Some((_, mixdog_store::schema::record::Record::Session(session))) = rig.store.records(&id).first().cloned() else { panic!("the session record") };
+    assert!(session.control, "the kind is the thread's own record's");
+    let task = directory.request(request("thread/start", json!({ "opId": "op-task", "kind": "task" }), "op-task")).await.expect("task start");
+    assert!(matches!(task, Reply::Subscribe(_)));
+    assert_eq!(directory.loaded_ids().len(), 2);
+    assert_eq!(directory.control_ids(), [id]);
+}
+
+/// Create fails, or the caller is cancelled before the create. The control threads the config's adoption syncs are the ones the
+/// directory holds (`control_ids`), so a control start that does not end in a thread (a failed `create`, a refused seed, a
+/// request cancelled mid-seed) leaves nothing to sync.
+#[tokio::test(start_paused = true)]
+async fn a_control_start_that_does_not_end_in_a_thread_leaves_nothing_to_sync() {
+    use mixdog_store::schema::record::Header;
+    enum Mode {
+        Seed,
+        Refuse,
+        Hang(Arc<tokio::sync::Notify>),
+    }
+    struct Tools(Mutex<Mode>);
+    #[async_trait::async_trait]
+    impl super::NewThreadTools for Tools {
+        async fn seed(&self, _: &ThreadId, header: &Header) -> Result<Header, String> {
+            let entered = match &*lock(&self.0) {
+                Mode::Seed => None,
+                Mode::Refuse => return Err("refused".to_owned()),
+                Mode::Hang(entered) => Some(entered.clone()),
+            };
+            if let Some(entered) = entered {
+                entered.notify_one();
+                std::future::pending::<()>().await;
+            }
+            Ok(header.clone())
+        }
+    }
+    let rig = Rig::new();
+    let tools = Arc::new(Tools(Mutex::new(Mode::Seed)));
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_tools = tools.clone();
+    let directory = Arc::new(SessionDirectory::new(Arc::new(deps)));
+    let start = |op: &'static str, kind: &'static str| {
+        let directory = directory.clone();
+        async move { directory.request(request("thread/start", json!({ "opId": op, "kind": kind }), op)).await }
+    };
+
+    rig.store.fail_next.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(start("op-create", "control").await.is_err());
+    assert!(directory.control_ids().is_empty(), "a failed create");
+    *lock(&tools.0) = Mode::Refuse;
+    assert!(start("op-refused", "control").await.is_err());
+    assert!(directory.control_ids().is_empty(), "a refused seed");
+    let entered = Arc::new(tokio::sync::Notify::new());
+    *lock(&tools.0) = Mode::Hang(entered.clone());
+    let task = tokio::spawn(start("op-cancelled", "control"));
+    entered.notified().await;
+    task.abort();
+    assert!(task.await.is_err(), "the request was cancelled");
+    assert!(directory.control_ids().is_empty(), "a request cancelled mid-seed");
+    // A control start that ends in a thread is listed; a task thread beside it is not.
+    *lock(&tools.0) = Mode::Seed;
+    assert!(start("op-task", "task").await.is_ok());
+    let Reply::Subscribe(started) = start("op-created", "control").await.expect("control start") else { panic!("thread/start subscribes") };
+    let created = ThreadId::from(started.result["thread"]["id"].as_str().expect("thread id"));
+    assert_eq!(directory.control_ids(), vec![created]);
+}
+
+/// Caller cancelled before the commit. A control `create` whose request is cancelled while its first record is at the store
+/// still leaves the thread when that record lands, and the thread stays among the control threads the config's adoption syncs;
+/// when the record fails instead, the actor releases its own slot and the thread is not listed. The store's gate holds the
+/// first record's lane job (see `a_start_cancelled_after_the_thread_is_published_leaves_its_scope_to_the_actor`).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_control_create_whose_caller_is_cancelled_before_the_commit_is_synced_only_once_it_commits() {
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(Arc::new(rig.deps_parts(rig.store.clone()))));
+    let cancelled_in_the_window = |op: &'static str| {
+        let (arrived, go) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
+        *lock(&rig.store.create_gate) = Some((arrived.clone(), go.1));
+        let directory = directory.clone();
+        let task = tokio::spawn(async move { start_control(&directory, op).await });
+        async move {
+            arrived.notified().await;
+            task.abort();
+            assert!(task.await.is_err(), "the request was cancelled");
+            go.0
+        }
+    };
+
+    let release = cancelled_in_the_window("op-window").await;
+    let [id] = <[ThreadId; 1]>::try_from(directory.control_ids()).expect("the published control thread");
+    let handle = directory.handle(&id).expect("published");
+    release.send(()).expect("lane waits");
+    eventually_on(&[&handle.cell.stepped], || (rig.store.records(&id).len() == 1).then_some(())).await;
+    assert_eq!(directory.control_ids(), [id.clone()], "the created thread is still synced");
+
+    rig.store.fail_next.store(true, std::sync::atomic::Ordering::SeqCst);
+    let release = cancelled_in_the_window("op-failed").await;
+    let failed = directory.control_ids().into_iter().find(|listed| *listed != id).expect("the second published control thread");
+    let failing = directory.handle(&failed).expect("published");
+    release.send(()).expect("lane waits");
+    // The actor ends once its slot is released (the lease is the first thing it drops).
+    failing.inbox.closed().await;
+    assert!(directory.handle(&failed).is_none());
+    assert_eq!(directory.control_ids(), [id]);
+}
+
+/// Caller cancelled after the commit. A control start whose request is cancelled once its create returned (here, while the route
+/// is seated) leaves a created thread, which stays synced: the thread is the slot's, not the request's.
+#[tokio::test(start_paused = true)]
+async fn a_control_start_cancelled_after_its_create_leaves_a_synced_thread() {
+    let rig = Rig::new();
+    let seating = gate();
+    let directory = gated_directory(&rig, GatedRoute { resolving: None, seating: Some(seating.clone()) });
+    let start = tokio::spawn({
+        let directory = directory.clone();
+        async move { start_control(&directory, "op-control").await }
+    });
+    seating.0.notified().await;
+    let [id] = <[ThreadId; 1]>::try_from(directory.control_ids()).expect("the created control thread");
+    assert_eq!(rig.store.records(&id).len(), 1, "created");
+    start.abort();
+    assert!(start.await.is_err(), "the request was cancelled");
+    assert!(directory.handle(&id).is_some());
+    assert_eq!(directory.control_ids(), [id]);
+}
+
+/// Actor panics before the reply. An actor that unwinds while the thread's first record is at the store releases its slot before it
+/// drops the create's reply: the caller learns the thread is closing and finds it unlisted, with no slot left behind.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_control_actor_that_unwinds_before_its_reply_leaves_nothing_to_sync() {
+    let rig = Rig::new();
+    let directory = Arc::new(SessionDirectory::new(Arc::new(rig.deps_parts(rig.store.clone()))));
+    let (arrived, go) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
+    *lock(&rig.store.create_gate) = Some((arrived.clone(), go.1));
+    let start = tokio::spawn({
+        let directory = directory.clone();
+        async move { start_control(&directory, "op-control").await }
+    });
+    arrived.notified().await;
+    let [id] = <[ThreadId; 1]>::try_from(directory.control_ids()).expect("the published control thread");
+    let handle = directory.handle(&id).expect("published");
+    handle.inbox.send(super::actor::Inbox::Unwind(super::actor::UnwindAt::Now)).await.expect("the actor runs");
+    let ended = start.await.expect("joined").err().expect("the create's reply is gone");
+    assert!(matches!(ended, CoreError::ThreadClosing { .. }), "{ended:?}");
+    assert!(directory.handle(&id).is_none());
+    assert!(directory.control_ids().is_empty());
+    go.0.send(()).expect("lane waits");
+}
+
+/// Actor panics after the reply, then reopen. An actor that unwinds after its thread was created releases its slot: the thread is not
+/// live and is not synced. Reopened, the thread is the control session again, from the kind its own record carries.
+#[tokio::test(start_paused = true)]
+async fn a_control_actor_that_unwinds_after_its_reply_is_unlisted_until_it_is_reopened() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let id = start_control(&directory, "op-control").await.expect("control start");
+    let handle = directory.handle(&id).expect("loaded");
+    assert_eq!(directory.control_ids(), [id.clone()]);
+    handle.inbox.send(super::actor::Inbox::Unwind(super::actor::UnwindAt::Now)).await.expect("the actor runs");
+    handle.inbox.closed().await;
+    assert!(directory.handle(&id).is_none());
+    assert!(directory.control_ids().is_empty());
+    let reopened = directory.open_handle(&id, &CallContext::internal("test")).await.expect("reopened");
+    assert!(!Arc::ptr_eq(&reopened, &handle));
+    assert_eq!(directory.control_ids(), [id]);
+}
+
+/// Unload, reopen and fork. A control thread that unloads (its last subscriber left) is not synced; reopened, it is again, from its
+/// record's header. Its heir (`thread/fork`) is a thread of its own, not a second control session.
+#[tokio::test(start_paused = true)]
+async fn an_unloaded_control_thread_is_synced_again_once_reopened_and_its_heir_is_not() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let id = start_control(&directory, "op-control").await.expect("control start");
+    let handle = directory.handle(&id).expect("loaded");
+    subscribe(&handle);
+    handle.cell.unsubscribed();
+    eventually_on(&[&handle.cell.stepped, directory.left()], || directory.handle(&id).is_none().then_some(())).await;
+    assert!(directory.control_ids().is_empty(), "an unloaded thread is not live");
+    handle.inbox.closed().await;
+    let reopened = directory.open_handle(&id, &CallContext::internal("test")).await.expect("reopened");
+    assert_eq!(directory.control_ids(), [id.clone()]);
+    let reply = reopened.request(request("thread/fork", json!({ "threadId": id, "opId": "op-fork" }), "op-fork")).await.expect("thread/fork");
+    let Reply::Value(value) = reply else { panic!("thread/fork answers a value") };
+    let heir = ThreadId::from(value["thread"]["id"].as_str().expect("heir id"));
+    assert!(!directory.handle(&heir).expect("loaded").control);
+    assert_eq!(directory.control_ids(), [id]);
+}
+
+/// Close. A control thread the idle close tombstones leaves the directory and is not synced.
+#[tokio::test(start_paused = true)]
+async fn a_closed_control_thread_is_not_synced() {
+    let rig = Rig::new();
+    rig.store.listed.store(true, std::sync::atomic::Ordering::SeqCst);
+    let directory = SessionDirectory::new(rig.deps());
+    let id = start_control(&directory, "op-control").await.expect("control start");
+    let read = super::sub_agent_retention::activity_at(&directory.stored_header(&id).await.expect("header"));
+    assert!(directory.close_stored(id.as_str(), read, &CancellationToken::new()).await.expect("close"));
+    assert!(directory.handle(&id).is_none());
+    assert!(directory.control_ids().is_empty());
+}
+
+/// Purge. A deleted control thread leaves the directory and is not synced.
+#[tokio::test(start_paused = true)]
+async fn a_deleted_control_thread_is_not_synced() {
+    let rig = Rig::new();
+    rig.store.listed.store(true, std::sync::atomic::Ordering::SeqCst);
+    let directory = SessionDirectory::new(rig.deps());
+    let id = start_control(&directory, "op-control").await.expect("control start");
+    let handle = directory.handle(&id).expect("loaded");
+    let reply = handle.request(request("thread/delete", json!({ "threadId": id, "opId": "op-del" }), "op-del")).await.expect("thread/delete");
+    assert!(matches!(reply, Reply::Value(Value::Bool(true))), "{reply:?}");
+    assert!(directory.handle(&id).is_none());
+    assert!(directory.control_ids().is_empty());
+}
+
+/// Concurrent create of the same id. While a create holds an id, another create of it is refused. When the first one's record fails,
+/// its actor releases only its own slot; a create that claims the id after that keeps it, and the first caller's error, seen only
+/// after the claim, removes nothing.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_create_never_releases_the_create_that_claimed_its_id_after_it() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let id = ThreadId::from("sess_control_fixed");
+    let (arrived, go) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
+    *lock(&rig.store.create_gate) = Some((arrived.clone(), go.1));
+    rig.store.fail_next.store(true, std::sync::atomic::Ordering::SeqCst);
+    let mut first = Box::pin(directory.create_with_id(id.clone(), Default::default(), json!({})));
+    assert!(futures::poll!(first.as_mut()).is_pending(), "the first create waits on its record");
+    arrived.notified().await;
+    let failing = directory.handle(&id).expect("the first create's slot");
+    assert_eq!(directory.loaded_ids(), [id.clone()]);
+    let refused = directory.create_with_id(id.clone(), Default::default(), json!({})).await.err().expect("the id is taken");
+    assert!(matches!(refused, CoreError::PreconditionFailed { .. }), "{refused:?}");
+    assert!(Arc::ptr_eq(&directory.handle(&id).expect("still the first"), &failing));
+    go.0.send(()).expect("lane waits");
+    failing.inbox.closed().await;
+    assert!(directory.handle(&id).is_none(), "the failed create released its own slot");
+    directory.create_with_id(id.clone(), Default::default(), json!({})).await.expect("the id is free again");
+    let replacement = directory.handle(&id).expect("the replacement");
+    assert!(first.await.is_err(), "the first create failed");
+    assert!(Arc::ptr_eq(&directory.handle(&id).expect("still loaded"), &replacement), "the first caller's error removed nothing");
+    assert_eq!(directory.loaded_ids(), [id]);
+}
+
+/// Close between the adoption's listing and its write. The adoption lists the live control threads, then syncs each under that
+/// thread's liveness: a thread closed and a start abandoned after the listing ended before their sync and are never written; a
+/// thread still live is. Real time: the adoption runs on its own OS thread, and a paused clock would advance past the
+/// directory's timers whenever the runtime idles waiting for it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_adoption_never_writes_a_control_thread_that_ended_after_it_was_listed() {
+    use mixdog_core_domains::domains::ai_admin::route_service::LiveControls;
+    let rig = Rig::new();
+    rig.store.listed.store(true, std::sync::atomic::Ordering::SeqCst);
+    let resolving = gate();
+    let directory = gated_directory(&rig, GatedRoute { resolving: Some(resolving.clone()), seating: None });
+    let start = |op: &'static str| {
+        let directory = directory.clone();
+        tokio::spawn(async move { start_control(&directory, op).await })
+    };
+    let mut created = Vec::new();
+    for op in ["op-closed", "op-live"] {
+        let task = start(op);
+        resolving.0.notified().await;
+        resolving.1.notify_one();
+        created.push(task.await.expect("joined").expect("control start"));
+    }
+    let [closed, live] = <[ThreadId; 2]>::try_from(created).expect("two control threads");
+    let abandoned = start("op-abandoned");
+    resolving.0.notified().await;
+    assert_eq!(directory.control_ids().len(), 3, "both threads and the start are listed");
+
+    let (arrived, go) = (Arc::new(tokio::sync::Notify::new()), std::sync::mpsc::channel());
+    directory.gate_adoption(arrived.clone(), go.1);
+    let synced = Arc::new(Mutex::new(Vec::new()));
+    let adoption = std::thread::spawn({
+        let (directory, synced) = (directory.clone(), synced.clone());
+        move || directory.sync_live(&mut |id| lock(&synced).push(id.clone()))
+    });
+    arrived.notified().await;
+    let read = super::sub_agent_retention::activity_at(&directory.stored_header(&closed).await.expect("header"));
+    assert!(directory.close_stored(closed.as_str(), read, &CancellationToken::new()).await.expect("close"));
+    abandoned.abort();
+    assert!(abandoned.await.is_err(), "the start was cancelled");
+    go.0.send(()).expect("the adoption waits");
+    adoption.join().expect("the adoption ran");
+    assert_eq!(*lock(&synced), [live.clone()], "only the thread still live is written");
+    assert_eq!(directory.control_ids(), [live]);
+}
+
+/// The control kind is the `session` record's own field, outside its header: a control thread's hook transcript export and its
+/// `thread/read` carry no trace of it, and a reopen in another directory over the same store still finds the control session.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_control_threads_export_and_read_carry_no_kind_and_a_reopen_restores_it() {
+    let data = tempfile::tempdir().expect("data dir");
+    let store = real_store(data.path()).await;
+    let rig = Rig::new();
+    rig.set_script(echo());
+    let first = SessionDirectory::new(rig.deps_on(store.clone()));
+    let id = start_control(&first, "op-control").await.expect("control start");
+    let handle = first.handle(&id).expect("loaded");
+    turn(&handle, "hello", "op-1").await;
+    eventually_on(&[&handle.cell.stepped], || (idle(&handle) && rows(&handle).len() == 2).then_some(())).await;
+    let no_kind = |value: &Value, what: &str| {
+        fn keys(value: &Value, out: &mut Vec<String>) {
+            match value {
+                Value::Object(map) => map.iter().for_each(|(key, value)| {
+                    out.push(key.clone());
+                    keys(value, out);
+                }),
+                Value::Array(items) => items.iter().for_each(|value| keys(value, out)),
+                _ => {}
+            }
+        }
+        let mut found = Vec::new();
+        keys(value, &mut found);
+        let kind: Vec<_> = found.iter().filter(|key| key.to_lowercase().contains("control")).collect();
+        assert!(kind.is_empty(), "{what} carries {kind:?}");
+    };
+
+    let tokens = mixdog_rt::testing::tokens();
+    let lanes = super::SessionLanes { cpu: tokens.cpu_interactive, io: tokens.interactive_io, durability: tokens.durability_io };
+    let files = super::transcript_export::TranscriptFiles::new(data.path(), store.clone(), lanes, tokens.maintenance_io);
+    let path = super::transcript_export::export_path(data.path(), id.as_str());
+    use mixdog_mcp::hook_bus::TranscriptExport;
+    assert_eq!(files.transcript_path(id.as_str()).await, json!(path.to_string_lossy()), "the thread has a transcript");
+    let bytes = mixdog_core_base::support::on_lane(tokens.maintenance_io, &CancellationToken::new(), move |_| mixdog_statefile::read_content(&path))
+        .await
+        .expect("read job")
+        .expect("readable")
+        .expect("the export exists");
+    let text = String::from_utf8(bytes).expect("UTF-8");
+    let session: Value = serde_json::from_str(text.lines().next().expect("the session line")).expect("JSON");
+    assert_eq!(session["header"]["id"], id.as_str(), "the export is the thread's");
+    for line in text.lines() {
+        no_kind(&serde_json::from_str(line).expect("JSON"), "the export");
+    }
+
+    let read = CoreRequest { method: Method("thread/read"), params: json!({ "threadId": id }), op: None, ctx: CallContext::internal("test") };
+    let Reply::Value(read) = handle.request(read).await.expect("thread/read") else { panic!("thread/read answers a value") };
+    assert_eq!(read["thread"]["id"], id.as_str());
+    no_kind(&read, "thread/read");
+
+    let second = SessionDirectory::new(rig.deps_on(store));
+    second.open_handle(&id, &CallContext::internal("test")).await.expect("reopened");
+    assert_eq!(second.control_ids(), [id]);
+}
+
 /// A `thread/start` with no `session` options is a `full` Lead denied the goal tools, as
 /// Node's `sessionOptions` makes it.
 #[tokio::test(start_paused = true)]

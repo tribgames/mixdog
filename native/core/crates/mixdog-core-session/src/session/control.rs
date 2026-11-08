@@ -138,8 +138,31 @@ pub(crate) struct ActiveRun {
     pub steers: Mutex<VecDeque<QueuedId>>,
 }
 
+/// Whether a thread, or the control start that becomes it, has not ended. Every end (a close of the thread's cell, an abandoned
+/// start) is a transition under its lock, and the config's adoption writes the thread's route under the same lock
+/// ([`Self::while_live`]), so a write and an end are ordered: the write never reaches a thread that ended before it.
+#[derive(Default)]
+pub(crate) struct Liveness(Mutex<bool>);
+
+impl Liveness {
+    /// Runs `f` unless the thread ended; the thread does not end while `f` runs.
+    pub fn while_live(&self, f: impl FnOnce()) {
+        let ended = lock(&self.0);
+        if !*ended {
+            f();
+        }
+    }
+
+    /// The end's lock: set the guard to `true` when the end is taken.
+    pub fn ending(&self) -> std::sync::MutexGuard<'_, bool> {
+        lock(&self.0)
+    }
+}
+
 pub(crate) struct ControlCell {
     pub thread: ThreadId,
+    /// The thread's [`Liveness`]: a control start's own when the thread was created from it. Every close below ends it.
+    pub liveness: Arc<Liveness>,
     pub run: ArcSwapOption<ActiveRun>,
     /// Queue entries that exist (projected).
     pub queued: ArcSwap<HashSet<String>>,
@@ -238,8 +261,10 @@ impl ControlCell {
     /// attached or the thread is already closed.
     pub fn close_unattached(&self) -> bool {
         use std::sync::atomic::Ordering::SeqCst;
+        let mut ended = self.liveness.ending();
         let taken = self.subscribers.fetch_update(SeqCst, SeqCst, |word| (word & (COUNT | CLOSING) == 0).then_some(CLOSING)).is_ok();
         if taken {
+            *ended = true;
             self.closed.store(true, SeqCst);
         }
         taken
@@ -250,8 +275,10 @@ impl ControlCell {
     /// any attach since, even one already detached, changed the word and refuses the close.
     pub fn close_if_unchanged(&self, seen: usize) -> bool {
         use std::sync::atomic::Ordering::SeqCst;
+        let mut ended = self.liveness.ending();
         let taken = seen & CLOSING == 0 && self.subscribers.compare_exchange(seen, CLOSING, SeqCst, SeqCst).is_ok();
         if taken {
+            *ended = true;
             self.closed.store(true, SeqCst);
         }
         taken
@@ -261,6 +288,8 @@ impl ControlCell {
     /// attaches fail; those already counted stay counted.
     pub fn close(&self) {
         use std::sync::atomic::Ordering::SeqCst;
+        let mut ended = self.liveness.ending();
+        *ended = true;
         self.subscribers.fetch_or(CLOSING, SeqCst);
         self.closed.store(true, SeqCst);
     }

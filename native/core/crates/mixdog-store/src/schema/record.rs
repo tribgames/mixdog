@@ -68,6 +68,10 @@ pub struct SessionRecord {
     pub origin: Option<Origin>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub op: Option<OpRef>,
+    /// The desktop's control session (`thread/start{kind:"control"}`). The thread's kind, outside `header`, so nothing
+    /// that projects the header carries it. Absent: not a control session.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub control: bool,
     pub header: Slot<Header>,
 }
 

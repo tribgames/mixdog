@@ -22,7 +22,6 @@ use serde_json::json;
 
 use super::SessionDirectory;
 use super::SessionHandle;
-use super::control::Ctl;
 use super::delete::Live;
 use super::delete::live_refusal;
 use super::seams::RunOutcome;
@@ -215,14 +214,13 @@ async fn replay(name: &str, world: &World) -> Value {
             world.flags(true, false).await;
             json!({ "reply": world.ask(&id, stale).await })
         }
-        // The thread's actor is gone: the close cannot be carried out.
+        // The thread's actor ends as it takes the close: the close cannot be carried out. (An actor that has ended leaves no
+        // slot behind, so a later close opens the thread again.)
         "close-failed" => {
+            world.handle.inbox.send(super::actor::Inbox::Unwind(super::actor::UnwindAt::Delete)).await.expect("the actor runs");
+            // The patch is answered after the actor took the unwind's message (one inbox, in order).
             world.flags(true, false).await;
-            let (done, ingest) = tokio::sync::oneshot::channel();
-            world.handle.cell.ctl_tx.send(Ctl::Shutdown(done)).await.expect("the actor takes the shutdown");
-            world.handle.cell.ctl_tx.closed().await;
             let reply = world.ask(&id, same).await;
-            drop(ingest);
             json!({ "reply": reply })
         }
         other => panic!("no Rust situation for the recorded case {other}"),

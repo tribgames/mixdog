@@ -255,7 +255,7 @@ a blob without a reference is garbage, never corruption.
 
 | `k` | Fields (★ = body slot) | Meaning |
 |---|---|---|
-| `session` | `v:2, id, log_id, base?{session, log_id, end_ordinal_exclusive}, origin?{migration{manifest_sha256, item_key, source_digest}}, op?`, ★`header` | First frame of `log.000000`. `header` = every header key (the 1.4.5 record minus `messages`). `log_id` = 24 lowercase hex. |
+| `session` | `v:2, id, log_id, base?{session, log_id, end_ordinal_exclusive}, origin?{migration{manifest_sha256, item_key, source_digest}}, op?, control?:true`, ★`header` | First frame of `log.000000`. `header` = every header key (the 1.4.5 record minus `messages`). `log_id` = 24 lowercase hex. `control` = the desktop's control session (`thread/start{kind:"control"}`), the session's own kind outside `header` (no header projection carries it); absent otherwise, and never set by a fork or migration. |
 | `meta` | `op?`, ★`change{set, unset[]}` | Header change: remove `unset`, then merge `set`. Title, close/tombstone, generation, worker map, desktop metadata, `deleted`, repair marks, … |
 | `item` | `iid, turn?, role?, form:"message"\|"display", model, visible, archive?{seq, at?, origin}, op?, ★`prompt?`, refs[]`, ★`body` | One history row. `turn` = the run id; a run's input rows are its rows before its `run{started}`. `display` rows are imported 1.4.5 archive items, always `model:false`. `prompt` is present exactly when the row counts for prompt history (a 1.4.5 `kind:"user"` transcript row, own room lines included; never notices, tool cards, skill or hook rows) and holds that row's display text (paste/file chips, image lines and feedback rewrites applied); written by the session at commit and by migration, never derived from `body` by the store; a slot sharing `INLINE_MAX` with `body` (§4.2), with no length bound of its own (1.4.5 caps neither prompt history nor display text). `archive.at` = the source number (absent for a missing or `null` source value); `archive.origin` = `segment{id, prev?, count, bytes}` or `pending{divider, cleared_through?, max_bytes?}`. |
 | `amend` | `iid, op?, refs[]`, ★`body` | Replaces the body of row `iid` (redaction, offload pruning, reactions). |
@@ -339,7 +339,7 @@ never compared for identity.
 
 ### 6.2 State (`src/schema/checkpoint.rs`)
 
-`{log_id, covers_ordinal, history_rev, rows, visible_rows, base?, base_cut?, context?: FramePos,
+`{log_id, covers_ordinal, history_rev, rows, visible_rows, base?, base_cut?, control?, context?: FramePos,
 runs[{rid, started}], approvals[{aid, rid, requested}], queue[{qid, enqueued, updated?}], header}`
 with `FramePos = {ordinal, file_no, offset}`. `covers_ordinal` is the checkpoint frame's
 own ordinal; the state folds exactly the frames before it. `context` is the newest

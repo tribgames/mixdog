@@ -55,6 +55,9 @@ use mixdog_core_ports::ports::gate::LiveHeader;
 
 pub struct SessionHandle {
     pub(crate) id: ThreadId,
+    /// The desktop's control session: the kind its `session` record carries (`SessionRecord::control`), set by a control
+    /// start's create and read back by every open. A fork's heir is created without it.
+    pub(crate) control: bool,
     pub(crate) cell: Arc<ControlCell>,
     pub(crate) feed: Arc<dyn Feed>,
     pub(crate) inbox: mpsc::Sender<Inbox>,
@@ -487,6 +490,7 @@ impl SessionHandle {
                 params: req.params.clone(),
                 seed: None,
                 settings: None,
+                starting: None,
             })
             .await?;
         let summary = created.cell.view.load_full().summary.clone();

@@ -18,7 +18,7 @@ use tokio::sync::Notify;
 use super::chain::RouteFacts;
 use super::model_list::ModelListService;
 use super::model_list_tests::Offline;
-use super::route_service::{FastValue, RouteService, SessionFollow, SetRouteOptions};
+use super::route_service::{FastValue, LiveControls, RouteService, SessionFollow, SetRouteOptions};
 use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ModelSource, ModelsDevSource};
 use mixdog_ai::oauth::CredentialIo;
 use mixdog_ai::service::admin_models::developer_option_for_provider;
@@ -29,6 +29,18 @@ use mixdog_core_ports::ports::route::FollowOptions;
 use mixdog_core_ports::ports::route::Followed;
 use mixdog_core_ports::ports::route::Route;
 use mixdog_core_ports::ports::route_write::RouteWriter;
+
+/// The directory's live control threads, as the test publishes them.
+#[derive(Default)]
+struct Controls(Mutex<Vec<ThreadId>>);
+
+impl LiveControls for Controls {
+    fn sync_live(&self, sync: &mut dyn FnMut(&ThreadId)) {
+        for thread in self.0.lock().unwrap().clone() {
+            sync(&thread);
+        }
+    }
+}
 
 fn twin() -> Value {
     serde_json::from_str(include_str!("../../../../../fixtures/ai-admin/route-service-twin.json")).unwrap()
@@ -88,6 +100,8 @@ impl RouteFacts for Facts {
 pub(super) struct Writer {
     route: Mutex<Route>,
     log: Arc<Mutex<Log>>,
+    /// The next route refresh fails (the last step of ready_control).
+    refresh_fails: std::sync::atomic::AtomicBool,
 }
 
 #[async_trait]
@@ -107,6 +121,9 @@ impl RouteWriter for Writer {
 
     async fn refresh_route_effort(&self, _: &ThreadId, meta: Option<Value>, guard_supersede: bool, lease: Option<u64>) -> Result<Option<Route>, PortError> {
         self.log.lock().unwrap().refreshes.push(json!({ "meta": meta, "expectedIsLive": guard_supersede, "lease": lease }));
+        if self.refresh_fails.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(PortError::Failed { capability: "route".into(), message: "refused".into() });
+        }
         Ok(None)
     }
 
@@ -180,13 +197,14 @@ pub(super) async fn rig(case: &Value) -> (RouteService, Arc<Writer>, Arc<Mutex<L
         std::fs::write(&path, serde_json::to_vec(&json!({ "agent": case["fileOverride"] })).unwrap()).unwrap();
     }
     let log = Arc::new(Mutex::new(Log::default()));
-    let writer = Arc::new(Writer { route: Mutex::new(obj(&case["live"])), log: log.clone() });
+    let writer = Arc::new(Writer { route: Mutex::new(obj(&case["live"])), log: log.clone(), refresh_fails: Default::default() });
     let service = RouteService {
         config,
         facts: Arc::new(Facts { case: case.clone(), log: log.clone() }),
         writer: writer.clone(),
         session: Arc::new(Session { log: log.clone(), case: case.clone(), writer: writer.clone() }),
         models,
+        controls: Arc::new(Controls::default()),
     };
     (service, writer, log, dir)
 }
@@ -375,9 +393,40 @@ async fn the_control_route_is_the_one_node_syncs_and_set_fast_is_refused_on_it_a
     assert!(cases.iter().any(|case| case["setFast"].get("error").is_some()) && cases.iter().any(|case| case["setFast"].get("value").is_some()));
     for case in cases {
         let label = case["label"].as_str().unwrap();
-        let (service, writer, _log, _dir) = rig(case).await;
+        // A case with `adoptions` creates the control route under the first config; each later one is adopted by a config write,
+        // back to back with no wait between them: the route follows inside each adoption (Node's `syncEmptyMainRoute` in
+        // `adoptFullConfig`), so a later config the route has no use for cannot take the place of an earlier one it did.
+        let adoptions = case.get("adoptions").and_then(Value::as_array);
+        let mut created = case.clone();
+        if let Some(adoptions) = adoptions {
+            created["config"] = adoptions[0].clone();
+        }
+        let (service, writer, _log, _dir) = rig(&created).await;
+        let controls = Arc::new(Controls::default());
+        let mut service = service;
+        service.controls = controls.clone();
+        let service = Arc::new(service);
+        let _follow = service.follow_config();
         service.ready_control(&thread).await.unwrap_or_else(|e| panic!("{label}: {e}"));
-        assert_eq!(Value::Object(writer.route(&thread)), case["afterSync"], "{label}: the route after the sync");
+        // The directory publishes the thread once it is created.
+        controls.0.lock().unwrap().push(thread.clone());
+        if let Some(adoptions) = adoptions {
+            assert_eq!(Value::Object(writer.route(&thread)), case["afterAdoptions"][0], "{label}: the route created under the first config");
+            for next in adoptions.iter().skip(1) {
+                let next = next.clone();
+                service
+                    .config
+                    .update(move |doc| {
+                        doc.insert("agent".into(), next);
+                        Ok(())
+                    })
+                    .await
+                    .unwrap_or_else(|e| panic!("{label}: {e:?}"));
+            }
+            assert_eq!(Value::Object(writer.route(&thread)), *case["afterAdoptions"].as_array().unwrap().last().unwrap(), "{label}: the route after the adoptions");
+        } else {
+            assert_eq!(Value::Object(writer.route(&thread)), case["afterSync"], "{label}: the route after the sync");
+        }
         let got = match service.set_fast(&thread, FastValue::On).await {
             Ok(v) => json!({ "value": v }),
             Err(e) => json!({ "error": e }),

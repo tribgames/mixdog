@@ -136,6 +136,7 @@ impl Builder<'_> {
             visible_rows: self.visible_rows,
             base: None,
             base_cut: None,
+            control: false,
             context: None,
             runs: self.runs.clone(),
             approvals: Vec::new(),
@@ -264,6 +265,7 @@ pub fn frames(
             },
         }),
         op: None,
+        control: false,
         header,
     }))?;
     for row in model.archive.iter().chain(&model.messages).chain(&model.checkpoint_rows) {
