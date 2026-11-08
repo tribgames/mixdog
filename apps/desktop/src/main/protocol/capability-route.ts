@@ -166,10 +166,12 @@ const ADDRESSED_SESSION_CAPABILITIES: ReadonlySet<string> = new Set([
   'cancelQuotaResume',
 ]);
 
-const isThreadNotFound = (error: unknown): boolean => {
+const hasRpcReason = (error: unknown, ...reasons: string[]): boolean => {
   const detail = (error as { detail?: { kind?: unknown; data?: { reason?: unknown } } } | null)?.detail;
-  return detail?.kind === 'rpc' && detail.data?.reason === 'threadNotFound';
+  return detail?.kind === 'rpc' && typeof detail.data?.reason === 'string' && reasons.includes(detail.data.reason);
 };
+
+const isThreadNotFound = (error: unknown): boolean => hasRpcReason(error, 'threadNotFound');
 
 /** Whether `capability(...args)` addresses the call's own session, from declared metadata only: the generated method table's
  *  `thread` flag (`METHOD_ARGS`) for an ordinary mapping, and for an override its declared source
@@ -272,6 +274,23 @@ export function createCapabilityLane({
     if (capability === 'setModel') {
       await request(method, params);
       return true;
+    }
+    // `rewindToItem` (`intake/rewind.mjs`) answers `null`, never an error, for an item that is not a rewindable prompt and for a
+    // session that is busy; the core refuses those as `itemNotFound` / `preconditionFailed`.
+    if (capability === 'rewindToItem') {
+      return request(method, params).catch((error: unknown) => {
+        if (hasRpcReason(error, 'itemNotFound', 'preconditionFailed')) return null;
+        throw error;
+      });
+    }
+    // `prioritizeQueued` (`session-flow/queue.mjs`) answers an entry that is not queued with a count of none; the core refuses it
+    // as `queuedEntryNotFound` (and as `turnNotActive` when the session runs no turn, where nothing is queued either), which would
+    // leave the entry marked sending in the renderer.
+    if (capability === 'prioritizeQueued') {
+      return request(method, params).catch((error: unknown) => {
+        if (hasRpcReason(error, 'queuedEntryNotFound', 'turnNotActive')) return { count: 0, ids: [], priority: 'now' };
+        throw error;
+      });
     }
     if (!ADDRESSED_SESSION_CAPABILITIES.has(capability)) return request(method, params);
     return request(method, params).catch((error: unknown) => {
