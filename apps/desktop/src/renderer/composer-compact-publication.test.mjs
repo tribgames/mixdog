@@ -50,6 +50,8 @@ test('a late compact reply cannot reopen a completed pane without a focus change
       }
       // The composer reads its session's skills on its own; not a command.
       if (request.capability === 'skillsStatus') return Promise.resolve({ value: { skills: [] } });
+      // The agent catalog is the core's `agents` section; the test host serves its first read through this capability.
+      if (request.capability === 'listAgents') return Promise.resolve({ value: [] });
       requests.push(request);
       publish(running);
       return new Promise((resolve) => {

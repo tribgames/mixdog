@@ -98,8 +98,11 @@ async function mountShell(t, { tabs, active, host = {} }) {
   const { useSessionPaneSurfaces } = await import('../use-session-pane-surfaces.ts');
   const { usePaneSideDocks } = await import('../pane-side-dock.tsx');
   const { sessionSideDockEntryForSession } = await import('../session-side-surface-policy.ts');
-  const { agentPoolStore, refreshAgentPool } = await import('../agent-activity-model.ts');
-  await refreshAgentPool(agentPoolStore(host));
+  const { agentPoolStore, startAgentPool } = await import('../agent-activity-model.ts');
+  const { sectionStoreFor } = await import('../section-store.ts');
+  // The pool is the core's `agentPool` section: start it, and wait for the section store's first snapshot.
+  startAgentPool(agentPoolStore(host));
+  await sectionStoreFor(host)?.ready();
   const shell = { surfaces: null, docks: null, activeId: active };
   const leaf = () => ({
     id: 'leaf-1',

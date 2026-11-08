@@ -358,8 +358,15 @@ test('a held backup keeps the disk text the held edit was based on, so recovery 
 test('disk watching treats a held edit as unsaved and does not reload over it', async () => {
   let reads = 0;
   let mtime = 1;
+  // The core's file watch pushes `fs/changed` for the editor's own watch id; there is no stat poll.
+  const watches = [];
+  const listeners = new Set();
   const { state, Harness } = heldBackupHarness(
     {
+      sections: {
+        call: async (method, params) => void watches.push([method, params]),
+        subscribeFsChanged: (listener) => (listeners.add(listener), () => void listeners.delete(listener)),
+      },
       readProjectFile: async () => {
         reads++;
         return { content: 'saved', mtimeMs: mtime, binary: false, tooLarge: false };
@@ -377,9 +384,10 @@ test('disk watching treats a held edit as unsaved and does not reload over it', 
     await act(async () => state.session.setRichHeld(true, () => 'saved plus held'));
     const readsBefore = reads;
     mtime = 9;
+    const watchId = watches.find(([method]) => method === 'fs/watch')?.[1].watchId;
+    assert.ok(watchId, 'the open file is watched');
     await act(async () => {
-      window.dispatchEvent(new window.Event('pagehide'));
-      window.dispatchEvent(new window.Event('pageshow'));
+      for (const listener of [...listeners]) listener({ watchId, changedPaths: ['C:/Project/demo/held.md'] });
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
     assert.equal(reads, readsBefore, 'no automatic reload');
