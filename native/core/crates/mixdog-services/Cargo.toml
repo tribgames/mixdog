@@ -69,5 +69,5 @@ tempfile = { workspace = true }
 # The relay fixture of the webhook tunnel tests: a WebSocket server that sees the leg's request.
 tokio-tungstenite = { workspace = true, features = ["connect", "handshake", "rustls-tls-native-roots"] }
 # The real process manager the tidy tests spawn under, as mixdog-scm's tests do.
-mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"] }
+mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core", "core-test"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
