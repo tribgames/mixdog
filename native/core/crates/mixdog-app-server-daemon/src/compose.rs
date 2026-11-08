@@ -187,7 +187,7 @@ pub struct ComposedCore {
     tidy_processes: Processes,
     /// The concrete manager behind `processes`/`tidy_processes` (it is `Clone`): the process and terminal services take it by value.
     local_processes: LocalProcessManager,
-    /// The one shell registry and kill route of the process (xec.runtime).
+    /// The one shell registry and kill route of the process (exec.runtime).
     shell_control: Arc<mixdog_tools::exec::ShellControl>,
     stop_steps: std::sync::Mutex<Vec<(&'static str, StopStep)>>,
     final_barriers: std::sync::Mutex<Vec<(&'static str, crate::lifecycle::Hook)>>,
@@ -697,7 +697,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     core.on_stop(name, halt);
     let (name, close) = core.real.close_step();
     core.on_stop(name, close);
-    let (name, ended) = core.real.heartbeat_ended_step(); // wait heartbeatEnded right after the model proxy closed, before the session service stops (daemon.mjs:312)
+    let (name, ended) = core.real.heartbeat_ended_step(); // await heartbeatEnded right after the model proxy closed, before the session service stops (daemon.mjs:312)
     core.on_stop(name, ended);
     let timer = resume_timer.clone();
     core.on_stop("quota resume timer", async move { timer.stop().await });
