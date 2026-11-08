@@ -1,6 +1,6 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-migration-145.mjs --tree <git clone at v1.4.5> --out <fixture dir>",
-  "fileCount": 85,
+  "command": "node benchmarks/rust-core/recorders/record-migration-145.mjs --tree <git clone at v1.4.5> --out <fixture dir>, then node benchmarks/rust-core/recorders/record-migration-145-readers.mjs --tree <the same clone> --out <fixture dir> (adds readers.json)",
+  "fileCount": 86,
   "files": [
     {
       "bytes": 46,
@@ -426,6 +426,11 @@
       "bytes": 544370,
       "path": "answers.json",
       "sha256": "f3311af449d024865617feafb25ebd2d5321efc0d99bdd9dbb76fd1740b9dd1b"
+    },
+    {
+      "bytes": 23947,
+      "path": "readers.json",
+      "sha256": "6deeb57292a88f867ac3189a2a42f8f824fcbedeb648dd132ec2d99da74c94c7"
     }
   ],
   "product": {
@@ -445,5 +450,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-migration-145.mjs",
   "set": "migration-145",
-  "totalBytes": 1010503
+  "totalBytes": 1034450
 }

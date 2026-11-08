@@ -1,0 +1,871 @@
+{
+  "usageDashboard": {
+    "config": {
+      "providers": {
+        "openai": {
+          "enabled": false
+        },
+        "anthropic": {
+          "enabled": false
+        },
+        "gemini": {
+          "enabled": false
+        },
+        "deepseek": {
+          "enabled": false
+        },
+        "xai": {
+          "enabled": false
+        },
+        "openrouter": {
+          "enabled": false
+        },
+        "vertex-ai": {
+          "enabled": false,
+          "authMode": "service-account"
+        },
+        "openai-oauth": {
+          "enabled": false,
+          "credentialProbeUnavailable": true,
+          "websocket": true
+        },
+        "anthropic-oauth": {
+          "enabled": false,
+          "credentialProbeUnavailable": true
+        },
+        "grok-oauth": {
+          "enabled": false,
+          "credentialProbeUnavailable": true
+        },
+        "muse-code-oauth": {
+          "enabled": false,
+          "credentialProbeUnavailable": true
+        },
+        "command-code-oauth": {
+          "enabled": false,
+          "credentialProbeUnavailable": true
+        },
+        "opencode-go-oauth": {
+          "enabled": false,
+          "credentialProbeUnavailable": true
+        },
+        "mixdog-local": {
+          "enabled": false
+        }
+      },
+      "mcpServers": {
+        "filesystem": {
+          "command": "node",
+          "args": [
+            "server.js"
+          ],
+          "env": {
+            "MODE": "ro"
+          }
+        },
+        "remote": {
+          "url": "http://127.0.0.1:9/mcp",
+          "headers": {
+            "x-test": "1"
+          }
+        }
+      },
+      "pluginMcp": {},
+      "presets": [
+        {
+          "id": "Main",
+          "name": "Main",
+          "type": "agent",
+          "provider": "stub",
+          "model": "stub-model",
+          "effort": "medium",
+          "tools": "full"
+        },
+        {
+          "id": "haiku",
+          "name": "HAIKU",
+          "type": "agent",
+          "provider": "anthropic-oauth",
+          "model": "claude-haiku-4-5-20251001",
+          "tools": "full"
+        },
+        {
+          "id": "sonnet-mid",
+          "name": "SONNET MID",
+          "type": "agent",
+          "provider": "anthropic-oauth",
+          "model": "claude-sonnet-4-6",
+          "effort": "medium",
+          "tools": "full"
+        },
+        {
+          "id": "sonnet-high",
+          "name": "SONNET HIGH",
+          "type": "agent",
+          "provider": "anthropic-oauth",
+          "model": "claude-sonnet-4-6",
+          "effort": "high",
+          "tools": "full"
+        },
+        {
+          "id": "opus-mid",
+          "name": "OPUS MID",
+          "type": "agent",
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-4-8",
+          "effort": "medium",
+          "tools": "full"
+        },
+        {
+          "id": "opus-high",
+          "name": "OPUS HIGH",
+          "type": "agent",
+          "provider": "anthropic-oauth",
+          "model": "claude-opus-4-8",
+          "effort": "high",
+          "tools": "full"
+        }
+      ],
+      "default": "Main",
+      "maintenance": {
+        "webhook": {
+          "provider": "anthropic-oauth",
+          "model": "claude-haiku-4-5-20251001"
+        }
+      },
+      "webSearchRoute": {
+        "provider": "stub",
+        "model": "stub-model"
+      },
+      "modelSettings": {
+        "stub/stub-model": {
+          "effort": "high",
+          "contextPercent": 80
+        }
+      },
+      "onboarding": {
+        "done": true,
+        "step": 4
+      },
+      "agents": {},
+      "disabledAgents": [
+        "advisor",
+        "explore",
+        "front-worker",
+        "heavy-worker",
+        "maintainer",
+        "security",
+        "writer"
+      ],
+      "workflow": {
+        "active": "default"
+      },
+      "orchestrationMode": "balanced",
+      "profile": {
+        "title": "Recorded User",
+        "language": "ko",
+        "experienceLevel": ""
+      },
+      "skills": {
+        "disabled": []
+      },
+      "extensionScopes": {
+        "skills": {
+          "mode": [
+            "D:\\mixdog-build\\tmp\\migration-145\\w3\\all"
+          ]
+        },
+        "mcp": {},
+        "plugins": {}
+      },
+      "autoClear": {
+        "enabled": true,
+        "idleMinutes": 45
+      },
+      "compaction": {
+        "onModelChange": true,
+        "summaryModel": "stub/stub-model",
+        "memoryTimeoutMs": 7000,
+        "auto": false
+      },
+      "shell": {},
+      "update": {},
+      "recap": {
+        "enabled": true
+      },
+      "aiSessionTitles": true,
+      "heartbeat": true,
+      "heartbeatIntervalMinutes": 60,
+      "promptCacheWarming": false,
+      "reactions": true,
+      "worktree": {
+        "newTaskDefault": "branch",
+        "branchPrefix": "",
+        "sizeWarnBytes": 2147483648,
+        "autoCleanup": true,
+        "maxWorktrees": 15,
+        "unusedDays": 30,
+        "cleanupArchived": true,
+        "deleteBranch": false
+      },
+      "developer": {},
+      "modules": {},
+      "builtins": {}
+    },
+    "setup": {
+      "api": [
+        {
+          "id": "openrouter",
+          "name": "OpenRouter",
+          "env": false,
+          "url": "https://openrouter.ai/keys",
+          "group": "api",
+          "type": "api-key",
+          "enabled": false,
+          "authenticated": false,
+          "stored": false,
+          "envName": "OPENROUTER_API_KEY",
+          "status": "Off",
+          "detail": "OPENROUTER_API_KEY"
+        },
+        {
+          "id": "openai",
+          "name": "OpenAI API",
+          "env": false,
+          "url": "https://platform.openai.com/api-keys",
+          "group": "api",
+          "type": "api-key",
+          "enabled": false,
+          "authenticated": false,
+          "stored": false,
+          "envName": "OPENAI_API_KEY",
+          "status": "Off",
+          "detail": "OPENAI_API_KEY"
+        },
+        {
+          "id": "anthropic",
+          "name": "Anthropic API",
+          "env": false,
+          "url": "https://console.anthropic.com/settings/keys",
+          "group": "api",
+          "type": "api-key",
+          "enabled": false,
+          "authenticated": false,
+          "stored": false,
+          "envName": "ANTHROPIC_API_KEY",
+          "status": "Off",
+          "detail": "ANTHROPIC_API_KEY"
+        },
+        {
+          "id": "gemini",
+          "name": "Gemini API",
+          "env": false,
+          "url": "https://aistudio.google.com/apikey",
+          "group": "api",
+          "type": "api-key",
+          "enabled": false,
+          "authenticated": false,
+          "stored": false,
+          "envName": "GEMINI_API_KEY",
+          "status": "Off",
+          "detail": "GEMINI_API_KEY"
+        },
+        {
+          "id": "vertex-ai",
+          "name": "Vertex AI",
+          "env": false,
+          "url": null,
+          "group": "api",
+          "type": "api-key",
+          "authKind": "service-account",
+          "authMode": "service-account",
+          "adc": {
+            "state": "missing",
+            "message": "No gcloud login found. Run `gcloud auth application-default login`."
+          },
+          "enabled": false,
+          "authenticated": false,
+          "stored": false,
+          "envName": null,
+          "status": "Off",
+          "detail": "Location: global",
+          "location": "global",
+          "locationSource": "default",
+          "projectId": null
+        },
+        {
+          "id": "deepseek",
+          "name": "DeepSeek API",
+          "env": false,
+          "url": "https://platform.deepseek.com/api_keys",
+          "group": "api",
+          "type": "api-key",
+          "enabled": false,
+          "authenticated": false,
+          "stored": false,
+          "envName": "DEEPSEEK_API_KEY",
+          "status": "Off",
+          "detail": "DEEPSEEK_API_KEY"
+        },
+        {
+          "id": "xai",
+          "name": "xAI API",
+          "env": false,
+          "url": "https://console.x.ai",
+          "group": "api",
+          "type": "api-key",
+          "enabled": false,
+          "authenticated": false,
+          "stored": false,
+          "envName": "XAI_API_KEY",
+          "status": "Off",
+          "detail": "XAI_API_KEY"
+        }
+      ],
+      "oauth": [
+        {
+          "id": "openai-oauth",
+          "name": "OpenAI OAuth",
+          "desc": "Mixdog OAuth credentials",
+          "group": "oauth",
+          "type": "oauth",
+          "enabled": true,
+          "authenticated": true,
+          "status": "Valid",
+          "detail": "Mixdog token store",
+          "expiresAt": 4102444800000,
+          "plan": null,
+          "usable": true,
+          "refreshable": true,
+          "reauthRequired": false
+        },
+        {
+          "id": "anthropic-oauth",
+          "name": "Anthropic OAuth",
+          "desc": "Mixdog OAuth credentials",
+          "group": "oauth",
+          "type": "oauth",
+          "enabled": true,
+          "authenticated": true,
+          "status": "Valid",
+          "detail": "D:\\mixdog-build\\tmp\\migration-145\\w3\\native\\core\\fixtures\\migration-145.readers-live\\.mixdog\\data\\anthropic-oauth-credentials.json",
+          "expiresAt": 4102444800000,
+          "plan": "max",
+          "usable": true,
+          "refreshable": true,
+          "reauthRequired": false
+        },
+        {
+          "id": "grok-oauth",
+          "name": "Grok OAuth",
+          "desc": "Mixdog OAuth credentials (Grok Build)",
+          "group": "oauth",
+          "type": "oauth",
+          "enabled": true,
+          "authenticated": true,
+          "status": "Valid",
+          "detail": "Mixdog token store",
+          "expiresAt": 4102444800000,
+          "plan": null,
+          "usable": true,
+          "refreshable": true,
+          "reauthRequired": false
+        },
+        {
+          "id": "muse-code-oauth",
+          "name": "Muse Code",
+          "desc": "Sign in with your Meta account (Muse Code subscription)",
+          "group": "oauth",
+          "type": "oauth",
+          "enabled": true,
+          "authenticated": true,
+          "status": "Valid",
+          "detail": "Mixdog token store",
+          "expiresAt": null,
+          "plan": null,
+          "usable": true,
+          "refreshable": false,
+          "reauthRequired": false
+        },
+        {
+          "id": "command-code-oauth",
+          "name": "Command Code",
+          "desc": "Sign in with your Command Code account",
+          "group": "oauth",
+          "type": "oauth",
+          "enabled": true,
+          "authenticated": true,
+          "status": "Valid",
+          "detail": "Mixdog token store; API key",
+          "expiresAt": null,
+          "plan": null,
+          "usable": true,
+          "refreshable": false,
+          "reauthRequired": false
+        },
+        {
+          "id": "opencode-go-oauth",
+          "name": "OpenCode Go OAuth",
+          "desc": "Sign in with your OpenCode account (OpenCode Go subscription)",
+          "group": "oauth",
+          "type": "oauth",
+          "enabled": false,
+          "authenticated": false,
+          "status": "Not Set",
+          "detail": "Mixdog token store",
+          "expiresAt": null,
+          "plan": null,
+          "usable": false,
+          "refreshable": false,
+          "reauthRequired": false
+        }
+      ],
+      "local": [
+        {
+          "id": "mixdog-local",
+          "name": "Local Provider",
+          "desc": "Models managed on this PC by Mixdog",
+          "group": "local",
+          "type": "local",
+          "enabled": false,
+          "detected": false,
+          "authenticated": false,
+          "usable": false,
+          "status": "Not Installed",
+          "detail": "Install a recommended model from Built-in"
+        }
+      ]
+    },
+    "answer": {
+      "title": "Provider Quotas",
+      "subtitle": "Statusline-style provider quota windows.",
+      "checkedAt": 1794144251369,
+      "refresh": false,
+      "checking": true,
+      "total": {
+        "providerCount": 13,
+        "knownRemainingUsd": 0,
+        "apiVerifiedRemainingUsd": 0,
+        "localEstimatedRemainingUsd": 0,
+        "hiddenCount": 0,
+        "notConfiguredCount": 8,
+        "errorCount": 0,
+        "missingCount": 8,
+        "checkingCount": 5
+      },
+      "rows": [
+        {
+          "id": "openai-oauth",
+          "label": "OpenAI OAuth",
+          "group": "oauth",
+          "type": "oauth",
+          "enabled": true,
+          "authenticated": true,
+          "remainingUsd": null,
+          "usedUsd": null,
+          "limitUsd": null,
+          "windows": [],
+          "status": "checking",
+          "source": "checking",
+          "sourceLabel": "checking",
+          "primary": "",
+          "detail": "Checking provider usage",
+          "description": "OpenAI OAuth subscription quota",
+          "updatedAt": null,
+          "includeInTotal": false,
+          "totalBucket": null,
+          "config": {
+            "enabled": false,
+            "credentialProbeUnavailable": true,
+            "websocket": true
+          },
+          "tone": "ok",
+          "useCredits": false
+        },
+        {
+          "id": "anthropic-oauth",
+          "label": "Anthropic OAuth",
+          "group": "oauth",
+          "type": "oauth",
+          "enabled": true,
+          "authenticated": true,
+          "remainingUsd": null,
+          "usedUsd": null,
+          "limitUsd": null,
+          "windows": [],
+          "status": "checking",
+          "source": "checking",
+          "sourceLabel": "checking",
+          "primary": "",
+          "detail": "Checking provider usage",
+          "description": "Anthropic OAuth subscription quota",
+          "updatedAt": null,
+          "includeInTotal": false,
+          "totalBucket": null,
+          "config": {
+            "enabled": false,
+            "credentialProbeUnavailable": true
+          },
+          "tone": "ok",
+          "useCredits": false
+        },
+        {
+          "id": "grok-oauth",
+          "label": "Grok OAuth",
+          "group": "oauth",
+          "type": "oauth",
+          "enabled": true,
+          "authenticated": true,
+          "remainingUsd": null,
+          "usedUsd": null,
+          "limitUsd": null,
+          "windows": [],
+          "status": "checking",
+          "source": "checking",
+          "sourceLabel": "checking",
+          "primary": "",
+          "detail": "Checking provider usage",
+          "description": "Grok Build subscription quota",
+          "updatedAt": null,
+          "includeInTotal": false,
+          "totalBucket": null,
+          "config": {
+            "enabled": false,
+            "credentialProbeUnavailable": true
+          },
+          "tone": "ok"
+        },
+        {
+          "id": "muse-code-oauth",
+          "label": "Muse Code",
+          "group": "oauth",
+          "type": "oauth",
+          "enabled": true,
+          "authenticated": true,
+          "remainingUsd": null,
+          "usedUsd": null,
+          "limitUsd": null,
+          "windows": [],
+          "status": "checking",
+          "source": "checking",
+          "sourceLabel": "checking",
+          "primary": "",
+          "detail": "Checking provider usage",
+          "description": "Muse Code subscription quota",
+          "updatedAt": null,
+          "includeInTotal": false,
+          "totalBucket": null,
+          "config": {
+            "enabled": false,
+            "credentialProbeUnavailable": true
+          },
+          "tone": "ok"
+        },
+        {
+          "id": "command-code-oauth",
+          "label": "Command Code",
+          "group": "oauth",
+          "type": "oauth",
+          "enabled": true,
+          "authenticated": true,
+          "remainingUsd": null,
+          "usedUsd": null,
+          "limitUsd": null,
+          "windows": [],
+          "status": "checking",
+          "source": "checking",
+          "sourceLabel": "checking",
+          "primary": "",
+          "detail": "Checking provider usage",
+          "description": "Command Code subscription quota",
+          "updatedAt": null,
+          "includeInTotal": false,
+          "totalBucket": null,
+          "config": {
+            "enabled": false,
+            "credentialProbeUnavailable": true
+          },
+          "tone": "ok"
+        },
+        {
+          "id": "opencode-go-oauth",
+          "label": "OpenCode Go OAuth",
+          "group": "oauth",
+          "type": "oauth",
+          "enabled": false,
+          "authenticated": false,
+          "remainingUsd": null,
+          "usedUsd": null,
+          "limitUsd": null,
+          "windows": [],
+          "status": "missing",
+          "source": "not-configured",
+          "sourceLabel": "not signed in",
+          "primary": "not signed in",
+          "detail": "Mixdog token store",
+          "description": "OpenCode Go subscription quota",
+          "updatedAt": null,
+          "includeInTotal": false,
+          "totalBucket": null,
+          "config": {
+            "enabled": false,
+            "credentialProbeUnavailable": true
+          },
+          "tone": "missing"
+        },
+        {
+          "id": "openai",
+          "label": "OpenAI API",
+          "group": "api",
+          "type": "api-key",
+          "enabled": false,
+          "authenticated": false,
+          "remainingUsd": null,
+          "usedUsd": null,
+          "limitUsd": null,
+          "windows": [],
+          "status": "missing",
+          "source": "not-configured",
+          "sourceLabel": "no key",
+          "primary": "not configured",
+          "detail": "Configure auth",
+          "description": "OpenAI API billing",
+          "updatedAt": null,
+          "includeInTotal": false,
+          "totalBucket": null,
+          "config": {
+            "enabled": false
+          },
+          "tone": "missing"
+        },
+        {
+          "id": "anthropic",
+          "label": "Anthropic API",
+          "group": "api",
+          "type": "api-key",
+          "enabled": false,
+          "authenticated": false,
+          "remainingUsd": null,
+          "usedUsd": null,
+          "limitUsd": null,
+          "windows": [],
+          "status": "missing",
+          "source": "not-configured",
+          "sourceLabel": "no key",
+          "primary": "not configured",
+          "detail": "Configure auth",
+          "description": "Anthropic API billing",
+          "updatedAt": null,
+          "includeInTotal": false,
+          "totalBucket": null,
+          "config": {
+            "enabled": false
+          },
+          "tone": "missing"
+        },
+        {
+          "id": "deepseek",
+          "label": "DeepSeek API",
+          "group": "api",
+          "type": "api-key",
+          "enabled": false,
+          "authenticated": false,
+          "remainingUsd": null,
+          "usedUsd": null,
+          "limitUsd": null,
+          "windows": [],
+          "status": "missing",
+          "source": "not-configured",
+          "sourceLabel": "no key",
+          "primary": "not configured",
+          "detail": "Configure auth",
+          "description": "DeepSeek API billing",
+          "updatedAt": null,
+          "includeInTotal": false,
+          "totalBucket": null,
+          "config": {
+            "enabled": false
+          },
+          "tone": "missing"
+        },
+        {
+          "id": "gemini",
+          "label": "Gemini API",
+          "group": "api",
+          "type": "api-key",
+          "enabled": false,
+          "authenticated": false,
+          "remainingUsd": null,
+          "usedUsd": null,
+          "limitUsd": null,
+          "windows": [],
+          "status": "missing",
+          "source": "not-configured",
+          "sourceLabel": "no key",
+          "primary": "not configured",
+          "detail": "Configure auth",
+          "description": "Gemini API billing",
+          "updatedAt": null,
+          "includeInTotal": false,
+          "totalBucket": null,
+          "config": {
+            "enabled": false
+          },
+          "tone": "missing"
+        },
+        {
+          "id": "xai",
+          "label": "xAI API",
+          "group": "api",
+          "type": "api-key",
+          "enabled": false,
+          "authenticated": false,
+          "remainingUsd": null,
+          "usedUsd": null,
+          "limitUsd": null,
+          "windows": [],
+          "status": "missing",
+          "source": "not-configured",
+          "sourceLabel": "no key",
+          "primary": "not configured",
+          "detail": "Configure auth",
+          "description": "xAI API billing",
+          "updatedAt": null,
+          "includeInTotal": false,
+          "totalBucket": null,
+          "config": {
+            "enabled": false
+          },
+          "tone": "missing"
+        },
+        {
+          "id": "openrouter",
+          "label": "OpenRouter",
+          "group": "api",
+          "type": "api-key",
+          "enabled": false,
+          "authenticated": false,
+          "remainingUsd": null,
+          "usedUsd": null,
+          "limitUsd": null,
+          "windows": [],
+          "status": "missing",
+          "source": "not-configured",
+          "sourceLabel": "no key",
+          "primary": "not configured",
+          "detail": "Configure auth",
+          "description": "API billing",
+          "updatedAt": null,
+          "includeInTotal": false,
+          "totalBucket": null,
+          "config": {
+            "enabled": false
+          },
+          "tone": "missing"
+        },
+        {
+          "id": "vertex-ai",
+          "label": "Vertex AI",
+          "group": "api",
+          "type": "api-key",
+          "enabled": false,
+          "authenticated": false,
+          "remainingUsd": null,
+          "usedUsd": null,
+          "limitUsd": null,
+          "windows": [],
+          "status": "missing",
+          "source": "not-configured",
+          "sourceLabel": "no key",
+          "primary": "not configured",
+          "detail": "Configure auth",
+          "description": "API billing",
+          "updatedAt": null,
+          "includeInTotal": false,
+          "totalBucket": null,
+          "config": {
+            "enabled": false,
+            "authMode": "service-account"
+          },
+          "tone": "missing"
+        }
+      ],
+      "format": {}
+    }
+  },
+  "mcp": {
+    "status": {
+      "servers": [
+        {
+          "name": "filesystem",
+          "configured": true,
+          "enabled": true,
+          "connected": false,
+          "status": "disconnected",
+          "transport": "stdio",
+          "toolCount": 0,
+          "tools": [],
+          "capabilities": {
+            "tools": false,
+            "prompts": false,
+            "resources": false
+          },
+          "error": null,
+          "warnings": [],
+          "source": "config"
+        },
+        {
+          "name": "remote",
+          "configured": true,
+          "enabled": true,
+          "connected": false,
+          "status": "disconnected",
+          "transport": "http",
+          "toolCount": 0,
+          "tools": [],
+          "capabilities": {
+            "tools": false,
+            "prompts": false,
+            "resources": false
+          },
+          "error": null,
+          "warnings": [],
+          "source": "config"
+        }
+      ],
+      "configuredCount": 2,
+      "connectedCount": 0,
+      "failedCount": 0,
+      "warnings": [],
+      "declarationErrors": [],
+      "googleClient": false
+    },
+    "configs": {
+      "filesystem": {
+        "name": "filesystem",
+        "source": "config",
+        "enabled": true,
+        "config": {
+          "command": "node",
+          "args": [
+            "server.js"
+          ],
+          "env": {
+            "MODE": "ro"
+          }
+        }
+      },
+      "remote": {
+        "name": "remote",
+        "source": "config",
+        "enabled": true,
+        "config": {
+          "url": "http://127.0.0.1:9/mcp",
+          "headers": {
+            "x-test": "1"
+          }
+        }
+      }
+    }
+  }
+}
