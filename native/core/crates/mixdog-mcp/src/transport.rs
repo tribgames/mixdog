@@ -20,15 +20,29 @@ pub enum Incoming {
     Closed(CloseCause),
 }
 
+/// `appendMcpStderrTail`: a failure message followed by the server's stderr tail, as Node prints it.
+pub fn append_stderr_tail(message: &str, tail: &str) -> String {
+    let tail = tail.trim();
+    if tail.is_empty() {
+        message.to_owned()
+    } else {
+        format!("{message}\n--- server stderr (tail) ---\n{tail}")
+    }
+}
+
 pub type IncomingRx = mpsc::UnboundedReceiver<Incoming>;
 pub type IncomingTx = mpsc::UnboundedSender<Incoming>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum TransportError {
-    #[error("command not found: {0}")]
-    CommandNotFound(String),
-    #[error("spawn failed: {0}")]
-    Spawn(#[source] std::io::Error),
+    /// Node's `ErrnoException` for a failed spawn: `spawn <command> <code>`.
+    #[error("spawn {file} {code}")]
+    Spawn {
+        file: String,
+        code: &'static str,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("the spawn lane is full")]
     LaneFull,
     #[error("transport closed")]
@@ -88,4 +102,9 @@ pub trait Transport: Send + Sync {
 
     /// Called once after `notifications/initialized` was sent.
     fn initialized(&self) {}
+
+    /// The tail of what a stdio server wrote to stderr so far; empty for every other transport.
+    fn stderr_tail(&self) -> String {
+        String::new()
+    }
 }

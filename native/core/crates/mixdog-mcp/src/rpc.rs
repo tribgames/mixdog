@@ -43,7 +43,9 @@ pub enum RpcError {
         message: String,
         data: Option<Value>,
     },
-    #[error("connection closed: {0}")]
+    /// The connection ended; the payload is the server's stderr tail (empty when it has none). The
+    /// text is the SDK's `McpError(ConnectionClosed)`: `MCP error -32000: Connection closed`.
+    #[error("MCP error -32000: Connection closed")]
     Closed(String),
     #[error("no response or progress within the call timeout")]
     IdleTimeout,
@@ -163,11 +165,7 @@ impl RpcClient {
                 }
             }
         };
-        let detail = if cause.stderr_tail.is_empty() {
-            cause.reason.clone()
-        } else {
-            format!("{}\n{}", cause.reason, cause.stderr_tail)
-        };
+        let tail = cause.stderr_tail.clone();
         // The cause is published before pending is drained, so a request registered after
         // the drain sees `closed` when it re-checks.
         self.closed.send_replace(Some(cause));
@@ -179,7 +177,7 @@ impl RpcClient {
             .map(|(_, p)| p)
             .collect();
         for pending in drained {
-            let _ = pending.tx.send(Err(RpcError::Closed(detail.clone())));
+            let _ = pending.tx.send(Err(RpcError::Closed(tail.clone())));
         }
     }
 
@@ -276,7 +274,7 @@ impl RpcClient {
             Some(sent),
         )?;
         done.await
-            .unwrap_or_else(|_| Err(RpcError::Closed("connection ended".to_owned())))
+            .unwrap_or_else(|_| Err(RpcError::Closed(String::new())))
     }
 
     pub async fn request(&self, method: &str, params: Value, options: RequestOptions<'_>) -> Result<Value, RpcError> {
@@ -289,7 +287,7 @@ impl RpcClient {
             .insert(id, Pending { tx, progress: Arc::clone(&progress) });
         if let Some(cause) = self.closed.borrow().as_ref() {
             self.pending.lock().unwrap_or_else(|e| e.into_inner()).remove(&id);
-            return Err(RpcError::Closed(cause.reason.clone()));
+            return Err(RpcError::Closed(cause.stderr_tail.clone()));
         }
 
         let mut params = params;
@@ -340,7 +338,7 @@ impl RpcClient {
                     }
                 }
                 result = &mut *rx => {
-                    return result.unwrap_or_else(|_| Err(RpcError::Closed("connection ended".to_owned())));
+                    return result.unwrap_or_else(|_| Err(RpcError::Closed(String::new())));
                 }
                 () = cancelled(options.cancel) => return Err(RpcError::Cancelled),
                 () = progress.notified() => idle.as_mut().reset(Instant::now() + idle_for),
