@@ -316,7 +316,7 @@ function createServiceClient({
   live: ClientLive;
   protocol: ProtocolConnection | null;
 }): DesktopServiceClient {
-  const client = new DesktopServiceClient({
+  const client: DesktopServiceClient = new DesktopServiceClient({
     // A connection with a core endpoint sends its session capabilities there (capability-route.ts).
     // The capabilities the sections replaced are answered from the connection's sections (section-capability-lane.ts).
     ...(protocol
