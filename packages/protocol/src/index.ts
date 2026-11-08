@@ -314,15 +314,15 @@ export type AttachmentOriginal = { attachmentRef: string, mimeType: string, };
 
 export type AutoEffortBase = "low" | "medium" | "high";
 
-export type AutoEffortModule = { supported: boolean, enabled: boolean, 
+export type AutoEffortModule = { supported: boolean, enabled: boolean,
 /**
  * The judge model is on disk.
  */
-installed: boolean, 
+installed: boolean,
 /**
  * A download is in flight, including the boot download the settings did not start.
  */
-installing: boolean, ready: boolean, 
+installing: boolean, ready: boolean,
 /**
  * Why the judge last failed to load; empty when it loaded or never failed.
  */
@@ -344,7 +344,7 @@ export type BlobDigest = string;
  */
 export type BlobPutParams = { digest: BlobDigest, offset: number, bytesB64: string, };
 
-export type BlobReadParams = { digest: BlobDigest, offset?: number, 
+export type BlobReadParams = { digest: BlobDigest, offset?: number,
 /**
  * At most `limits.maxBlobPageBytes`.
  */
@@ -364,19 +364,19 @@ export type BlobRef = { blob: BlobDescriptor, };
  */
 export type BotOrder = { order: Array<string>, };
 
-export type BrowserApprovalRequestParams = { 
+export type BrowserApprovalRequestParams = {
 /**
  * Form submit / Enter, send/post click, upload, … (policy is the core's).
  */
-action: string, request: JsonValue, threadId: ThreadId, turnId?: TurnId, itemId?: ItemId, 
+action: string, request: JsonValue, threadId: ThreadId, turnId?: TurnId, itemId?: ItemId,
 /**
  * Top-level chat that shows a sub-agent's request.
  */
-surfaceThreadId?: ThreadId, 
+surfaceThreadId?: ThreadId,
 /**
  * Delegation chain from the surface thread to the asking thread.
  */
-chain?: Array<ThreadId>, requestedAt: number, expiresAt?: number, 
+chain?: Array<ThreadId>, requestedAt: number, expiresAt?: number,
 /**
  * Per-surface presentation order; the lowest is the active card (P §8.5).
  */
@@ -392,7 +392,7 @@ export type CapabilityState = { "state": "available" } | { "state": "unavailable
 /**
  * Channel-bridge tool call (today's channel `POST /call`).
  */
-export type ChannelCallParams = { 
+export type ChannelCallParams = {
 /**
  * Today's `callId`.
  */
@@ -475,7 +475,7 @@ export type ClassLimits = { c0: number, c1: number, c2: number, c3: number, };
  */
 export type ClientActivityParams = { at: number, };
 
-export type ClientInfo = { name: string, title?: string, 
+export type ClientInfo = { name: string, title?: string,
 /**
  * Must equal the core's `serverVersion` (version gate, no ranges).
  */
@@ -503,15 +503,15 @@ export type CloseCode = 1000 | 1001 | 1003 | 1007 | 1008 | 1009 | 4000 | 4001 | 
  */
 export type CompactionStatus = "compacted" | "failed" | "no_change";
 
-export type ComputerApprovalRequestParams = { request: JsonValue, threadId: ThreadId, turnId?: TurnId, itemId?: ItemId, 
+export type ComputerApprovalRequestParams = { request: JsonValue, threadId: ThreadId, turnId?: TurnId, itemId?: ItemId,
 /**
  * Top-level chat that shows a sub-agent's request.
  */
-surfaceThreadId?: ThreadId, 
+surfaceThreadId?: ThreadId,
 /**
  * Delegation chain from the surface thread to the asking thread.
  */
-chain?: Array<ThreadId>, requestedAt: number, expiresAt?: number, 
+chain?: Array<ThreadId>, requestedAt: number, expiresAt?: number,
 /**
  * Per-surface presentation order; the lowest is the active card (P §8.5).
  */
@@ -520,7 +520,7 @@ order: number, };
 /**
  * Section value of `computer` (SPEC R40).
  */
-export type ComputerSection = { active: boolean, observeOnly: boolean, controller: string | null, 
+export type ComputerSection = { active: boolean, observeOnly: boolean, controller: string | null,
 /**
  * Every session with an open execution, oldest first (the overlay draws one activity per session,
  * `overlay/model.ts`); `active`, `observeOnly` and `sessionThreadId` describe the latest of them.
@@ -834,7 +834,7 @@ export type ConfigWriteResponse = { revision: number, values: Array<JsonValue>, 
 /**
  * What the core knows about this connection.
  */
-export type ConnectionInfo = { origin: Origin, 
+export type ConnectionInfo = { origin: Origin,
 /**
  * Host-stamped device name used on submits, aborts and decisions (today's `viewerDevice`).
  */
@@ -911,7 +911,7 @@ export type DocumentPreviewParams = { root: string, rel: string, options?: JsonV
  * Shared by core-api and the wire. The error's text is never here: it is the error's own
  * `message`, as Node's `error.message`.
  */
-export type DomainErrorDetail = { "type": "worktreeBusyJobs", reason: string, outcome?: string, admission?: string, sessions?: Array<string>, entryId?: string, kept?: string, workers?: number, jobs?: number, shellJobs?: number, starting?: number, sessionId?: string, } | { "type": "worktreeDirty", reason?: string, operation?: string, count?: number, files?: DirtyFiles, paths?: Array<string>, maxFiles?: number, maxBytes?: number, head?: string, baseCommit?: string, recoveryRef?: string, restored?: boolean, cause?: string, restoreError?: string, entryId?: string, ignored?: Array<string>, } | { "type": "worktreeDirtyChoice", count: number, paths: Array<string>, } | { "type": "worktreeTargetMismatch", target?: string, current?: string, expected?: string, actual?: string, } | { "type": "worktreeUnmerged", commit?: string, entryId?: string, branch?: string, mergeTarget?: string, commits?: number, } | { "type": "worktreeProjectUnknown", projectPath?: string, reason?: string, } | { "type": "worktreeUnsupportedRepo", projectPath?: string, file?: string, line?: number, rel?: string, baseBranch?: string, branch?: string, } | { "type": "worktreePathUnsafe", entryId: string, path: string, reason?: string, links?: Array<string>, count?: number, } | { "type": "worktreeRevisionConflict", entryId?: string, remaining?: Array<RemovalRemnant>, branch?: string, txId?: string, expectedRevision?: number, revision?: number, } | { "type": "worktreeBranchOccupied", branch: string, path?: string, 
+export type DomainErrorDetail = { "type": "worktreeBusyJobs", reason: string, outcome?: string, admission?: string, sessions?: Array<string>, entryId?: string, kept?: string, workers?: number, jobs?: number, shellJobs?: number, starting?: number, sessionId?: string, } | { "type": "worktreeDirty", reason?: string, operation?: string, count?: number, files?: DirtyFiles, paths?: Array<string>, maxFiles?: number, maxBytes?: number, head?: string, baseCommit?: string, recoveryRef?: string, restored?: boolean, cause?: string, restoreError?: string, entryId?: string, ignored?: Array<string>, } | { "type": "worktreeDirtyChoice", count: number, paths: Array<string>, } | { "type": "worktreeTargetMismatch", target?: string, current?: string, expected?: string, actual?: string, } | { "type": "worktreeUnmerged", commit?: string, entryId?: string, branch?: string, mergeTarget?: string, commits?: number, } | { "type": "worktreeProjectUnknown", projectPath?: string, reason?: string, } | { "type": "worktreeUnsupportedRepo", projectPath?: string, file?: string, line?: number, rel?: string, baseBranch?: string, branch?: string, } | { "type": "worktreePathUnsafe", entryId: string, path: string, reason?: string, links?: Array<string>, count?: number, } | { "type": "worktreeRevisionConflict", entryId?: string, remaining?: Array<RemovalRemnant>, branch?: string, txId?: string, expectedRevision?: number, revision?: number, } | { "type": "worktreeBranchOccupied", branch: string, path?: string,
 /**
  * `session` or `external` (today's `kind`).
  */
@@ -935,7 +935,7 @@ export type EffortJudgeInfo = { model: string, quantization: string, engine: str
 /**
  * The embedding model behind the memory module (`getEmbeddingInfo`).
  */
-export type EmbeddingInfo = { model: string, dtype: string | null, dimensions: number | null, 
+export type EmbeddingInfo = { model: string, dtype: string | null, dimensions: number | null,
 /**
  * Empty until the model is loaded.
  */
@@ -1004,7 +1004,7 @@ export type FeedUnsubscribeParams = { feedId: FeedId, };
  */
 export type FeedbackUploadParams = { opId: OpId, input: JsonValue, };
 
-export type FsChangedParams = { watchId: WatchId, changedPaths: Array<string>, 
+export type FsChangedParams = { watchId: WatchId, changedPaths: Array<string>,
 /**
  * `modified` | `removed` | `renamed` | `git` | `overflow`.
  */
@@ -1063,11 +1063,11 @@ export type GitCommitParams = { opId: OpId, cwd: string, message: string, };
 /**
  * Input of `git/commitPaths` (`gitCommitPaths(cwd, message, paths)`).
  */
-export type GitCommitPathsInput = { 
+export type GitCommitPathsInput = {
 /**
  * 1–20 000 characters.
  */
-message: string, 
+message: string,
 /**
  * Repository-relative, 1–500 paths.
  */
@@ -1157,7 +1157,7 @@ export type GitRenameBranchParams = { opId: OpId, cwd: string, input: GitRenameB
  * Input of `git/requestContext` (`requiredGitRequestContextInput`): the listed
  * repository-relative files (0–500, may be empty) and an optional base branch.
  */
-export type GitRequestContextInput = { paths: Array<string>, 
+export type GitRequestContextInput = { paths: Array<string>,
 /**
  * Absent or empty: no base branch.
  */
@@ -1355,15 +1355,15 @@ export type GpuVendor = "NVIDIA" | "Apple";
  * desktop paints a pending one as an approval card and answers it with `id` through the
  * ordinary approval call; `status` and `device` show how it settled.
  */
-export type HeldRequest = { id: string, status: HeldRequestStatus, agentId: string, 
+export type HeldRequest = { id: string, status: HeldRequestStatus, agentId: string,
 /**
  * `approval` unless the request says otherwise.
  */
-kind: string, tool: string, target: string, reason: string, 
+kind: string, tool: string, target: string, reason: string,
 /**
  * The outbound text the card may show; never a secret.
  */
-payload?: string, action?: string, account?: string, editable?: Array<string>, details?: { [key in string]?: string }, 
+payload?: string, action?: string, account?: string, editable?: Array<string>, details?: { [key in string]?: string },
 /**
  * The remember scopes the request allows.
  */
@@ -1391,11 +1391,11 @@ export type HostBrowserSurfaceParams = { sessionId: string, reveal?: boolean, hi
 /**
  * First viewer → `on`, last viewer gone → `off` (SPEC §4.7.3).
  */
-export type HostBrowserViewFramesParams = { tabId: string, 
+export type HostBrowserViewFramesParams = { tabId: string,
 /**
  * The X17 `streamId` the host stamps on this tab's frames.
  */
-streamId: number, on: boolean, 
+streamId: number, on: boolean,
 /**
  * Phone stream request (fit, quality) as today's take-over request.
  */
@@ -1404,31 +1404,31 @@ request: JsonValue, };
 /**
  * The desktop host role (DS §12.2): what this connection serves for the core.
  */
-export type HostCapabilities = { 
+export type HostCapabilities = {
 /**
  * In-app browser: `host/browser/command`, `item/browser/requestApproval` presentation.
  */
-browser: boolean, visualize: boolean, 
+browser: boolean, visualize: boolean,
 /**
  * OS toast and sound: `host/notification/show`.
  */
-notifications: boolean, 
+notifications: boolean,
 /**
  * `host/systemProxy/resolve`.
  */
-systemProxy: boolean, 
+systemProxy: boolean,
 /**
  * Sends `host/power`.
  */
-power: boolean, 
+power: boolean,
 /**
  * May send X17 binary media frames.
  */
-media: boolean, 
+media: boolean,
 /**
  * Desktop updater: `host/update/command`, sends `host/update/report`.
  */
-updater: boolean, 
+updater: boolean,
 /**
  * File snapshots and the local page server.
  */
@@ -1444,7 +1444,7 @@ export type HostCommandParams = { action: string, input?: JsonValue, threadId?: 
 /**
  * Result of `host/capture/fileSnapshot`: the picture of the file.
  */
-export type HostFileSnapshot = { 
+export type HostFileSnapshot = {
 /**
  * `data:image/png;base64,…` or `data:image/jpeg;base64,…`.
  */
@@ -1472,11 +1472,11 @@ export type HostNotificationShowParams = { title: string, body: string, threadId
 /**
  * Result of `host/notification/status` (Node's host method `notificationStatus`).
  */
-export type HostNotificationStatus = { 
+export type HostNotificationStatus = {
 /**
  * Whether this PC can show OS notifications (`Notification.isSupported()`).
  */
-supported: boolean, 
+supported: boolean,
 /**
  * The OS's system idle time in seconds (`powerMonitor.getSystemIdleTime()`: input anywhere
  * on the PC counts); `null` when the host cannot tell, which the caller treats as not
@@ -1494,7 +1494,7 @@ export type HostPowerParams = { event: PowerEvent, };
 /**
  * SSH server core the local core bridges phone connections to (R25).
  */
-export type HostRemoteTargetSetParams = { 
+export type HostRemoteTargetSetParams = {
 /**
  * `ws://127.0.0.1:<port>/rpc` of the tunnel; absent = the local core.
  */
@@ -1508,7 +1508,7 @@ export type HostStateSetParams = { "key": "browserTabs", "value": JsonValue } | 
 
 export type HostSystemProxyResolveParams = { url: string, };
 
-export type HostSystemProxyResolveResponse = { 
+export type HostSystemProxyResolveResponse = {
 /**
  * Chromium proxy rules for the URL (`DIRECT`, `PROXY host:port`, …).
  */
@@ -1517,7 +1517,7 @@ rules: string, };
 /**
  * Params of `host/update/command` (core → host).
  */
-export type HostUpdateCommandParams = { action: UpdaterAction, 
+export type HostUpdateCommandParams = { action: UpdaterAction,
 /**
  * Node's `updaterInstall` argument `args[0]`: the user confirmed the install.
  */
@@ -1592,15 +1592,15 @@ export type ImportedTool = { name: string, count: number, };
  */
 export type ImportedToolRun = { start: number, end: number, tools: Array<ImportedTool>, };
 
-export type InitializeCapabilities = { 
+export type InitializeCapabilities = {
 /**
  * Exact notification methods suppressed for this connection.
  */
-optOutNotificationMethods?: Array<string>, experimentalApi?: boolean, 
+optOutNotificationMethods?: Array<string>, experimentalApi?: boolean,
 /**
  * Receive every pending approval request even without a thread subscription (P §8.3).
  */
-approvalsInbox?: boolean, host?: HostCapabilities, 
+approvalsInbox?: boolean, host?: HostCapabilities,
 /**
  * Executes `model/proxy/execute` with this machine's accounts (DS §12.4).
  */
@@ -1608,7 +1608,7 @@ modelProxy?: boolean, };
 
 export type InitializeParams = { clientInfo: ClientInfo, capabilities?: InitializeCapabilities, };
 
-export type InitializeResponse = { userAgent: string, platformFamily: string, platformOs: string, serverVersion: string, serverBuild: string, 
+export type InitializeResponse = { userAgent: string, platformFamily: string, platformOs: string, serverVersion: string, serverBuild: string,
 /**
  * Changes on every core start; a different value means every held epoch is stale.
  */
@@ -1649,7 +1649,7 @@ export type InstructionsSetInstructionFilesParams = { opId: OpId, threadId?: Thr
 /**
  * Deltas are hints; `item/completed` is authoritative.
  */
-export type ItemDeltaParams = { threadId: ThreadId, turnId: TurnId, itemId: ItemId, delta: string, 
+export type ItemDeltaParams = { threadId: ThreadId, turnId: TurnId, itemId: ItemId, delta: string,
 /**
  * Reasoning summary part index.
  */
@@ -1663,24 +1663,24 @@ export type ItemId = string;
 /**
  * Attributes shared by every item (today's `DesktopTranscriptItem` common fields).
  */
-export type ItemMeta = { turnId?: TurnId, at?: number, status?: ItemStatus, label?: string, detail?: string, 
+export type ItemMeta = { turnId?: TurnId, at?: number, status?: ItemStatus, label?: string, detail?: string,
 /**
  * Human-readable model label.
  */
-model?: string, 
+model?: string,
 /**
  * Actual route id.
  */
-modelId?: string, provider?: string, agent?: string, 
+modelId?: string, provider?: string, agent?: string,
 /**
  * The stable message id of the row's message (`meta.transcript.messageId`):
  * what a compaction's dropped-message ids and a room line's `room.id` name.
  */
-messageId?: string, 
+messageId?: string,
 /**
  * Delivered into the thread outside any turn (agent-home delivery).
  */
-posted?: boolean, 
+posted?: boolean,
 /**
  * Remaining row attributes of today's transcript row.
  */
@@ -1693,7 +1693,7 @@ export type ItemStatus = "inProgress" | "completed" | "failed" | "declined" | "i
 /**
  * Opaque cursor, or an item anchor (today's `before`/`after` row reads).
  */
-export type ItemsCursor = string | { 
+export type ItemsCursor = string | {
 /**
  * Always `item`.
  */
@@ -1712,11 +1712,11 @@ export type JsonRpcErrorBody = { code: number, data?: JsonValue, message: string
  */
 export type JsonRpcMessage = JsonRpcRequest | JsonRpcNotification | JsonRpcResponse | JsonRpcError;
 
-export type JsonRpcNotification = { method: string, params?: JsonValue, 
+export type JsonRpcNotification = { method: string, params?: JsonValue,
 /**
  * Emission time of a server notification (a flattened field).
  */
-emittedAtMs?: number, 
+emittedAtMs?: number,
 /**
  * Present on every notification that belongs to a feed; absent on
  * connection-scoped notifications and client notifications.
@@ -1729,31 +1729,31 @@ export type JsonRpcResponse = { id: RequestId, result: JsonValue, };
 
 export type JsonValue = number | string | boolean | Array<JsonValue> | { [key in string]?: JsonValue } | null;
 
-export type Limits = { maxInboundFrameBytes: number, 
+export type Limits = { maxInboundFrameBytes: number,
 /**
  * Host role only (X17): raw BGRA bound of the pinned live-view size.
  */
-maxMediaFrameBytes: number, 
+maxMediaFrameBytes: number,
 /**
  * `INLINE_MAX`.
  */
-maxItemFieldBytes: number, 
+maxItemFieldBytes: number,
 /**
  * Outbound non-snapshot frame bound.
  */
-maxFrameBytes: number, queueBytes: number, controlReserveBytes: number, eventBudgetBytes: number, maxSnapshotBytes: number, ringBytes: number, appRingBytes: number, 
+maxFrameBytes: number, queueBytes: number, controlReserveBytes: number, eventBudgetBytes: number, maxSnapshotBytes: number, ringBytes: number, appRingBytes: number,
 /**
  * Terminal feed replay ring, in characters (`REPLAY_BUFFER_LIMIT`).
  */
-terminalRingChars: number, maxBlobPageBytes: number, 
+terminalRingChars: number, maxBlobPageBytes: number,
 /**
  * Raw `blob/put` chunk bound, so the frame stays under `maxInboundFrameBytes` after base64.
  */
-maxBlobPutChunkBytes: number, 
+maxBlobPutChunkBytes: number,
 /**
  * Per-connection in-flight cap per request class.
  */
-inflight: ClassLimits, maxConnections: number, heartbeatTickMs: number, maxProcesses: number, 
+inflight: ClassLimits, maxConnections: number, heartbeatTickMs: number, maxProcesses: number,
 /**
  * Per-terminal input buffer before socket reads pause (P §7.3).
  */
@@ -1766,11 +1766,11 @@ export type LocalDisk = { availableBytes: number | null, };
  */
 export type LocalGpu = { index?: number, uuid?: string, vendor: GpuVendor, name: string, memoryBytes: number, freeMemoryBytes?: number, };
 
-export type LocalHardware = { platform: string, arch: string, gpu: LocalGpu | null, gpus: Array<LocalGpu>, supported: boolean, 
+export type LocalHardware = { platform: string, arch: string, gpu: LocalGpu | null, gpus: Array<LocalGpu>, supported: boolean,
 /**
  * Detection still running.
  */
-checking: boolean, 
+checking: boolean,
 /**
  * Epoch ms of the last completed detection.
  */
@@ -1784,7 +1784,7 @@ export type LocalInference = { "state": "running", queueWaitMs: number, } | { "s
 /**
  * An ended request: every member is present, `null` when the request did not measure it.
  */
-export type LocalInferenceEnd = { 
+export type LocalInferenceEnd = {
 /**
  * ISO time the request ended.
  */
@@ -1797,15 +1797,15 @@ export type LocalInstallState = "running" | "failed" | "paused" | "complete";
 /**
  * A live installation job, or a paused partial download found on disk (no `jobId`).
  */
-export type LocalInstallation = { jobId?: string, phase: LocalInstallPhase, modelId?: string | null, state: LocalInstallState, 
+export type LocalInstallation = { jobId?: string, phase: LocalInstallPhase, modelId?: string | null, state: LocalInstallState,
 /**
  * `preparing`, `verifying`, `paused`, `complete`, or a download stage.
  */
-stage: string, 
+stage: string,
 /**
  * `null` while unknown.
  */
-percent: number | null, updatedAt?: number, error?: string | null, 
+percent: number | null, updatedAt?: number, error?: string | null,
 /**
  * Paused partial downloads only.
  */
@@ -1814,19 +1814,19 @@ receivedBytes?: number, totalBytes?: number, };
 /**
  * One catalog model (Node's `publicModel`).
  */
-export type LocalModel = { id: string, name: string, description: string, sizeBytes: number, remainingDownloadBytes: number, estimatedVramBytes: number, minimumVramBytes: number, 
+export type LocalModel = { id: string, name: string, description: string, sizeBytes: number, remainingDownloadBytes: number, estimatedVramBytes: number, minimumVramBytes: number,
 /**
  * The user's context size; `null` runs the default.
  */
-configuredContextWindow: number | null, defaultContextWindow: number, minContextWindow: number, maxContextWindow: number, contextWindow: number, runtimeContextWindow: number, supportsFunctionCalling?: boolean, supportsReasoning?: boolean, supportsImages: boolean, supportsReasoningSettings: boolean, architecture?: string, compatibility: string, revision?: string, capabilities?: LocalModelCapabilities, loadTimeMs?: number | null, inference?: LocalInference, verification?: LocalVerification, license: string, source: string, recommended: boolean, 
+configuredContextWindow: number | null, defaultContextWindow: number, minContextWindow: number, maxContextWindow: number, contextWindow: number, runtimeContextWindow: number, supportsFunctionCalling?: boolean, supportsReasoning?: boolean, supportsImages: boolean, supportsReasoningSettings: boolean, architecture?: string, compatibility: string, revision?: string, capabilities?: LocalModelCapabilities, loadTimeMs?: number | null, inference?: LocalInference, verification?: LocalVerification, license: string, source: string, recommended: boolean,
 /**
  * The GPU has the model's minimum VRAM.
  */
-compatible: boolean, 
+compatible: boolean,
 /**
  * The weights file is complete.
  */
-installed: boolean, 
+installed: boolean,
 /**
  * Some file exists, complete or partial.
  */
@@ -1835,7 +1835,7 @@ present: boolean, };
 /**
  * What the running server reported when a model loaded.
  */
-export type LocalModelCapabilities = { 
+export type LocalModelCapabilities = {
 /**
  * Tool support: `null` when the template does not say.
  */
@@ -1880,15 +1880,15 @@ export type LocalProviderInstallLocalProviderModelParams = { opId: OpId, threadI
  * The `localProvider` module: catalog status, server and queue status, installations and the
  * switches, flattened as Node merges them.
  */
-export type LocalProviderModule = { platformSupported: boolean, available: boolean, runtime: LocalRuntime, hardware: LocalHardware, disk: LocalDisk, models: Array<LocalModel>, recommendation: LocalModel | null, running: boolean, starting: boolean, activeModel: string | null, gpu: LocalGpu | null, loadTimeMs: number | null, lastExit: LocalServerExit | null, lastError: string | null, activeRequests: number, queuedRequests: number, idleTtlSeconds: number, 
+export type LocalProviderModule = { platformSupported: boolean, available: boolean, runtime: LocalRuntime, hardware: LocalHardware, disk: LocalDisk, models: Array<LocalModel>, recommendation: LocalModel | null, running: boolean, starting: boolean, activeModel: string | null, gpu: LocalGpu | null, loadTimeMs: number | null, lastExit: LocalServerExit | null, lastError: string | null, activeRequests: number, queuedRequests: number, idleTtlSeconds: number,
 /**
  * Epoch ms the idle server unloads, while armed.
  */
-idleDeadline: number | null, lastUnloadError: string | null, installations: Array<LocalInstallation>, 
+idleDeadline: number | null, lastUnloadError: string | null, installations: Array<LocalInstallation>,
 /**
  * The last installation command's failure, until the next command.
  */
-installationCommandError: string | null, enabled: boolean, 
+installationCommandError: string | null, enabled: boolean,
 /**
  * The runtime is installed and the module is installed.
  */
@@ -1924,7 +1924,7 @@ export type LocalProviderStartLocalProviderInstallationParams = { opId: OpId, th
  */
 export type LocalProviderStartLocalProviderModelMaintenanceParams = { opId: OpId, threadId?: ThreadId, modelId: string, operation: string, };
 
-export type LocalRuntime = { installed: boolean, version: string, downloadBytes: number, source: string, license: string, 
+export type LocalRuntime = { installed: boolean, version: string, downloadBytes: number, source: string, license: string,
 /**
  * Empty on an unsupported platform.
  */
@@ -1933,15 +1933,15 @@ backend: string, };
 /**
  * How the last server process ended.
  */
-export type LocalServerExit = { 
+export type LocalServerExit = {
 /**
  * ISO time.
  */
-at: string, modelId: string, exitCode: number | null, signal: string | null, 
+at: string, modelId: string, exitCode: number | null, signal: string | null,
 /**
  * The stop was asked for.
  */
-expected: boolean, 
+expected: boolean,
 /**
  * Redacted tail of the server log.
  */
@@ -1950,7 +1950,7 @@ log: string, };
 /**
  * The last integrity check of the model file.
  */
-export type LocalVerification = { valid: boolean, sizeBytes: number, sha256: string, 
+export type LocalVerification = { valid: boolean, sizeBytes: number, sha256: string,
 /**
  * ISO time of the check.
  */
@@ -1961,7 +1961,7 @@ at: string, };
  */
 export type LoginFlowId = string;
 
-export type LoginUpdatedParams = { flowId: LoginFlowId, 
+export type LoginUpdatedParams = { flowId: LoginFlowId,
 /**
  * Device code, verification URL, `waiting|done|failed`, error.
  */
@@ -1980,7 +1980,7 @@ export type LspRequestParams = { opId: OpId, projectPath: string, root: string, 
 /**
  * Params of `lsp/subscribe` and `lsp/unsubscribe`.
  */
-export type LspSubscribeParams = { 
+export type LspSubscribeParams = {
 /**
  * The project root; the feed is `lsp:<root>`.
  */
@@ -2093,7 +2093,7 @@ export type MediaDeleteMediaBoardParams = { opId: OpId, threadId?: ThreadId, id:
 
 export type MediaFormat = "jpeg";
 
-export type MediaFrameHeader = { purpose: MediaPurpose, flags: number, 
+export type MediaFrameHeader = { purpose: MediaPurpose, flags: number,
 /**
  * Stream id assigned by `host/browser/viewFrames`.
  */
@@ -2191,11 +2191,11 @@ export type MemoryRecallParams = { opId: OpId, threadId?: ThreadId, query: strin
 /**
  * One attachment of a user message (`meta.transcript.attachments`, `normalizeMessageAttachments`).
  */
-export type MessageAttachment = { 
+export type MessageAttachment = {
 /**
  * The content hash (64 lowercase hex, no `sha256:` prefix) the attachment store keeps the bytes under.
  */
-id: string, 
+id: string,
 /**
  * The same hash again: the key the store's census marks as referenced.
  */
@@ -2262,11 +2262,11 @@ export type ModelProxyRunEventParams = { runId: string, event: ProxyEvent, };
 /**
  * Electron → its local core: execute a proxied call.
  */
-export type ModelProxyRunParams = { 
+export type ModelProxyRunParams = {
 /**
  * Stream id the local core stamps on `modelProxy/run/event`.
  */
-runId: string, call: ProxyCall, 
+runId: string, call: ProxyCall,
 /**
  * The providers this server may use through this PC: the host's saved list, `null` for every provider enabled here. Always sent: a message without it is refused, never read as every provider.
  */
@@ -2278,11 +2278,11 @@ export type ModelRequestPhase = "started" | "completed" | "failed";
  * `thread/modelRequest/updated`: one provider request of a turn (Node `model.request.*`).
  * Request ids are `model_request_<index>`, the index counting from 1.
  */
-export type ModelRequestUpdatedParams = { threadId: ThreadId, turnId: TurnId, requestId: string, requestIndex: number, phase: ModelRequestPhase, 
+export type ModelRequestUpdatedParams = { threadId: ThreadId, turnId: TurnId, requestId: string, requestIndex: number, phase: ModelRequestPhase,
 /**
  * On `completed` and `failed`.
  */
-durationMs?: number, 
+durationMs?: number,
 /**
  * Node's usage delta summary of the request, on `completed`.
  */
@@ -2291,11 +2291,11 @@ usage?: JsonValue, };
 /**
  * Today's `DesktopModelSelection`.
  */
-export type ModelSelection = { provider: string, model: string, effort?: string, fast?: boolean, autoEffort?: boolean, modelParameters?: { [key in string]?: string }, contextPercent?: number, contextTokens?: number, 
+export type ModelSelection = { provider: string, model: string, effort?: string, fast?: boolean, autoEffort?: boolean, modelParameters?: { [key in string]?: string }, contextPercent?: number, contextTokens?: number,
 /**
  * The Lead's ordered fallback models; `[]` clears, absent keeps.
  */
-fallbacks?: Array<ModelSelection>, 
+fallbacks?: Array<ModelSelection>,
 /**
  * Compare-and-set: applied only while the target route has no model.
  */
@@ -2309,7 +2309,7 @@ export type Mutation = { "kind": "none" } | { "kind": "op", "domain": OpDomain }
 /**
  * Today's `DesktopNewTaskDraft`.
  */
-export type NewTaskDraft = { projectPath?: string, route?: ModelSelection, workflowId?: string, orchestrationMode?: OrchestrationMode, 
+export type NewTaskDraft = { projectPath?: string, route?: ModelSelection, workflowId?: string, orchestrationMode?: OrchestrationMode,
 /**
  * Today's `DesktopNewTaskWorktree`.
  */
@@ -2318,15 +2318,15 @@ worktree?: JsonValue, };
 /**
  * One device's preferences (this PC under device id `pc`, a paired device under its client id).
  */
-export type NotificationDevicePreferences = { scope: NotificationScope, events: NotificationEvents, 
+export type NotificationDevicePreferences = { scope: NotificationScope, events: NotificationEvents,
 /**
  * Final answers and errors of turns a schedule or webhook started.
  */
-automaticRuns: boolean, quietHours: NotificationQuietHours, 
+automaticRuns: boolean, quietHours: NotificationQuietHours,
 /**
  * Paired devices: wait while this PC has recent user input.
  */
-holdWhileDesktopActive: boolean, 
+holdWhileDesktopActive: boolean,
 /**
  * This PC: flash the taskbar.
  */
@@ -2340,11 +2340,11 @@ export type NotificationEvents = { finished: boolean, question: boolean, approva
 /**
  * The value of config key `notifications`.
  */
-export type NotificationPreferences = { 
+export type NotificationPreferences = {
 /**
  * When the store was first written: devices paired before it keep today's behaviour.
  */
-migratedAt: number, 
+migratedAt: number,
 /**
  * By device id.
  */
@@ -2352,11 +2352,11 @@ devices: { [key in string]?: NotificationDevicePreferences }, overrides: Array<C
 
 export type NotificationQuietDays = "every" | "weekdays" | "weekends";
 
-export type NotificationQuietHours = { enabled: boolean, 
+export type NotificationQuietHours = { enabled: boolean,
 /**
  * `HH:MM` on the PC's local clock; an end at or before the start spans midnight.
  */
-start: string, end: string, days: NotificationQuietDays, 
+start: string, end: string, days: NotificationQuietDays,
 /**
  * Questions and approvals still notify inside quiet hours.
  */
@@ -2367,7 +2367,7 @@ export type NotificationScope = "all" | "bots" | "off";
 /**
  * What a conversation override is attached to.
  */
-export type NotificationTarget = { kind: NotificationTargetKind, 
+export type NotificationTarget = { kind: NotificationTargetKind,
 /**
  * 1–200 of `[A-Za-z0-9_.:-]`.
  */
@@ -2398,7 +2398,7 @@ export type OpScopeName = string;
 
 export type OpStatusEntry = { opId: OpId, } & ({ "state": "applied", seq?: number, result?: JsonValue, } | { "state": "rejected", error: JsonValue, } | { "state": "inProgress" } | { "state": "externalUnknown", effect: string, target: string, } | { "state": "notApplied" } | { "state": "expired" });
 
-export type OpStatusParams = { scope: OpScopeName, opIds: Array<OpId>, 
+export type OpStatusParams = { scope: OpScopeName, opIds: Array<OpId>,
 /**
  * Record every unknown id newer than the watermark as fenced before answering.
  */
@@ -2419,19 +2419,19 @@ export type Origin = "local" | "ssh" | "relay";
  */
 export type PastedText = { id: number, text?: string, attachmentRef?: string, sizeBytes?: number, chars?: number, filename?: string, mimeType?: string, source?: string, };
 
-export type PermissionsRequestParams = { 
+export type PermissionsRequestParams = {
 /**
  * Offered permission scopes.
  */
-scopes: Array<JsonValue>, request: JsonValue, threadId: ThreadId, turnId?: TurnId, itemId?: ItemId, 
+scopes: Array<JsonValue>, request: JsonValue, threadId: ThreadId, turnId?: TurnId, itemId?: ItemId,
 /**
  * Top-level chat that shows a sub-agent's request.
  */
-surfaceThreadId?: ThreadId, 
+surfaceThreadId?: ThreadId,
 /**
  * Delegation chain from the surface thread to the asking thread.
  */
-chain?: Array<ThreadId>, requestedAt: number, expiresAt?: number, 
+chain?: Array<ThreadId>, requestedAt: number, expiresAt?: number,
 /**
  * Per-surface presentation order; the lowest is the active card (P §8.5).
  */
@@ -2490,11 +2490,11 @@ export type ProcessOutputDeltaParams = { processHandle: ProcessHandle, bytesB64:
  */
 export type ProcessResizePtyParams = { processHandle: ProcessHandle, cols: number, rows: number, };
 
-export type ProcessSpawnParams = { opId: OpId, processHandle: ProcessHandle, argv?: Array<string>, 
+export type ProcessSpawnParams = { opId: OpId, processHandle: ProcessHandle, argv?: Array<string>,
 /**
  * A shell command line (instead of `argv`).
  */
-shell?: string, cwd?: string, env?: { [key in string]?: string }, pty?: PtySize, 
+shell?: string, cwd?: string, env?: { [key in string]?: string }, pty?: PtySize,
 /**
  * `tool{threadId,toolCallId}` | `terminalTab{tabId}` | `lsp{root,lang}` | `internal`.
  */
@@ -2603,7 +2603,7 @@ export type ProjectFsReadLocalParams = { path: string, };
 /**
  * Params of `projectFs/readText`.
  */
-export type ProjectFsReadTextParams = { root: string, rel: string, 
+export type ProjectFsReadTextParams = { root: string, rel: string,
 /**
  * A paired device's one-file grant (`transfer/grant/mint`): `root` and `rel` are then Node's `projectPath` and `relPath`.
  */
@@ -2637,7 +2637,7 @@ export type ProjectFsStatLocalParams = { paths: Array<string>, };
 /**
  * Params of `projectFs/stat`.
  */
-export type ProjectFsStatParams = { root: string, rel: string, 
+export type ProjectFsStatParams = { root: string, rel: string,
 /**
  * A paired device's one-file grant, as on `projectFs/readText`.
  */
@@ -2761,7 +2761,7 @@ export type ProjectUpdateParams = { opId: OpId, path: string, alias: JsonValue, 
 /**
  * Today's `DesktopPromptAttachment`.
  */
-export type PromptAttachment = { id: number, 
+export type PromptAttachment = { id: number,
 /**
  * Always `image` today.
  */
@@ -2780,7 +2780,7 @@ export type PromptHistoryChange = { "kind": "added", prompt: string, } | { "kind
 /**
  * One part of a prompt (today's `DesktopPromptContent` array form).
  */
-export type PromptPart = { "type": "text", text?: string, textKind?: string, attachmentRef?: string, sizeBytes?: number, mimeType?: string, filename?: string, } | { "type": "image", 
+export type PromptPart = { "type": "text", text?: string, textKind?: string, attachmentRef?: string, sizeBytes?: number, mimeType?: string, filename?: string, } | { "type": "image",
 /**
  * Base64 bytes; a part that names a stored `attachment_ref` instead has none.
  */
@@ -2792,7 +2792,7 @@ export type PromptRestore = { id: string, ids: Array<string>, text: string, devi
 
 export type ProviderAccountChange = { provider: string, accountId: string, at: number, };
 
-export type ProviderErrorDetail = { provider: string, status?: number, kind: string, 
+export type ProviderErrorDetail = { provider: string, status?: number, kind: string,
 /**
  * Delivery state of the failed attempt (SPEC §4.9).
  */
@@ -2806,12 +2806,12 @@ export type ProviderId = string;
 /**
  * The answer to a [`ProxyCall`].
  */
-export type ProxyAnswer = { "result": "sent", attempts: number, } | { "result": "models", models: Array<ProxyModel>, } | { "result": "usable", usable: boolean, } | { "result": "route", route: ProxyWireRoute | null, } | { "result": "providerConfig", 
+export type ProxyAnswer = { "result": "sent", attempts: number, } | { "result": "models", models: Array<ProxyModel>, } | { "result": "usable", usable: boolean, } | { "result": "route", route: ProxyWireRoute | null, } | { "result": "providerConfig",
 /**
  * In the order the PC advertised them: a JSON object on the wire, whose key order Node keeps
  * (the setup lists custom providers in it).
  */
-providers: { [key in string]?: ProxyProviderInfo }, 
+providers: { [key in string]?: ProxyProviderInfo },
 /**
  * Whether the PC's registry is loaded. An older PC omits it, and the server then reads the
  * answer as loaded only when it names an enabled provider.
@@ -2846,7 +2846,7 @@ export type ProxyDelivery = "notSent" | "ambiguous" | "accepted";
 
 export type ProxyDocument = { "kind": "base64", mediaType: string, data: string, } | { "kind": "text", mediaType: string | null, data: string, } | { "kind": "content", content: JsonValue, };
 
-export type ProxyEffortProjection = { initialEffort: string, 
+export type ProxyEffortProjection = { initialEffort: string,
 /**
  * `(message index, effort)` pairs; a JSON object would key them by text.
  */
@@ -2882,43 +2882,43 @@ export type ProxyMessageSource = "steering" | "streamCutRecovery" | "tailReminde
 /**
  * A model the PC's provider lists, with the first-response budget of its catalog entry.
  */
-export type ProxyModel = { id: string, displayName: string | null, 
+export type ProxyModel = { id: string, displayName: string | null,
 /**
  * The row's own `name`, the label when no display name is known.
  */
-name: string | null, 
+name: string | null,
 /**
  * A custom provider's own name for itself.
  */
-providerName: string | null, 
+providerName: string | null,
 /**
  * A custom model added by hand.
  */
-manual: boolean, supportsReasoningEffortUpdates: boolean | null, supportsPromptCaching: boolean | null, reasoningContentField: string | null, contextWindow: number | null, 
+manual: boolean, supportsReasoningEffortUpdates: boolean | null, supportsPromptCaching: boolean | null, reasoningContentField: string | null, contextWindow: number | null,
 /**
  * The largest window the listing states for the model.
  */
-maxContextWindow: number | null, 
+maxContextWindow: number | null,
 /**
  * What a managed local runtime has allocated; bounds a selected window.
  */
-runtimeContextWindow: number | null, maxOutputTokens: number | null, 
+runtimeContextWindow: number | null, maxOutputTokens: number | null,
 /**
  * The row's own prices, USD per million tokens; absent when not finite.
  */
-inputCostPerM: number | null, outputCostPerM: number | null, cacheReadCostPerM: number | null, cacheWriteCostPerM: number | null, supportsReasoning: boolean | null, reasoningLevels: Array<string>, defaultReasoningLevel: string | null, supportsImages: boolean | null, hidden: boolean, raw: JsonValue | null, 
+inputCostPerM: number | null, outputCostPerM: number | null, cacheReadCostPerM: number | null, cacheWriteCostPerM: number | null, supportsReasoning: boolean | null, reasoningLevels: Array<string>, defaultReasoningLevel: string | null, supportsImages: boolean | null, hidden: boolean, raw: JsonValue | null,
 /**
  * The kind of model the listing states (`chat`, `embedding`, ...).
  */
-mode: string | null, 
+mode: string | null,
 /**
  * When the provider created the model (epoch seconds, as listed).
  */
-created: number | null, 
+created: number | null,
 /**
  * The model a routing alias resolves to.
  */
-aliasTarget: string | null, 
+aliasTarget: string | null,
 /**
  * The wire id(s) the picker id is sent under.
  */
@@ -2974,11 +2974,11 @@ export type ProxyRequest = { model: string, messages: Array<ProxyMessage>, tools
 
 export type ProxyRole = "system" | "user" | "assistant" | "tool" | "developer";
 
-export type ProxyRouteContext = { 
+export type ProxyRouteContext = {
 /**
  * An agent/tool session, or a send carrying tools.
  */
-agent: boolean, 
+agent: boolean,
 /**
  * A session that predates the wire table (`model-proxy-provider.mjs:193`).
  */
@@ -3003,11 +3003,11 @@ export type ProxyTraits = { inputExcludesCache?: boolean, nativePdf?: boolean, c
 
 export type ProxyTransportKind = "http1" | "http2" | "webSocket";
 
-export type ProxyUsage = { inputTokens: number, outputTokens: number, cacheReadTokens: number, cacheWriteTokens: number, cacheWrite1hTokens: number, 
+export type ProxyUsage = { inputTokens: number, outputTokens: number, cacheReadTokens: number, cacheWriteTokens: number, cacheWrite1hTokens: number,
 /**
  * Absent when the provider reported none; an explicit 0 stays 0.
  */
-reasoningTokens: number | null, 
+reasoningTokens: number | null,
 /**
  * `reasoningTokensComplete === false` on an aggregate.
  */
@@ -3015,7 +3015,7 @@ reasoningIncomplete: boolean, raw: JsonValue | null, costTicks: number | null, }
 
 export type ProxyWire = "chat" | "responses" | "messages" | "gemini";
 
-export type ProxyWireRoute = { wire: ProxyWire, source: ProxyRouteSource, 
+export type ProxyWireRoute = { wire: ProxyWire, source: ProxyRouteSource,
 /**
  * `<provider>:<wire>`.
  */
@@ -3036,7 +3036,7 @@ export type QueuedId = string;
 /**
  * Today's `DesktopQuotaResume`.
  */
-export type QuotaResume = { 
+export type QuotaResume = {
 /**
  * Always `waiting`.
  */
@@ -3127,11 +3127,11 @@ export type RemoteAccessStateParams = Record<string, never>;
  * the relay code of an open Settings → Connection screen. `remoteAccess/pairCode`
  * issues or renews it; the section carries it, `null` once it expires or is released.
  */
-export type RemotePairCode = { 
+export type RemotePairCode = {
 /**
  * Six digits, no separator.
  */
-code: string, 
+code: string,
 /**
  * Epoch ms.
  */
@@ -3145,7 +3145,7 @@ export type RemotePointerParams = { pointer: JsonValue, };
 /**
  * One thing a worktree removal left behind.
  */
-export type RemovalRemnant = { 
+export type RemovalRemnant = {
 /**
  * `link`, `registry`, `cleanup` or `error`.
  */
@@ -3166,31 +3166,31 @@ export type ResumeWindow = { lastItems: number, } | { lastTurns: number, } | { n
 /**
  * One read for every review family (DS §5.3).
  */
-export type ReviewDiffGetParams = { scope: ReviewScope, threadId?: ThreadId, 
+export type ReviewDiffGetParams = { scope: ReviewScope, threadId?: ThreadId,
 /**
  * Repository working directory for `repo`.
  */
-cwd?: string, checkpointId?: string, 
+cwd?: string, checkpointId?: string,
 /**
  * One file's patch.
  */
-path?: string, oldPath?: string, 
+path?: string, oldPath?: string,
 /**
  * Several files' patches (today's `gitReviewDiffs`).
  */
-files?: Array<JsonValue>, untracked?: boolean, 
+files?: Array<JsonValue>, untracked?: boolean,
 /**
  * `branch` | `worktree` | … (today's `GitReviewSource`).
  */
-source?: string, 
+source?: string,
 /**
  * Include patches (today's `patch: true`).
  */
-patch?: boolean, 
+patch?: boolean,
 /**
  * The client's review key; an unchanged review answers `{unchanged:true}`.
  */
-known?: string, cursor?: string, 
+known?: string, cursor?: string,
 /**
  * Leave the patch text out of a turn review (today's `getTurnReviewDiff {summary: true}`).
  */
@@ -3218,23 +3218,23 @@ export type RoomLimit = "rounds" | "messages" | "usage";
 /**
  * The payload of a group-room line (`normalizeRoomRow`, the row's `room`).
  */
-export type RoomLine = { kind: RoomRowKind, at?: number, 
+export type RoomLine = { kind: RoomRowKind, at?: number,
 /**
  * The member id of a speech or pass.
  */
-speaker?: string, 
+speaker?: string,
 /**
  * The member's display name.
  */
-name?: string, 
+name?: string,
 /**
  * A user line another session sent: its sender session, the sending bot and its name.
  */
-fromSession?: string, fromAgent?: string, fromName?: string, 
+fromSession?: string, fromAgent?: string, fromName?: string,
 /**
  * Addressee ids and their names, index for index.
  */
-to: Array<string>, toName: Array<string>, failed?: boolean, 
+to: Array<string>, toName: Array<string>, failed?: boolean,
 /**
  * The members a collapsed run of failed passes names.
  */
@@ -3243,7 +3243,7 @@ names: Array<string>, reason?: string, limit?: RoomLimit, usage?: RoomUsage, rou
 /**
  * A stored file reference of a room line (`parts`).
  */
-export type RoomPart = { type: AttachmentKind, attachmentRef: string, 
+export type RoomPart = { type: AttachmentKind, attachmentRef: string,
 /**
  * `paste` | `file`, for a text part.
  */
@@ -3321,7 +3321,7 @@ export type SectionName = "config" | "projects" | "agentPool" | "agents" | "botO
  * Value above `INLINE_MAX` is replaced by a stub; the client pages the detail
  * with the section's list method.
  */
-export type SectionStub = { count: number, 
+export type SectionStub = { count: number,
 /**
  * Always `true`.
  */
@@ -3333,7 +3333,7 @@ stub: boolean, };
  * `{…, "stub": {count, stub:true}}`. Exactly one of `value`, `removed`, `stub`.
  * The client keeps `(section,key)` iff `revision` is greater than the stored one.
  */
-export type SectionUpdate = { section: SectionName, key?: string, 
+export type SectionUpdate = { section: SectionName, key?: string,
 /**
  * Per `(section,key)`, strictly increasing.
  */
@@ -3416,25 +3416,25 @@ export type StorageState = "ok" | "durabilityPending" | "indeterminate";
  * host-only fields `device`, `hop`, `roomRow`, `origin`; a request carrying
  * any of them is `invalidParams`, P §4.3).
  */
-export type SubmitOptions = { 
+export type SubmitOptions = {
 /**
  * Today's submit `id`: the client's correlation id reused by queue and transcript.
  */
-clientSubmissionId?: string, submittedAt?: number, displayText?: string, goalCommand?: string, retryFailedTurn?: boolean, 
+clientSubmissionId?: string, submittedAt?: number, displayText?: string, goalCommand?: string, retryFailedTurn?: boolean,
 /**
  * The failed user message a retry replays from the model history (`retryTurnId`).
  */
-retryTurnId?: string, 
+retryTurnId?: string,
 /**
  * The failed attempt of that message (`retryAttemptId`).
  */
-retryAttemptId?: string, priority?: PromptPriority, pastedImages?: { [key in string]?: PromptAttachment }, pastedTexts?: { [key in string]?: PastedText }, kickoff?: boolean, 
+retryAttemptId?: string, priority?: PromptPriority, pastedImages?: { [key in string]?: PromptAttachment }, pastedTexts?: { [key in string]?: PastedText }, kickoff?: boolean,
 /**
  * The agent tool's `context` of a queued follow-up (`submitAsync` option `context`): kept on
  * the queue entry as Node keeps it. Host-only: a connection's request carrying it is
  * `invalidParams`.
  */
-context?: string, 
+context?: string,
 /**
  * The stored files' sizes by `attachmentRef`, which the message's attachment records take
  * in place of a part's claimed `sizeBytes` (`attachmentBlobSize`). Host-only, like `context`.
@@ -3553,7 +3553,7 @@ export type ThreadContextStatusParams = { threadId?: ThreadId, options?: JsonVal
 
 export type ThreadContinueInModelParams = { threadId: ThreadId, opId: OpId, route: ModelSelection, };
 
-export type ThreadDeleteParams = { threadId: ThreadId, opId: OpId, 
+export type ThreadDeleteParams = { threadId: ThreadId, opId: OpId,
 /**
  * Today's `deleteSessionIfIdle` expectation (e.g. `{lastUsedAt}`); not idle → the reply `{deleted: false, reason}`, never an error.
  */
@@ -3561,11 +3561,11 @@ ifIdle?: JsonValue, };
 
 export type ThreadFinalAnswerReadParams = { threadId: ThreadId, startedAt: number, };
 
-export type ThreadForkParams = { 
+export type ThreadForkParams = {
 /**
  * The source thread; it is never changed.
  */
-threadId: ThreadId, opId: OpId, 
+threadId: ThreadId, opId: OpId,
 /**
  * Inherit into this existing empty thread (today's `inheritFrom`); absent creates a new thread.
  */
@@ -3586,7 +3586,7 @@ export type ThreadGetSessionUsageParams = { threadId?: ThreadId, options?: JsonV
  */
 export type ThreadGetSessionWorktreeWorkParams = { threadId?: ThreadId, input?: JsonValue, };
 
-export type ThreadGoalControlParams = { threadId: ThreadId, opId: OpId, 
+export type ThreadGoalControlParams = { threadId: ThreadId, opId: OpId,
 /**
  * Today's `goalControl` action other than set/clear.
  */
@@ -3594,11 +3594,11 @@ action: string, args?: JsonValue, };
 
 export type ThreadGoalSetParams = { threadId: ThreadId, opId: OpId, goal: JsonValue, };
 
-export type ThreadHistoryResetParams = { threadId: ThreadId, reason: HistoryResetReason, 
+export type ThreadHistoryResetParams = { threadId: ThreadId, reason: HistoryResetReason,
 /**
  * Items after this one are discarded; absent for `clear`.
  */
-fromItemId?: ItemId, 
+fromItemId?: ItemId,
 /**
  * `hasOlder` of the thread's transcript after the reset: the only change of
  * that flag outside a snapshot.
@@ -3617,51 +3617,51 @@ export type ThreadIdParams = { threadId: ThreadId, };
  */
 export type ThreadInheritancePreflightParams = { threadId?: ThreadId, sourceThreadId?: ThreadId, selection?: JsonValue, };
 
-export type ThreadItem = { "type": "userMessage", id: ItemId, content: Array<UserInput>, 
+export type ThreadItem = { "type": "userMessage", id: ItemId, content: Array<UserInput>,
 /**
  * Device that submitted the prompt (host-stamped).
  */
-device?: string, 
+device?: string,
 /**
  * The client correlation id of the submit.
  */
-clientSubmissionId?: string, 
+clientSubmissionId?: string,
 /**
  * The turn's change-record key (what review reads and reverts address).
  */
-checkpointId?: string, appliedSkills?: Array<string>, 
+checkpointId?: string, appliedSkills?: Array<string>,
 /**
  * The row text Node shows, chips included; the client's `user` row `text`.
  * Computed at commit (migration: for 1.4.5 history).
  */
-displayText: string, 
+displayText: string,
 /**
  * Whether the prompt belongs in the composer's prompt history.
  * Computed at commit (migration: for 1.4.5 history).
  */
-countsForPromptHistory: boolean, 
+countsForPromptHistory: boolean,
 /**
  * Sender, attachments, reactions and the other facts of the row.
  */
-details?: UserRowDetails, meta: ItemMeta, } | { "type": "agentMessage", id: ItemId, text: MaybeBlob<string>, 
+details?: UserRowDetails, meta: ItemMeta, } | { "type": "agentMessage", id: ItemId, text: MaybeBlob<string>,
 /**
  * Tool use an imported assistant message recorded (Node `importedToolRuns`); the
  * client draws each as tool cards. Empty for every other message.
  */
-importedToolRuns?: Array<ImportedToolRun>, meta: ItemMeta, } | { "type": "reasoning", id: ItemId, summary: Array<string>, content: Array<string>, meta: ItemMeta, } | { "type": "contextCompaction", id: ItemId, summary?: MaybeBlob<string>, 
+importedToolRuns?: Array<ImportedToolRun>, meta: ItemMeta, } | { "type": "reasoning", id: ItemId, summary: Array<string>, content: Array<string>, meta: ItemMeta, } | { "type": "contextCompaction", id: ItemId, summary?: MaybeBlob<string>,
 /**
  * How it ended; the divider's label (`Conversation compacted`, `Compact failed`, …) and
  * stats are `meta.label` and `meta.detail`.
  */
-status?: CompactionStatus, meta: ItemMeta, } | { "type": "subAgentActivity", id: ItemId, agent: string, threadId?: ThreadId, meta: ItemMeta, } | { "type": "toolCall", id: ItemId, name: string, input: JsonValue, output?: MaybeBlob<JsonValue>, 
+status?: CompactionStatus, meta: ItemMeta, } | { "type": "subAgentActivity", id: ItemId, agent: string, threadId?: ThreadId, meta: ItemMeta, } | { "type": "toolCall", id: ItemId, name: string, input: JsonValue, output?: MaybeBlob<JsonValue>,
 /**
  * The tool row's shared facts (call id, display args/result, timing, aggregate).
  */
-run?: ToolRun, meta: ItemMeta, } | { "type": "turnEnd", id: ItemId, status: TurnEndStatus, elapsedMs: number, verb?: string, checkpointId?: string, 
+run?: ToolRun, meta: ItemMeta, } | { "type": "turnEnd", id: ItemId, status: TurnEndStatus, elapsedMs: number, verb?: string, checkpointId?: string,
 /**
  * The turn's last assistant row, on a `done` end.
  */
-finalAssistantId?: ItemId, 
+finalAssistantId?: ItemId,
 /**
  * A `failed` end's reason, details, error kind and quota stop.
  */
@@ -3694,7 +3694,7 @@ export type ThreadListStoppableShellJobsParams = { threadId?: ThreadId, };
  */
 export type ThreadMergeWorkspaceParams = { opId: OpId, threadId?: ThreadId, input: JsonValue, };
 
-export type ThreadMetadataUpdateParams = { threadId: ThreadId, opId: OpId, favorite?: boolean, 
+export type ThreadMetadataUpdateParams = { threadId: ThreadId, opId: OpId, favorite?: boolean,
 /**
  * Today's `setSessionProject`.
  */
@@ -3711,7 +3711,7 @@ export type ThreadNameUpdatedParams = { threadId: ThreadId, title: string, };
  * message) as Node's `runtime.onNotification` delivers it. The delivered text also lands as
  * a `task-notification` user row; this is the live event with its status.
  */
-export type ThreadNotificationParams = { threadId: ThreadId, turnId?: TurnId, content: string, 
+export type ThreadNotificationParams = { threadId: ThreadId, turnId?: TurnId, content: string,
 /**
  * Node's `meta`; `meta.status` is `completed`, `failed`, `cancelled`, `canceled` or
  * `timed_out` when the notification settles a task.
@@ -3729,19 +3729,19 @@ export type ThreadPushNoticeParams = { opId: OpId, threadId?: ThreadId, text: st
 
 export type ThreadQueueChangedParams = { threadId: ThreadId, queued: Array<JsonValue>, };
 
-export type ThreadQueueDeleteParams = { threadId: ThreadId, opId: OpId, 
+export type ThreadQueueDeleteParams = { threadId: ThreadId, opId: OpId,
 /**
  * Absent with `restore`: every queued entry is handed back (today's `restoreQueued` with no id).
  */
-queuedId?: QueuedId, 
+queuedId?: QueuedId,
 /**
  * Today's `restoreQueued` submission identity.
  */
-submissionId?: string, 
+submissionId?: string,
 /**
  * Hand the entry back to the composer.
  */
-restore: boolean, 
+restore: boolean,
 /**
  * The composer's text when the entry is handed back (today's `restoreQueued` first
  * argument): the reply's `text` ends with it.
@@ -3801,20 +3801,20 @@ export type ThreadRewindParams = { threadId: ThreadId, opId: OpId, itemId: ItemI
  * room log thread's own fields. Absent when the room has no exchange state and no handed-off
  * questions.
  */
-export type ThreadRoomView = { 
+export type ThreadRoomView = {
 /**
  * The room has an exchange state: the log reads busy (so the composer offers stop).
  */
-busy: boolean, 
+busy: boolean,
 /**
  * The speaking member's pending approval, as Node's queue presents it (`toolApproval`).
  */
-toolApproval?: JsonValue, 
+toolApproval?: JsonValue,
 /**
  * The typing row naming who speaks (`{ kind: 'notice', id, tone: 'info', text, room: { kind:
  * 'typing', speaker, name } }`), shown after the transcript.
  */
-typing?: JsonValue, 
+typing?: JsonValue,
 /**
  * The questions of sessions the members handed work to, while they wait.
  */
@@ -3822,7 +3822,7 @@ handoffQuestions?: Array<JsonValue>, };
 
 export type ThreadRoute = { sessionProvider?: string, sessionModel?: string, fast?: boolean, fastCapable?: boolean, autoEffort?: boolean, modelParameters?: { [key in string]?: string }, selectedContextWindow?: number, effort?: string, provider?: string, model?: string, turnEffort?: string, effortOptions?: Array<JsonValue>, cwd?: string, sessionForkedFrom?: string, systemShell?: JsonValue, webSearchRoute?: JsonValue, autoClear?: JsonValue, };
 
-export type ThreadRuntime = { busy: boolean, commandBusy: boolean, thinking?: JsonValue, spinner?: JsonValue, commandStatus?: JsonValue, progressHint?: JsonValue, activeTools?: JsonValue, storage?: StorageState, 
+export type ThreadRuntime = { busy: boolean, commandBusy: boolean, thinking?: JsonValue, spinner?: JsonValue, commandStatus?: JsonValue, progressHint?: JsonValue, activeTools?: JsonValue, storage?: StorageState,
 /**
  * Provider keepalives seen while no content arrives (SPEC §4.9), epoch ms.
  */
@@ -3844,32 +3844,32 @@ export type ThreadSelectBranchParams = { opId: OpId, threadId?: ThreadId, input:
  * The session options Node's `createMixdogSessionRuntime` takes (headless exec sets all of
  * them, `headless-exec.mjs` `createHeadlessSessionRuntime`). Stored in the thread's header.
  */
-export type ThreadSessionOptions = { 
+export type ThreadSessionOptions = {
 /**
  * Node default `interactive`.
  */
-toolProfile?: ToolProfile, 
+toolProfile?: ToolProfile,
 /**
  * Node default `full`.
  */
-toolMode?: SessionToolMode, 
+toolMode?: SessionToolMode,
 /**
  * Node default none: approvals go to a person. Under `implicit` every approval ask is
  * denied at once with Node's text, as when no approval UI is wired.
  */
-approvalMode?: ApprovalMode, 
+approvalMode?: ApprovalMode,
 /**
  * Node default `false`: the session may not delegate to agents.
  */
-disallowDelegation?: boolean, 
+disallowDelegation?: boolean,
 /**
  * Node default `true`: finished background work wakes the session.
  */
-autoWakeCompletions?: boolean, 
+autoWakeCompletions?: boolean,
 /**
  * The web-search feature switch for this session (`MIXDOG_FEATURE_WEB_SEARCH`).
  */
-webSearch?: boolean, 
+webSearch?: boolean,
 /**
  * The memory feature switch for this session (`MIXDOG_FEATURE_MEMORY`).
  */
@@ -3914,11 +3914,11 @@ export type ThreadStageAttachmentOriginalParams = { opId: OpId, threadId?: Threa
 
 export type ThreadStartKind = "project" | "projectTask" | "task" | "control";
 
-export type ThreadStartParams = { opId: OpId, kind: ThreadStartKind, projectPath?: string, draft?: NewTaskDraft, 
+export type ThreadStartParams = { opId: OpId, kind: ThreadStartKind, projectPath?: string, draft?: NewTaskDraft,
 /**
  * Starts the first turn in the same request (today's `submitNewTask`).
  */
-initialInput?: TurnInput, 
+initialInput?: TurnInput,
 /**
  * How the session runs; absent is an interactive session (Node's defaults).
  */
@@ -3932,16 +3932,16 @@ export type ThreadStartedParams = { thread: ThreadSummary, };
  * The runtime projection of one thread (today's `DesktopSessionState` fields,
  * grouped as the thread-feed notifications of P §5.1 carry them).
  */
-export type ThreadState = { title?: string, runtime?: ThreadRuntime, route?: ThreadRoute, context?: ThreadContext, todo?: JsonValue, goal?: JsonValue, queued?: Array<JsonValue>, quotaResume?: QuotaResume, agents?: ThreadAgents, shellJobs?: JsonValue, workflow?: ThreadWorkflow, workspace?: JsonValue, approvals?: ThreadApprovals, promptRestore?: PromptRestore, providerAccountChange?: ProviderAccountChange, remoteEnabled?: boolean, 
+export type ThreadState = { title?: string, runtime?: ThreadRuntime, route?: ThreadRoute, context?: ThreadContext, todo?: JsonValue, goal?: JsonValue, queued?: Array<JsonValue>, quotaResume?: QuotaResume, agents?: ThreadAgents, shellJobs?: JsonValue, workflow?: ThreadWorkflow, workspace?: JsonValue, approvals?: ThreadApprovals, promptRestore?: PromptRestore, providerAccountChange?: ProviderAccountChange, remoteEnabled?: boolean,
 /**
  * The setup tool's desktop request, from the notice until it is claimed or its claim window
  * ends.
  */
-setupUiRequest?: SetupUiRequest, 
+setupUiRequest?: SetupUiRequest,
 /**
  * A group room log's view while the room runs (`thread/roomView/updated`).
  */
-roomView?: ThreadRoomView, 
+roomView?: ThreadRoomView,
 /**
  * The composer's Up-arrow recall (today's `promptHistoryList`, Node's merged list): the
  * thread's user prompts over the whole transcript plus the per-folder saved prompt
@@ -3958,23 +3958,23 @@ export type ThreadStatusChangedParams = { threadId: ThreadId, status: ThreadStat
  * One list row (today's `DesktopSessionSummary`), live on the app feed as
  * `thread/summary/updated`.
  */
-export type ThreadSummary = { id: ThreadId, preview: string, title: string, updatedAt: number, messageCount: number, cwd: string, 
+export type ThreadSummary = { id: ThreadId, preview: string, title: string, updatedAt: number, messageCount: number, cwd: string,
 /**
  * Today's `DesktopSessionClassification`.
  */
-classification: JsonValue, projectPath?: string, status?: ThreadStatus, parentThreadId?: ThreadId, 
+classification: JsonValue, projectPath?: string, status?: ThreadStatus, parentThreadId?: ThreadId,
 /**
  * Inherit source (`inheritedFromSessionId` today).
  */
-forkedFromId?: ThreadId, agentSession?: boolean, activityAt?: number, incomingTail?: number[], compactCount?: number, readMessageCount?: number, readRevision?: number, working?: boolean, leadWorking?: boolean, agentWorking?: boolean, awaitingApproval?: boolean, awaitingQuestion?: boolean, archived?: boolean, favorite?: boolean, agentHome?: string, agentDeleted?: boolean, taskAgent?: string, handedBy?: Array<string>, taskFrom?: string, readWith?: ThreadId, sessionMode?: string, 
+forkedFromId?: ThreadId, agentSession?: boolean, activityAt?: number, incomingTail?: number[], compactCount?: number, readMessageCount?: number, readRevision?: number, working?: boolean, leadWorking?: boolean, agentWorking?: boolean, awaitingApproval?: boolean, awaitingQuestion?: boolean, archived?: boolean, favorite?: boolean, agentHome?: string, agentDeleted?: boolean, taskAgent?: string, handedBy?: Array<string>, taskFrom?: string, readWith?: ThreadId, sessionMode?: string,
 /**
  * Today's `DesktopAgentRoomSummary`.
  */
-agentRoom?: JsonValue, lastMessagePreview?: string, 
+agentRoom?: JsonValue, lastMessagePreview?: string,
 /**
  * Today's `RoutineProvenance`.
  */
-lastMessageRoutine?: JsonValue, sourceType?: string, sourceName?: string, provider?: string, model?: string, createdAt?: number, 
+lastMessageRoutine?: JsonValue, sourceType?: string, sourceName?: string, provider?: string, model?: string, createdAt?: number,
 /**
  * Today's `DesktopSessionWorkspace`.
  */
@@ -4010,11 +4010,11 @@ export type TokenUsageUpdatedParams = { threadId: ThreadId, usage: JsonValue, };
 /**
  * What an aggregate tool card (`aggregate: true`, name `__aggregate__`) adds.
  */
-export type ToolAggregate = { 
+export type ToolAggregate = {
 /**
  * The calls the card folds, in order.
  */
-callIds: Array<string>, 
+callIds: Array<string>,
 /**
  * First-seen order of the `categories` keys (`args.categoryOrder`).
  */
@@ -4025,23 +4025,23 @@ categoryOrder: Array<string>, categories: { [key in string]?: AggregateCategory 
  * device from the answering connection (P §8.1). The result type of every
  * approval server request.
  */
-export type ToolApprovalDecision = { approved: boolean, reason?: string, 
+export type ToolApprovalDecision = { approved: boolean, reason?: string,
 /**
  * `ask_user` answers aligned with the questions; `null` = unanswered.
  */
-answers?: Array<QuestionAnswer | null>, 
+answers?: Array<QuestionAnswer | null>,
 /**
  * `ask_user`: the composer message that answered the question.
  */
-reply?: string, 
+reply?: string,
 /**
  * Human-in-the-loop response; a secret value never travels here (`approval/provideSecret`).
  */
-response?: HumanGateResponse, 
+response?: HumanGateResponse,
 /**
  * edit-and-approve: the edited text of the request's editable fields.
  */
-editedArgs?: { [key in string]?: string }, remember?: ApprovalRemember, 
+editedArgs?: { [key in string]?: string }, remember?: ApprovalRemember,
 /**
  * Permission requests: the chosen scope id.
  */
@@ -4049,19 +4049,19 @@ scope?: string, };
 
 export type ToolApprovalKind = "shell" | "patch" | "mcp" | "builtin" | "outbound" | "humanGate";
 
-export type ToolApprovalRequestParams = { kind: ToolApprovalKind, tool: string, 
+export type ToolApprovalRequestParams = { kind: ToolApprovalKind, tool: string,
 /**
  * The card content (tool input, editable fields, reason).
  */
-request: JsonValue, threadId: ThreadId, turnId?: TurnId, itemId?: ItemId, 
+request: JsonValue, threadId: ThreadId, turnId?: TurnId, itemId?: ItemId,
 /**
  * Top-level chat that shows a sub-agent's request.
  */
-surfaceThreadId?: ThreadId, 
+surfaceThreadId?: ThreadId,
 /**
  * Delegation chain from the surface thread to the asking thread.
  */
-chain?: Array<ThreadId>, requestedAt: number, expiresAt?: number, 
+chain?: Array<ThreadId>, requestedAt: number, expiresAt?: number,
 /**
  * Per-surface presentation order; the lowest is the active card (P §8.5).
  */
@@ -4078,15 +4078,15 @@ export type ToolBatchPhase = "started" | "completed";
  * `thread/toolBatch/updated`: the tool calls of one model response run together (Node
  * `tool.batch.*`). Batch ids are `tool_batch_<request index>`.
  */
-export type ToolBatchUpdatedParams = { threadId: ThreadId, turnId: TurnId, batchId: string, phase: ToolBatchPhase, 
+export type ToolBatchUpdatedParams = { threadId: ThreadId, turnId: TurnId, batchId: string, phase: ToolBatchPhase,
 /**
  * On `completed`.
  */
-iteration?: number, 
+iteration?: number,
 /**
  * On `completed`: the calls the batch ran.
  */
-calls?: number, 
+calls?: number,
 /**
  * On `completed`.
  */
@@ -4118,15 +4118,15 @@ export type ToolProfile = "interactive" | "headless" | "heartbeat";
  * (today's `kind: 'tool'` row). `args`, `result` and `rawResult` are the
  * row's display values; the variant's own fields stay the typed call.
  */
-export type ToolRun = { 
+export type ToolRun = {
 /**
  * The call id tying the row to its call and result messages.
  */
-callId?: string, result?: MaybeBlob<string>, rawResult?: MaybeBlob<string>, isError?: boolean, startedAt?: number, completedAt?: number, uiDiff?: MaybeBlob<string>, 
+callId?: string, result?: MaybeBlob<string>, rawResult?: MaybeBlob<string>, isError?: boolean, startedAt?: number, completedAt?: number, uiDiff?: MaybeBlob<string>,
 /**
  * The structured side channel of a result (`toolMeta`).
  */
-toolMeta?: ToolMeta, count?: number, completedCount?: number, aggregate?: ToolAggregate, 
+toolMeta?: ToolMeta, count?: number, completedCount?: number, aggregate?: ToolAggregate,
 /**
  * Built by a live turn's tool cards (`turn-tool-cards.mjs`): the row reads as that turn's card, an `__aggregate__`
  * even for one call, not as the card a restore rebuilds (`mergeRestoredToolItems` merges only two or more).
@@ -4145,7 +4145,7 @@ export type TransferAbortParams = { transferId: TransferId, };
 
 export type TransferBeginReadParams = { source: TransferSource, };
 
-export type TransferBeginReadResponse = { transferId: TransferId, size: number, mimeType?: string, 
+export type TransferBeginReadResponse = { transferId: TransferId, size: number, mimeType?: string,
 /**
  * Domain detail of the opened entry (today's preview/download descriptor).
  */
@@ -4206,17 +4206,17 @@ export type TransferTrashInfoParams = { path: string, };
  */
 export type TransferWriteChunkParams = { transferId: TransferId, offset: number, bytesB64: string, };
 
-export type Turn = { id: TurnId, status: TurnStatus, startedAt?: number, completedAt?: number, error?: TurnError, 
+export type Turn = { id: TurnId, status: TurnStatus, startedAt?: number, completedAt?: number, error?: TurnError,
 /**
  * The model's stop reason of the turn's final answer (Node `result.stopReason`, a provider
  * string such as `end_turn`); on a completed turn only.
  */
-stopReason?: string, 
+stopReason?: string,
 /**
  * Why the turn ended where it did (Node `result.terminationReason`; `refusal` is the one
  * the headless result treats as an error); on a completed turn only.
  */
-terminationReason?: string, 
+terminationReason?: string,
 /**
  * Present only when the read asked for items (`itemsView`).
  */
@@ -4231,7 +4231,7 @@ export type TurnEndStatus = "done" | "failed" | "cancelled";
  * Why a turn failed: an error reason object (`{reason, …}`, P §10) and,
  * for provider failures, the typed upstream detail.
  */
-export type TurnError = { message: string, 
+export type TurnError = { message: string,
 /**
  * `{reason, …typed fields}` exactly as in JSON-RPC error `data` (P §10).
  */
@@ -4244,7 +4244,7 @@ export type TurnId = string;
 
 export type TurnInput = { prompt: PromptContent, options?: SubmitOptions, };
 
-export type TurnInterruptParams = { threadId: ThreadId, turnId?: TurnId, 
+export type TurnInterruptParams = { threadId: ThreadId, turnId?: TurnId,
 /**
  * Rewind a submitted prompt only when the composer was empty at cancel.
  */
@@ -4253,7 +4253,7 @@ restorePrompt?: boolean, submissionId?: string, };
 /**
  * Fixed C0 reply (R12).
  */
-export type TurnInterruptResponse = { 
+export type TurnInterruptResponse = {
 /**
  * Always `true`.
  */
@@ -4272,7 +4272,7 @@ export type TurnStartResponse = { "kind": "started", turnId: TurnId, } | { "kind
 
 export type TurnStatus = "inProgress" | "completed" | "interrupted" | "failed";
 
-export type TurnSteerParams = { threadId: ThreadId, 
+export type TurnSteerParams = { threadId: ThreadId,
 /**
  * Absent: the core steers the thread's active turn (today's `prioritizeQueued` names none).
  */
@@ -4281,7 +4281,7 @@ expectedTurnId?: TurnId, queuedId: QueuedId, };
 /**
  * Fixed C0 reply (R12).
  */
-export type TurnSteerResponse = { 
+export type TurnSteerResponse = {
 /**
  * Always `true`.
  */
@@ -4306,23 +4306,23 @@ export type UiNewTabCreatedParams = { sessionId: string, openRequestId: string, 
 /**
  * `DesktopBrowserOpenRequest` (`shared/contract-browser.ts`).
  */
-export type UiOpenBrowser = { sessionId: string, 
+export type UiOpenBrowser = { sessionId: string,
 /**
  * `false` creates or retains the surface without opening the session dock.
  */
-reveal?: boolean, 
+reveal?: boolean,
 /**
  * Hide only: never create or release pages; overrides `reveal`.
  */
-hide?: boolean, 
+hide?: boolean,
 /**
  * A takeover hand-off: the user must act on the page, so the panel opens even where closed.
  */
-handoff?: boolean, 
+handoff?: boolean,
 /**
  * An agent's `open`: the page it showed (session-local id `p…`).
  */
-tabId?: string, title?: string, 
+tabId?: string, title?: string,
 /**
  * An agent's `open` that failed, and why: nothing is revealed for it.
  */
@@ -4339,16 +4339,16 @@ export type UiOpenRequestedParams = { "kind": "browser" } & UiOpenBrowser | { "k
  * `DesktopTerminalRunRequest` (`shared/terminal-command.ts`): the `terminal` tool ran a command
  * in one of the session's terminals.
  */
-export type UiOpenTerminal = { sessionId: string, 
+export type UiOpenTerminal = { sessionId: string,
 /**
  * The terminal the command went to; its tab is selected. (The spec's §6.3 sketch calls it
  * `tabId`; Node's request, which this follows, calls it `terminalId`.)
  */
-terminalId?: string, 
+terminalId?: string,
 /**
  * Every terminal the core runs for the session: tabs the device lacks are added.
  */
-tabs?: Array<UiTerminalTab>, 
+tabs?: Array<UiTerminalTab>,
 /**
  * The core waits on this: the desktop renderer claims it once a pane really shows
  * `terminalId`; unclaimed, the run is reported as running in the background. Not sent to
@@ -4360,12 +4360,12 @@ requestId?: string, };
  * The visualize open: a web URL handed to the session's browser panel (`openUrl`), or a
  * revealed tab (`reveal`, `tab`), as `DesktopVisualizeEvent` carries them.
  */
-export type UiOpenVisualize = { sessionId: string, openUrl?: string, 
+export type UiOpenVisualize = { sessionId: string, openUrl?: string,
 /**
  * With `openUrl`: names the request, so the browser tab the pane creates reports back to
  * the agent's open (`ui/newTab/created`) and no other tab does.
  */
-openRequestId?: string, 
+openRequestId?: string,
 /**
  * An agent open or content update: bring the panel up on this tab.
  */
@@ -4404,7 +4404,7 @@ export type UiTerminalRunClaimedParams = { requestId: string, };
 /**
  * `DesktopTerminalRunTab`.
  */
-export type UiTerminalTab = { id: string, 
+export type UiTerminalTab = { id: string,
 /**
  * Tab number within the session (1 = the session's first terminal).
  */
@@ -4452,19 +4452,19 @@ export type UsageGetUsageStatsParams = { threadId?: ThreadId, options?: JsonValu
  */
 export type UserInput = { "type": "text", text: string, } | { "type": "attachment", blob: BlobDescriptor, filename?: string, original?: BlobDescriptor, } | { "type": "pastedText", text: MaybeBlob<string>, filename?: string, };
 
-export type UserInputRequestParams = { 
+export type UserInputRequestParams = {
 /**
  * `ask_user` questions (including room hand-off questions).
  */
-questions: Array<JsonValue>, threadId: ThreadId, turnId?: TurnId, itemId?: ItemId, 
+questions: Array<JsonValue>, threadId: ThreadId, turnId?: TurnId, itemId?: ItemId,
 /**
  * Top-level chat that shows a sub-agent's request.
  */
-surfaceThreadId?: ThreadId, 
+surfaceThreadId?: ThreadId,
 /**
  * Delegation chain from the surface thread to the asking thread.
  */
-chain?: Array<ThreadId>, requestedAt: number, expiresAt?: number, 
+chain?: Array<ThreadId>, requestedAt: number, expiresAt?: number,
 /**
  * Per-surface presentation order; the lowest is the active card (P §8.5).
  */
@@ -4473,43 +4473,43 @@ order: number, };
 /**
  * Who and what a user row came from, beyond its content.
  */
-export type UserRowDetails = { 
+export type UserRowDetails = {
 /**
  * What the message is; absent for a typed prompt.
  */
-source?: MessageSource, routineTrigger?: RoutineTrigger, 
+source?: MessageSource, routineTrigger?: RoutineTrigger,
 /**
  * The request of a `held-request` message; the client's row carries it as `heldRequest`.
  */
-heldRequest?: HeldRequest, 
+heldRequest?: HeldRequest,
 /**
  * The sender (`lead` for the user's Lead session).
  */
-sender?: string, 
+sender?: string,
 /**
  * The bot that sent the message (a bot's `session send`).
  */
-fromAgent?: string, 
+fromAgent?: string,
 /**
  * Delivered into the running turn (steering): the row's read mark.
  */
-steered?: boolean, 
+steered?: boolean,
 /**
  * Every submission a merged queued batch delivered as this turn.
  */
-submissionIds: Array<string>, 
+submissionIds: Array<string>,
 /**
  * The executions a woken batch delivered; `null` keeps the position of an entry that named none.
  */
-consumedExecutionIds: Array<string | null>, 
+consumedExecutionIds: Array<string | null>,
 /**
  * Bot-to-bot chain position.
  */
-hop?: number, 
+hop?: number,
 /**
  * The bots that handed the message on, sender last.
  */
-botChain: Array<string>, 
+botChain: Array<string>,
 /**
  * A group-room member turn: the newest user row of the room log its prompt shows.
  */
@@ -4538,7 +4538,7 @@ export type VisualizeGoneOpen = { tab: string, call: string, };
 /**
  * One thing opened in a session (open or since closed); path-free.
  */
-export type VisualizeHistoryItem = { id: string, label: string, kind: VisualizeHistoryKind, versions: number, 
+export type VisualizeHistoryItem = { id: string, label: string, kind: VisualizeHistoryKind, versions: number,
 /**
  * When it was last opened (ms since epoch).
  */
@@ -4553,19 +4553,19 @@ export type VisualizeHistoryKind = "html" | "document" | "pdf" | "image" | "audi
  * `VisualizeHostEvent` (`apps/desktop/src/shared/visualize.ts`), main → core: the change
  * `DesktopVisualizeEvent` carries, with host paths.
  */
-export type VisualizeHostEvent = { sessionId: string, state?: VisualizeHostState, reveal?: boolean, 
+export type VisualizeHostEvent = { sessionId: string, state?: VisualizeHostState, reveal?: boolean,
 /**
  * With `reveal`: the tab the open or update was for.
  */
-tab?: string, 
+tab?: string,
 /**
  * A content update of this tab.
  */
-updated?: string, 
+updated?: string,
 /**
  * Sent while the session's agent turn runs.
  */
-held?: boolean, 
+held?: boolean,
 /**
  * With `held`: when the turn started (ms).
  */
@@ -4574,19 +4574,19 @@ heldSince?: number, openUrl?: string, };
 /**
  * A pane with the symlink-resolved file it shows.
  */
-export type VisualizeHostPane = { kind: VisualizePaneKind, label: string, target: string, 
+export type VisualizeHostPane = { kind: VisualizePaneKind, label: string, target: string,
 /**
  * `""` for an `inline` pane, which has no file.
  */
-path: string, inline?: VisualizeInlineContent, 
+path: string, inline?: VisualizeInlineContent,
 /**
  * What a remote client is told the target is.
  */
-remoteTarget: string, 
+remoteTarget: string,
 /**
  * The folder this pane's file and page assets must stay inside.
  */
-root?: string, version?: number, 
+root?: string, version?: number,
 /**
  * Inline panes: the render id a remote client's report must carry.
  */
@@ -4595,33 +4595,33 @@ remoteRenderId?: string, };
 /**
  * One session's tabs with their resolved files.
  */
-export type VisualizeHostState = { sessionId: string, tabs: Array<VisualizeHostTab>, 
+export type VisualizeHostState = { sessionId: string, tabs: Array<VisualizeHostTab>,
 /**
  * Always written; `null` when no tab is active.
  */
 active: string | null, history?: Array<VisualizeHistoryItem>, goneOpens?: Array<VisualizeGoneOpen>, };
 
-export type VisualizeHostTab = { id: string, label: string, 
+export type VisualizeHostTab = { id: string, label: string,
 /**
  * The label a remote client sees.
  */
-remoteLabel: string, revision: number, 
+remoteLabel: string, revision: number,
 /**
  * The working directory every pane and page asset must stay inside.
  */
-cwd: string, panes: Array<VisualizeHostPane>, 
+cwd: string, panes: Array<VisualizeHostPane>,
 /**
  * Always `true` when present.
  */
-missing?: true, problems?: Array<VisualizeProblem>, 
+missing?: true, problems?: Array<VisualizeProblem>,
 /**
  * Always `true` when present.
  */
-networkAllowed?: true, versions?: Array<VisualizeVersionView>, 
+networkAllowed?: true, versions?: Array<VisualizeVersionView>,
 /**
  * The version shown instead of the live files; `null` = live.
  */
-version?: number | null, compare?: boolean, restoreAssets?: Array<string>, 
+version?: number | null, compare?: boolean, restoreAssets?: Array<string>,
 /**
  * A data URL.
  */
@@ -4633,7 +4633,7 @@ thumbnail?: string, thumbnailVersion?: number, annotations?: Array<VisualizeAnno
  */
 export type VisualizeHostValue = Array<VisualizeHostState> | VisualizeHostEvent;
 
-export type VisualizeInlineContent = { kind: VisualizeInlineKind, source: string, title?: string, 
+export type VisualizeInlineContent = { kind: VisualizeInlineKind, source: string, title?: string,
 /**
  * Always `true` when present: a device's snapshot left the source out.
  */
@@ -4649,7 +4649,7 @@ export type VisualizePaneKind = "html" | "document" | "pdf" | "image" | "audio" 
 /**
  * One distinct runtime problem of a tab's HTML pane; `source` is project-relative.
  */
-export type VisualizeProblem = { kind: VisualizeProblemKind, message: string, source: string, line: number, count: number, 
+export type VisualizeProblem = { kind: VisualizeProblemKind, message: string, source: string, line: number, count: number,
 /**
  * Index of the pane (in the tab's displayed panes) it came from.
  */
@@ -4665,7 +4665,7 @@ export type VisualizeVersionTurn = { since: number, end: number, };
 /**
  * One kept version of a tab's files (`n` counts up per tab from 1).
  */
-export type VisualizeVersionView = { n: number, 
+export type VisualizeVersionView = { n: number,
 /**
  * When it was kept (ms since epoch).
  */
@@ -4696,7 +4696,7 @@ export type VoiceTranscribeAudioParams = { opId: OpId, threadId?: ThreadId, inpu
  */
 export type W3cTraceContext = { traceparent: string, tracestate?: string, };
 
-export type WarningParams = { message: string, threadId?: ThreadId, 
+export type WarningParams = { message: string, threadId?: ThreadId,
 /**
  * `configWarning`: the offending config path.
  */
