@@ -308,13 +308,25 @@ pub async fn begin(tokens: &LaneTokens, given: StartIn) -> Result<Booting, Servi
             control: discovery::Port { port: control.port() },
         },
     };
-    let publication = Arc::new(DiscoveryPublication::new(root.clone(), base));
+    // The publication is built before the lifecycle that owns it, so its failure path reaches the lifecycle through this cell.
+    let leave: Arc<OnceLock<std::sync::Weak<Lifecycle>>> = Arc::new(OnceLock::new());
+    let on_fatal = {
+        let leave = leave.clone();
+        Box::new(move |error: &std::io::Error| {
+            tracing::error!(%error, "discovery cannot be published: leaving with the fatal boot code");
+            if let Some(lifecycle) = leave.get().and_then(std::sync::Weak::upgrade) {
+                lifecycle.fail_boot();
+            }
+        })
+    };
+    let publication = Arc::new(DiscoveryPublication::new(root.clone(), base, on_fatal));
     let discovery = publication.clone();
     let core_port = Arc::new(LateCorePort { release: release.clone(), core: OnceLock::new() });
     let lifecycle = Lifecycle::new(
         LifecycleConfig { instance_id: instance_id.clone(), version: version.to_owned(), runtime_root: root.clone() },
         Ports { core: core_port.clone(), discovery: publication, exiter },
     );
+    leave.set(Arc::downgrade(&lifecycle)).unwrap_or_else(|_| unreachable!("the cell is set once, here"));
     let control = ControlServer::serve(
         control,
         ControlConfig {
@@ -416,7 +428,7 @@ mod tests {
     struct RecordedExit(Mutex<Option<oneshot::Sender<()>>>);
 
     impl Exiter for RecordedExit {
-        fn exit(&self) {
+        fn exit(&self, _: i32) {
             if let Some(done) = self.0.lock().unwrap().take() {
                 let _ = done.send(());
             }

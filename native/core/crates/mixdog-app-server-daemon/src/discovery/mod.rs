@@ -191,7 +191,69 @@ pub fn names_instance(bytes: &[u8], instance_id: &str) -> bool {
 
 /// Publishes `discovery` at `<root>/daemon.json`: written owner-only to a
 /// staging file, synced, and renamed over the old file.
+///
+/// The replace is retried on the errors Windows answers while another process (the desktop reading the file, an
+/// indexer, a scanner) holds the destination open: Node's `renameWithRetry` schedule (see [`replace_backoffs_ms`]).
 pub fn publish(root: &Path, discovery: &Discovery) -> io::Result<()> {
+    publish_with(root, discovery, &sys::replace, &std::thread::sleep)
+}
+
+/// Node's `RETRY_MAX_MS` (`runtime/shared/file-lock.mjs`).
+const REPLACE_RETRY_MAX_MS: u64 = 200;
+
+/// Node's `DEFAULT_BACKOFFS_MS` (`runtime/shared/file-lock.mjs`): 25, 50, 100, then twenty of [`REPLACE_RETRY_MAX_MS`]. The replace
+/// is attempted once more than there are entries.
+pub fn replace_backoffs_ms() -> Vec<u64> {
+    [25, 50, 100].into_iter().chain(std::iter::repeat_n(REPLACE_RETRY_MAX_MS, 20)).collect()
+}
+
+/// Node's `RETRY_CODES` (`atomic-file.mjs`: EPERM, EACCES, EBUSY, EEXIST) as `io` sees them; on Windows also the sharing and lock
+/// violations, which libuv reports as EBUSY.
+fn replace_error_is_transient(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::PermissionDenied | io::ErrorKind::AlreadyExists | io::ErrorKind::ResourceBusy
+    ) || (cfg!(windows) && matches!(error.raw_os_error(), Some(32 | 33)))
+}
+
+/// Node's `isReadOnlyFile`: a refusal to rename over a read-only file never clears, so it is not waited for.
+fn destination_is_read_only(to: &Path) -> bool {
+    std::fs::metadata(to).is_ok_and(|meta| meta.is_file() && meta.permissions().readonly())
+}
+
+/// The retry loop of Node's `renameWithRetry`: attempt `n` that fails with a transient error (not against a read-only destination)
+/// pauses `backoffs[n]` plus a jitter below `min(50, max(1, backoffs[n]))` ms, and the error of the last attempt is the result.
+fn replace_with_retry(
+    from: &Path,
+    to: &Path,
+    replace: &dyn Fn(&Path, &Path) -> io::Result<()>,
+    pause: &dyn Fn(std::time::Duration),
+) -> io::Result<()> {
+    let backoffs = replace_backoffs_ms();
+    for backoff in backoffs {
+        match replace(from, to) {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                if !replace_error_is_transient(&error)
+                    || (error.kind() == io::ErrorKind::PermissionDenied && destination_is_read_only(to))
+                {
+                    return Err(error);
+                }
+                let jitter = rand::random_range(0..backoff.clamp(1, 50));
+                pause(std::time::Duration::from_millis(backoff + jitter));
+            }
+        }
+    }
+    replace(from, to)
+}
+
+/// [`publish`] with the replace and the pause between attempts supplied.
+fn publish_with(
+    root: &Path,
+    discovery: &Discovery,
+    replace: &dyn Fn(&Path, &Path) -> io::Result<()>,
+    pause: &dyn Fn(std::time::Duration),
+) -> io::Result<()> {
     let mut bytes = serde_json::to_vec(discovery).map_err(io::Error::other)?;
     bytes.push(b'\n');
     let staging = root.join(format!(
@@ -204,7 +266,7 @@ pub fn publish(root: &Path, discovery: &Discovery) -> io::Result<()> {
         file.write_all(&bytes)?;
         file.sync_all()?;
         drop(file);
-        sys::replace(&staging, &target)
+        replace_with_retry(&staging, &target, replace, pause)
     })();
     if written.is_err() {
         let _ = std::fs::remove_file(&staging);

@@ -85,7 +85,7 @@ impl Publication for Probe {
 }
 
 impl Exiter for Probe {
-    fn exit(&self) {}
+    fn exit(&self, _: i32) {}
 }
 
 #[test]
@@ -108,8 +108,9 @@ fn the_stall_monitor_reports_a_lane_wedged_by_a_held_job() {
 
     let (started, running) = mpsc::channel();
     let (release, released) = mpsc::channel::<()>();
+    // Its own lane: the other test holds a durability job on the shared executors, so this one is the only job on io-maintenance.
     let held = tokens
-        .durability_io
+        .maintenance_io
         .submit(&CancellationToken::new(), move |_| {
             started.send(()).expect("the test waits for the start");
             released.recv().expect("the test releases the job");
@@ -119,7 +120,8 @@ fn the_stall_monitor_reports_a_lane_wedged_by_a_held_job() {
     // Past the lane's lease without waiting for it: the watchdog counts the stuck thread wedged.
     executors.sweep_leases(Instant::now() + Duration::from_secs(3600));
 
-    assert_eq!(wedged.recv().expect("the monitor reports"), ("io-durability".to_owned(), 1));
+    let reported = wedged.iter().find(|(lane, _)| lane == "io-maintenance").expect("the monitor reports the lane");
+    assert_eq!(reported, ("io-maintenance".to_owned(), 1));
     release.send(()).expect("the holding job still waits");
     block_on(held).expect("the holding job finished");
 }
