@@ -9,11 +9,6 @@
 //! for a held lock or a refused rename sleeps on that lane thread, never on an executor.
 //! Callers that must not occupy a lane thread while waiting for another writer of the same
 //! file order those writers themselves before submitting the job.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "every file call here runs inside a lane job (the InLane proof argument)"
-)]
 
 mod access;
 mod json;
@@ -74,18 +69,6 @@ pub use publish::remove_file;
 pub use publish::set_readonly;
 pub use publish::read_content;
 
-use mixdog_rt::DurabilityIo;
-use mixdog_rt::InteractiveIo;
-use mixdog_rt::LaneToken;
-use mixdog_rt::MaintenanceIo;
-
-/// Lanes that may read state files.
-pub trait IoLane: LaneToken {}
-impl IoLane for InteractiveIo {}
-impl IoLane for DurabilityIo {}
-impl IoLane for MaintenanceIo {}
-
-/// Lanes that may write state files and take their locks.
-pub trait WriteLane: IoLane {}
-impl WriteLane for DurabilityIo {}
-impl WriteLane for MaintenanceIo {}
+// The lanes that may read state files, and those that may write them and take their locks.
+pub use mixdog_fsio::IoLane;
+pub use mixdog_fsio::WriteLane;
