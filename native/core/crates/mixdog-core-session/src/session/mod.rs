@@ -173,6 +173,8 @@ mod turn_admission_tests;
 mod delete_idle_tests;
 #[cfg(test)]
 mod assembly_tests;
+#[cfg(test)]
+mod recorded_145_tests;
 
 use std::sync::Arc;
 
