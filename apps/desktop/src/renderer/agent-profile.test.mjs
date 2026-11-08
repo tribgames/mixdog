@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
-import { installTestDom } from './test-support/test-dom.mjs';
+import { installTestDom, toolModulesSource } from './test-support/test-dom.mjs';
 
 const { dom } = installTestDom(null, {
   html: '<!doctype html><html><body></body></html>',
@@ -807,14 +807,12 @@ test('the bot profile model picker names a custom provider by its setup name, li
   const providerId = 'custom-a367f0c2-1111-4222-8333-944455556666';
   const custom = { provider: providerId, model: 'fake-1', display: 'fake-1', effortOptions: [] };
   const { api: base } = fakeApi({ ...WATCHER, route: { provider: providerId, model: 'fake-1' } });
-  const api = {
-    ...base,
-    listProviderModels: async () => [custom],
-    invokeCapability: async (request) =>
-      request.capability === 'getProviderSetup'
-        ? { value: { api: [{ id: providerId, name: 'Fake', custom: true, auth: 'none', enabled: true }] } }
-        : base.invokeCapability(request),
-  };
+  // The provider setup reaches the renderer as the pushed `providerSetup` section, not a capability read.
+  const core = toolModulesSource();
+  core.publishSection('providerSetup', {
+    api: [{ id: providerId, name: 'Fake', custom: true, auth: 'none', enabled: true }],
+  });
+  const api = { ...base, sections: core.sections, listProviderModels: async () => [custom] };
   await render(React.createElement(AgentProfilePane, { sessionId: 'sess_home_github-watcher', active: true, api }));
   await settle();
   await settle();
