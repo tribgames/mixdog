@@ -291,7 +291,9 @@ impl Controller {
     fn deliver(self: &Arc<Self>, deliveries: Vec<Delivery>) {
         for delivery in deliveries {
             match delivery {
-                Delivery::Restore(txs) => txs.into_iter().for_each(|tx| drop(tx.send(()))),
+                Delivery::Restore(txs) => txs.into_iter().for_each(|tx| {
+                    tx.send(()).ok();
+                }),
                 // A closed receiver returns the lease; it frees itself again outside any lock.
                 Delivery::New(tx, id) => {
                     if tx.send(Some(id)).is_err() {

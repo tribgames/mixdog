@@ -54,10 +54,6 @@ impl Inner {
         slot.mem().anchor = mono.map(|mono| (at, mono));
     }
 
-    pub fn anchor_count(&self) -> usize {
-        self.slots().iter().filter(|s| s.mem().anchor.is_some()).count()
-    }
-
     pub fn clear_deadline(&self, slot: &Slot) {
         let mut mem = slot.mem();
         if let Some(timer) = mem.deadline_timer.take() {

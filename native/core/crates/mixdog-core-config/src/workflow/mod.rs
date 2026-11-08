@@ -55,10 +55,8 @@ use crate::config::ConfigError;
 use mixdog_core_base::support::OpScopes;
 use mixdog_core_base::support::decode;
 use mixdog_core_base::support::failed;
-use mixdog_core_base::support::invalid;
 use mixdog_core_base::support::on_lane;
 use mixdog_core_base::support::wrong_method;
-use crate::tool_modules::with_grandfathered_builtins;
 
 const DOMAIN: &str = "config";
 
@@ -153,10 +151,6 @@ fn config_failure(error: ConfigError) -> CoreError {
 
 fn thrown(message: String) -> CoreError {
     failed(DOMAIN, message)
-}
-
-fn text_param<'a>(req: &'a CoreRequest, key: &str) -> Result<&'a str, CoreError> {
-    req.params.get(key).and_then(Value::as_str).ok_or_else(|| invalid(&format!("params.{key}"), "string"))
 }
 
 fn payload_of(req: &CoreRequest) -> Value {

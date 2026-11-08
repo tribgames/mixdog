@@ -176,7 +176,7 @@ async fn no_cache_a_damaged_one_or_another_version_is_fetched_over() {
     let mut other_version = node.clone();
     other_version["version"] = json!(1);
     let mut no_stamp = node.clone();
-    no_stamp.as_object_mut().unwrap().remove("fetchedAt");
+    no_stamp.as_object_mut().unwrap().shift_remove("fetchedAt");
     let mut not_an_array = node.clone();
     not_an_array["models"] = json!("x");
     for body in [None, Some("not json".to_owned()), Some(other_version.to_string()), Some(no_stamp.to_string()), Some(not_an_array.to_string())] {

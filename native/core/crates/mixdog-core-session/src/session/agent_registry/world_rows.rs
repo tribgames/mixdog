@@ -9,7 +9,7 @@ use std::sync::Arc;
 use mixdog_agent::agent_tool::host::ResolveOptions;
 use mixdog_agent::agent_tool::scope::Scope;
 
-use super::{AgentRegistry, Row, Value, clean};
+use super::{AgentRegistry, Row, clean};
 
 /// The release of `beginCancellation`: dropping it ends the cancellations it began (the epochs
 /// stay moved).
@@ -155,6 +155,7 @@ mod tests {
 
     use super::super::{Clock, LiveSessions, ReapWindow, WorkerStore};
     use super::*;
+    use serde_json::Value;
 
     struct Empty;
 

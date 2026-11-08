@@ -281,7 +281,7 @@ impl NodeCache {
                 return;
             }
             writer.dirty = false;
-            let mut state = locked(&self.state);
+            let state = locked(&self.state);
             let mut doc = Map::new();
             doc.insert("entries".into(), Value::Object(state.entries.clone()));
             if let Some(total) = state.approx_bytes {

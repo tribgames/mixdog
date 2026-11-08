@@ -14,7 +14,6 @@ use std::sync::Weak;
 use tokio_util::sync::CancellationToken;
 
 use async_trait::async_trait;
-use base64::Engine;
 use bytes::Bytes;
 use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::call::Reply;

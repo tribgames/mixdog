@@ -201,7 +201,7 @@ mod tests {
         tokio::task::yield_now().await;
         config
             .update(|doc| {
-                doc.remove("agent");
+                doc.shift_remove("agent");
                 Ok(())
             })
             .await

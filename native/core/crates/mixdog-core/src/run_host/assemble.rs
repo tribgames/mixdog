@@ -39,7 +39,6 @@ use super::result_reuse::ToolResultReuse;
 use mixdog_core_run::run_host::route_fallback::HopHost;
 use mixdog_core_run::run_host::route_fallback::RouteHop;
 use mixdog_core_ports::ports::gate::GateEnv;
-use mixdog_core_ports::ports::gate::LiveHeader;
 use mixdog_core_ports::ports::gate::SessionGate;
 
 /// The tools of a session's surface.

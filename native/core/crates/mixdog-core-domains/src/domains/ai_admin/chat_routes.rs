@@ -15,7 +15,6 @@ use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::route::ChatRouteSetter;
 use mixdog_core_ports::ports::route::FollowOptions;
 use mixdog_core_ports::ports::route::Route;
-use mixdog_core_ports::ports::route_write::RouteWriter;
 use mixdog_tools::orch::util::PortError;
 
 use super::route_service::RouteService;

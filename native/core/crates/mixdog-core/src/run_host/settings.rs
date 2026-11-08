@@ -11,7 +11,7 @@ use mixdog_agent::step_effort::StepAutoEffort;
 use mixdog_core_api::domain::provider::{ProviderAdapter, ToolDefinition};
 use mixdog_core_api::ids::ThreadId;
 use mixdog_store::schema::record::Header;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use super::assemble::RunSettings;
 use mixdog_core_run::run_host::hop_host::HopWiring;
@@ -130,6 +130,7 @@ pub fn merge_settings(mut base: RunSettings, sources: &SettingsSources, turn: &T
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     struct Wiring;
     impl HopWiring for Wiring {

@@ -497,6 +497,7 @@ async fn refine_managed_modules(processes: &Processes, engines: &mut [Resolved],
 }
 
 /// Engines that can actually run: resolved, not suppressed, not config-gated.
+#[cfg(test)]
 fn runnable_engines(engines: &[Resolved]) -> Vec<&Resolved> {
     engines.iter().filter(|e| e.runnable()).collect()
 }

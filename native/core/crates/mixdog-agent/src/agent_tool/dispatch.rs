@@ -278,13 +278,6 @@ impl AgentRuntime {
         registry.read_worker_rows(scope).map(|rows| rows.iter().any(|r| clean_str(&r.tag) == target)).unwrap_or(false)
     }
 
-    /// Cancels the background tasks bound to a session before the session closes. Otherwise
-    /// closing rejects the in-flight run and the task is reconciled as `failed`, where a
-    /// user-initiated close must surface as `cancelled`.
-    fn cancel_session_tasks(&self, session_id: &str, target: &str, scope: &Scope) {
-        cancel_session_tasks(&*self.deps.tasks, session_id, target, scope);
-    }
-
     /// `keep_row`: a process exit closes the worker but leaves its row for the next process.
     pub async fn close(&self, args: &Value, caller: &Caller, keep_row: bool) -> Result<ClosedView, String> {
         let scope = Scope::of(args, &caller.scope);

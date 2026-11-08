@@ -53,11 +53,6 @@ pub struct LiveHostRuntime {
 
 /// `activity-guards.mjs:14-17`.
 const ACTIVE_STAGES: [&str; 6] = ["connecting", "requesting", "streaming", "tool_running", "running", "cancelling"];
-const BUSY_WORKER_EXTRA: [&str; 4] = ["starting", "spawning", "queued", "pending"];
-
-fn lower(row: &Map<String, Value>, key: &str) -> String {
-    row.get(key).and_then(Value::as_str).unwrap_or_default().to_lowercase()
-}
 
 fn text(row: &Map<String, Value>, key: &str) -> Option<String> {
     row.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned)

@@ -18,7 +18,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::Mutex;
 
 use async_trait::async_trait;
 use mixdog_agent::env::Clock;

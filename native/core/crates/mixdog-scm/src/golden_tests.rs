@@ -1627,7 +1627,7 @@ async fn inspect_refusal(folder: &Path) -> Value {
     let mixdog_core_api::CoreError::DomainError { code, message, detail, .. } = mixdog_core_api::CoreError::from(failure) else { panic!("not a domain error") };
     let mut details = serde_json::to_value(detail).unwrap();
     if let Some(fields) = details.as_object_mut() {
-        fields.remove("type");
+        fields.shift_remove("type");
         fields.retain(|_, value| !value.is_null());
         if fields.get("projectPath").and_then(Value::as_str) == Some(folder.to_string_lossy().as_ref()) {
             fields.insert("projectPath".into(), "<folder>".into());

@@ -1014,7 +1014,9 @@ mod tests {
     /// resolves to a real service, each served by exactly one, and a call reaches the data dir.
     #[tokio::test(flavor = "multi_thread")]
     async fn the_services_serve_their_methods_over_a_temp_data_dir() {
-        let Composed { composed, dir, data, .. } = compose_over(Arc::new(Quiet)).await;
+        // Held whole so the temp dir lives to the end of the test.
+        let over = compose_over(Arc::new(Quiet)).await;
+        let Composed { composed, data, .. } = &over;
         let mut served: Vec<&str> = composed.services.iter().flat_map(|s| s.methods().iter().copied()).collect();
         let total = served.len();
         served.sort_unstable();

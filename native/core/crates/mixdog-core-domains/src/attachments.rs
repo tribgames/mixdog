@@ -44,7 +44,6 @@ fn unavailable(filename: Option<&str>, mime_type: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use mixdog_agent::attachments::AttachmentText as _;
     use mixdog_core_api::domain::provider::TextAttachment;
     use tokio_util::sync::CancellationToken;
 

@@ -1073,7 +1073,10 @@ mod tests {
         let dotted = AbsPath::new(root.as_path().join("sub").join("..").join("f.txt")).unwrap();
         assert!(resolve_write(plain.as_path()).unwrap().key.same(&resolve_write(dotted.as_path()).unwrap().key));
         fs.write(l.durability, put(&plain, b"base", WritePrecondition::Absent)).await.unwrap();
+        #[cfg(unix)]
         let mut spellings = vec![plain.clone(), dotted.clone()];
+        #[cfg(not(unix))]
+        let spellings = vec![plain.clone(), dotted.clone()];
         #[cfg(unix)]
         {
             let alias = root.join("alias");

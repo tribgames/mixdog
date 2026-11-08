@@ -47,7 +47,6 @@ pub type DisplayConfig = Arc<dyn Fn() -> Value + Send + Sync>;
 /// Everything the rows read, read.
 pub struct PrefetchedWorld {
     env: Arc<dyn Environment>,
-    keys: ApiKeyStore,
     resolved_env: HashMap<String, String>,
     stored: HashSet<String>,
     fallback: HashSet<String>,
@@ -159,7 +158,6 @@ impl SetupGatherer {
         let providers = config.get("providers").and_then(Value::as_object).cloned().unwrap_or_default();
         let mut world = PrefetchedWorld {
             env: Arc::clone(&self.env),
-            keys: self.keys.clone(),
             resolved_env: HashMap::new(),
             stored: HashSet::new(),
             fallback: HashSet::new(),

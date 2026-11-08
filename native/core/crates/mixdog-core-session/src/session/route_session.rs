@@ -110,10 +110,6 @@ fn truthy(value: Option<&Value>) -> bool {
     }
 }
 
-fn text<'a>(map: &'a Map<String, Value>, key: &str) -> &'a str {
-    map.get(key).and_then(Value::as_str).unwrap_or_default()
-}
-
 /// `UUID_V7_RE` of `session-id.mjs`.
 fn is_uuid_v7(value: &str) -> bool {
     let bytes = value.as_bytes();

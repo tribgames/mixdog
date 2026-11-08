@@ -528,8 +528,6 @@ async fn the_other_calls_are_answered_on_the_pc() {
 
 const PC_TWIN: &str = include_str!("../../../../../fixtures/model-proxy-pc/model-proxy-pc-twin.json");
 
-use p::ProviderAdapter as _;
-
 /// A provider whose attempt never ends: only the cancel ends the call.
 struct Hang(MockProvider);
 

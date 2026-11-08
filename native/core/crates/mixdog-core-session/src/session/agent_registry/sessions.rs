@@ -14,7 +14,6 @@ use mixdog_agent::agent_tool::host::Sessions;
 use mixdog_core_api::ids::ThreadId;
 use serde_json::Map;
 use serde_json::Value;
-use serde_json::json;
 
 use super::AgentRegistry;
 use crate::session::shell_jobs::OwnedShells;
@@ -237,6 +236,7 @@ impl Sessions for AgentSessions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     /// `lastStoredAgentHandoff`.
     #[test]

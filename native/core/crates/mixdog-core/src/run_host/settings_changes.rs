@@ -19,12 +19,12 @@ use tokio::sync::watch;
 /// tells `{}` from an absent key, so a parent that was already empty stays as it was).
 fn remove_path(root: &mut serde_json::Map<String, serde_json::Value>, path: &str) -> bool {
     match path.split_once('.') {
-        None => root.remove(path).is_some(),
+        None => root.shift_remove(path).is_some(),
         Some((head, rest)) => {
             let Some(child) = root.get_mut(head).and_then(serde_json::Value::as_object_mut) else { return false };
             let removed = remove_path(child, rest);
             if removed && child.is_empty() {
-                root.remove(head);
+                root.shift_remove(head);
             }
             removed
         }

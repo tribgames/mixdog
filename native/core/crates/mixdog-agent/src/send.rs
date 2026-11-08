@@ -331,7 +331,7 @@ impl Run {
         &mut self,
         request: Arc<ModelRequest>,
     ) -> Result<Result<ModelResponse, Box<Failure>>, AgentError> {
-        let mut builder = ResponseBuilder::new(&self.model, ToolCallIds::new(&self.messages));
+        let builder = ResponseBuilder::new(&self.model, ToolCallIds::new(&self.messages));
         let fail = |error: ProviderError, builder: ResponseBuilder, midstream, shown, reasoning| {
             let mut partial = builder.finish();
             // What the provider kept of a cut stream beyond the events (`partialProviderReplay`).

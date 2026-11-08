@@ -50,7 +50,6 @@ pub struct Running {
     pub server: AppServer,
     pub hub: ConnectionHub,
     pub outgoing: Arc<Outgoing>,
-    core: Arc<ComposedCore>,
 }
 
 impl Running {
@@ -66,7 +65,7 @@ impl Running {
             Arc::new(move |id| origins.origin_of(id)),
             server_config(limits),
         )?;
-        Ok(Self { server, hub, outgoing, core })
+        Ok(Self { server, hub, outgoing })
     }
 
     /// Serves the connections `transport` accepts until it is closed, with the heartbeat running

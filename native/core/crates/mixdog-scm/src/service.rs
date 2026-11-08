@@ -524,8 +524,8 @@ impl ScmService {
             // Node's `gitReview` answers `{repository, root, base, files, untrackedOmitted}` (`git-history.ts` `GitReviewResult`): no `key`
             // (the cache key `known` is asked against) and no `totals`, which are the thread review's.
             if let Some(fields) = out.as_object_mut() {
-                fields.remove("key");
-                fields.remove("totals");
+                fields.shift_remove("key");
+                fields.shift_remove("totals");
             }
             out["repository"] = json!(true);
             out["root"] = json!(root.to_string_lossy());

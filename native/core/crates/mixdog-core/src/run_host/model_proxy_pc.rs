@@ -310,7 +310,6 @@ mod tests {
     use mixdog_ai::registry::keys::MemoryVault;
     use mixdog_core_api::domain::mock::MockAttempt;
     use mixdog_core_api::domain::mock::MockProvider;
-    use mixdog_core_api::domain::provider::ProviderAdapter as _;
     use serde_json::json;
     use tokio::sync::Notify;
 

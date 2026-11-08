@@ -34,9 +34,6 @@ use crate::ownership;
 // Test support shared with the barrier and gate tests
 // ---------------------------------------------------------------------------
 
-/// Upper bound for one awaited child event, so a broken gate fails instead of hanging.
-pub(crate) const EVENT_BOUND: Duration = Duration::from_secs(300);
-
 thread_local! {
     static DENY_EXIT_WATCH: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
@@ -263,7 +260,7 @@ impl SelfChild {
         }
     }
 
-    /// What the child wrote, once its stderr closed (bounded by [`EVENT_BOUND`]).
+    /// What the child wrote, once its stderr closed.
     pub(crate) fn output(&self) -> String {
         let _ = self.stderr_closed.recv();
         self.output.lock().expect("output").clone()

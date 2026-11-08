@@ -74,10 +74,6 @@ fn truthy(value: Option<&Value>) -> bool {
     }
 }
 
-fn present(value: Option<&Value>) -> bool {
-    value.is_some_and(|v| !v.is_null())
-}
-
 /// `a || b || …`: the first truthy value.
 fn first_truthy<'a>(payload: &'a Value, keys: &[&str]) -> Option<&'a Value> {
     keys.iter().filter_map(|key| payload.get(*key)).find(|v| truthy(Some(v)))

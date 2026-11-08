@@ -261,7 +261,7 @@ impl ConfigSeams for ConfigRunSeams {
         if install && self.injected_config {
             return None;
         }
-        super::compaction_follow::sync_change(header, &self.saved_compaction()).set.remove("compaction")
+        super::compaction_follow::sync_change(header, &self.saved_compaction()).set.shift_remove("compaction")
     }
 
     fn settings_changes(&self) -> Option<tokio::sync::watch::Receiver<u64>> {

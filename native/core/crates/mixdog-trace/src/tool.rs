@@ -34,7 +34,6 @@ re!(SECRET_LONG_FLAG, r"(--(?:password|token|secret|api[-_]?key)(?:\s+|=))\S+", 
 re!(SECRET_SHORT_FLAG, r"((?:^|\s)-p(?:\s+|=))\S+", "g");
 re!(URL_USERINFO, r"(:\/\/[^:/\s@]+:)[^@\s]+(@)", "g");
 re!(ERROR_PREFIX, r"^Error:\s*", "i");
-re!(LINE_SPLIT, r"\r?\n", "");
 
 /// `text.replace(re, '$1[redacted]')`.
 fn redact_with(text: &str, re: &JsRegex) -> String {

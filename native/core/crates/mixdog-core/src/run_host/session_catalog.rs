@@ -15,7 +15,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_agent::env::Clock;
 use mixdog_core_api::ids::ThreadId;
-use mixdog_core_ports::ports::gate::LiveHeader;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_session::session::HeaderToolSurfaces;
 use mixdog_core_session::session::SessionDirectory;

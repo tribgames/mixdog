@@ -116,6 +116,8 @@ pub struct Real {
     pub agent_host: Arc<mixdog_core::run_host::agent_world::AgentHost>,
     /// Written out by the first stop step after the directory shut down (`GraphCache::drain`).
     pub code_graph_cache: Arc<mixdog_tools::code_graph::GraphCache>,
+    /// The shell registry; the first stop step removes its shell snapshots after the directory shut down.
+    pub exec: Arc<mixdog_tools::exec::ExecRuntime>,
     pub maintenance_io: mixdog_rt::MaintenanceIo,
     pub domains: mixdog_core_domains::domains::Domains,
     pub config: Config,
@@ -154,6 +156,7 @@ impl Real {
         let (closing, worktrees, maintenance, directory) = (self.close_requested.clone(), self.worktree_stop.clone(), self.maintenance_stop.clone(), self.directory.clone());
         let (dispatch, host) = (self.agent_dispatch.clone(), self.agent_host.clone());
         let (graph_cache, maintenance_io) = (self.code_graph_cache.clone(), self.maintenance_io);
+        let exec = self.exec.clone();
         let schedule_end = self.maintenance_loop.lock().unwrap_or_else(|e| e.into_inner()).take();
         async move {
             closing.cancel();
@@ -175,6 +178,8 @@ impl Real {
             if let Err(error) = graph_cache.drain(maintenance_io, &tokio_util::sync::CancellationToken::new()).await {
                 tracing::warn!(%error, "[code_graph] the cache could not be written at stop");
             }
+            // Node's `process.once('exit', drainShellSnapshots)` (shell-snapshot.mjs): the sessions' shells are gone, so the snapshots they sourced go too.
+            exec.drain_snapshots(&tokio_util::sync::CancellationToken::new()).await;
         }
     }
 }
@@ -1882,7 +1887,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             let session_surface = surface_generation.clone();
             let task_workspace: Arc<dyn mixdog_core_session::session::TaskWorkspace> = agents.clone();
             let new_place = late_new_place.clone();
-            let (data_dir, tokens, clock, features, route_change, quota, session_search, catalog_index) = (b.data_dir.clone(), b.tokens.clone(), clock.clone(), (b.server_requests.clone(), built_remote.registry.clone()), route_change.clone(), quota, session_search.clone(), catalog_index.clone());
+            let (data_dir, tokens, clock, features, route_change, quota, session_search) = (b.data_dir.clone(), b.tokens.clone(), clock.clone(), (b.server_requests.clone(), built_remote.registry.clone()), route_change.clone(), quota, session_search.clone());
             move |runs| mixdog_core_session::session::SessionDeps {
                 store: store_threads,
                 codec: Arc::new(mixdog_core_session::session::StoreCodec),
@@ -2785,7 +2790,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone()))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
     crate::compose::verify_bound(&[&*late_new_place, &connection_owners, &*late_agent_status, &*late_turn_admission, &*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
-    Ok(Real { control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default() })
+    Ok(Real { control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, exec: b.exec.clone(), maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default() })
 }
 
 /// `promptConfigSlice(config)` (`prompt-settings.mjs:36`) over the whole in-memory config: `??` falls through on `null`/absent only.
