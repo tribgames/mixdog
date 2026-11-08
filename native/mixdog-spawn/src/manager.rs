@@ -326,7 +326,7 @@ impl Inner {
         }
         let limit = self.config.max_processes;
         self.live
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
                 (n < limit).then_some(n + 1)
             })
             .map_err(|_| ProcessError::LimitReached { limit })?;

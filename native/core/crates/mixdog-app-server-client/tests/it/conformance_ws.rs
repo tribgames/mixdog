@@ -119,7 +119,7 @@ impl WsNet {
                 loop {
                     let (tcp, _) = listener.accept().await.unwrap();
                     if fail
-                        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+                        .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
                         .is_ok()
                     {
                         drop(tcp); // the upgrade never completes: the client's open fails

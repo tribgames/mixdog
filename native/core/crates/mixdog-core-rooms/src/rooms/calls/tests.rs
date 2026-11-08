@@ -21,7 +21,7 @@ impl CallRunner for Fake {
     async fn run(&self, _: &str, request: &Request, run: &Arc<Run>) -> Result<(), String> {
         self.seen.lock().unwrap().push((request.to.clone(), request.only, run.calls().len()));
         self.entered.notify_one();
-        if self.holds.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() {
+        if self.holds.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() {
             self.release.notified().await;
         }
         if self.fail.load(Ordering::SeqCst) {

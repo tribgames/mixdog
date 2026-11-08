@@ -253,7 +253,7 @@ impl ControlCell {
     /// close takes the word only at a count of zero. False when closed.
     pub fn subscribing(&self) -> bool {
         use std::sync::atomic::Ordering::SeqCst;
-        self.subscribers.fetch_update(SeqCst, SeqCst, |word| (word & CLOSING == 0).then_some((word + 1) | ATTACHED)).is_ok()
+        self.subscribers.try_update(SeqCst, SeqCst, |word| (word & CLOSING == 0).then_some((word + 1) | ATTACHED)).is_ok()
     }
 
     /// Closes the thread to attaches when nobody is attached: the unload's admission decision,
@@ -262,7 +262,7 @@ impl ControlCell {
     pub fn close_unattached(&self) -> bool {
         use std::sync::atomic::Ordering::SeqCst;
         let mut ended = self.liveness.ending();
-        let taken = self.subscribers.fetch_update(SeqCst, SeqCst, |word| (word & (COUNT | CLOSING) == 0).then_some(CLOSING)).is_ok();
+        let taken = self.subscribers.try_update(SeqCst, SeqCst, |word| (word & (COUNT | CLOSING) == 0).then_some(CLOSING)).is_ok();
         if taken {
             *ended = true;
             self.closed.store(true, SeqCst);
@@ -304,7 +304,7 @@ impl ControlCell {
     /// A subscriber detached; the last one asks the actor to unload when idle.
     pub fn unsubscribed(&self) {
         use std::sync::atomic::Ordering::SeqCst;
-        let before = self.subscribers.fetch_update(SeqCst, SeqCst, |n| (n & COUNT > 0).then(|| n - 1));
+        let before = self.subscribers.try_update(SeqCst, SeqCst, |n| (n & COUNT > 0).then(|| n - 1));
         if before.is_ok_and(|word| word & COUNT == 1) {
             let _ = self.ctl_tx.try_send(Ctl::Unsubscribed);
         }

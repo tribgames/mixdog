@@ -621,7 +621,7 @@ mod tests {
         fn append(&self, _: &InLane<DurabilityIo>, _: &str, text: &str) -> Appended {
             use std::sync::atomic::Ordering::SeqCst;
             self.stamps.lock().unwrap().push(tokio::time::Instant::now());
-            let failing = self.fail.fetch_update(SeqCst, SeqCst, |n| n.checked_sub(1)).is_ok();
+            let failing = self.fail.try_update(SeqCst, SeqCst, |n| n.checked_sub(1)).is_ok();
             if !failing {
                 self.landed.lock().unwrap().push(text.to_owned());
             }

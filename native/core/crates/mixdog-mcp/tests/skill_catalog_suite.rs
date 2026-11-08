@@ -31,7 +31,7 @@ struct FlakyLane {
 }
 
 fn take(counter: &AtomicUsize) -> bool {
-    counter.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)).is_ok()
+    counter.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)).is_ok()
 }
 
 impl Backend for FlakyLane {

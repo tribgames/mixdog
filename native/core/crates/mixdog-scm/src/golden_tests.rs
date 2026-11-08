@@ -1508,7 +1508,7 @@ impl mixdog_core_api::domain::process::ProcessManager for TakesTheFolder {
         use std::sync::atomic::Ordering::SeqCst;
         if let mixdog_core_api::domain::process::CommandSpec::Argv { args, .. } = &request.command
             && let Some(add) = args.windows(2).position(|pair| pair[0] == "worktree" && pair[1] == "add")
-            && self.left.fetch_update(SeqCst, SeqCst, |n| n.checked_sub(1)).is_ok()
+            && self.left.try_update(SeqCst, SeqCst, |n| n.checked_sub(1)).is_ok()
         {
             let rest = &args[add + 2..];
             let target = if rest.first().map(String::as_str) == Some("-b") { &rest[2] } else { &rest[0] };

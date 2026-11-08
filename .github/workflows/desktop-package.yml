@@ -75,7 +75,7 @@ jobs:
         ${{ github.workspace }}/.cache/runtime-dependencies/${{ inputs.platform }}-${{ inputs.arch }}
       # The macOS Computer Use backend's toolchain; its build cache key below
       # names it, so a toolchain bump rebuilds the backend.
-      RUST_TOOLCHAIN: "1.95.0"
+      RUST_TOOLCHAIN: "1.99.1"
       # The release signer the Windows secure-desktop helper pins at build time
       # (option_env! in native/mixdog-secure-desktop/src/signature.rs): its
       # elevated install stages only an image signed with this exact subject DN
