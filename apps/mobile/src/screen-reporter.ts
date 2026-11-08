@@ -1,6 +1,8 @@
 // What the phone tells the core about its own screen: the same `ui/screenSessions/changed` notification the desktop sends, with
 // the visibility rules applied here. The set is empty while the page is hidden or the app is in the background, so the core
 // needs no phone-specific frames and decides "is the user already looking at this thread" for push suppression from this alone.
+// Two more fields are Node's `setForeground` and `setVisualizePanels`: the core counts this phone as viewing a session's
+// visualize panel only in the foreground and for the panels reported here.
 import type { ClientEvent, ConnectionStatus, Json } from '../../../packages/protocol-client/src/index.ts';
 
 export const SCREEN_SESSIONS_CHANGED = 'ui/screenSessions/changed';
@@ -15,6 +17,8 @@ export interface ScreenSource {
   threads(): readonly string[];
   /** The id this phone's direct Web Push subscription is keyed by, once it has one. */
   browserId(): string | undefined;
+  /** The sessions whose visualize panel the UI has on screen, whatever the page visibility; absent where the UI has no such panel. */
+  visualizePanels?(): readonly string[];
 }
 
 /** The part of the protocol client the reporter needs. */
@@ -38,9 +42,16 @@ export function createScreenReporter(client: ScreenSink, source: ScreenSource): 
   let sent: string | undefined;
   const send = (): void => {
     if (client.status.state !== 'ready') return;
-    const sessionIds = source.active() ? [...new Set(source.threads())] : [];
+    const active = source.active();
+    const sessionIds = active ? [...new Set(source.threads())] : [];
     const browserId = source.browserId()?.slice(0, BROWSER_ID_MAX);
-    const params = browserId ? { sessionIds, browserId } : { sessionIds };
+    const panels = source.visualizePanels?.();
+    const params = {
+      sessionIds,
+      ...(browserId ? { browserId } : {}),
+      ...(panels ? { visualizeSessionIds: [...new Set(panels)] } : {}),
+      foreground: active,
+    };
     const key = JSON.stringify(params);
     if (key === sent) return;
     try {

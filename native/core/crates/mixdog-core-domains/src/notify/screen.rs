@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use mixdog_remote::registry::DeviceRegistry;
+use mixdog_remote::registry::{DeviceRegistry, ScreenReport};
 use mixdog_app_protocol::v2::host::UiScreenSessionsChangedParams;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
@@ -65,7 +65,13 @@ impl DomainService for ScreenSessions {
         if method.as_str() == CHANGED {
             if let Ok(params) = serde_json::from_value::<UiScreenSessionsChangedParams>(params) {
                 let ids: HashSet<String> = params.session_ids.into_iter().collect();
-                if !self.registry.report_screen(from.0, ids.clone(), params.browser_id.as_deref()) {
+                let report = ScreenReport {
+                    sessions: ids.clone(),
+                    browser_id: params.browser_id.as_deref(),
+                    visualize: params.visualize_session_ids.as_deref(),
+                    foreground: params.foreground,
+                };
+                if !self.registry.report_screen(from.0, report) {
                     *self.latest() = Some((from, ids));
                 }
             }
@@ -106,6 +112,88 @@ mod tests {
         assert!(screen.shows("a"), "another connection closing leaves the UI attached");
         screen.connection_closed(ConnectionId(1));
         assert!(!screen.shows("a"));
+    }
+
+    const GOLDEN: &str = include_str!("../../../../fixtures/remote-viewing/golden.json");
+
+    /// The sessions `hostState.remoteViewing` names, as the desktop reads them.
+    fn viewed(registry: &DeviceRegistry) -> Vec<String> {
+        let published = crate::domains::host::remote_viewing_value(registry);
+        published["sessionIds"].as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect()
+    }
+
+    /// Node's `clientViewsSessionLane` for the visualize lane, recorded over its whole input domain
+    /// (`fixtures/remote-viewing/golden.json`, recorded from `b6f10295a`): one phone, with or without a live channel,
+    /// in the foreground or not, with each set of reported panels. Node reads `lanes` and `visibleSessionIds` too
+    /// and ignores them for this lane; the notification carries neither, and still agrees with every row.
+    #[test]
+    fn one_phone_counts_as_viewing_a_visualize_panel_exactly_when_node_counts_it() {
+        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let rows = golden["table"].as_array().unwrap();
+        assert_eq!(rows.len(), 320);
+        for row in rows {
+            let registry = Arc::new(DeviceRegistry::default());
+            let screen = ScreenSessions::new(registry.clone());
+            registry.connect_relay(1, "peer-a");
+            if row["channel"].as_bool().unwrap() {
+                registry.attach_peer("peer-a", "cred-a", "Pixel", "Chrome");
+            }
+            let mut params = json!({ "sessionIds": [], "foreground": !row["background"].as_bool().unwrap() });
+            if !row["panels"].is_null() {
+                params["visualizeSessionIds"] = row["panels"].clone();
+            }
+            screen.notify(Method(CHANGED), params, ConnectionId(1));
+            let session = row["sessionId"].as_str().unwrap().to_owned();
+            assert_eq!(viewed(&registry).contains(&session), row["views"].as_bool().unwrap(), "{row}");
+        }
+    }
+
+    /// The real Node relay handle after each call of two or three phones, a `client-close` and a lost leg: the sessions
+    /// `viewsSessionLane` said are viewed are the sessions the core publishes as `remoteViewing`.
+    #[test]
+    fn remote_viewing_follows_the_phones_calls_as_nodes_relay_does() {
+        let golden: Value = serde_json::from_str(GOLDEN).unwrap();
+        let steps = golden["scenarios"].as_array().unwrap();
+        assert_eq!(steps.len(), 19);
+        let registry = Arc::new(DeviceRegistry::default());
+        let screen = ScreenSessions::new(registry.clone());
+        let mut connections: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+        let mut next_connection = 0;
+        for step in steps {
+            let client = step["client"].as_str().unwrap_or_default();
+            let peer = format!("peer-{client}");
+            match step["op"].as_str().unwrap() {
+                "open" => {
+                    next_connection += 1;
+                    connections.insert(client.to_owned(), next_connection);
+                    registry.connect_relay(next_connection, &peer);
+                    registry.attach_peer(&peer, &format!("cred-{client}"), "Phone", "Chrome");
+                }
+                "panels" => {
+                    let params = json!({ "sessionIds": [], "visualizeSessionIds": step["ids"] });
+                    screen.notify(Method(CHANGED), params, ConnectionId(connections[client]));
+                }
+                "foreground" => {
+                    let params = json!({ "sessionIds": [], "foreground": step["visible"], "browserId": step["browserId"] });
+                    screen.notify(Method(CHANGED), params, ConnectionId(connections[client]));
+                }
+                "close" => {
+                    registry.detach_peer(&peer);
+                    registry.disconnect(connections.remove(client).unwrap());
+                }
+                "leg-lost" => {
+                    registry.detach_all_peers();
+                    for (_, connection) in connections.drain() {
+                        registry.disconnect(connection);
+                    }
+                }
+                other => panic!("unknown step {other}"),
+            }
+            let now = viewed(&registry);
+            for (session, views) in step["views"].as_object().unwrap() {
+                assert_eq!(now.contains(session), views.as_bool().unwrap(), "{session} after {step}");
+            }
+        }
     }
 
     #[test]

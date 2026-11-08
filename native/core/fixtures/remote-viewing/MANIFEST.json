@@ -1,0 +1,32 @@
+{
+  "command": "node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-remote-viewing.mjs --tree <git checkout of b6f10295a2f698afc85332467192de28500bd146 with node_modules>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 70501,
+      "path": "golden.json",
+      "sha256": "54da3a7f9517fc013a3d75fe4da07db1c2f34f4a78a2115ae80277884088ea25"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-remote-viewing.mjs",
+  "scenarios": 19,
+  "set": "remote-viewing",
+  "table": 320,
+  "totalBytes": 70501
+}

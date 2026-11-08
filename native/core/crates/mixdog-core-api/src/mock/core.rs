@@ -79,8 +79,18 @@ pub struct MockCore {
     media: MockHostMedia,
     lifecycle: watch::Sender<CoreState>,
     closed: Mutex<Vec<ConnectionId>>,
+    opened: Mutex<Vec<OpenedConnection>>,
     /// Requests admitted and not yet finished ([`CoreHandle::request_started`] guards alive).
     requests: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+/// One [`CoreHandle::connection_opened`] call the mock core recorded.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenedConnection {
+    pub connection: ConnectionId,
+    pub origin: mixdog_protocol::Origin,
+    pub device: String,
+    pub kind: mixdog_protocol::ConnectionKind,
 }
 
 /// One admitted request of the mock core: counted while it lives.
@@ -108,6 +118,7 @@ impl MockCore {
             media: MockHostMedia::default(),
             lifecycle: watch::Sender::new(CoreState::Serving),
             closed: Mutex::new(Vec::new()),
+            opened: Mutex::new(Vec::new()),
             requests: Arc::default(),
         }
     }
@@ -120,6 +131,11 @@ impl MockCore {
     /// The connections the server reported closed, in order (one entry per close).
     pub fn closed_connections(&self) -> Vec<ConnectionId> {
         lock(&self.closed).clone()
+    }
+
+    /// The connections the server reported initialized, in order.
+    pub fn opened_connections(&self) -> Vec<OpenedConnection> {
+        lock(&self.opened).clone()
     }
 
     pub fn directory(&self) -> &MockDirectory {
@@ -182,6 +198,16 @@ impl CoreHandle for MockCore {
 
     fn connection_closed(&self, connection: ConnectionId) {
         lock(&self.closed).push(connection);
+    }
+
+    fn connection_opened(
+        &self,
+        connection: ConnectionId,
+        origin: mixdog_protocol::Origin,
+        device: &str,
+        kind: mixdog_protocol::ConnectionKind,
+    ) {
+        lock(&self.opened).push(OpenedConnection { connection, origin, device: device.to_owned(), kind });
     }
 
     fn request_started(&self) -> crate::handle::RequestGuard {

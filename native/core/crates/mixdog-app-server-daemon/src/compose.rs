@@ -428,6 +428,16 @@ impl ComposedCore {
     pub fn local_dialer(&self) -> &Arc<crate::domain_seams::remote::LateDialer> {
         &self.real.local_dialer
     }
+
+    /// The remote access runtime and the one device registry, for `serving::attach` (opens the relay) and the connection hooks.
+    pub fn remote(&self) -> &crate::domain_seams::remote::BuiltRemote {
+        &self.real.remote
+    }
+
+    /// The core's one state publisher, for what the serving stage publishes itself (`hostState.remoteViewing`).
+    pub fn state_publisher(&self) -> &Arc<dyn mixdog_core_api::state::StatePublisher> {
+        &self.real.publisher
+    }
 }
 
 impl CoreHandle for ComposedCore {
@@ -461,6 +471,16 @@ impl CoreHandle for ComposedCore {
 
     fn connection_closed(&self, connection: mixdog_core_api::ids::ConnectionId) {
         self.real.connection_owners.connection_closed(connection, &self.log);
+    }
+
+    fn connection_opened(
+        &self,
+        connection: mixdog_core_api::ids::ConnectionId,
+        origin: mixdog_protocol::Origin,
+        device: &str,
+        kind: mixdog_protocol::ConnectionKind,
+    ) {
+        crate::domain_seams::remote::register_local(&self.real.remote.registry, connection, origin, device, kind);
     }
 
     fn request_started(&self) -> mixdog_core_api::handle::RequestGuard {

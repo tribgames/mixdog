@@ -78,7 +78,7 @@ impl ConnectionOwners {
     }
 
     #[cfg(test)]
-    fn of(owners: Vec<Arc<dyn ConnectionOwner>>) -> Self {
+    pub(crate) fn of(owners: Vec<Arc<dyn ConnectionOwner>>) -> Self {
         Self { owners }
     }
 }

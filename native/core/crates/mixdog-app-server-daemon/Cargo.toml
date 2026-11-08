@@ -80,4 +80,6 @@ windows-sys = { workspace = true, features = [
 
 [dev-dependencies]
 tempfile = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util", "net"] }
+# The scripted relay of `domain_seams/remote/e2e.rs` (shared with mixdog-remote's integration tests).
+tokio-tungstenite = { workspace = true, features = ["handshake"] }

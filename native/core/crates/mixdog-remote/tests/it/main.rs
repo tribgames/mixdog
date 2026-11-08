@@ -8,6 +8,7 @@ mod legacy_push;
 mod lr9_origin;
 mod native_push_kat;
 mod relay_interop;
+mod relay_redial;
 mod remote_modules;
 mod transport_vectors;
 mod web_push_kat;

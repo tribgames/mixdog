@@ -233,6 +233,16 @@ impl CoreHandle for TestCore {
         self.mock.connection_closed(connection);
     }
 
+    fn connection_opened(
+        &self,
+        connection: mixdog_core_api::ids::ConnectionId,
+        origin: mixdog_protocol::Origin,
+        device: &str,
+        kind: mixdog_protocol::ConnectionKind,
+    ) {
+        self.mock.connection_opened(connection, origin, device, kind);
+    }
+
     fn request_started(&self) -> mixdog_core_api::handle::RequestGuard {
         self.mock.request_started()
     }

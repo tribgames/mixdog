@@ -94,6 +94,8 @@ pub struct Real {
     pub connection_owners: crate::connection_close::ConnectionOwnersCell,
     /// The dialer for a phone served by this core: `serving::start` binds it once the connection hub exists (it is verified there, before the listener accepts).
     pub local_dialer: Arc<crate::domain_seams::remote::LateDialer>,
+    /// The remote access runtime and the one device registry: `serving::attach` opens the relay with them, and `CoreHandle::connection_opened` records local clients in the registry.
+    pub remote: crate::domain_seams::remote::BuiltRemote,
     /// Ends the idle-time maintenance schedule (cancelled by the first stop step; awaiting `maintenance_loop` is the end of the schedule).
     pub maintenance_stop: tokio_util::sync::CancellationToken,
     /// Taken once by the stop step: awaiting it is the end of the schedule (it admits no further task after the cancel and ends the in-flight tick within its grace).
@@ -2276,15 +2278,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         Arc::new(mixdog_workspace::transfer::SystemClock),
         Arc::new(CatalogSessions(Arc::new(catalog_index.clone()))),
     ));
-    workspace.set_phone_grants(
-        phone_grants.clone(),
-        {
-            let registry = built_remote.registry.clone();
-            Arc::new(move |connection: mixdog_core_api::ids::ConnectionId| {
-                registry.describe(connection.0).map(|described| described.credential).filter(|credential| !credential.is_empty())
-            })
-        },
-    );
+    workspace.set_phone_grants(phone_grants.clone(), crate::domain_seams::remote::phone_credential(built_remote.registry.clone()));
     builder.register(workspace.clone() as Arc<dyn mixdog_core_api::service::DomainService>)?;
     builder.register(Arc::new(mixdog_exthost::DocumentService::new(b.ext_host.clone(), b.user_data_dir.to_string_lossy().into_owned())))?;
     builder.register(secret.service.clone())?; // `approval/provideSecret`: the same `SecretSlots` as `SecretFill`
@@ -2791,7 +2785,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .bind(crate::connection_close::ConnectionOwners::new(terminal.clone(), screen.clone(), workspace.clone(), composed.system.clone(), built_remote.registry.clone()))
         .map_err(|_| ComposeError::AlreadyBound("connection owners"))?;
     crate::compose::verify_bound(&[&*late_new_place, &connection_owners, &*late_agent_status, &*late_turn_admission, &*room_approvals, &*late, &crate::late_session::LateReadinessHook(readiness.clone()), &*late_room_summaries, &*late_computer_hosts, &*late_dispatcher, &*late_catalog, &*late_skills, &*project_workspaces, &*bot_summaries, &*late_reactions, &*late_agent_port,&*late_cycle_llm, &*route_positions, &*live_route, &*agent_channels, &*chat_routes, &*routine_sessions, &mixdog_core::run_host::late_chats::LateAgentChats(late.clone()), &*late_setup_ui, &*late_workspaces, &*path.turn_settings, &*late_new_route, &*late_pending_route, &*late_route_session, &*extension_host, &crate::late_session::LateCallerSessions(late.clone()), &mixdog_core::run_host::compose_parts::LateHeaders(late.clone()), &mixdog_core::run_host::compose_parts::HookCommonCell(late.clone()), &crate::late_session::LateMediaProbe(provider_layer.clone()), &*setup_warmup, &crate::setup_host::ModelWarmupCell(model_warmup.clone()), &crate::setup_host::StatuslineWarmupCell(statusline_warmup.clone()), &*b.thread_gates, &*agent_evidence, &*session_facts, &*held_home, &*live_route, &*tool_surface])?;
-    Ok(Real { control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), directory, agent_dispatch, agent_host, code_graph_cache, maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default() })
+    Ok(Real { control_route_sync, late_lifecycle, connection_owners, local_dialer: late_dialer.clone(), remote: built_remote, directory, agent_dispatch, agent_host, code_graph_cache, maintenance_io: b.tokens.maintenance_io, domains, config, close_requested, resume_timer, goal_recovery, worktree_stop, maintenance_stop, worktree_task, maintenance_loop: std::sync::Mutex::new(maintenance_loop), ledgers: ledger_source, computer: computer_pool, terminal, room_host: room_host_registration, channels: channel_runtime, memory, log: b.log.clone(), publisher: state.publisher.clone(), gateway_routes: gateway_settle, model_proxy, event_pipeline, catalog_index: catalog_handle, heartbeat, heartbeat_run: Arc::default() })
 }
 
 /// `promptConfigSlice(config)` (`prompt-settings.mjs:36`) over the whole in-memory config: `??` falls through on `null`/absent only.

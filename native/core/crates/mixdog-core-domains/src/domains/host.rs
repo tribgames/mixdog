@@ -42,11 +42,12 @@ use mixdog_core_base::support::invalid;
 use mixdog_core_base::support::wrong_method;
 use mixdog_core_base::state::change_of;
 
-/// `hostState` key `remoteViewing`: the sessions a paired device shows, which Node answered per
-/// call as `visualizeRemoteViewing` (`viewsSessionLane`). The core owns the fact, so it publishes
-/// it and the desktop reads membership instead of asking.
+/// `hostState` key `remoteViewing`: the sessions a paired device views as a visualize panel,
+/// which Node answered per call as `visualizeRemoteViewing` (`viewsSessionLane`, rule in
+/// [`DeviceRegistry::visualize_viewed_sessions`]). The core owns the fact, so it publishes it
+/// and the desktop reads membership instead of asking.
 pub fn remote_viewing_value(registry: &DeviceRegistry) -> Value {
-    json!({ "sessionIds": registry.shown_sessions() })
+    json!({ "sessionIds": registry.visualize_viewed_sessions() })
 }
 
 /// Publishes [`remote_viewing_value`] now and after each change of who is attached or what is

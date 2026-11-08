@@ -747,6 +747,14 @@ pub struct UiTerminalRunClaimedParams {
 /// subscription is keyed by (Node's `setForeground(visible, browserId)`): at most 64 UTF-16
 /// units, kept until the phone states another, and ignored on every connection that is not a
 /// relay connection.
+///
+/// On a relay connection two more optional fields carry what Node's phone sent as `setForeground`
+/// and `setVisualizePanels`: `foreground` (false = the app is backgrounded; a connection starts in
+/// the foreground) and `visualizeSessionIds` (the sessions whose visualize panel the page shows;
+/// none until stated). Each is kept until the phone states another, and ignored on every
+/// connection that is not a relay connection. A paired phone counts as viewing a session's
+/// visualize panel (`hostState` key `remoteViewing`) only while attached, in the foreground and
+/// with that session in `visualizeSessionIds` (Node's `clientViewsSessionLane`).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(rename_all = "camelCase")]
@@ -755,6 +763,10 @@ pub struct UiScreenSessionsChangedParams {
     pub session_ids: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub browser_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visualize_session_ids: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub foreground: Option<bool>,
 }
 
 /// Notification `core/drain` (`lifecycle-remote.md` §5.1 step 2): the core is draining; sent to

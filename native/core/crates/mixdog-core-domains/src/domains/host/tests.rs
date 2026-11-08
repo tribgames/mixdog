@@ -75,14 +75,21 @@ fn set(change: &SectionChange) -> Value {
 }
 
 #[test]
-fn remote_viewing_lists_the_sessions_paired_devices_show() {
+fn remote_viewing_lists_the_visualize_panels_paired_devices_view() {
     let registry = DeviceRegistry::default();
     registry.connect_local(1, "desk", mixdog_remote::registry::LocalKind::Desktop);
     registry.connect_relay(2, "peer-a");
+    let panels = ["b".to_owned(), "a".to_owned()];
+    let report = |panels| mixdog_remote::registry::ScreenReport {
+        sessions: ["screen".to_owned()].into_iter().collect(),
+        browser_id: None,
+        visualize: Some(panels),
+        foreground: None,
+    };
+    registry.report_screen(2, report(&panels));
     assert_eq!(remote_viewing_value(&registry), json!({ "sessionIds": [] }), "a peer that is not paired shows nothing");
     registry.attach_peer("peer-a", "cred-a", "Pixel", "Safari");
-    registry.report_screen(2, ["b".to_owned(), "a".to_owned()].into_iter().collect(), None);
-    assert_eq!(remote_viewing_value(&registry), json!({ "sessionIds": ["a", "b"] }));
+    assert_eq!(remote_viewing_value(&registry), json!({ "sessionIds": ["a", "b"] }), "the screen set is not the panel set");
     registry.disconnect(2);
     assert_eq!(remote_viewing_value(&registry), json!({ "sessionIds": [] }));
 }

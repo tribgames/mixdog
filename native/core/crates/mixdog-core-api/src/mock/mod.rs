@@ -31,6 +31,7 @@ use crate::ids::FeedEpoch;
 pub use self::core::ControlCall;
 pub use self::core::Handler;
 pub use self::core::MockCore;
+pub use self::core::OpenedConnection;
 pub use self::core::MockDirectory;
 pub use self::core::MockDomain;
 pub use self::core::MockHostChannel;
