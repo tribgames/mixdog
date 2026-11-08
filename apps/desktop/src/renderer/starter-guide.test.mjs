@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
 import { JSDOM } from 'jsdom';
+import { toolModulesSource } from './test-support/test-dom.mjs';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'https://mixdog.test/',
@@ -30,6 +31,14 @@ async function settle() {
 }
 
 const FRESH = { closed: false, welcomed: false, visited: [] };
+
+/** The provider setup and the project list reach the guide as the core's pushed sections, not capability reads. */
+function referenceSections(providerSetup, projects) {
+  const core = toolModulesSource();
+  core.publishSection('providerSetup', providerSetup);
+  core.publishSection('projects', projects);
+  return core.sections;
+}
 
 async function mount(
   t,
@@ -63,12 +72,9 @@ async function mount(
         return { value: { completed, starterGuide: disk } };
       }
       if (capability === 'getLeadStatus') return { value: { created: mixy } };
-      return {
-        value:
-          capability === 'getProviderSetup' ? { api: [], oauth: [{ id: 'openai', authenticated: connected }] } : {},
-      };
+      return { value: {} };
     },
-    listProjects: async () => projects,
+    sections: referenceSections({ api: [], oauth: [{ id: 'openai', authenticated: connected }] }, projects),
   };
   const opened = { views: [], settings: [], settingsClosed: 0, saved };
   const container = document.createElement('div');
@@ -719,9 +725,9 @@ test('nothing shows until the config copy has been read', async (t) => {
           release = () => resolve({ value: { starterGuide: { closed: true, welcomed: true, visited: [] } } });
         });
       }
-      return Promise.resolve({ value: capability === 'getProviderSetup' ? { api: [], oauth: [] } : {} });
+      return Promise.resolve({ value: {} });
     },
-    listProjects: async () => [],
+    sections: referenceSections({ api: [], oauth: [] }, []),
   };
   const container = document.createElement('div');
   document.body.append(container);

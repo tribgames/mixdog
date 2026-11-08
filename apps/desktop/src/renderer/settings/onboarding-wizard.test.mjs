@@ -205,15 +205,8 @@ test('providers explain the supported local-model installation path', async (t) 
 });
 
 test('a finished GitHub sign-in shows the account at once instead of offering Sign in again', async (t) => {
-  const intervals = [];
-  const original = window.setInterval;
-  window.setInterval = (callback) => {
-    intervals.push(callback);
-    return 0;
-  };
-  t.after(() => {
-    window.setInterval = original;
-  });
+  // The flow's progress is pushed on the core's login feed, not polled.
+  const loginFeed = new Set();
   let statusCalls = 0;
   const account = { login: 'tester', name: 'Test User', email: 'test@example.com' };
   await mount(t, {
@@ -223,7 +216,12 @@ test('a finished GitHub sign-in shows the account at once instead of offering Si
     githubCliStatus: () =>
       ++statusCalls === 1 ? Promise.resolve({ installed: true, authenticated: false }) : new Promise(() => {}),
     githubCliLoginStart: async () => ({ flowId: 'f1', state: 'code', code: 'ABCD-1234' }),
-    githubCliLoginStatus: async () => ({ flowId: 'f1', state: 'success', login: 'tester' }),
+    sections: {
+      subscribeLoginUpdated: (listener) => {
+        loginFeed.add(listener);
+        return () => void loginFeed.delete(listener);
+      },
+    },
     githubCliAccount: async () => account,
     gitGlobalConfig: async () => ({ name: account.name, email: account.email, defaultBranch: '' }),
     setGitGlobalConfig: async () => ({ name: account.name, email: account.email, defaultBranch: '' }),
@@ -231,7 +229,9 @@ test('a finished GitHub sign-in shows the account at once instead of offering Si
   await click(button('Sign in with GitHub'));
   assert.match(document.body.textContent, /ABCD-1234/);
   await act(async () => {
-    intervals.at(-1)();
+    for (const listener of [...loginFeed]) {
+      listener({ flowId: 'f1', state: { flowId: 'f1', state: 'success', login: 'tester' } });
+    }
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   assert.ok(

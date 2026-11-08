@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
-import { installTestDom } from './test-support/test-dom.mjs';
+import { installTestDom, toolModulesSource } from './test-support/test-dom.mjs';
 
 const { dom } = installTestDom(null, {
   html: '<!doctype html><html><body></body></html>',
@@ -308,7 +308,15 @@ test('the greeting kickoff is a hidden runtime turn that never previews or title
 test('creating from the dialog greets once and opens the home thread', async (t) => {
   const render = harness(t);
   const calls = [];
+  // The agent, workflow and web-search reference sets are pushed sections, not capability reads: the mutation's
+  // refresh waits for each one the core has not published.
+  const core = toolModulesSource();
+  core.publishSection('agents', []);
+  core.publishSection('workflows', []);
+  core.publishSection('webSearch', {});
+  core.publishSection('providerSetup', null);
   dom.window.mixdogDesktop = {
+    sections: core.sections,
     invokeCapability: async ({ capability, args }) => {
       calls.push(['capability', capability]);
       // A dialog-made agent is a bot: the explicit marker, never "unmarked = bot".

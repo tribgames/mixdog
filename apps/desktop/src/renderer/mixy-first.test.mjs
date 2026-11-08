@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import test, { after, mock } from 'node:test';
 import React, { act } from 'react';
-import { installTestDom } from './test-support/test-dom.mjs';
+import { installTestDom, toolModulesSource } from './test-support/test-dom.mjs';
 
 const { restore: restoreBootstrapDom } = installTestDom(null);
 after(restoreBootstrapDom);
@@ -74,9 +74,16 @@ function mount(t, { created, name = '', failedStatusReads = 0 }) {
   let lead = { name, avatar: null };
   let statusFailures = failedStatusReads;
   const status = () => ({ value: { created: mixyCreated, ...lead } });
+  // The agent pool and the agent, workflow, web-search and provider-setup reference sets are pushed sections: a
+  // mutation's refresh waits for each one the core has not published.
+  const core = toolModulesSource();
+  core.publishSection('agentPool', []);
+  core.publishSection('agents', AGENTS);
+  core.publishSection('workflows', []);
+  core.publishSection('webSearch', {});
+  core.publishSection('providerSetup', null);
   dom.window.mixdogDesktop = {
-    listAgentPool: async () => [],
-    subscribeAgentPool: () => () => {},
+    sections: core.sections,
     listProviderModels: async () => MODELS,
     listProjects: async () => [{ path: 'C:/work' }, { path: 'C:/docs' }],
     invokeCapability: async ({ capability, args }) => {
