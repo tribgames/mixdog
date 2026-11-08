@@ -41,6 +41,9 @@ pub struct RunOptions {
     /// Variables set on top of the pinned environment (a commit identity).
     pub extra_env: Vec<(String, String)>,
     pub read_limit: bool,
+    /// The child is tree-killed and the run answers `TimedOut` after this long; it wins over
+    /// `read_limit`'s.
+    pub time_limit: Option<Duration>,
     pub input: Option<Vec<u8>>,
     pub max_output: Option<u64>,
 }
@@ -109,7 +112,7 @@ impl Git {
             ));
         }
         spec.stdin = options.input.clone();
-        spec.time_limit = options.read_limit.then_some(GIT_READ_LIMIT);
+        spec.time_limit = options.time_limit.or(options.read_limit.then_some(GIT_READ_LIMIT));
         spec.max_output = options.max_output.unwrap_or(RUN_MAX_BYTES);
         let mut output = self.exec.run(spec, cancel).await?;
         output.stderr = scrub_credentials(&output.stderr_text()).into_bytes();

@@ -12,6 +12,8 @@ use super::patch::clean;
 use super::patch::obj_str;
 use super::patch::safe_change_path;
 use super::patch::split_patch_sections;
+use super::ports::APPLY_TIMEOUT;
+use super::ports::GitOptions;
 use super::ports::ReviewDisk;
 use super::ports::ReviewGit;
 use super::review_diff::Obj;
@@ -27,7 +29,7 @@ pub struct ReplayRoot<'a> {
 /// own, or sha1 outside any repository.
 pub async fn repository_object_format(git: &dyn ReviewGit, root: &str) -> &'static str {
     let args = vec!["rev-parse".to_owned(), "--show-object-format".to_owned()];
-    match git.run(root, &args, Vec::new()).await {
+    match git.run_with(root, &args, Vec::new(), &GitOptions::timeout(APPLY_TIMEOUT)).await {
         Ok(result) if result.code == 0 && clean(&String::from_utf8_lossy(&result.stdout)) == "sha256" => "sha256",
         _ => "sha1",
     }
@@ -96,7 +98,7 @@ async fn assert_recorded_root(disk: &dyn ReviewDisk, git: &dyn ReviewGit, record
         return Ok(root.to_owned());
     }
     let args = vec!["rev-parse".to_owned(), "--show-toplevel".to_owned()];
-    let result = git.run(root, &args, Vec::new()).await.map_err(ReviewError::new)?;
+    let result = git.run_with(root, &args, Vec::new(), &GitOptions::timeout(APPLY_TIMEOUT)).await.map_err(ReviewError::new)?;
     let top = clean(&String::from_utf8_lossy(&result.stdout)).to_owned();
     if result.code != 0 || top.is_empty() || change_path_key(&nodepath::resolve_host(&[&top])) != change_path_key(&nodepath::resolve_host(&[root])) {
         return Err(ReviewError::new(format!("recorded root {root} is no longer the repository top level")));
@@ -151,7 +153,7 @@ pub async fn apply_turn_change_files(
         args.push("-R".into());
     }
     args.extend(["--whitespace=nowarn", "-"].map(String::from));
-    let result = git.run(&root, &args, input).await.map_err(ReviewError::new)?;
+    let result = git.run_with(&root, &args, input, &GitOptions::timeout(APPLY_TIMEOUT)).await.map_err(ReviewError::new)?;
     if result.code != 0 {
         let stderr = String::from_utf8_lossy(&result.stderr).into_owned();
         let stdout = String::from_utf8_lossy(&result.stdout).into_owned();

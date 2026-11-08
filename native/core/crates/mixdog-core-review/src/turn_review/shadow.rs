@@ -35,6 +35,7 @@ use sha2::Sha256;
 use super::nodepath;
 use super::patch::clean;
 use super::patch::split_patch_sections;
+use super::ports::GC_TIMEOUT;
 use super::ports::GitOptions;
 use super::ports::GitRun;
 use super::ports::OUTPUT_OVERFLOW;
@@ -789,7 +790,7 @@ impl Root {
     }
 
     async fn apply_in_index(&self, tree: &str, entries: &[ToolEntry], files: &mut Vec<Value>, index: Option<&Path>) -> R<String> {
-        let options = GitOptions { index_file: index.map(Path::to_path_buf), max_bytes: None };
+        let options = GitOptions { index_file: index.map(Path::to_path_buf), ..GitOptions::default() };
         let run = |args: Vec<&str>, input: Vec<u8>| {
             let args = self.shadow_args(&args, None);
             let options = options.clone();
@@ -830,7 +831,7 @@ impl Root {
     async fn patch_sections_by_path(&self, baseline: &str, current: &str, pathspec: &[String], max_bytes: usize) -> R<Option<IndexMap<String, Vec<u8>>>> {
         let mut args = vec!["diff", "--no-ext-diff", "--unified=3", "--find-renames", baseline, current, "--"];
         args.extend(pathspec.iter().map(String::as_str));
-        let options = GitOptions { index_file: None, max_bytes: Some(max_bytes as u64 + PATCH_OUTPUT_SLACK_BYTES) };
+        let options = GitOptions { max_bytes: Some(max_bytes as u64 + PATCH_OUTPUT_SLACK_BYTES), ..GitOptions::default() };
         match self.run_args(self.shadow_args(&args, None)?, Vec::new(), &options, false).await {
             Ok(out) => Ok(Some(sections_by_path(&String::from_utf8_lossy(&out.stdout)))),
             Err(e) if e == OUTPUT_OVERFLOW => Ok(None),
@@ -842,7 +843,7 @@ impl Root {
     async fn combined_tree_diff(&self, range: &[String]) -> R<Option<Combined>> {
         let mut args = vec!["diff", "--raw", "--numstat", "--patch", "--no-ext-diff", "--unified=3", "-z"];
         args.extend(range.iter().map(String::as_str));
-        let options = GitOptions { index_file: None, max_bytes: Some(COMMAND_MAX_BYTES + PATCH_OUTPUT_SLACK_BYTES) };
+        let options = GitOptions { max_bytes: Some(COMMAND_MAX_BYTES + PATCH_OUTPUT_SLACK_BYTES), ..GitOptions::default() };
         let out = match self.run_args(self.shadow_args(&args, None)?, Vec::new(), &options, true).await {
             Ok(out) => out,
             Err(e) if e == OUTPUT_OVERFLOW => return Ok(None),
@@ -1021,7 +1022,7 @@ impl Root {
             // Outside the state lock: collection can run for minutes and git serializes itself
             // through gc.lock. `forget_root` waits for this before deleting the repository.
             if let Ok(args) = root.shadow_args(&["gc", "--auto", &format!("--prune={SHADOW_GC_PRUNE}"), "--quiet"], None) {
-                let _ = root.run_args(args, Vec::new(), &GitOptions::default(), true).await;
+                let _ = root.run_args(args, Vec::new(), &GitOptions::timeout(GC_TIMEOUT), true).await;
             }
         });
         *self.gc.lock().unwrap_or_else(|e| e.into_inner()) = Some(Gc { started, task });
