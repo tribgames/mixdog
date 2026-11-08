@@ -1,0 +1,226 @@
+{
+  "domain": "set-extension-scope-sessions",
+  "recorder": "benchmarks/rust-core/recorders/record-set-extension-scope-sessions.mjs",
+  "sessions": {
+    "one": {
+      "folder": "<BASE>\\one",
+      "request": {
+        "kind": "skills",
+        "name": "deploy",
+        "projects": [
+          "<BASE>\\one"
+        ]
+      },
+      "status": {
+        "cwd": "<BASE>\\one",
+        "count": 2,
+        "tools": [],
+        "skills": [
+          {
+            "name": "deploy",
+            "enabled": true,
+            "description": "Use when deploying.",
+            "whenToUse": "",
+            "filePath": "<SANDBOX>\\mixdog_data_dir\\skills\\deploy\\SKILL.md",
+            "source": "global",
+            "owner": {
+              "kind": "user"
+            },
+            "editable": true,
+            "toolDependencies": [],
+            "declaredToolDependencies": [],
+            "dependencySource": "none",
+            "dependencyIssues": []
+          },
+          {
+            "name": "review",
+            "enabled": true,
+            "description": "Use when reviewing.",
+            "whenToUse": "",
+            "filePath": "<SANDBOX>\\mixdog_data_dir\\skills\\review\\SKILL.md",
+            "source": "global",
+            "owner": {
+              "kind": "user"
+            },
+            "editable": true,
+            "toolDependencies": [],
+            "declaredToolDependencies": [],
+            "dependencySource": "none",
+            "dependencyIssues": []
+          }
+        ]
+      },
+      "saved": [
+        {
+          "theme": "dark",
+          "extensionScopes": {
+            "skills": {
+              "deploy": [
+                "<BASE>\\one"
+              ]
+            },
+            "mcp": {},
+            "plugins": {}
+          }
+        }
+      ],
+      "reply": {
+        "cwd": "<BASE>\\one",
+        "count": 2,
+        "tools": [],
+        "skills": [
+          {
+            "name": "deploy",
+            "enabled": true,
+            "description": "Use when deploying.",
+            "whenToUse": "",
+            "filePath": "<SANDBOX>\\mixdog_data_dir\\skills\\deploy\\SKILL.md",
+            "source": "global",
+            "owner": {
+              "kind": "user"
+            },
+            "editable": true,
+            "toolDependencies": [],
+            "declaredToolDependencies": [],
+            "dependencySource": "none",
+            "dependencyIssues": [],
+            "scope": [
+              "<BASE>\\one"
+            ],
+            "inheritedScope": null,
+            "activeHere": true
+          },
+          {
+            "name": "review",
+            "enabled": true,
+            "description": "Use when reviewing.",
+            "whenToUse": "",
+            "filePath": "<SANDBOX>\\mixdog_data_dir\\skills\\review\\SKILL.md",
+            "source": "global",
+            "owner": {
+              "kind": "user"
+            },
+            "editable": true,
+            "toolDependencies": [],
+            "declaredToolDependencies": [],
+            "dependencySource": "none",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          }
+        ]
+      }
+    },
+    "two": {
+      "folder": "<BASE>\\two",
+      "request": {
+        "kind": "skills",
+        "name": "deploy",
+        "projects": [
+          "<BASE>\\one"
+        ]
+      },
+      "status": {
+        "cwd": "<BASE>\\two",
+        "count": 2,
+        "tools": [],
+        "skills": [
+          {
+            "name": "deploy",
+            "enabled": true,
+            "description": "Use when deploying.",
+            "whenToUse": "",
+            "filePath": "<SANDBOX>\\mixdog_data_dir\\skills\\deploy\\SKILL.md",
+            "source": "global",
+            "owner": {
+              "kind": "user"
+            },
+            "editable": true,
+            "toolDependencies": [],
+            "declaredToolDependencies": [],
+            "dependencySource": "none",
+            "dependencyIssues": []
+          },
+          {
+            "name": "review",
+            "enabled": true,
+            "description": "Use when reviewing.",
+            "whenToUse": "",
+            "filePath": "<SANDBOX>\\mixdog_data_dir\\skills\\review\\SKILL.md",
+            "source": "global",
+            "owner": {
+              "kind": "user"
+            },
+            "editable": true,
+            "toolDependencies": [],
+            "declaredToolDependencies": [],
+            "dependencySource": "none",
+            "dependencyIssues": []
+          }
+        ]
+      },
+      "saved": [
+        {
+          "theme": "dark",
+          "extensionScopes": {
+            "skills": {
+              "deploy": [
+                "<BASE>\\one"
+              ]
+            },
+            "mcp": {},
+            "plugins": {}
+          }
+        }
+      ],
+      "reply": {
+        "cwd": "<BASE>\\two",
+        "count": 2,
+        "tools": [],
+        "skills": [
+          {
+            "name": "deploy",
+            "enabled": true,
+            "description": "Use when deploying.",
+            "whenToUse": "",
+            "filePath": "<SANDBOX>\\mixdog_data_dir\\skills\\deploy\\SKILL.md",
+            "source": "global",
+            "owner": {
+              "kind": "user"
+            },
+            "editable": true,
+            "toolDependencies": [],
+            "declaredToolDependencies": [],
+            "dependencySource": "none",
+            "dependencyIssues": [],
+            "scope": [
+              "<BASE>\\one"
+            ],
+            "inheritedScope": null,
+            "activeHere": false
+          },
+          {
+            "name": "review",
+            "enabled": true,
+            "description": "Use when reviewing.",
+            "whenToUse": "",
+            "filePath": "<SANDBOX>\\mixdog_data_dir\\skills\\review\\SKILL.md",
+            "source": "global",
+            "owner": {
+              "kind": "user"
+            },
+            "editable": true,
+            "toolDependencies": [],
+            "declaredToolDependencies": [],
+            "dependencySource": "none",
+            "dependencyIssues": [],
+            "scope": null,
+            "inheritedScope": null,
+            "activeHere": true
+          }
+        ]
+      }
+    }
+  }
+}

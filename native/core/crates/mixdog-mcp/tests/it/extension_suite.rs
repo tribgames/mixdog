@@ -68,6 +68,8 @@ struct Host {
     cwd: PathBuf,
     /// The folder of each session (thread id); any other caller works in `cwd`.
     threads: Vec<(&'static str, PathBuf)>,
+    /// The skills status each session's folder read (thread id, status).
+    statuses: Vec<(&'static str, Value)>,
 }
 
 impl Host {
@@ -138,14 +140,13 @@ impl ExtensionHost for Host {
         Ok(Value::Object(Map::new()))
     }
 
-    /// Reads the asking session's own folder, as Node's `skillsStatus()` does; the golden steps ask
-    /// without a session and get no `cwd`.
+    /// What Node's `skillsStatus()` read in the asking session's own folder (recorded per session);
+    /// the golden steps ask without a session and get this fixed list.
     async fn skills_status(&self, thread: Option<&str>) -> Value {
-        let mut status = json!({"skills": [{"name": "deploy", "owner": {"kind": "plugin", "id": "x"}}, {"name": "other"}]});
-        if thread.is_some() {
-            status["cwd"] = json!(self.cwd_of(thread));
+        match thread.and_then(|id| self.statuses.iter().find(|(known, _)| *known == id)) {
+            Some((_, status)) => status.clone(),
+            None => json!({"skills": [{"name": "deploy", "owner": {"kind": "plugin", "id": "x"}}, {"name": "other"}]}),
         }
-        status
     }
 }
 
@@ -177,7 +178,7 @@ async fn every_plugin_method_answers_saves_and_triggers_what_node_does() {
     let initial: Value = serde_json::from_str(&golden["initialConfig"].to_string().replace("<BASE>", &escaped[1..escaped.len() - 1])).unwrap();
     let log: Log = Arc::default();
     let config = Arc::new(Config { agent: Mutex::new(initial.as_object().unwrap().clone()), saves: Mutex::default(), log: Arc::clone(&log) });
-    let host = Arc::new(Host { log: Arc::clone(&log), cwd: Path::new(&base).join("proj1").join("sub"), threads: Vec::new() });
+    let host = Arc::new(Host { log: Arc::clone(&log), cwd: Path::new(&base).join("proj1").join("sub"), threads: Vec::new(), statuses: Vec::new() });
     let admin = Arc::new(PluginAdmin::new(Path::new(&base).join("data"), Arc::new(NoGit), Arc::new(|| {})));
     let service = PluginsService::new(
         admin,
@@ -209,29 +210,39 @@ async fn every_plugin_method_answers_saves_and_triggers_what_node_does() {
     }
 }
 
-/// `setExtensionScope` answers the skills of the asking session's own folder (Node's `skillsStatus()`
-/// reads the session's cwd), not the runtime's.
+/// Two sessions working in different folders ask Node's `setExtensionScope` for the same Skill scope
+/// (`record-set-extension-scope-sessions.mjs`): each reply is the skills read in that session's own
+/// folder, decided `activeHere` for it. The host answers each session with the status Node read.
 #[tokio::test(flavor = "multi_thread")]
-async fn set_extension_scope_answers_the_skills_of_the_asking_sessions_folder() {
+async fn set_extension_scope_answers_each_sessions_own_folder_as_node_does() {
     let scratch = tempfile::tempdir().unwrap();
-    let base = scratch.path().to_path_buf();
+    let base = scratch.path().to_string_lossy().into_owned();
+    let escaped = serde_json::to_string(&base).unwrap();
+    let golden: Value =
+        serde_json::from_str(&include_str!("../../../../fixtures/set-extension-scope-sessions/golden.json").replace("<BASE>", &escaped[1..escaped.len() - 1])).unwrap();
+    let recorded = golden["sessions"].as_object().unwrap();
+    let mut threads = Vec::new();
+    let mut statuses = Vec::new();
+    for (id, session) in recorded {
+        let id: &'static str = Box::leak(id.clone().into_boxed_str());
+        let folder = PathBuf::from(session["folder"].as_str().unwrap());
+        std::fs::create_dir_all(&folder).unwrap();
+        threads.push((id, folder));
+        statuses.push((id, session["status"].clone()));
+    }
     let log: Log = Arc::default();
-    let config = Arc::new(Config { agent: Mutex::default(), saves: Mutex::default(), log: Arc::clone(&log) });
-    let host = Arc::new(Host {
-        log,
-        cwd: base.join("runtime"),
-        threads: vec![("t-one", base.join("one")), ("t-two", base.join("two"))],
-    });
-    let admin = Arc::new(PluginAdmin::new(base.join("data"), Arc::new(NoGit), Arc::new(|| {})));
-    let service = PluginsService::new(admin, Arc::new(DeclarationCache::new()), config, host, mixdog_rt::testing::tokens().maintenance_io);
-    for (thread, folder) in [("t-one", "one"), ("t-two", "two")] {
-        let request = CoreRequest {
-            method: Method("config/setExtensionScope"),
-            params: json!({"kind": "skills", "name": "deploy", "threadId": thread}),
-            op: None,
-            ctx: CallContext::internal("test"),
-        };
-        let Ok(Reply::Value(answer)) = service.call(request).await else { panic!("{thread}: setExtensionScope failed") };
-        assert_eq!(answer["cwd"], json!(base.join(folder)), "{thread}: the folder the skills were read in");
+    let config = Arc::new(Config { agent: Mutex::new(json!({"theme": "dark"}).as_object().unwrap().clone()), saves: Mutex::default(), log: Arc::clone(&log) });
+    let host = Arc::new(Host { log, cwd: PathBuf::from(&base).join("runtime"), threads, statuses });
+    let admin = Arc::new(PluginAdmin::new(Path::new(&base).join("data"), Arc::new(NoGit), Arc::new(|| {})));
+    let service = PluginsService::new(admin, Arc::new(DeclarationCache::new()), config.clone(), host, mixdog_rt::testing::tokens().maintenance_io);
+    for (id, session) in recorded {
+        config.saves.lock().unwrap().clear();
+        let mut params = session["request"].clone();
+        params["threadId"] = json!(id);
+        let request = CoreRequest { method: Method("config/setExtensionScope"), params, op: None, ctx: CallContext::internal("test") };
+        let Ok(Reply::Value(answer)) = service.call(request).await else { panic!("{id}: setExtensionScope failed") };
+        assert_eq!(answer, session["reply"], "{id}: the reply");
+        assert_eq!(Value::Array(config.saves.lock().unwrap().clone()), session["saved"], "{id}: the saved config");
     }
 }
+
