@@ -208,6 +208,8 @@ pub struct WindowDivider {
 pub struct OpenedLog {
     /// Folded header at the checkpoint.
     pub header: Header,
+    /// The `session` record's `control`: the desktop's control session.
+    pub control: bool,
     pub history_rev: u64,
     /// Ordinal of the first history row of the lineage (the target of `thread/clear`).
     pub lineage_start: u64,

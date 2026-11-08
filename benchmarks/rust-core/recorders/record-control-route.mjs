@@ -41,16 +41,26 @@ const scenarios = [
     live: { ...EMPTY, provider: 'custom-harness', model: 'harness-model' },
     meta: bare,
   },
+  // The control session is created while the config resolves no model, and the model arrives with a later adoption
+  // (adoptions: the configs adopted in order, the last is `config`). `syncEmptyMainRoute` runs at every adoption, so the
+  // route takes the first model a config brings and keeps it when a later config names another.
+  { label: 'a model that arrives with a later config adoption, a custom model without fast support', adoptions: [{}, lead('custom-harness', 'harness-model')], live: EMPTY, meta: bare },
+  { label: 'a model that arrives with a later config adoption, a model with fast support', adoptions: [{}, lead('openai', 'gpt-5')], live: EMPTY, meta: fastMeta },
+  { label: 'a model A, then a model B: the route keeps A', adoptions: [{}, lead('openai', 'gpt-5'), lead('custom-harness', 'harness-model')], live: EMPTY, meta: fastMeta },
+  { label: 'a model A, then a model B: the route keeps A (custom first)', adoptions: [{}, lead('custom-harness', 'harness-model'), lead('openai', 'gpt-5')], live: EMPTY, meta: bare },
 ];
 
 const resolveRoute = helpers.makeResolveRoute(helpers.makeResolveDefaultProvider((p) => KNOWN.includes(String(p || '').trim())));
 const cases = [];
 for (const scenario of scenarios) {
-  const { config, live, meta } = scenario;
+  const adoptions = scenario.adoptions ?? [scenario.config];
+  const config = adoptions.at(-1);
+  const { live, meta } = scenario;
+  let adopted = adoptions[0];
   const state = { route: structuredClone(live) };
   const lifecycle = createLeadRouteSync({
     getRoute: () => state.route,
-    getConfig: () => config,
+    getConfig: () => adopted,
     setRouteState: (r) => { state.route = r; },
     resolveRoute,
     clean: (v) => String(v ?? '').trim(),
@@ -78,8 +88,13 @@ for (const scenario of scenarios) {
     statusRoutes: {},
     mgr: {},
   });
-  lifecycle.syncEmptyMainRoute(config);
-  const afterSync = plain(state.route);
+  const afterAdoptions = [];
+  for (const next of adoptions) {
+    adopted = next;
+    lifecycle.syncEmptyMainRoute(adopted);
+    afterAdoptions.push(plain(state.route));
+  }
+  const afterSync = afterAdoptions.at(-1);
   let result;
   try {
     result = { value: await api.setFast(true) };
@@ -92,6 +107,7 @@ for (const scenario of scenarios) {
     live,
     meta,
     fastTable: Object.fromEntries(KNOWN.map((p) => [p, Boolean(caps.fastCapableFor(p, meta, null, {}))])),
+    ...(scenario.adoptions ? { adoptions, afterAdoptions } : {}),
     afterSync,
     setFast: result,
     afterSetFast: plain(state.route),

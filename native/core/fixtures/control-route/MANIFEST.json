@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 6069,
+      "bytes": 18230,
       "path": "control-route-twin.json",
-      "sha256": "5e697c3751d46aa5024923e9039f4b7f464ee845371d6b61237ee21b9efa9e67"
+      "sha256": "82c9028852644e5bd23b76edb404fd71ee80eee6bda3cc976b3ff85e8683ec63"
     }
   ],
   "product": {
@@ -26,5 +26,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-control-route.mjs",
   "set": "control-route",
-  "totalBytes": 6069
+  "totalBytes": 18230
 }

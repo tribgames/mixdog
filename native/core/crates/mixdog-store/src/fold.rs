@@ -107,6 +107,8 @@ pub struct Fold {
     pub base: Option<Base>,
     /// Lineage view end after a rewind into the base range (FORMAT.md §5.3).
     pub base_cut: Option<u64>,
+    /// The `session` frame's `control`.
+    pub control: bool,
     /// First ordinal of this session's own log.
     pub start_ordinal: u64,
     pub next_ordinal: u64,
@@ -133,6 +135,7 @@ impl Fold {
             log_id: record.log_id.as_str().to_owned(),
             base: record.base.clone(),
             base_cut: None,
+            control: record.control,
             start_ordinal: pos.ordinal,
             next_ordinal: pos.ordinal + 1,
             history_rev: 0,
@@ -158,6 +161,7 @@ impl Fold {
             log_id: state.log_id,
             base: state.base,
             base_cut: state.base_cut,
+            control: state.control,
             start_ordinal: start,
             next_ordinal: state.covers_ordinal + 1,
             history_rev: state.history_rev,
@@ -190,6 +194,7 @@ impl Fold {
             visible_rows: self.visible_rows,
             base: self.base.clone(),
             base_cut: self.base_cut,
+            control: self.control,
             context: self.context,
             runs: self.runs.clone(),
             approvals: self.approvals.clone(),

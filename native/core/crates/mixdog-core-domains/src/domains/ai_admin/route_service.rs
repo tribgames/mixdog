@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 
 use super::chain::{RouteFacts, resolve_chain_entry};
 use super::model_list::ModelListService;
-use mixdog_core_config::config::Config;
+use mixdog_core_config::config::{AdoptionGuard, Config};
 use mixdog_core_ports::ports::route::FollowOptions;
 use mixdog_core_ports::ports::route::Followed;
 use mixdog_core_ports::ports::route::Route;
@@ -106,6 +106,39 @@ pub struct RouteService {
     pub session: Arc<dyn SessionFollow>,
     /// `collectProviderModels`: the rows `model/list` answers, availability applied.
     pub models: Arc<ModelListService>,
+    /// The live control threads: [`Self::follow_config`] keeps their empty Main route synced.
+    pub controls: Arc<dyn LiveControls>,
+}
+
+/// The desktop's control threads that are live now: Node's runtimes subscribed to the config. The session directory owns that state
+/// and answers it from its slots: a control start from before its route is first resolved until its create, then the loaded thread
+/// whose `session` record names it the control session while its actor runs. A start that failed or was cancelled, a create whose
+/// first record failed, an actor that ended (unwinding included), a closed, deleted or unloaded thread is not among them; a reopened
+/// one is again.
+pub trait LiveControls: Send + Sync {
+    /// Calls `sync` once for each live control thread, while that thread cannot end: an end that lands after the threads were
+    /// listed either leaves the thread out (it landed before the call) or waits until the call returned.
+    fn sync_live(&self, sync: &mut dyn FnMut(&ThreadId));
+}
+
+impl RouteService {
+    /// Node adopts every config into the runtime route and runs `syncEmptyMainRoute` on it, synchronously inside
+    /// `adoptFullConfig` (`config-lifecycle.mjs`), so the control session, created before any model was chosen, takes the
+    /// Main model the first config that resolves one brings and keeps it. The same inside the config's adoption
+    /// ([`Config::on_adoption`]): once for each adopted document, before the write that caused it is acknowledged, each
+    /// live control thread with no model takes the model that document resolves to. Dropping the guard ends it.
+    pub fn follow_config(self: &Arc<Self>) -> AdoptionGuard {
+        let service = Arc::downgrade(self);
+        self.config.on_adoption(move || {
+            let Some(service) = service.upgrade() else { return };
+            service.controls.sync_live(&mut |thread| {
+                // The adoption has no caller to report to: a config that cannot be resolved leaves the route as it is.
+                if let Err(error) = service.sync_empty_main_route(thread) {
+                    tracing::warn!(%error, "[route] the control route could not follow the config");
+                }
+            });
+        })
+    }
 }
 
 impl RouteService {

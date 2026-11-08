@@ -711,6 +711,7 @@ impl ThreadStore for StoreThreads {
         };
         Ok(OpenedLog {
             header: fold.header.clone(),
+            control: fold.control,
             history_rev: fold.history_rev,
             lineage_start,
             runs: read.runs,

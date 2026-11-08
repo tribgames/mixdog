@@ -327,18 +327,20 @@ impl ThreadStore for MemStore {
         _window: WindowRead,
     ) -> Result<OpenedLog, CoreError> {
         let records = *head.0.downcast::<Vec<(u64, Record)>>().expect("MemStore head");
-        let (header, log_id) = match records.first() {
+        let (header, control, log_id) = match records.first() {
             Some((_, Record::Session(session))) => (
                 match &session.header {
                     Slot::Inline(header) => header.clone(),
                     _ => Header::new(),
                 },
+                session.control,
                 session.log_id.as_str().to_owned(),
             ),
-            _ => (Header::new(), String::new()),
+            _ => (Header::new(), false, String::new()),
         };
         Ok(OpenedLog {
             header,
+            control,
             history_rev: 0,
             lineage_start: 0,
             runs: Vec::new(),

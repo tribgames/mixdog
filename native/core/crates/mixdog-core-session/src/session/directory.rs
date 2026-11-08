@@ -51,6 +51,7 @@ use super::actor::Init;
 use super::actor::SessionActor;
 use super::control::ControlCell;
 use super::control::Ctl;
+use super::control::Liveness;
 use super::durability::DurabilityTask;
 use super::durability::LogInit;
 use super::handle::SessionHandle;
@@ -70,9 +71,54 @@ const SHUTDOWN_INGEST_DEADLINE: std::time::Duration = std::time::Duration::from_
 
 type Loaded = Result<Arc<SessionHandle>, CoreError>;
 
+/// Every slot is removed only by the owner of its identity (the handle's cell, the open's `Arc`, the start's mark), so a
+/// slot another create or open put under the same id since is never taken.
 enum Slot_ {
     Loaded(Arc<SessionHandle>),
-    Loading(watch::Receiver<Option<Loaded>>),
+    /// An open in flight; only that open publishes or drops it.
+    Loading(Arc<watch::Receiver<Option<Loaded>>>),
+    /// A control `thread/start` before its create ([`Starting`]); its liveness is the identity, and the created thread's.
+    Starting(Arc<Liveness>),
+}
+
+/// A control `thread/start`'s hold on its minted id, taken before the thread's route is first resolved (the route cell is
+/// created from the config of that moment, as Node's runtime takes its route at construction and is subscribed from then
+/// on) and replaced by the thread when its create publishes it. While held, the thread is among the control threads the
+/// config's adoption syncs, so no config adopted between the route's resolution and the create is missed. Dropped (the
+/// start failed or its request was cancelled), it removes its own slot only, and the start ends. A start its create took over
+/// does not end: its liveness is the created thread's.
+pub(crate) struct Starting {
+    directory: std::sync::Weak<DirInner>,
+    id: ThreadId,
+    mark: Arc<Liveness>,
+}
+
+impl Drop for Starting {
+    fn drop(&mut self) {
+        let Some(directory) = self.directory.upgrade() else { return };
+        let mut shard = lock(directory.shard(&self.id));
+        if matches!(shard.get(&self.id), Some(Slot_::Starting(mark)) if Arc::ptr_eq(mark, &self.mark)) {
+            *self.mark.ending() = true;
+            shard.remove(&self.id);
+        }
+    }
+}
+
+/// The actor's hold on the slot its thread is published in. The actor owns it (`SessionActor::hold`), so the slot is released
+/// however the actor ends: it returns, it unwinds, or its task is dropped before it ran. Only the slot of the actor's own
+/// cell is removed, never one another create or open put under the id since.
+pub(crate) struct SlotLease {
+    directory: std::sync::Weak<DirInner>,
+    id: ThreadId,
+    cell: Arc<ControlCell>,
+}
+
+impl Drop for SlotLease {
+    fn drop(&mut self) {
+        if let Some(directory) = self.directory.upgrade() {
+            directory.release(&self.id, &self.cell);
+        }
+    }
 }
 
 /// A thread `thread/delete` closed: it stays in the directory, taking no work, until marked.
@@ -142,6 +188,10 @@ pub(crate) struct DirInner {
     /// Woken whenever a thread leaves the directory (a test waits on `handle(..)` turning `None`).
     #[cfg(any(test, feature = "test-support"))]
     pub(super) left: tokio::sync::Notify,
+    /// A test's gate between the adoption's listing of the control threads and its writes: it tells `.0` it arrived, then
+    /// waits for `.1`.
+    #[cfg(test)]
+    pub(super) adoption_gate: Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>,
 }
 
 /// A thread to create (`thread/start`, `thread/fork`).
@@ -158,6 +208,8 @@ pub(crate) struct CreateSpec {
     /// route saved) reaches the new thread's `setupChanged`, as the change a Node session sees after `client.create`. `None`: it follows the
     /// counter from its install.
     pub settings: Option<super::actor::SettingsFollow>,
+    /// The control start's hold on `id`: the create takes the id over from it, and is refused when the hold lost its slot.
+    pub starting: Option<Starting>,
 }
 
 pub struct SessionDirectory {
@@ -210,6 +262,7 @@ pub trait ExitClose: Send + Sync {
 /// A loaded log as the actor starts from it.
 struct Opened {
     state: SessionState,
+    control: bool,
     log_id: String,
     next_ordinal: u64,
     log: LogInit,
@@ -234,6 +287,8 @@ impl SessionDirectory {
             _prune: prune.drop_guard(),
             #[cfg(any(test, feature = "test-support"))]
             left: Default::default(),
+            #[cfg(test)]
+            adoption_gate: Default::default(),
         });
         let me = Arc::downgrade(&inner);
         let subscription = inner.deps.goals.on_goal_change(Box::new(move |event| {
@@ -464,6 +519,40 @@ impl SessionDirectory {
         super::close::close_idle(&self.inner, id, guard).await
     }
 
+    /// The live control threads, what the config's adoption keeps synced: a control start from before its route is first
+    /// resolved ([`Starting`]), and a loaded thread whose `session` record names it the control session
+    /// ([`SessionHandle::control`]) while it takes work. A thread whose actor ended, that was closed, deleted or unloaded, or
+    /// whose create failed, has no slot or a closed cell.
+    pub fn control_ids(&self) -> Vec<ThreadId> {
+        self.controls().into_iter().map(|(id, _)| id).collect()
+    }
+
+    /// Holds the next adoption between its listing and its writes ([`DirInner::adoption_gate`]).
+    #[cfg(test)]
+    pub(super) fn gate_adoption(&self, arrived: Arc<tokio::sync::Notify>, go: std::sync::mpsc::Receiver<()>) {
+        *lock(&self.inner.adoption_gate) = Some((arrived, go));
+    }
+
+    /// [`Self::control_ids`] with each one's [`Liveness`].
+    fn controls(&self) -> Vec<(ThreadId, Arc<Liveness>)> {
+        self.inner
+            .shards
+            .iter()
+            .flat_map(|shard| {
+                lock(shard)
+                    .iter()
+                    .filter_map(|(id, slot)| match slot {
+                        Slot_::Starting(mark) => Some((id.clone(), mark.clone())),
+                        Slot_::Loaded(handle) if handle.control && !handle.cell.closed.load(std::sync::atomic::Ordering::SeqCst) => {
+                            Some((id.clone(), handle.cell.liveness.clone()))
+                        }
+                        Slot_::Loaded(_) | Slot_::Loading(_) => None,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    }
+
     /// The ids of every loaded thread (the threads this process hosts).
     pub fn loaded_ids(&self) -> Vec<ThreadId> {
         self.inner
@@ -518,6 +607,7 @@ impl SessionDirectory {
                 params,
                 seed: None,
                 settings: None,
+                starting: None,
             })
             .await
             .map(|_| ())
@@ -526,7 +616,7 @@ impl SessionDirectory {
     /// Creates a thread under a minted id with `header` as its first durable write (an internal
     /// `createSession`: nobody subscribes to it).
     pub async fn create_session(&self, header: Header, params: Value) -> Result<ThreadId, CoreError> {
-        let spec = CreateSpec { id: None, header, base: None, op: None, method: Method("thread/start"), params, seed: None, settings: None };
+        let spec = CreateSpec { id: None, header, base: None, op: None, method: Method("thread/start"), params, seed: None, settings: None, starting: None };
         self.inner.create(spec).await.map(|handle| handle.id.clone())
     }
 
@@ -584,6 +674,11 @@ impl SessionDirectory {
                     .drain()
                     .filter_map(|(_, slot)| match slot {
                         Slot_::Loaded(handle) => Some(handle),
+                        // The start's create is refused from here (`ThreadClosing`): it ends now.
+                        Slot_::Starting(mark) => {
+                            *mark.ending() = true;
+                            None
+                        }
                         Slot_::Loading(_) => None,
                     })
                     .collect::<Vec<_>>()
@@ -679,11 +774,65 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// The refusal of a create whose id is taken.
+fn exists() -> CoreError {
+    CoreError::PreconditionFailed {
+        precondition: mixdog_core_api::error::Precondition::Revision {
+            expected: "absent".into(),
+            actual: "exists".into(),
+        },
+    }
+}
+
 impl DirInner {
     fn shard(&self, id: &ThreadId) -> &Mutex<HashMap<ThreadId, Slot_>> {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         id.hash(&mut hasher);
         &self.shards[(hasher.finish() as usize) % SHARDS]
+    }
+
+    /// The thread of `cell` ends here: its actor ended ([`SlotLease`]), or its first record failed (the actor). It takes no
+    /// more work, and its slot goes if it is still this thread's. Closing the cell under the shard lock is what an open that
+    /// is about to publish the handle checks ([`Self::publish_opened`]).
+    pub(crate) fn release(&self, id: &ThreadId, cell: &Arc<ControlCell>) {
+        let mut shard = lock(self.shard(id));
+        cell.close();
+        if matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(&h.cell, cell)) {
+            shard.remove(id);
+            #[cfg(any(test, feature = "test-support"))]
+            self.left.notify_waiters();
+        }
+    }
+
+    /// Holds the minted `id` of a control start ([`Starting`]).
+    fn start(&self, id: &ThreadId) -> Result<Starting, CoreError> {
+        let mut shard = lock(self.shard(id));
+        if shard.contains_key(id) {
+            return Err(exists());
+        }
+        let mark = Arc::new(Liveness::default());
+        shard.insert(id.clone(), Slot_::Starting(mark.clone()));
+        Ok(Starting { directory: self.me.clone(), id: id.clone(), mark })
+    }
+
+    /// What an open loaded enters the directory through the open's own `Loading` slot, and only with an actor that still
+    /// runs. A handle that is not published (its actor ended while it opened, or the slot was let go at shutdown) takes no work.
+    fn publish_opened(&self, id: &ThreadId, opening: &Arc<watch::Receiver<Option<Loaded>>>, result: Loaded) -> Loaded {
+        let mut shard = lock(self.shard(id));
+        let ours = matches!(shard.get(id), Some(Slot_::Loading(slot)) if Arc::ptr_eq(slot, opening));
+        match result {
+            Ok(handle) if ours && !handle.cell.closed.load(std::sync::atomic::Ordering::SeqCst) => {
+                shard.insert(id.clone(), Slot_::Loaded(handle.clone()));
+                Ok(handle)
+            }
+            result => {
+                if ours {
+                    shard.remove(id);
+                }
+                result?.cell.close();
+                Err(CoreError::ThreadClosing { thread_id: id.clone() })
+            }
+        }
     }
 
     /// Drops the loaded thread whose cell is `cell` when it still has no subscriber, and
@@ -829,11 +978,14 @@ impl DirInner {
             let mut shard = lock(self.shard(id));
             match shard.get(id) {
                 Some(Slot_::Loaded(handle)) => return Ok(handle.clone()),
-                Some(Slot_::Loading(rx)) => rx.clone(),
+                Some(Slot_::Loading(rx)) => (**rx).clone(),
+                // A control start's minted id has no thread yet.
+                Some(Slot_::Starting(_)) => return Err(CoreError::ThreadNotFound { thread_id: id.clone() }),
                 None => {
                     let (tx, rx) = watch::channel(None);
                     self.opens.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    shard.insert(id.clone(), Slot_::Loading(rx.clone()));
+                    let opening = Arc::new(rx.clone());
+                    shard.insert(id.clone(), Slot_::Loading(opening.clone()));
                     let me = self.me.upgrade().expect("the directory is alive while used");
                     let thread = id.clone();
                     mixdog_rt::spawn("session-open", TaskClass::Work, async move {
@@ -844,17 +996,7 @@ impl DirInner {
                         if prewarm && let Ok(handle) = &result {
                             me.refresh_resumed_tools(handle).await;
                         }
-                        {
-                            let mut shard = lock(me.shard(&thread));
-                            match &result {
-                                Ok(handle) => {
-                                    shard.insert(thread.clone(), Slot_::Loaded(handle.clone()));
-                                }
-                                Err(_) => {
-                                    shard.remove(&thread);
-                                }
-                            }
-                        }
+                        let result = me.publish_opened(&thread, &opening, result);
                         tx.send_replace(Some(result));
                     });
                     rx
@@ -936,15 +1078,19 @@ impl DirInner {
         if prewarm {
             deps.effort.prewarm(id, &opened.state.header);
         }
-        Ok(self.spawn(
+        let (handle, launch) = self.spawn(
             id.clone(),
             opened.state,
+            opened.control,
+            Arc::default(),
             lineage,
             opened.log_id,
             opened.next_ordinal,
             opened.log,
             Init::Open { fenced },
-        ))
+        );
+        launch();
+        Ok(handle)
     }
 
     /// P §8.3: a sub-agent's requests show on its parent's surface. A room member's requests show
@@ -981,18 +1127,22 @@ impl DirInner {
         }
     }
 
-    /// Starts the actor and its durability task for `id`.
+    /// Builds the handle, actor and durability task for `id`; the returned launch starts the tasks, the actor's with its
+    /// [`SlotLease`]. A create calls it under the shard lock and launches after the lock is let go, so a task dropped at
+    /// once (a runtime shutting down) releases its slot without that lock held.
     #[allow(clippy::too_many_arguments)]
     fn spawn(
         &self,
         id: ThreadId,
         state: SessionState,
+        control: bool,
+        liveness: Arc<Liveness>,
         lineage: Lineage,
         log_id: String,
         next_ordinal: u64,
         log: LogInit,
         init: Init,
-    ) -> Arc<SessionHandle> {
+    ) -> (Arc<SessionHandle>, impl FnOnce() + use<>) {
         let deps = &self.deps;
         let limits = deps.limits;
         let (ctl_tx, ctl_rx) = mpsc::channel(limits.control_lane);
@@ -1015,6 +1165,7 @@ impl DirInner {
         let surface = watch::Sender::new(Arc::new(deps.surfaces.surface(&id, &state.header)));
         let cell = Arc::new(ControlCell {
             thread: id.clone(),
+            liveness,
             run: Default::default(),
             turn_chain: Default::default(),
             queued: Default::default(),
@@ -1046,6 +1197,7 @@ impl DirInner {
         });
         let handle = Arc::new(SessionHandle {
             id: id.clone(),
+            control,
             cell: cell.clone(),
             feed: feed.clone(),
             inbox: inbox_tx,
@@ -1057,6 +1209,7 @@ impl DirInner {
             submits: Default::default(),
             loaded_seq: self.loads.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
         });
+        let lease = SlotLease { directory: self.me.clone(), id: id.clone(), cell: cell.clone() };
         let durability = DurabilityTask::new(
             id.clone(),
             deps.store.clone(),
@@ -1087,9 +1240,13 @@ impl DirInner {
                 directory: self.me.clone(),
             },
         );
-        mixdog_rt::spawn("session-durability", TaskClass::Work, durability.run());
-        mixdog_rt::spawn("session-actor", TaskClass::Work, actor.run(init));
-        handle
+        let mut actor = actor;
+        let launch = move || {
+            actor.hold(lease);
+            mixdog_rt::spawn("session-durability", TaskClass::Work, durability.run());
+            mixdog_rt::spawn("session-actor", TaskClass::Work, actor.run(init));
+        };
+        (handle, launch)
     }
 
     /// A new thread: its `session` record is its first durable write; the reply follows it.
@@ -1118,6 +1275,8 @@ impl DirInner {
             }),
             None => None,
         };
+        // Only a control start holds its id before the create.
+        let control = spec.starting.is_some();
         let session = Record::Session(SessionRecord {
             v: SESSION_RECORD_VERSION,
             id: Text::try_from(id.as_str()).map_err(|_| invalid("threadId"))?,
@@ -1125,25 +1284,29 @@ impl DirInner {
             base: spec.base,
             origin: None,
             op,
+            control,
             header: Slot::Inline(header.clone()),
         });
         let mut state = SessionState::new(self.deps.limits.view_items);
         state.header = header.clone();
         let lineage = self.lineage_of(&id, &header);
         let (tx, rx) = oneshot::channel();
-        {
+        let (handle, launch) = {
             let mut shard = lock(self.shard(&id));
-            if shard.contains_key(&id) {
-                return Err(CoreError::PreconditionFailed {
-                    precondition: mixdog_core_api::error::Precondition::Revision {
-                        expected: "absent".into(),
-                        actual: "exists".into(),
-                    },
-                });
+            match (shard.get(&id), &spec.starting) {
+                (None, None) => {}
+                (Some(Slot_::Starting(mark)), Some(starting)) if Arc::ptr_eq(mark, &starting.mark) => {}
+                // The start's hold was let go (shutdown drains every slot).
+                (None, Some(_)) => return Err(CoreError::ThreadClosing { thread_id: id.clone() }),
+                _ => return Err(exists()),
             }
-            let handle = self.spawn(
+            // A control start's liveness goes on as the thread's: an adoption that listed the start syncs the thread.
+            let liveness = spec.starting.as_ref().map_or_else(Arc::default, |starting| starting.mark.clone());
+            let (handle, launch) = self.spawn(
                 id.clone(),
                 state,
+                control,
+                liveness,
                 lineage,
                 log_id,
                 0,
@@ -1156,18 +1319,18 @@ impl DirInner {
                     settings: spec.settings,
                 },
             );
-            shard.insert(id.clone(), Slot_::Loaded(handle));
-        }
+            shard.insert(id.clone(), Slot_::Loaded(handle.clone()));
+            (handle, launch)
+        };
+        launch();
         self.deps.effort.prewarm(&id, &header);
-        rx.await
-            .map_err(|_| CoreError::ThreadClosing {
-                thread_id: id.clone(),
-            })?
-            .map_err(|error| {
-                lock(self.shard(&id)).remove(&id);
-                error
-            })?;
-        self.loaded(&id).ok_or(CoreError::ThreadClosing { thread_id: id })
+        // The slot is the actor's from here: a failed first record, an unwind or any other end of the actor releases it
+        // (`release`), whether or not this caller is still waiting, so no way out of this wait removes anything.
+        rx.await.map_err(|_| CoreError::ThreadClosing { thread_id: id.clone() })??;
+        match self.loaded(&id) {
+            Some(loaded) if Arc::ptr_eq(&loaded, &handle) => Ok(loaded),
+            _ => Err(CoreError::ThreadClosing { thread_id: id }),
+        }
     }
 }
 
@@ -1236,6 +1399,7 @@ fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog
         super::prompt_history::merge(&state.prompt_session, &state.prompt_persisted);
     Opened {
         state,
+        control: log.control,
         log_id: log.log_id,
         next_ordinal,
         log: LogInit::Open(log.append),
@@ -1309,6 +1473,8 @@ impl ThreadDirectory for SessionDirectory {
                 super::session_options::write_header(&params.session.clone().unwrap_or_default(), &mut header);
                 // `createSession`'s tool surface and `seedToolSurface`, for the id it will have.
                 let id = ThreadId::from(new_id());
+                // The control session is followed by the config's adoption from before its route is first resolved.
+                let starting = if control { Some(self.inner.start(&id)?) } else { None };
                 // The route the thread begins on is settled first: the tools and the prompt below are
                 // composed for it, as Node composes the session from `rt.route`.
                 let pick = params.draft.as_ref().and_then(|draft| draft.route.as_ref()).map(super::new_route::draft_pick);
@@ -1348,6 +1514,7 @@ impl ThreadDirectory for SessionDirectory {
                         params: req.params.clone(),
                         seed: Some(seeded),
                         settings,
+                        starting,
                     })
                     .await?;
                 self.inner.deps.new_route.seat(&handle.id).await.map_err(|message| mixdog_core_base::support::failed("route", message))?;
@@ -1402,6 +1569,22 @@ impl ThreadDirectory for SessionDirectory {
                 path: "method".into(),
                 expected: "a session-directory method".into(),
             }),
+        }
+    }
+}
+
+impl mixdog_core_domains::domains::ai_admin::route_service::LiveControls for SessionDirectory {
+    /// The threads listed now, each synced under its [`Liveness`]: one that ended since it was listed (closed, deleted,
+    /// unloaded, its actor ended, its start abandoned) is skipped, and one that ends while it is synced ends after.
+    fn sync_live(&self, sync: &mut dyn FnMut(&ThreadId)) {
+        let listed = self.controls();
+        #[cfg(test)]
+        if let Some((arrived, go)) = lock(&self.inner.adoption_gate).take() {
+            arrived.notify_one();
+            go.recv().expect("the test lets the adoption go on");
+        }
+        for (id, liveness) in listed {
+            liveness.while_live(|| sync(&id));
         }
     }
 }

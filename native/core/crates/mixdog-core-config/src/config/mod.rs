@@ -207,6 +207,26 @@ struct Shared {
     generation: AtomicU64,
     /// The generation again, for services that follow the document (`Config::changes`).
     changed: tokio::sync::watch::Sender<u64>,
+    /// What runs inside each adoption ([`Config::on_adoption`]), by registration id.
+    adoptions: Mutex<Vec<(u64, Adoption)>>,
+    next_adoption: AtomicU64,
+}
+
+type Adoption = Arc<dyn Fn() + Send + Sync>;
+
+/// A registration of [`Config::on_adoption`]; dropping it ends the hook (Node's unsubscribe when its runtime is disposed).
+#[must_use = "the hook ends when the guard is dropped"]
+pub struct AdoptionGuard {
+    shared: std::sync::Weak<Shared>,
+    id: u64,
+}
+
+impl Drop for AdoptionGuard {
+    fn drop(&mut self) {
+        if let Some(shared) = self.shared.upgrade() {
+            lock(&shared.adoptions).retain(|(id, _)| *id != self.id);
+        }
+    }
 }
 
 /// Runs `job` on `lane`; a full queue answers [`ConfigError::Overloaded`] at once.
@@ -243,6 +263,8 @@ impl Config {
             writer: Mutex::new(raised),
             generation: AtomicU64::new(0),
             changed: tokio::sync::watch::channel(0).0,
+            adoptions: Mutex::default(),
+            next_adoption: AtomicU64::new(0),
         };
         let current = shared.doc.load();
         for name in PUBLISHED_SUBTREES {
@@ -262,6 +284,16 @@ impl Config {
     /// derive a view from the config and push it when it changes.
     pub fn changes(&self) -> tokio::sync::watch::Receiver<u64> {
         self.shared.changed.subscribe()
+    }
+
+    /// `hook` runs inside every adoption of a document (a write or an external reload), once for each adopted document, in the
+    /// serialized order the documents are installed, after the document is the current one and before the write that caused it
+    /// is acknowledged: Node's `adoptFullConfig` runs its dependents synchronously the same way. The hook must not write the
+    /// config. It lasts until the guard is dropped.
+    pub fn on_adoption(&self, hook: impl Fn() + Send + Sync + 'static) -> AdoptionGuard {
+        let id = self.shared.next_adoption.fetch_add(1, Ordering::Relaxed);
+        lock(&self.shared.adoptions).push((id, Arc::new(hook)));
+        AdoptionGuard { shared: Arc::downgrade(&self.shared), id }
     }
 
     /// A change that is not in the document (a stored secret changed: [`SecretChanges`]) ticks
@@ -534,6 +566,12 @@ impl Shared {
             self.publish(name, next.get(*name));
         }
         self.doc.store(Arc::new(next));
+        // Called outside the registry's lock, so a hook's guard can drop meanwhile; the writer lock the caller holds keeps
+        // every document's hooks before the next install.
+        let hooks: Vec<Adoption> = lock(&self.adoptions).iter().map(|(_, hook)| hook.clone()).collect();
+        for hook in hooks {
+            hook();
+        }
         let generation = self.generation.fetch_add(1, Ordering::Release) + 1;
         self.changed.send_replace(generation);
         Applied {
