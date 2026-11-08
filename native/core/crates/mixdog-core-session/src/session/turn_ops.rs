@@ -122,6 +122,10 @@ pub trait ManualCompaction: Send + Sync {
     /// (`trigger`) runs once the manager's savings gate passes, best-effort. `None` is Node's
     /// `null` (no session, or nothing to report); a `skipped` result is returned as is.
     async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, CoreError>;
+    /// `compactConversationForHeir` (`inheritance.mjs`): the conversation of `source` compacted to fit `budget_tokens`, on a
+    /// copy - nothing of the source is touched. `summarize` (an explicitly chosen compacted carry) summarizes whatever the
+    /// size. The rows of the result, system blocks included; `None` when the compaction yields no conversation.
+    async fn compact_for_heir(&self, source: &ThreadId, budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, CoreError>;
     /// `session.postCompactHook({ trigger })`, best-effort.
     async fn post_compact(&self, thread: &ThreadId, trigger: &str);
     /// `rearmLateDeferredTools` and `rearmPromptSettingsNotice`: the compaction dropped what the

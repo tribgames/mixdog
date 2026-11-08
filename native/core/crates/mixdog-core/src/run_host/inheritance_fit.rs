@@ -96,9 +96,9 @@ impl HostInheritanceFit {
     }
 }
 
-#[async_trait]
-impl InheritanceFit for HostInheritanceFit {
-    async fn basis(&self, target: &InheritTarget, messages: &[Value]) -> Option<FitBasis> {
+impl HostInheritanceFit {
+    /// The compaction inputs of the heir's route (`inheritanceRouteTarget`) over the tools the opening session sends.
+    async fn route_settings(&self, target: &InheritTarget) -> Option<CompactSettings> {
         let seed = target.selected_context_window.map_or_else(|| json!({}), |window| json!({ "selectedContextWindow": window }));
         let meta = self.windows.window(&target.provider, &target.model, &seed)?;
         let mut settings = self.settings.settings(&Self::route_header(target, meta));
@@ -107,6 +107,23 @@ impl InheritanceFit for HostInheritanceFit {
             None => Vec::new(),
         };
         settings.request_reserve_tokens = estimate_request_reserve_tokens(&RequestTools { native: &[], defined: &tools });
+        Some(settings)
+    }
+}
+
+/// `INHERITANCE_COMPACT_MIN_BUDGET_TOKENS`.
+const MIN_COMPACT_BUDGET_TOKENS: u64 = 4_000;
+
+#[async_trait]
+impl InheritanceFit for HostInheritanceFit {
+    /// `inheritanceCompactionPlan`: `max(4000, compactTargetBudget({ ...policy, force: true }))` over the heir's policy.
+    async fn compaction_budget(&self, target: &InheritTarget) -> Option<u64> {
+        let policy = CompactPolicy::resolve(&self.route_settings(target).await?)?;
+        (policy.boundary_tokens > 0).then(|| policy.target_budget().max(MIN_COMPACT_BUDGET_TOKENS))
+    }
+
+    async fn basis(&self, target: &InheritTarget, messages: &[Value]) -> Option<FitBasis> {
+        let settings = self.route_settings(target).await?;
         let media = match (&target.source, messages.is_empty()) {
             (_, true) => None,
             (Some(source), false) => Some(self.threads.media(source, messages).await?),

@@ -1252,6 +1252,107 @@ async fn an_inherit_into_an_existing_heir_carries_the_conversation_as_node_does(
     assert!(refusal(inherit("sess_source", "sess_heir").await).contains("inheritFrom: this session already holds a conversation"));
 }
 
+/// A directory with a `sess_source` that holds `messages` and the empty `sess_heir`, both on the harness route.
+async fn heir_fixture(rig: &Rig, messages: Value) -> SessionDirectory {
+    let directory = SessionDirectory::new(rig.deps());
+    let route = json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model" });
+    for id in ["sess_source", "sess_heir"] {
+        directory.create_with_id(ThreadId::from(id), route.as_object().cloned().expect("header"), json!({})).await.expect("create");
+    }
+    let source = directory.open_handle(&ThreadId::from("sess_source"), &CallContext::internal("test")).await.expect("open");
+    // Loaded whole, as a source that holds these rows is (the room post would drop the ones sharing an id).
+    let append = CoreRequest { method: mixdog_core_api::ids::Method("thread/inheritedRows/append"), params: json!({ "messages": messages }), op: None, ctx: CallContext::internal("test") };
+    source.request(append).await.expect("append");
+    directory
+}
+
+async fn inherit_into_heir(directory: &SessionDirectory, compact: bool) -> Result<Reply, CoreError> {
+    let params = json!({ "threadId": "sess_source", "intoThreadId": "sess_heir", "compact": compact, "opId": "op-inherit" });
+    directory.request(request("thread/fork", params, "op-inherit")).await
+}
+
+fn user_and_reply() -> Value {
+    json!([
+        { "role": "user", "content": "hello", "meta": { "transcript": { "messageId": "m1", "at": 1 } } },
+        { "role": "assistant", "content": "hi", "meta": { "transcript": { "messageId": "m2", "at": 1 } } }
+    ])
+}
+
+/// `target.messages.push(...carried)`: every message of the source lands in the heir, whether or not it has an id and
+/// however many share one (the room post's `messageId` dedupe does not apply to a carry).
+#[tokio::test(start_paused = true)]
+async fn an_inherit_carries_every_message_whatever_its_id() {
+    let rig = Rig::new();
+    let directory = heir_fixture(&rig, json!([
+        { "role": "user", "content": "one" },
+        { "role": "assistant", "content": "two" },
+        { "role": "user", "content": "three", "meta": { "transcript": { "messageId": "same" } } },
+        { "role": "assistant", "content": "four", "meta": { "transcript": { "messageId": "same" } } }
+    ])).await;
+    assert_eq!(directory.rows_of("sess_source").await.expect("rows").len(), 4);
+    let Reply::Value(done) = inherit_into_heir(&directory, false).await.expect("inherit") else { panic!("a value") };
+    let carried: Vec<String> = directory.rows_of("sess_heir").await.expect("rows").iter().map(|m| m["content"].as_str().unwrap_or_default().to_owned()).collect();
+    assert_eq!((done["messages"].clone(), carried), (json!(4), ["one", "two", "three", "four"].map(String::from).to_vec()));
+}
+
+/// `hasUserConversationMessage(target.messages) || hasUserConversationMessage(target.liveTurnMessages)`: a heir whose first
+/// turn is running holds a conversation before anything is committed.
+#[tokio::test(start_paused = true)]
+async fn an_inherit_into_a_heir_with_a_turn_in_flight_is_refused() {
+    let rig = Rig::new();
+    let directory = heir_fixture(&rig, user_and_reply()).await;
+    let heir = directory.open_handle(&ThreadId::from("sess_heir"), &CallContext::internal("test")).await.expect("open");
+    heir.cell.turn_messages.send_replace(Arc::new(vec![json!({ "role": "user", "content": "typing" })]));
+    let refused = inherit_into_heir(&directory, false).await.err().expect("refused");
+    assert!(format!("{refused:?}").contains("inheritFrom: this session already holds a conversation"), "{refused:?}");
+    assert!(directory.rows_of("sess_heir").await.expect("rows").is_empty(), "nothing was carried");
+}
+
+/// `fitConversationForHeir` (`inheritance.mjs`): an explicit `compact` summarizes whatever the size and carries the
+/// compacted conversation; one that cannot be compacted is a refusal; a conversation that cannot fit, and cannot be
+/// compacted, is refused in the measured sentence (`inheritanceFitMessage`).
+#[tokio::test(start_paused = true)]
+async fn an_inherit_compacts_as_node_does() {
+    let message = |role: &str, text: &str| json!({ "role": role, "content": text, "meta": { "transcript": { "messageId": text, "at": 1 } } });
+    let refusal = |result: Result<Reply, CoreError>| format!("{:?}", result.err().expect("refused"));
+
+    // compact: true summarizes (threshold floor) on the heir's budget, and the compacted conversation is what travels.
+    let rig = Rig::new();
+    let directory = heir_fixture(&rig, user_and_reply()).await;
+    *lock(&rig.inherit.basis) = Some((1000, 100, true));
+    *lock(&rig.inherit.budget) = Some(4000);
+    *lock(&rig.compaction.heir_rows) = Some(vec![message("system", "prompt"), message("user", "summary of hello")]);
+    let Reply::Value(done) = inherit_into_heir(&directory, true).await.expect("inherit") else { panic!("a value") };
+    assert_eq!(*lock(&rig.compaction.heir_asked), [(4000, true)]);
+    assert_eq!(done["messages"], json!(1), "system blocks never travel");
+    assert_eq!(directory.rows_of("sess_heir").await.expect("rows")[0]["content"], json!("summary of hello"));
+
+    // compact: true with nothing compacted is refused before the heir is touched.
+    let rig = Rig::new();
+    let directory = heir_fixture(&rig, user_and_reply()).await;
+    *lock(&rig.inherit.basis) = Some((1000, 100, true));
+    *lock(&rig.inherit.budget) = Some(4000);
+    assert!(refusal(inherit_into_heir(&directory, true).await).contains("inheritFrom: the conversation could not be compacted for the new session"));
+    assert!(directory.rows_of("sess_heir").await.expect("rows").is_empty());
+
+    // Too large without compact: compacted on the heir's budget (summarize off); a result that still does not fit is refused.
+    let rig = Rig::new();
+    let directory = heir_fixture(&rig, user_and_reply()).await;
+    *lock(&rig.inherit.basis) = Some((500, 900, true));
+    *lock(&rig.inherit.budget) = Some(4000);
+    *lock(&rig.compaction.heir_rows) = Some(vec![message("user", "summary of hello")]);
+    let text = refusal(inherit_into_heir(&directory, false).await);
+    assert_eq!(*lock(&rig.compaction.heir_asked), [(4000, false)]);
+    assert!(text.contains("inheritFrom: the full conversation needs 900 tokens but custom-harness/harness-model allows 500 before compaction"), "{text}");
+
+    // A route with no boundary to compact toward cannot compact: the same sentence.
+    let rig = Rig::new();
+    let directory = heir_fixture(&rig, user_and_reply()).await;
+    *lock(&rig.inherit.basis) = Some((500, 900, true));
+    assert!(refusal(inherit_into_heir(&directory, false).await).contains("allows 500 before compaction"));
+    assert!(lock(&rig.compaction.heir_asked).is_empty());
+}
+
 /// A route the adoption refuses (a default with no model, as Node's `prepareRoute` throws) fails
 /// `thread/start` with that text and no code before anything else runs: no tools are composed and
 /// no thread exists.

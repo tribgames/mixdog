@@ -98,10 +98,17 @@ pub struct TestCompaction {
     pub route: Mutex<mixdog_app_protocol::v2::thread::ThreadRoute>,
     /// The saved configuration's settings-change counter, when the test follows one.
     pub settings: Mutex<Option<tokio::sync::watch::Receiver<u64>>>,
+    /// What `compact_for_heir` answers (the rows of the compacted conversation), and each ask: the budget and `summarize`.
+    pub heir_rows: Mutex<Option<Vec<Value>>>,
+    pub heir_asked: Mutex<Vec<(u64, bool)>>,
 }
 
 #[async_trait::async_trait]
 impl super::turn_ops::ManualCompaction for TestCompaction {
+    async fn compact_for_heir(&self, _: &ThreadId, budget_tokens: u64, summarize: bool) -> Result<Option<Vec<Value>>, mixdog_core_api::CoreError> {
+        lock(&self.heir_asked).push((budget_tokens, summarize));
+        Ok(lock(&self.heir_rows).clone())
+    }
     async fn compact(&self, _: &ThreadId, trigger: &str, require_reduction: bool) -> Result<Option<Value>, mixdog_core_api::CoreError> {
         lock(&self.calls).push(format!("compact {trigger} {require_reduction}"));
         let hold = lock(&self.hold).clone();
@@ -146,6 +153,8 @@ impl super::turn_ops::ManualCompaction for TestCompaction {
 pub struct TestInherit {
     pub basis: Mutex<Option<(u64, u64, bool)>>,
     pub asked: Mutex<Vec<(String, String, Option<u64>, Option<ThreadId>, usize)>>,
+    /// `inheritanceCompactionPlan(target).budgetTokens`; `None` is a route with no boundary to compact toward.
+    pub budget: Mutex<Option<u64>>,
 }
 
 #[async_trait::async_trait]
@@ -154,6 +163,9 @@ impl super::inheritance::InheritanceFit for TestInherit {
         lock(&self.asked).push((target.provider.clone(), target.model.clone(), target.selected_context_window, target.tools_of.clone(), messages.len()));
         let (limit, used, compactable) = (*lock(&self.basis))?;
         Some(super::inheritance::FitBasis { limit, used, compactable })
+    }
+    async fn compaction_budget(&self, _: &super::inheritance::InheritTarget) -> Option<u64> {
+        *lock(&self.budget)
     }
 }
 
