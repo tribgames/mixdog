@@ -168,11 +168,22 @@ impl CatalogService {
                 return None;
             }
             let stated = manual_rows(entry?).into_iter().find(|record| record.id == model)?;
-            Some(row_of(&catalog_record(&ProviderId::from(provider), stated)))
+            let display = stated.display_name.clone();
+            let mut record = catalog_record(&ProviderId::from(provider), stated);
+            // `catalog_record` reads `display || name` as the label; the config's row states no `display`.
+            record.display_name = display;
+            let mut row = row_of(&record);
+            if let (Some(row), Some(name)) = (row.as_object_mut(), &record.name) {
+                row.insert("name".into(), json!(name));
+            }
+            Some(row)
         };
-        match self.record_of(provider, model, row_of).or_else(stated) {
+        match self.record_of(provider, model, row_of) {
             Some(listed) => self.with_lookup(|lookup| enrich_model(lookup, &listed)),
-            None => json!({"id": model, "provider": provider}),
+            // `getCachedModelInfo` answers the config's own rows as `effectiveCustomModelRows` built them: only
+            // discovery runs `enrichModels`, so a stated row carries no catalog `display` (a `modelDisplay` the route
+            // would otherwise gain).
+            None => stated().unwrap_or_else(|| json!({"id": model, "provider": provider})),
         }
     }
 
@@ -483,7 +494,9 @@ pub(super) mod tests {
             let id = node["id"].as_str().unwrap();
             let meta = s.model_meta_in("custom-fixture", id, Some(config));
             assert!(crate::service::admin_route::model_meta_looks_resolved(Some(&meta)), "{id}");
-            assert_eq!(meta["displayName"], node["name"], "{id} label");
+            // The label is the row's `name`; no `display` is stated, so none is made up (a `modelDisplay` the route would gain).
+            assert_eq!(meta["name"], node["name"], "{id} label");
+            assert!(meta.get("displayName").is_none() && meta.get("display").is_none(), "{id} states no display");
             assert_eq!(meta["provider"], "custom-fixture");
             assert_eq!(s.model_meta_in("custom-fixture", id, None), bare("custom-fixture", id), "{id}: no entry");
             assert_eq!(s.model_meta_in("openai", id, Some(config)), bare("openai", id), "{id}: not a custom provider");
