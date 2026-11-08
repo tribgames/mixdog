@@ -68,4 +68,7 @@ pub trait WebSearchModels: Send + Sync {
 #[async_trait]
 pub trait ProviderSetup: Send + Sync {
     async fn get(&self, force: bool, refresh: bool, unlock_keychain: bool, recheck_keychain: bool) -> Result<Value, Failure>;
+    /// Ticks each time a complete setup fills the cache, which is what a cold read's background build ends in:
+    /// Node's next read answers it, so a pushed section must follow.
+    fn filled(&self) -> tokio::sync::watch::Receiver<u64>;
 }
