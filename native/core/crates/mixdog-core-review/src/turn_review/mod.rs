@@ -36,6 +36,8 @@ mod undo;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod git_bound_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;
 

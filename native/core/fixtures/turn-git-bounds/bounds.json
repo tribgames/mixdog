@@ -1,0 +1,186 @@
+{
+ "timeoutCases": [
+  {
+   "args": [
+    "rev-parse",
+    "--show-toplevel"
+   ],
+   "timeoutMs": 300,
+   "code": "ETIMEDOUT",
+   "message": "git rev-parse --show-toplevel timed out after 300ms"
+  },
+  {
+   "args": [
+    "rev-parse",
+    "--show-object-format"
+   ],
+   "timeoutMs": 450,
+   "code": "ETIMEDOUT",
+   "message": "git rev-parse --show-object-format timed out after 450ms"
+  },
+  {
+   "args": [
+    "check-ignore",
+    "-z",
+    "--stdin"
+   ],
+   "timeoutMs": 600,
+   "code": "ETIMEDOUT",
+   "message": "git check-ignore -z --stdin timed out after 600ms"
+  },
+  {
+   "args": [
+    "cat-file",
+    "-t",
+    "abc123"
+   ],
+   "timeoutMs": 250,
+   "code": "ETIMEDOUT",
+   "message": "git cat-file -t abc123 timed out after 250ms"
+  }
+ ],
+ "measured": {
+  "begin": {
+   "settled": "resolved",
+   "value": {
+    "generation": 1,
+    "checkpointId": "cp-1"
+   },
+   "afterSeconds": 30
+  },
+  "firstCapture": {
+   "settled": "resolved",
+   "value": null,
+   "afterSeconds": 1
+  },
+  "secondCapture": {
+   "settled": "resolved",
+   "value": null,
+   "afterSeconds": 1
+  },
+  "objectFormat": {
+   "settled": "resolved",
+   "value": "sha1",
+   "afterSeconds": 60
+  },
+  "apply": {
+   "settled": "rejected",
+   "code": "ETIMEDOUT",
+   "message": "git rev-parse --show-toplevel timed out after 60000ms",
+   "afterSeconds": 60
+  }
+ },
+ "sourceLimits": {
+  "commandTimeoutMs": 30000,
+  "gcTimeoutMs": 300000,
+  "applyTimeoutMs": 60000,
+  "ignoredPathsTimeoutMs": 10000,
+  "turnCleanupSettleMs": 2000
+ },
+ "finish": {
+  "settleMs": 400,
+  "abortAtMs": 80,
+  "scenarios": [
+   {
+    "name": "seal resolves",
+    "abortedAtFinish": false,
+    "continueTurn": false,
+    "abortDuringWait": false,
+    "tokenBegan": true,
+    "sealHangs": false,
+    "returnedAt": "none",
+    "completeCalls": [
+     {
+      "sessionId": "sess-3",
+      "token": {
+       "generation": 3,
+       "checkpointId": "cp-3"
+      }
+     }
+    ]
+   },
+   {
+    "name": "seal never resolves",
+    "abortedAtFinish": false,
+    "continueTurn": false,
+    "abortDuringWait": false,
+    "tokenBegan": true,
+    "sealHangs": true,
+    "returnedAt": "settle",
+    "completeCalls": [
+     {
+      "sessionId": "sess-3",
+      "token": {
+       "generation": 3,
+       "checkpointId": "cp-3"
+      }
+     }
+    ]
+   },
+   {
+    "name": "seal never resolves, the turn is cancelled while it waits",
+    "abortedAtFinish": false,
+    "continueTurn": false,
+    "abortDuringWait": true,
+    "tokenBegan": true,
+    "sealHangs": true,
+    "returnedAt": "abort",
+    "completeCalls": [
+     {
+      "sessionId": "sess-3",
+      "token": {
+       "generation": 3,
+       "checkpointId": "cp-3"
+      }
+     }
+    ]
+   },
+   {
+    "name": "cancelled turn seals in the background",
+    "abortedAtFinish": true,
+    "continueTurn": false,
+    "abortDuringWait": false,
+    "tokenBegan": true,
+    "sealHangs": true,
+    "returnedAt": "none",
+    "completeCalls": [
+     {
+      "sessionId": "sess-3",
+      "token": {
+       "generation": 3,
+       "checkpointId": "cp-3"
+      }
+     }
+    ]
+   },
+   {
+    "name": "cancelled turn whose review never began",
+    "abortedAtFinish": true,
+    "continueTurn": false,
+    "abortDuringWait": false,
+    "tokenBegan": false,
+    "sealHangs": false,
+    "returnedAt": "none",
+    "completeCalls": []
+   },
+   {
+    "name": "cancelled completion wake",
+    "abortedAtFinish": true,
+    "continueTurn": true,
+    "abortDuringWait": false,
+    "tokenBegan": true,
+    "sealHangs": true,
+    "returnedAt": "none",
+    "completeCalls": [
+     {
+      "sessionId": "sess-3",
+      "token": {
+       "generation": 3,
+       "checkpointId": "cp-3"
+      }
+     }
+    ]
+   }
+  ]
+ }
+}

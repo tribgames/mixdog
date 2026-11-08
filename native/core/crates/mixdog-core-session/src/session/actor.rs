@@ -4947,7 +4947,7 @@ impl SessionActor {
                 }
             };
             // The turn's review is sealed before the turn reports settled.
-            review.finish(cancel.is_aborted()).await;
+            review.finish(&cancel).await;
             drop(warm);
             let _ = ctl.send(Ctl::RunEnded { turn, outcome }).await;
             // `releaseWorkspace()` of `settleTurn`.

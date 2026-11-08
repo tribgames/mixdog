@@ -5,7 +5,10 @@
 use std::sync::Arc;
 use std::sync::OnceLock;
 
+use std::time::Duration;
+
 use async_trait::async_trait;
+use mixdog_agent::cancel::Cancel;
 use mixdog_agent::env::GateCall;
 use mixdog_agent::env::GateDecision;
 use mixdog_agent::env::ToolGate;
@@ -14,6 +17,9 @@ use mixdog_core_api::turn_review::TurnReviewApi;
 use mixdog_core_api::turn_review::TurnToken;
 use mixdog_rt::TaskClass;
 use tokio::sync::watch;
+
+/// `turnCleanupSettleMs` (`turn-run.mjs`): how long a finishing turn waits for its review to seal.
+pub const TURN_CLEANUP_SETTLE: Duration = Duration::from_millis(2_000);
 
 /// One turn's review: begun with [`start`](Self::start), sealed by the actor at settle.
 #[derive(Clone)]
@@ -65,22 +71,29 @@ impl TurnSnapshot {
 
     /// `tracker.finish(signal)`: a cancelled turn keeps its edits as a change record, sealed in
     /// the background once its baseline exists, and only the generation it began; any other turn
-    /// is sealed before it reports settled. A turn that never began a review seals nothing.
-    pub async fn finish(&self, aborted: bool) {
+    /// is sealed before it reports settled, for at most [`TURN_CLEANUP_SETTLE`]: the seal then
+    /// goes on detached, and the run's cancel ends the wait at once. A turn that never began a
+    /// review seals nothing.
+    pub async fn finish(&self, cancel: &Cancel) {
         if self.inner.started.get().is_none() {
             return;
         }
-        if aborted && !self.inner.open.continue_turn {
-            let this = self.clone();
-            drop(mixdog_rt::spawn("turn-review-seal", TaskClass::Work, async move {
-                if let Some(token) = this.ready().await {
-                    this.inner.review.complete_turn(&this.inner.session, Some(&token)).await;
-                }
-            }));
+        let background = cancel.is_aborted() && !self.inner.open.continue_turn;
+        let this = self.clone();
+        let mut seal = mixdog_rt::spawn("turn-review-seal", TaskClass::Work, async move {
+            let token = this.ready().await;
+            if token.is_some() || !background {
+                this.inner.review.complete_turn(&this.inner.session, token.as_ref()).await;
+            }
+        });
+        if background {
             return;
         }
-        let token = self.ready().await;
-        self.inner.review.complete_turn(&self.inner.session, token.as_ref()).await;
+        tokio::select! {
+            _ = &mut seal => {}
+            _ = tokio::time::sleep(TURN_CLEANUP_SETTLE) => {}
+            _ = cancel.cancelled() => {}
+        }
     }
 }
 
@@ -110,5 +123,112 @@ impl ToolGate for ReviewGate {
 
     fn apply_approval(&self, call: &GateCall, decision: &mixdog_protocol::ToolApprovalDecision) -> GateCall {
         self.inner.apply_approval(call, decision)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::Mutex;
+    use std::time::Duration;
+
+    use async_trait::async_trait;
+    use mixdog_agent::cancel::Cancel;
+    use mixdog_core_api::turn_review as tr;
+    use tokio::sync::Notify;
+
+    use super::TURN_CLEANUP_SETTLE;
+    use super::TurnSnapshot;
+
+    /// A review whose baseline answers a token and whose seal never returns.
+    #[derive(Default)]
+    struct Wedged {
+        sealing: Notify,
+        sealed: Mutex<Vec<Option<u64>>>,
+    }
+
+    #[async_trait]
+    impl tr::TurnReviewApi for Wedged {
+        async fn record_call(&self, _: &str, _: &str, _: &str, _: Vec<tr::CallChange>) {}
+        async fn record_tool_changes(&self, _: &str, _: &str, _: Vec<tr::CallChange>) {}
+        fn take_call_diff(&self, _: &str) -> Option<String> {
+            None
+        }
+        fn note_change(&self, _: Option<&[String]>) {}
+        async fn begin_turn(&self, _: &str, _: &str, open: tr::TurnOpen) -> Option<tr::TurnToken> {
+            Some(tr::TurnToken { generation: 1, checkpoint_id: open.checkpoint_id })
+        }
+        async fn complete_turn(&self, _: &str, expected: Option<&tr::TurnToken>) -> bool {
+            self.sealed.lock().unwrap().push(expected.map(|t| t.generation));
+            self.sealing.notify_one();
+            std::future::pending().await
+        }
+        fn begin_agent_review(&self, _: &str, _: &str, _: &str, _: &str) -> Option<Box<dyn tr::AgentReview>> {
+            None
+        }
+        fn forget_session(&self, _: &str) {}
+        async fn turn_review_diff(&self, _: &str, _: &str, _: tr::ReviewRead) -> tr::Reply {
+            unimplemented!()
+        }
+        async fn turn_review_file_patch(&self, _: &str, _: &str, _: &str) -> tr::Reply {
+            unimplemented!()
+        }
+        async fn session_review_diff(&self, _: &str, _: &str) -> tr::Reply {
+            unimplemented!()
+        }
+        async fn session_review_file_patch(&self, _: &str, _: &str, _: &str, _: &str) -> tr::Reply {
+            unimplemented!()
+        }
+        async fn revert_turn_review(&self, _: &str, _: &str, _: &str) -> Result<tr::Reply, tr::ReviewError> {
+            unimplemented!()
+        }
+        async fn revert_turn_review_file(&self, _: &str, _: &str, _: &str, _: &str) -> Result<tr::Reply, tr::ReviewError> {
+            unimplemented!()
+        }
+        async fn turn_changes(&self, _: &str, _: tr::ChangesRead) -> Result<tr::Reply, tr::ReviewError> {
+            unimplemented!()
+        }
+        async fn revert_turn_changes(&self, _: &str, _: &str, _: Option<&str>, _: f64) -> Result<tr::Reply, tr::ReviewError> {
+            unimplemented!()
+        }
+        async fn reapply_turn_changes(&self, _: &str, _: &str, _: Option<&str>, _: f64) -> Result<tr::Reply, tr::ReviewError> {
+            unimplemented!()
+        }
+        async fn clear_change_history(&self, _: &str) -> Result<tr::Reply, tr::ReviewError> {
+            unimplemented!()
+        }
+    }
+
+    fn started() -> (Arc<Wedged>, TurnSnapshot) {
+        mixdog_rt::testing::tokens();
+        let review = Arc::new(Wedged::default());
+        let snapshot = TurnSnapshot::new(review.clone(), "s1", "cp-1", false);
+        snapshot.start("/work");
+        (review, snapshot)
+    }
+
+    /// A seal that never returns does not hold the turn's end past `turnCleanupSettleMs`; it goes on detached.
+    #[tokio::test(start_paused = true)]
+    async fn a_seal_that_never_returns_ends_at_the_settle_limit() {
+        let (review, snapshot) = started();
+        let cancel = Cancel::new();
+        let ended = tokio::time::timeout(TURN_CLEANUP_SETTLE + Duration::from_millis(1), snapshot.finish(&cancel)).await;
+        assert!(ended.is_ok(), "finish waited past the settle limit");
+        assert_eq!(*review.sealed.lock().unwrap(), vec![Some(1)]);
+    }
+
+    /// The run's cancel ends the wait for the seal at once.
+    #[tokio::test(start_paused = true)]
+    async fn a_cancel_ends_the_wait_for_the_seal() {
+        let (review, snapshot) = started();
+        let cancel = Cancel::new();
+        let waiting = {
+            let (snapshot, cancel) = (snapshot.clone(), cancel.clone());
+            tokio::spawn(async move { snapshot.finish(&cancel).await })
+        };
+        review.sealing.notified().await;
+        cancel.abort_default();
+        let ended = tokio::time::timeout(Duration::from_millis(1), waiting).await;
+        assert!(ended.is_ok(), "finish outlived the cancel");
     }
 }

@@ -60,14 +60,19 @@ impl ScmGit {
 impl ReviewGit for ScmGit {
     async fn run_with(&self, cwd: &str, args: &[String], input: Vec<u8>, options: &GitOptions) -> Result<GitRun, String> {
         let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        let timeout = options.timeout;
         let options = RunOptions {
             input: (!input.is_empty()).then_some(input),
             max_output: Some(options.max_bytes.unwrap_or(COMMAND_MAX_BYTES)),
             index_file: options.index_file.clone(),
+            time_limit: Some(timeout),
             ..RunOptions::default()
         };
+        // Deliberately not the turn's cancel token: the baseline and the cancelled turn's seal run to completion.
         let out = self.scm.git.outcome(&CancellationToken::new(), Path::new(cwd), &refs, &options).await.map_err(|e| match e {
             mixdog_scm::error::ScmFailure::OutputTooLarge { .. } => OUTPUT_OVERFLOW.to_owned(),
+            // `run-child.mjs`: `${command} ${args.join(' ')} timed out after ${timeoutMs}ms`.
+            mixdog_scm::error::ScmFailure::TimedOut => format!("git {} timed out after {}ms", args.join(" "), timeout.as_millis()),
             other => other.to_string(),
         })?;
         Ok(GitRun { code: out.code.unwrap_or(-1), stdout: out.stdout, stderr: out.stderr })
