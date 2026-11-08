@@ -207,18 +207,18 @@ pub fn replace_backoffs_ms() -> Vec<u64> {
     [25, 50, 100].into_iter().chain(std::iter::repeat_n(REPLACE_RETRY_MAX_MS, 20)).collect()
 }
 
-/// Node's `RETRY_CODES` (`atomic-file.mjs`: EPERM, EACCES, EBUSY, EEXIST) as `io` sees them; on Windows also the sharing and lock
-/// violations, which libuv reports as EBUSY.
-fn replace_error_is_transient(error: &io::Error) -> bool {
-    matches!(
-        error.kind(),
-        io::ErrorKind::PermissionDenied | io::ErrorKind::AlreadyExists | io::ErrorKind::ResourceBusy
-    ) || (cfg!(windows) && matches!(error.raw_os_error(), Some(32 | 33)))
+/// Which of Node's `RETRY_CODES` (`atomic-file.mjs`: EPERM, EACCES, EBUSY, EEXIST) an OS error is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Retry {
+    /// EPERM or EACCES: also what renaming over a read-only file answers, which never clears.
+    Access,
+    /// EBUSY or EEXIST.
+    Other,
 }
 
 /// Node's `isReadOnlyFile`: a refusal to rename over a read-only file never clears, so it is not waited for.
 fn destination_is_read_only(to: &Path) -> bool {
-    std::fs::metadata(to).is_ok_and(|meta| meta.is_file() && meta.permissions().readonly())
+    std::fs::metadata(to).is_ok_and(|meta| meta.is_file() && sys::read_only(&meta))
 }
 
 /// The retry loop of Node's `renameWithRetry`: attempt `n` that fails with a transient error (not against a read-only destination)
@@ -234,10 +234,10 @@ fn replace_with_retry(
         match replace(from, to) {
             Ok(()) => return Ok(()),
             Err(error) => {
-                if !replace_error_is_transient(&error)
-                    || (error.kind() == io::ErrorKind::PermissionDenied && destination_is_read_only(to))
-                {
-                    return Err(error);
+                match error.raw_os_error().and_then(sys::retry_class) {
+                    None => return Err(error),
+                    Some(Retry::Access) if destination_is_read_only(to) => return Err(error),
+                    Some(_) => {}
                 }
                 let jitter = rand::random_range(0..backoff.clamp(1, 50));
                 pause(std::time::Duration::from_millis(backoff + jitter));
@@ -309,6 +309,25 @@ mod sys {
     pub(super) fn replace(from: &Path, to: &Path) -> io::Result<()> {
         std::fs::rename(from, to)?;
         File::open(to.parent().expect("discovery has a parent"))?.sync_all()
+    }
+
+    /// Node's `RETRY_CODES` by errno.
+    pub(super) fn retry_class(errno: i32) -> Option<super::Retry> {
+        match errno {
+            libc::EPERM | libc::EACCES => Some(super::Retry::Access),
+            libc::EBUSY | libc::EEXIST => Some(super::Retry::Other),
+            _ => None,
+        }
+    }
+
+    /// Node's `isReadOnlyFile` on POSIX: `(stat.mode & 0o200) === 0`, the owner's write bit alone.
+    pub(super) fn read_only(meta: &std::fs::Metadata) -> bool {
+        use std::os::unix::fs::MetadataExt;
+        mode_is_read_only(meta.mode())
+    }
+
+    pub(super) fn mode_is_read_only(mode: u32) -> bool {
+        mode & 0o200 == 0
     }
 }
 
@@ -430,6 +449,28 @@ mod sys {
         }
         // SAFETY: a valid file handle owned from here on.
         Ok(unsafe { File::from_raw_handle(handle) })
+    }
+
+    /// Node's `RETRY_CODES` by Win32 error: the errors libuv's `uv_translate_sys_error` (`src/win/error.c`) maps to EPERM, EACCES, EBUSY
+    /// or EEXIST, and no others (`ERROR_BUSY` maps to UNKNOWN there, so Node does not retry it).
+    pub(super) fn retry_class(code: i32) -> Option<super::Retry> {
+        match code {
+            // EPERM: ERROR_ACCESS_DENIED, ERROR_PRIVILEGE_NOT_HELD.
+            5 | 1314 => Some(super::Retry::Access),
+            // EACCES: WSAEACCES, ERROR_ELEVATION_REQUIRED, ERROR_CANT_ACCESS_FILE.
+            10013 | 740 | 1920 => Some(super::Retry::Access),
+            // EBUSY: ERROR_LOCK_VIOLATION, ERROR_PIPE_BUSY, ERROR_SHARING_VIOLATION.
+            33 | 231 | 32 => Some(super::Retry::Other),
+            // EEXIST: ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS.
+            183 | 80 => Some(super::Retry::Other),
+            _ => None,
+        }
+    }
+
+    /// Node's `isReadOnlyFile` on Windows: libuv reports the mode of a file with `FILE_ATTRIBUTE_READONLY` as 0o444 and any other as
+    /// 0o666, so `(mode & 0o200) === 0` is exactly the read-only attribute.
+    pub(super) fn read_only(meta: &std::fs::Metadata) -> bool {
+        meta.permissions().readonly()
     }
 
     pub(super) fn replace(from: &Path, to: &Path) -> io::Result<()> {

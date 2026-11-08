@@ -63,8 +63,79 @@ fn withdraw_removes_only_this_instance() {
     assert!(!withdraw(root.path(), "inst-1").unwrap());
 }
 
+/// The OS error a reader holding the file makes the replace answer with (EPERM / ERROR_ACCESS_DENIED).
 fn denied() -> io::Error {
-    io::Error::from(io::ErrorKind::PermissionDenied)
+    #[cfg(windows)]
+    let code = 5;
+    #[cfg(unix)]
+    let code = libc::EPERM;
+    io::Error::from_raw_os_error(code)
+}
+
+/// Node's retry decision for each raw OS error: `RETRY_CODES` (EPERM, EACCES, EBUSY, EEXIST) as libuv names the error
+/// (`src/win/error.c` `uv_translate_sys_error` on Windows, the errno itself on POSIX). `Some(true)` is EPERM/EACCES.
+#[cfg(windows)]
+const RETRY_TABLE: &[(i32, Option<bool>)] = &[
+    (5, Some(true)),      // ERROR_ACCESS_DENIED -> EPERM
+    (1314, Some(true)),   // ERROR_PRIVILEGE_NOT_HELD -> EPERM
+    (740, Some(true)),    // ERROR_ELEVATION_REQUIRED -> EACCES
+    (1920, Some(true)),   // ERROR_CANT_ACCESS_FILE -> EACCES
+    (10013, Some(true)),  // WSAEACCES -> EACCES
+    (32, Some(false)),    // ERROR_SHARING_VIOLATION -> EBUSY
+    (33, Some(false)),    // ERROR_LOCK_VIOLATION -> EBUSY
+    (231, Some(false)),   // ERROR_PIPE_BUSY -> EBUSY
+    (183, Some(false)),   // ERROR_ALREADY_EXISTS -> EEXIST
+    (80, Some(false)),    // ERROR_FILE_EXISTS -> EEXIST
+    (170, None),          // ERROR_BUSY -> UNKNOWN: not retried
+    (2, None),            // ERROR_FILE_NOT_FOUND -> ENOENT
+    (3, None),            // ERROR_PATH_NOT_FOUND -> ENOENT
+    (19, None),           // ERROR_WRITE_PROTECT -> EROFS
+    (17, None),           // ERROR_NOT_SAME_DEVICE -> EXDEV
+    (112, None),          // ERROR_DISK_FULL -> ENOSPC
+];
+
+#[cfg(unix)]
+const RETRY_TABLE: &[(i32, Option<bool>)] = &[
+    (libc::EPERM, Some(true)),
+    (libc::EACCES, Some(true)),
+    (libc::EBUSY, Some(false)),
+    (libc::EEXIST, Some(false)),
+    (libc::ENOENT, None),
+    (libc::EROFS, None),
+    (libc::EXDEV, None),
+    (libc::ENOSPC, None),
+    (libc::EAGAIN, None),
+];
+
+#[test]
+fn only_the_os_errors_node_retries_are_retried() {
+    for &(code, expected) in RETRY_TABLE {
+        let class = sys::retry_class(code);
+        assert_eq!(
+            class,
+            expected.map(|access| if access { Retry::Access } else { Retry::Other }),
+            "OS error {code}"
+        );
+    }
+}
+
+/// Node's `isReadOnlyFile` is `(mode & 0o200) === 0`: the owner's write bit alone.
+#[cfg(unix)]
+#[test]
+fn a_destination_is_read_only_when_the_owner_cannot_write_it() {
+    for (mode, read_only) in [
+        (0o444, true),
+        (0o400, true),
+        (0o420, true),
+        (0o402, true),
+        (0o040, true),
+        (0o200, false),
+        (0o600, false),
+        (0o644, false),
+        (0o222, false),
+    ] {
+        assert_eq!(sys::mode_is_read_only(mode), read_only, "mode {mode:o}");
+    }
 }
 
 /// Replaces that fail `failures` times with `error`, then rename for real; the pauses it was asked to make are recorded, not slept.
