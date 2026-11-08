@@ -5,10 +5,13 @@
 
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
 
 use async_trait::async_trait;
+use tokio::sync::watch;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::DomainService;
@@ -52,6 +55,8 @@ struct World {
     running: Vec<String>,
     set_route_fails: bool,
     clear_fails: bool,
+    /// How many catalog reads still reject (`world.catalogFailures`).
+    catalog_failures: u64,
     archive_count: u32,
     log: Vec<Value>,
 }
@@ -60,6 +65,15 @@ struct Home {
     world: Mutex<World>,
     routes: Value,
     extras: Vec<Value>,
+    /// The recorder's gate: while closed, the first dependency call of a resolution (the catalog,
+    /// or Mixy's route) waits for it to open.
+    gate: watch::Sender<bool>,
+}
+
+impl Home {
+    async fn through_gate(&self) {
+        let _ = self.gate.subscribe().wait_for(|open| *open).await;
+    }
 }
 
 fn strings(value: &Value) -> Vec<String> {
@@ -93,6 +107,7 @@ impl Home {
                 "running" => world.running = strings(value),
                 "setRouteFails" => world.set_route_fails = value.as_bool().unwrap(),
                 "clearFails" => world.clear_fails = value.as_bool().unwrap(),
+                "catalogFailures" => world.catalog_failures = value.as_u64().unwrap(),
                 other => panic!("unknown world key {other}"),
             }
         }
@@ -106,8 +121,13 @@ impl Home {
 #[async_trait]
 impl HomeDeps for Home {
     async fn list_agents(&self) -> Result<Value, DepError> {
+        self.through_gate().await;
         let mut world = self.world.lock().unwrap();
         world.log.push(json!(["listAgents"]));
+        if world.catalog_failures > 0 {
+            world.catalog_failures -= 1;
+            return Err(DepError::new("The catalog is unavailable."));
+        }
         let mut rows: Vec<Value> = world
             .agents
             .iter()
@@ -118,6 +138,7 @@ impl HomeDeps for Home {
     }
 
     async fn mixy_route(&self) -> Result<Value, DepError> {
+        self.through_gate().await;
         let mut world = self.world.lock().unwrap();
         world.log.push(json!(["mixyRoute"]));
         Ok(world.mixy_route.clone())
@@ -232,11 +253,78 @@ fn home_world(scenario: &Value, twin: &Value) -> Arc<Home> {
             running: strings(&world["running"]),
             set_route_fails: world["setRouteFails"].as_bool().unwrap(),
             clear_fails: world["clearFails"].as_bool().unwrap(),
+            catalog_failures: world.get("catalogFailures").map_or(0, |count| count.as_u64().unwrap()),
             ..World::default()
         }),
         routes: twin["routes"].clone(),
         extras: twin["catalogExtras"].as_array().unwrap().clone(),
+        gate: watch::channel(true).0,
     })
+}
+
+/// A call started and not yet awaited: its first poll ran it to its first wait, as Node's call
+/// runs to its first `await` when it is made.
+enum Started {
+    Done(Result<Value, CoreError>),
+    Waiting(Pin<Box<dyn Future<Output = Result<Value, CoreError>> + Send>>),
+}
+
+/// `flights` of the twin: calls of one agent started together while the gate is closed share the
+/// flight Node's `opening` map gives them, failures included; a reset queues behind the flight it
+/// finds; a settled flight leaves the map. Each `settle` answers what Node's calls answered, in
+/// start order, and the dependency calls made are Node's.
+#[tokio::test]
+async fn calls_of_one_agent_in_flight_together_share_what_node_shared() {
+    let twin = twin("desktop/settings/agent-home-api-twin.json");
+    let mut settled = 0;
+    for flight in twin["flights"].as_array().unwrap() {
+        let name = flight["name"].as_str().unwrap();
+        let home = home_world(flight, &twin);
+        let homes = AgentHomeSessions::new(home.clone());
+        let mut started: Vec<Started> = Vec::new();
+        for (step, op) in flight["ops"].as_array().unwrap().iter().enumerate() {
+            let label = format!("{name}, step {step}");
+            match op["op"].as_str().unwrap() {
+                "hold" => {
+                    home.gate.send_replace(false);
+                }
+                "release" => {
+                    home.gate.send_replace(true);
+                }
+                "world" => home.apply(&op["patch"]),
+                "start" => {
+                    let (homes, agent, reset) = (homes.clone(), op["agent"].as_str().unwrap().to_owned(), op["kind"] == "reset");
+                    let mut call: Pin<Box<dyn Future<Output = Result<Value, CoreError>> + Send>> =
+                        Box::pin(async move { if reset { homes.reset(&agent).await } else { homes.open(&agent).await } });
+                    started.push(match futures::poll!(call.as_mut()) {
+                        std::task::Poll::Ready(done) => Started::Done(done),
+                        std::task::Poll::Pending => Started::Waiting(call),
+                    });
+                }
+                "settle" => {
+                    let recorded = op["calls"].as_array().unwrap();
+                    assert_eq!(recorded.len(), started.len(), "{label}: calls started");
+                    for (call, want) in started.drain(..).zip(recorded) {
+                        let got = match call {
+                            Started::Done(done) => done,
+                            Started::Waiting(waiting) => waiting.await,
+                        };
+                        let label = format!("{label}, call {}", want["call"]);
+                        match (&got, want.get("error")) {
+                            (Ok(value), None) => assert_eq!(value, &want["result"], "{label}: result"),
+                            (Err(error), Some(message_want)) => assert_eq!(message(error), message_want.as_str().unwrap(), "{label}: error"),
+                            (got, _) => panic!("{label}: got {got:?}, Node {want}"),
+                        }
+                        settled += 1;
+                    }
+                    assert_eq!(home.take_log(), op["log"], "{label}: dependency calls");
+                }
+                other => panic!("{label}: unknown op {other}"),
+            }
+        }
+        assert!(started.is_empty(), "{name}: every started call is settled");
+    }
+    assert!(settled > 25, "{settled} calls settled");
 }
 
 #[tokio::test]
@@ -442,6 +530,25 @@ async fn the_pool_lists_what_node_listed() {
         }
     }
     assert!(rows > 300 && errors == 6, "{rows} rows, {errors} errors");
+}
+
+/// `poolCases` of the home twin: the worker indexes of each case as files, listed by Node's pool
+/// listing at a fixed clock with its recorded running set; every case answers Node's rows, order included.
+#[tokio::test]
+async fn the_pool_lists_the_rows_of_every_home_twin_case() {
+    let twin = twin("desktop/settings/agent-home-api-twin.json");
+    let rig = Arc::new(Rig { stall: json!({}), ..Rig::default() });
+    let pool = AgentPool::new(rig.clone(), rig.clone());
+    let cases = twin["poolCases"].as_array().unwrap();
+    let mut rows = 0;
+    for (index, case) in cases.iter().enumerate() {
+        *rig.files.lock().unwrap() = files_of(case);
+        *rig.step.lock().unwrap() = json!({ "now": case["now"], "running": case["running"], "awaiting": [], "live": {}, "entries": {}, "ledger": {} });
+        let listed = pool.list().await.unwrap_or_else(|error| panic!("pool case {index}: {error}"));
+        rows += listed.len();
+        assert_eq!(Value::Array(listed), case["rows"], "pool case {index}: rows");
+    }
+    assert!(cases.len() == 40 && rows > 100, "{} cases, {rows} rows", cases.len());
 }
 
 fn section_rows(change: &mixdog_core_api::state::SectionChange) -> Value {

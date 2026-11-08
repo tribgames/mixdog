@@ -1,14 +1,17 @@
 #!/usr/bin/env node
 // Golden twin of the agent home, agent memory and agent pool methods: what Node's real host code
 // answers (apps/desktop/src/main/agent-home-sessions.ts createAgentHomeSessions open/reset,
-// agent-memory.ts listAgentMemory/deleteAgentMemory, and the pool order of
-// session/store-agent-worker-pool.mjs listStoredAgentWorkers) over scripted worlds. A home
+// agent-memory.ts listAgentMemory/deleteAgentMemory, and the pool listing of
+// session/store-agent-worker-rows.mjs listStoredAgentWorkersAsync) over scripted worlds. A home
 // scenario runs open/reset calls against an in-memory session world whose every dependency call
-// is logged; the memory cases script the memory runtime's text replies; the pool cases list rows
-// through Node's own ordering.
+// is logged; the flight scenarios start several calls of one agent together (the first dependency
+// call parks on a gate) to record which share one in-flight result; the memory cases script the
+// memory runtime's text replies; the pool cases list rows through Node's pool listing over a real
+// data directory of worker indexes.
 //
 //   node --experimental-transform-types --import benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-agent-home-api.mjs --tree <dir>
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { FIXTURES_ROOT, importFrom, parseArgs, refreshSetManifest, resolveTree } from './lib/common.mjs';
 
@@ -17,7 +20,7 @@ const tree = resolveTree(parseArgs());
 console.warn = () => {};
 const { createAgentHomeSessions } = await importFrom(tree, 'apps/desktop/src/main/agent-home-sessions.ts');
 const { listAgentMemory, deleteAgentMemory } = await importFrom(tree, 'apps/desktop/src/main/agent-memory.ts');
-const { listStoredAgentWorkers } = await importFrom(tree, 'src/runtime/agent/orchestrator/session/store-agent-worker-pool.mjs');
+const rowsMod = await importFrom(tree, 'src/runtime/agent/orchestrator/session/store-agent-worker-rows.mjs');
 
 let seed = 0x2f6e2b1;
 const next = () => {
@@ -91,7 +94,9 @@ function sessionMissing(id) {
   return Object.assign(new Error(`Session ${id} is not available`), { code: 'SESSION_NOT_AVAILABLE' });
 }
 
-function homeRig(world) {
+// With a gate, the first dependency call of every resolution (the catalog, or Mixy's route) waits on
+// `gate.promise`; `world.catalogFailures` makes that many catalog reads reject.
+function homeRig(world, gate = null) {
   const log = [];
   let archiveCount = 0;
   const has = (list, id) => list.includes(id);
@@ -102,10 +107,16 @@ function homeRig(world) {
   };
   const deps = {
     async listAgents() {
+      if (gate) await gate.promise;
       log.push(['listAgents']);
+      if (world.catalogFailures > 0) {
+        world.catalogFailures -= 1;
+        throw new Error('The catalog is unavailable.');
+      }
       return agentRows(world.agents);
     },
     async mixyRoute() {
+      if (gate) await gate.promise;
       log.push(['mixyRoute']);
       return world.mixyRoute;
     },
@@ -202,6 +213,68 @@ for (let n = 0; n < 80; n += 1) {
   homes.push({ world: initial, ops });
 }
 
+// --- flights: calls of one agent in flight together ---------------------------------------------------
+// `hold` parks the first dependency call of every resolution until `release`; `start` begins a call
+// without waiting for it; `settle` waits for every started call and records each outcome (in start
+// order) with the dependency calls made since the last settle.
+const SESSION_ADA = { route: ROUTES.ada, turns: true };
+const flightWorld = (over = {}) => ({
+  agents: ['ada'],
+  mixyRoute: null,
+  mixyCreated: false,
+  sessions: {},
+  archived: [],
+  retired: [],
+  running: [],
+  setRouteFails: false,
+  clearFails: false,
+  catalogFailures: 0,
+  ...over,
+});
+const start = (call, kind) => ({ op: 'start', call, kind, agent: 'ada' });
+const HOLD = { op: 'hold' };
+const RELEASE = { op: 'release' };
+const SETTLE = { op: 'settle' };
+const FLIGHT_CASES = [
+  { name: 'concurrent opens of a new home share one create; a later open starts a new flight', world: flightWorld(), ops: [HOLD, start('a', 'open'), start('b', 'open'), start('c', 'open'), RELEASE, SETTLE, start('d', 'open'), SETTLE] },
+  { name: 'concurrent opens share a failure; the next open retries', world: flightWorld({ catalogFailures: 1 }), ops: [HOLD, start('a', 'open'), start('b', 'open'), RELEASE, SETTLE, start('c', 'open'), SETTLE] },
+  { name: 'concurrent opens of an agent that is not there share the refusal', world: flightWorld({ agents: [] }), ops: [HOLD, start('a', 'open'), start('b', 'open'), RELEASE, SETTLE, { op: 'world', patch: { agents: ['ada'] } }, start('c', 'open'), SETTLE] },
+  { name: 'a reset queues behind an open', world: flightWorld({ sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('open', 'open'), start('reset', 'reset'), RELEASE, SETTLE] },
+  { name: 'a reset runs after the failed open it queued behind', world: flightWorld({ catalogFailures: 1, sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('open', 'open'), start('reset', 'reset'), RELEASE, SETTLE] },
+  { name: 'an open joins the reset in flight', world: flightWorld({ sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('reset', 'reset'), start('open', 'open'), RELEASE, SETTLE] },
+  { name: 'an open shares the failure of the reset it joined; later calls start new flights', world: flightWorld({ clearFails: true, sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('reset', 'reset'), start('open', 'open'), RELEASE, SETTLE, { op: 'world', patch: { clearFails: false } }, start('again', 'open'), SETTLE, start('last', 'reset'), SETTLE] },
+  { name: 'resets queue one behind another and an open joins the last', world: flightWorld({ sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('first', 'reset'), start('second', 'reset'), start('open', 'open'), RELEASE, SETTLE] },
+  { name: 'a reset runs on after the reset before it failed', world: flightWorld({ clearFails: true, sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('first', 'reset'), start('second', 'reset'), RELEASE, SETTLE] },
+  { name: 'an open after a reset after an open joins the reset', world: flightWorld({ sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('first', 'open'), start('reset', 'reset'), start('second', 'open'), RELEASE, SETTLE] },
+];
+const flights = [];
+for (const flight of FLIGHT_CASES) {
+  const world = structuredClone(flight.world);
+  const gate = { promise: Promise.resolve(), open: () => {} };
+  const rig = homeRig(world, gate);
+  const home = createAgentHomeSessions(rig.deps);
+  const pending = [];
+  const ops = [];
+  for (const op of flight.ops) {
+    if (op.op === 'hold') gate.promise = new Promise((resolve) => (gate.open = resolve));
+    else if (op.op === 'release') gate.open();
+    else if (op.op === 'world') Object.assign(world, structuredClone(op.patch));
+    else if (op.op === 'start') pending.push({ call: op.call, run: unwrap(() => (op.kind === 'open' ? home.open(op.agent) : home.reset(op.agent))) });
+    else {
+      const calls = [];
+      for (const { call, run } of pending) calls.push({ call, ...(await run) });
+      pending.length = 0;
+      // The next request arrives in a later turn of the event loop, after the settled flights' cleanup.
+      await new Promise((resolve) => setImmediate(resolve));
+      ops.push({ op: 'settle', calls, log: structuredClone(rig.log) });
+      rig.log.length = 0;
+      continue;
+    }
+    ops.push(op);
+  }
+  flights.push({ name: flight.name, world: flight.world, ops });
+}
+
 // --- agent memory ----------------------------------------------------------------------------------
 const entry = (id, revision, summary) => ({ id, index_revision: revision, summary });
 const page = (entries, nextOffset) => JSON.stringify({ entries, nextOffset });
@@ -275,6 +348,9 @@ for (const c of DELETE_CASES) {
 const TAGS = ['b-worker', 'B-worker', 'a-worker', 'ä-worker', 'z-worker', 'Z-worker', 'worker 10', 'worker 9', ''];
 const STARTS = ['2026-01-02T03:04:05.000Z', '2026-01-02T03:04:05Z', '2026-01-02T03:04:06.500Z', '2025-12-31T23:59:59.999Z', '', null, undefined, 'not a date', 1767323045000, '2026-01-02'];
 const poolCases = [];
+const POOL_NOW = Date.parse('2026-01-02T03:10:00.000Z');
+Date.now = () => POOL_NOW;
+const poolRoot = mkdtempSync(join(tmpdir(), 'agent-home-pool-'));
 for (let n = 0; n < 40; n += 1) {
   const count = 1 + Math.floor(next() * 9);
   const children = [];
@@ -286,21 +362,28 @@ for (let n = 0; n < 40; n += 1) {
   }
   // A lead row replaces a child row of the same session id.
   if (children.length && chance(0.4)) leads.push({ ...children[0], tag: pick(TAGS), status: 'lead' });
-  const listed = listStoredAgentWorkers({
-    now: 0,
-    runningSessionIds: new Set(),
-    storedAgentWorkerIndexRows: () => children,
-    projectChildWorkerRow: (row) => row,
-    storedLeadWorkerRows: () => leads,
-    projectLeadWorkerRow: (row) => row,
-    pruneOrphanChildRows: () => {},
-  });
-  poolCases.push({ children, leads, order: listed.map((row) => row.sessionId), rows: listed });
+  // Node's own listing over the two worker indexes as files in a data directory of its own.
+  const dir = join(poolRoot, `case${n}`);
+  mkdirSync(join(dir, 'sessions'), { recursive: true });
+  process.env.MIXDOG_DATA_DIR = dir;
+  const files = {
+    agentIndex: JSON.stringify({ version: 2, workers: children }),
+    leadIndex: JSON.stringify({ version: 2, workers: leads }),
+    headers: {},
+  };
+  writeFileSync(join(dir, 'agent-workers.json'), files.agentIndex);
+  writeFileSync(join(dir, 'lead-workers.json'), files.leadIndex);
+  const running = [...children, ...leads].map((row) => row.sessionId).filter(() => chance(0.4));
+  const listed = await rowsMod.listStoredAgentWorkersAsync({ runningSessionIds: () => new Set(running) });
+  poolCases.push({ now: POOL_NOW, running, files, rows: JSON.parse(JSON.stringify(listed)) });
 }
+rmSync(poolRoot, { recursive: true, force: true });
 
 writeFileSync(
   `${FIXTURES_ROOT}/desktop/settings/agent-home-api-twin.json`,
-  `${JSON.stringify({ domain: 'agent-home-api-twin', recorder: 'benchmarks/rust-core/recorders/record-agent-home-api.mjs', routes: ROUTES, catalogExtras: CATALOG_EXTRAS, homes, memoryList, memoryDelete, poolCases }, null, 1)}\n`
+  `${JSON.stringify({ domain: 'agent-home-api-twin', recorder: 'benchmarks/rust-core/recorders/record-agent-home-api.mjs', routes: ROUTES, catalogExtras: CATALOG_EXTRAS, homes, flights, memoryList, memoryDelete, poolCases }, null, 1)}\n`
 );
 refreshSetManifest(join(FIXTURES_ROOT, 'desktop'), tree);
-console.log(`recorded ${homes.length} home scenarios, ${memoryList.length} list, ${memoryDelete.length} delete, ${poolCases.length} pool cases`);
+console.log(`recorded ${homes.length} home scenarios, ${flights.length} flight scenarios, ${memoryList.length} list, ${memoryDelete.length} delete, ${poolCases.length} pool cases`);
+// Node's header cache keeps a timer for its persisted headers.
+process.exit(0);
