@@ -8,6 +8,7 @@
 
 use std::collections::BTreeMap;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
@@ -316,17 +317,23 @@ fn check_answer(at: &str, answer: &Result<Value, CoreError>, step: &Value, failu
     }
 }
 
-#[tokio::test]
-async fn the_lead_service_answers_and_leaves_what_nodes_editor_does() {
+/// One recorded world replayed in a folder of its own. The recorder pinned every world under one
+/// folder, so they could only run one after another, each write fsynced; the folder is mapped to a
+/// private one (the only place it shows is the paths in recorded refusals), which lets the worlds
+/// run as separate tests side by side.
+async fn replay_world(which: usize) {
     let twin = twin();
     // Node's recovery stamps came from this clock.
     let _clock = mixdog_statefile::fix_recovery_clock(twin["clock"].as_u64().unwrap().into());
+    let pin = twin["pin"].as_str().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let rehome = |text: &str| text.replace(pin, &home.path().to_string_lossy());
     let mut failures = Vec::new();
-    for world in twin["worlds"].as_array().unwrap() {
+    {
+        let world = &twin["worlds"][which];
         let name = world["name"].as_str().unwrap();
-        let (shipped, data) = (Path::new(world["shippedDir"].as_str().unwrap()).to_owned(), Path::new(world["dataDir"].as_str().unwrap()).to_owned());
+        let (shipped, data) = (PathBuf::from(rehome(world["shippedDir"].as_str().unwrap())), PathBuf::from(rehome(world["dataDir"].as_str().unwrap())));
         let root = data.parent().unwrap().to_owned();
-        remove_all(&root);
         make_dirs(&shipped);
         make_dirs(&data);
         write_files(&shipped, &world["shipped"]);
@@ -339,7 +346,11 @@ async fn the_lead_service_answers_and_leaves_what_nodes_editor_does() {
             let call_name = step["name"].as_str().unwrap();
             let answer = call(&service, call_name, step, index as u64 + 1).await;
             let at = format!("{name} #{index} {call_name} {}", step["args"].to_string().chars().take(80).collect::<String>());
-            check_answer(&at, &answer, step, &mut failures);
+            let mut expected = step.clone();
+            if let Some(error) = step["error"].as_str() {
+                expected["error"] = Value::String(rehome(error));
+            }
+            check_answer(&at, &answer, &expected, &mut failures);
             let count = published.0.load(Ordering::SeqCst) as u64;
             if Some(count) != step["published"].as_u64() {
                 failures.push(format!("{at}: {count} publications != {}", step["published"]));
@@ -353,9 +364,41 @@ async fn the_lead_service_answers_and_leaves_what_nodes_editor_does() {
                 failures.push(format!("{at}: files differ: {}", differ.join("; ")));
             }
         }
-        remove_all(&root);
     }
     assert!(failures.is_empty(), "{} differ:\n{}", failures.len(), failures.iter().take(30).cloned().collect::<Vec<_>>().join("\n"));
+}
+
+/// One test per recorded world, so the worlds run in parallel and none outlasts the test limit.
+macro_rules! worlds {
+    ($($test:ident = $which:expr;)*) => {
+        /// The worlds the tests below replay, as registered.
+        const REGISTERED: &[usize] = &[$($which),*];
+        $(
+            #[tokio::test]
+            async fn $test() {
+                replay_world($which).await;
+            }
+        )*
+    };
+}
+
+worlds! {
+    lead_world_00 = 0; lead_world_01 = 1; lead_world_02 = 2; lead_world_03 = 3; lead_world_04 = 4;
+    lead_world_05 = 5; lead_world_06 = 6; lead_world_07 = 7; lead_world_08 = 8; lead_world_09 = 9;
+    lead_world_10 = 10; lead_world_11 = 11; lead_world_12 = 12; lead_world_13 = 13; lead_world_14 = 14;
+    lead_world_15 = 15; lead_world_16 = 16; lead_world_17 = 17; lead_world_18 = 18; lead_world_19 = 19;
+    lead_world_20 = 20; lead_world_21 = 21; lead_world_22 = 22; lead_world_23 = 23; lead_world_24 = 24;
+    lead_world_25 = 25; lead_world_26 = 26; lead_world_27 = 27; lead_world_28 = 28;
+}
+
+/// The registered worlds are the fixture's worlds exactly: a world without a test would go
+/// unreplayed, and a world registered twice would stand in for another.
+#[test]
+fn every_recorded_world_is_replayed() {
+    let mut registered = REGISTERED.to_vec();
+    registered.sort_unstable();
+    let recorded: Vec<usize> = (0..twin()["worlds"].as_array().unwrap().len()).collect();
+    assert_eq!(registered, recorded);
 }
 
 #[tokio::test]
