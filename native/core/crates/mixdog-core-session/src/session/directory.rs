@@ -617,6 +617,25 @@ impl SessionDirectory {
         routes.seat(id).await.map_err(&refused)
     }
 
+    /// The thread's committed messages hold a user conversation message (`hasUserConversationMessage(session.messages)`): a
+    /// turn that has settled leaves nothing in the live turn, so only the stored rows tell an idle session's conversation.
+    pub async fn holds_user_conversation(&self, id: &ThreadId) -> Result<bool, CoreError> {
+        Ok(super::route_session::has_user_conversation(&self.committed_rows(id).await?))
+    }
+
+    /// The thread holds conversation messages, committed or in the running turn (`session-view.mjs`).
+    pub async fn holds_conversation(&self, id: &ThreadId) -> Result<bool, CoreError> {
+        let mut rows = self.committed_rows(id).await?;
+        if let Some(handle) = self.handle(id) {
+            rows.extend(handle.turn_messages_snapshot().iter().cloned());
+        }
+        Ok(super::thread_settings::has_conversation_messages(&rows))
+    }
+
+    async fn committed_rows(&self, id: &ThreadId) -> Result<Vec<Value>, CoreError> {
+        Ok(self.model_context(id).read().await?.into_iter().map(|(_, body)| body).collect())
+    }
+
     /// Whether the stored thread has its session (`getSession()?.id`).
     pub(super) async fn holds_session(&self, id: &ThreadId) -> Result<bool, CoreError> {
         let Some(header) = self.try_stored_header(id).await? else { return Ok(false) };

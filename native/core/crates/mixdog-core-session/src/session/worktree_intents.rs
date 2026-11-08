@@ -6,14 +6,14 @@ use super::*;
 
 impl Inner {
     /// The pending intent that applies to `session`'s next turn, if any.
-    fn intent_for(&self, session: &str, view: &SessionView) -> Option<Intent> {
-        let intent = self.intent(session)?;
+    async fn intent_for(&self, session: &str, view: &SessionView) -> Result<Option<Intent>, ScmFailure> {
+        let Some(intent) = self.intent(session) else { return Ok(None) };
         if is_bound(&read_session_workspace(view.workspace.as_ref())) {
             self.set_intent(session, None);
-            return None;
+            return Ok(None);
         }
         // A creation-time intent belongs to a new task: never to a resumed conversation.
-        if intent.armed || !view.has_messages { Some(intent) } else { None }
+        Ok((intent.armed || !self.host.has_conversation(session).await?).then_some(intent))
     }
 
     /// Create and enter the worktree `intent` asks for now: its txId is fixed on first use
@@ -60,7 +60,7 @@ impl Inner {
             });
         }
         let mut result = None;
-        if let Some(intent) = self.intent_for(session, &view) {
+        if let Some(intent) = self.intent_for(session, &view).await? {
             let options = Options {
                 confirm_large: intent.confirm_large || start.confirm_large,
                 own_turn: true,

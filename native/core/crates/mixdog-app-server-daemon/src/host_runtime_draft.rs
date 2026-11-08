@@ -5,7 +5,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_session::session::SessionDirectory;
-use mixdog_core_session::session::route_session::has_user_conversation;
 use mixdog_core_session::session::worktree::worktree_host::{JobCwd, LeadActivity, LiveSession, Undo};
 use mixdog_core_session::session::worktree::worktree_host_impl::{HostRuntime, WorkspaceContext};
 use mixdog_scm::error::ScmFailure;
@@ -93,9 +92,15 @@ impl HostRuntime for LiveHostRuntime {
         self.header_text(id, "cwd").unwrap_or_default()
     }
 
-    /// The live turn's messages (`route_session.rs` `live_turn_messages`).
-    fn has_messages(&self, id: &str) -> bool {
-        self.directory.handle(&ThreadId::from(id)).is_some_and(|handle| has_user_conversation(&handle.turn_messages_snapshot()))
+    /// The committed messages (`session.messages`, `refreshSessionWorkspaceContext`'s `hasUserConversationMessage`): a turn that
+    /// has settled leaves nothing live, so only the stored rows tell an idle session's conversation.
+    async fn has_messages(&self, id: &str) -> Result<bool, ScmFailure> {
+        self.directory.holds_user_conversation(&ThreadId::from(id)).await.map_err(port)
+    }
+
+    /// The committed rows or the running turn's (`session-view.mjs`: `messages` or `liveTurnMessages`).
+    async fn has_conversation(&self, id: &str) -> Result<bool, ScmFailure> {
+        self.directory.holds_conversation(&ThreadId::from(id)).await.map_err(port)
     }
 
     /// Node `applyResolvedCwd`: `writeLastSessionCwd(cwd, session.clientHostPid)`, then `moveLeadRow` (`update_lead_worker_cwd`, which cannot throw; Node swallows its
