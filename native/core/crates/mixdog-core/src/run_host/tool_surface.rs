@@ -417,10 +417,32 @@ impl ToolSurface<'_> {
     }
 
     /// The surface's catalog, rebuilt from the full catalog (current definitions before retained
-    /// ones). Bridge definitions belong to the exposure, never to the catalog.
+    /// ones). Bridge definitions belong to the exposure, never to the catalog. A stored definition missing the
+    /// `title`/`trigger` its whole definition (`extra`) declares takes them from it: a new session holds its standalone
+    /// tools projected without them, which Node's creation path keeps, so its deferred listing falls back to the tool's
+    /// cut description while its rebuild path lists the trigger; a declared trigger is always listed here
+    /// (decisions.md).
     fn surface_catalog(&self, session: &Value, extra: &[Value], options: &ApplyOptions) -> Vec<Value> {
         let model = options.model.clone().filter(|m| !m.is_empty()).unwrap_or_else(|| clean(session.get("model")));
-        let candidates: Vec<Value> = tools_of(session).iter().cloned().chain(extra.iter().cloned()).chain(self.catalog_union(session)).filter(|t| !is_bridge_tool_definition(t)).collect();
+        let whole = |tool: &Value| {
+            let mut tool = tool.clone();
+            if let Some(definition) = extra.iter().find(|definition| tool_name(definition) == tool_name(&tool)) {
+                for key in ["title", "trigger"] {
+                    if let (Some(value), Some(stored)) = (definition.get(key), tool.as_object_mut()) {
+                        stored.entry(key).or_insert_with(|| value.clone());
+                    }
+                }
+            }
+            tool
+        };
+        let candidates: Vec<Value> = tools_of(session)
+            .iter()
+            .filter(|t| !is_bridge_tool_definition(t))
+            .map(whole)
+            .chain(extra.iter().cloned())
+            .chain(self.catalog_union(session))
+            .filter(|t| !is_bridge_tool_definition(t))
+            .collect();
         let mut denied = disallowed_of(session);
         denied.extend(options.disallowed.iter().cloned());
         let candidates = filter_disallowed_tools(&filter_model_edit_tools(&candidates, &model), &denied);
@@ -685,5 +707,35 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A new session's standalone tools are stored projected (no `title`/`trigger`): the catalog takes the trigger
+    /// and title their whole definitions declare, so the deferred listing names the trigger, and a field the stored
+    /// definition already states stays its own.
+    #[test]
+    fn a_projected_tool_takes_its_declared_trigger_into_the_catalog() {
+        let host = Host(Vec::new());
+        let surface = ToolSurface { host: &host, clock: &Fixed };
+        let schema = json!({ "type": "object", "properties": {} });
+        let mut session = json!({
+            "provider": "anthropic",
+            "model": "claude-opus-4-6",
+            "tools": [
+                { "name": "web_fetch", "description": "Fetch the page or docs body of known URLs.", "inputSchema": schema },
+                { "name": "recall", "title": "Stored", "description": "Recall.", "inputSchema": schema },
+            ],
+        });
+        let extra = [
+            json!({ "name": "web_fetch", "title": "Mixdog Web Fetch", "trigger": "Page or docs body from a known URL.", "description": "Whole.", "inputSchema": schema }),
+            json!({ "name": "recall", "title": "Recall", "trigger": "Prior sessions.", "description": "Whole.", "inputSchema": schema }),
+        ];
+        surface.apply(&mut session, "lead", &extra, &ApplyOptions { provider: None, model: None, disallowed: Vec::new() });
+        let catalog = session["deferredToolCatalog"].as_array().expect("catalog");
+        let entry = |name: &str| catalog.iter().find(|tool| tool["name"] == name).cloned().expect("entry");
+        let fetch = entry("web_fetch");
+        assert_eq!((&fetch["trigger"], &fetch["title"]), (&json!("Page or docs body from a known URL."), &json!("Mixdog Web Fetch")));
+        assert_eq!(fetch["description"], "Fetch the page or docs body of known URLs.", "the stored definition stays the session's");
+        let recall = entry("recall");
+        assert_eq!((&recall["trigger"], &recall["title"]), (&json!("Prior sessions."), &json!("Stored")));
     }
 }
