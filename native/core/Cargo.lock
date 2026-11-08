@@ -4407,6 +4407,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mixdog-fsio"
+version = "1.4.5"
+dependencies = [
+ "mixdog-rt",
+]
+
+[[package]]
 name = "mixdog-graph"
 version = "0.1.36"
 dependencies = [
@@ -4771,8 +4778,10 @@ version = "1.4.5"
 dependencies = [
  "base64 0.22.1",
  "libc",
+ "mixdog-fsio",
  "mixdog-js",
  "mixdog-rt",
+ "mixdog-testkit",
  "rand 0.9.5",
  "serde_json",
  "tempfile",
@@ -4787,6 +4796,7 @@ version = "1.4.5"
 dependencies = [
  "base64 0.22.1",
  "mixdog-core-api",
+ "mixdog-fsio",
  "mixdog-js",
  "mixdog-protocol",
  "mixdog-rt",
@@ -4803,6 +4813,10 @@ dependencies = [
  "tokio",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "mixdog-testkit"
+version = "1.4.5"
 
 [[package]]
 name = "mixdog-tools"
