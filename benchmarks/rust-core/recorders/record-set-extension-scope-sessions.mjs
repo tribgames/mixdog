@@ -4,8 +4,8 @@
 // runtime does, over the real `createSkillsApi` listing bound to that session's own folder (`getCwd`/`getCurrentCwd`).
 // The answer carries the folder the skills were read in (`cwd`) and, per skill, `activeHere` for THAT folder. Recorded per
 // session: the request, the undecorated `skillsStatus()` the API read, the config it saved and the whole reply.
-// The skill listing keeps only the user-global skills (the built-in ones do not depend on the folder and are 90 KB each);
-// the sandbox folder is written `<BASE>`.
+// The skill listing is Node's own, unfiltered collection (built-in skills included): the user dirs are sandboxed above so it
+// is deterministic. The sandbox folder is written `<BASE>` and the product tree (where the built-in skills live) `<TREE>`.
 //
 //   node benchmarks/rust-core/recorders/record-set-extension-scope-sessions.mjs --tree <git archive of b6f10295a with node_modules>
 //
@@ -34,27 +34,23 @@ const { createResourceApi } = await importFrom(tree, 'src/session-runtime/resour
 const base = join(sandbox, 'base');
 const folders = { one: join(base, 'one'), two: join(base, 'two') };
 for (const folder of Object.values(folders)) mkdirSync(folder, { recursive: true });
-const onlyGlobal = {
-  ...contextMod,
-  collectSkillsCached: (cwd) => contextMod.collectSkillsCached(cwd).filter((skill) => skill.source === 'global'),
-};
-await createSkillsApi({ contextMod: onlyGlobal, getCwd: () => folders.one }).addGlobalSkill({
+await createSkillsApi({ contextMod, getCwd: () => folders.one }).addGlobalSkill({
   name: 'deploy',
   description: 'Use when deploying.',
 });
-await createSkillsApi({ contextMod: onlyGlobal, getCwd: () => folders.one }).addGlobalSkill({
+await createSkillsApi({ contextMod, getCwd: () => folders.one }).addGlobalSkill({
   name: 'review',
   description: 'Use when reviewing.',
 });
 
 const escaped = (path) => JSON.stringify(path).slice(1, -1);
-const mask = (value) => JSON.parse(JSON.stringify(value).split(escaped(base)).join('<BASE>').split(escaped(sandbox)).join('<SANDBOX>'));
+const mask = (value) => JSON.parse(JSON.stringify(value).split(escaped(base)).join('<BASE>').split(escaped(sandbox)).join('<SANDBOX>').split(escaped(tree)).join('<TREE>'));
 
 // Both sessions share one config (they share the data dir) and ask the same scope; only the folder differs.
 const sessions = {};
 let config = { theme: 'dark' };
 for (const [id, folder] of Object.entries(folders)) {
-  const skills = createSkillsApi({ contextMod: onlyGlobal, getCwd: () => folder });
+  const skills = createSkillsApi({ contextMod, getCwd: () => folder });
   let undecorated = null;
   const saved = [];
   const api = createResourceApi({
