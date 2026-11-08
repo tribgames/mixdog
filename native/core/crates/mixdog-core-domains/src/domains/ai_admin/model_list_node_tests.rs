@@ -331,6 +331,19 @@ async fn a_custom_providers_discovered_models_list_as_node_lists_them() {
     assert_rows("custom-discovery: full", &rows, node_calls(scenario)[1]);
 }
 
+// `collectProviderModels`: once the full load set `providerModelsCache`, a quick read is answered from it
+// and marked `catalogComplete`, also when the load listed no provider (a custom-only profile has no source).
+#[tokio::test]
+async fn a_quick_read_after_a_full_load_is_answered_from_the_loaded_catalog() {
+    let recording = recording();
+    let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "custom-discovery").unwrap();
+    let rig = rig(scenario, &recording["seeds"], false).await;
+    let full = rig.service.rows(false, false).await.unwrap();
+    let quick = rig.service.rows(false, true).await.unwrap();
+    assert_eq!(quick.len(), full.len());
+    assert!(quick.iter().all(|row| row["catalogComplete"] == json!(true)), "{quick:?}");
+}
+
 #[tokio::test]
 async fn a_profile_with_no_enabled_provider_lists_nothing_and_registers_nothing() {
     let recording = recording();
