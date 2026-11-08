@@ -18,6 +18,8 @@ use crate::domains::ai_account::collaborators::WebSearchModels;
 struct Gates {
     busy: Mutex<Option<&'static str>>,
     close: tokio_util::sync::CancellationToken,
+    /// Every `bootProfile` mark, as `event detail`, in order.
+    marks: Mutex<Vec<String>>,
 }
 
 impl WarmupGates for Gates {
@@ -30,6 +32,9 @@ impl WarmupGates for Gates {
     fn closed(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
         let close = self.close.clone();
         Box::pin(async move { close.cancelled().await })
+    }
+    fn profile(&self, event: &str, detail: &str) {
+        self.marks.lock().unwrap().push(format!("{event} {detail}"));
     }
 }
 
@@ -98,6 +103,8 @@ async fn the_boot_warm_up_makes_the_reads_node_recorded() {
     let routes = built.sink.routes.lock().unwrap();
     assert_eq!(routes.len(), 1, "the route's reading is refreshed once");
     assert_eq!(routes[0]["provider"], "anthropic-oauth");
+    // Node's statusline-usage:warm-ready, marked once the preparation is done and the refresh dispatched.
+    assert_eq!(*built.gates.marks.lock().unwrap(), ["statusline-usage:warm-ready provider=anthropic-oauth"]);
 }
 
 #[tokio::test(start_paused = true)]
@@ -116,7 +123,7 @@ async fn the_boot_warm_up_waits_for_nodes_default_delay() {
     assert_eq!(tokio::time::Instant::now() - started, Duration::from_millis(800));
 }
 
-// 	eardown clears the pending warm-up timer: the runtime closing ends the delay at once, and no provider is registered.
+// Teardown clears the pending warm-up timer: the runtime closing ends the delay at once, and no provider is registered.
 #[tokio::test(start_paused = true)]
 async fn the_runtime_closing_ends_the_pending_delay_and_registers_nothing() {
     let mut built = built(&[]).await;
@@ -152,6 +159,7 @@ async fn a_settled_turn_prepares_and_refreshes_at_once_even_when_busy() {
     built.warm.turn_settled();
     built.seen.recv().await.unwrap();
     assert_node_reads(&built).await;
+    assert!(built.gates.marks.lock().unwrap().is_empty(), "Node marks the scheduled warm only, not the refresh after a turn");
 }
 
 #[tokio::test]
@@ -160,12 +168,14 @@ async fn a_route_that_is_not_oauth_is_left_alone() {
     let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "custom-manual").unwrap();
     let rig = rig(scenario, &recording["seeds"], false).await;
     let warm = StatuslineWarmup::new(&|_| Some("0".to_owned()));
+    let gates = Arc::new(Gates::default());
     let (tx, mut seen) = tokio::sync::mpsc::unbounded_channel();
     let sink = Arc::new(Sink { routes: Mutex::default(), seen: tx });
-    warm.bind(rig.host.route.clone(), rig.loaded.clone(), rig.readiness.clone(), sink, Arc::new(Gates::default())).unwrap();
+    warm.bind(rig.host.route.clone(), rig.loaded.clone(), rig.readiness.clone(), sink, gates.clone()).unwrap();
     warm.start();
     warm.turn_settled();
     warm.settle().await;
     assert!(seen.try_recv().is_err());
+    assert!(gates.marks.lock().unwrap().is_empty(), "nothing was warmed, so nothing is marked");
     assert!(rig.registry.names().iter().all(|name| name != "anthropic-oauth"));
 }

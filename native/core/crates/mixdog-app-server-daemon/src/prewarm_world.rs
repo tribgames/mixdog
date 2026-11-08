@@ -94,6 +94,11 @@ impl mixdog_core_domains::domains::ai_admin::model_warmup::WarmupGates for Daemo
         let closing = self.close_requested.clone();
         Box::pin(async move { closing.cancelled().await })
     }
+
+    /// `bootProfile(event, detail)`.
+    fn profile(&self, event: &str, detail: &str) {
+        tracing::debug!(event, detail, "boot profile");
+    }
 }
 
 impl DaemonPrewarmWorld {

@@ -121,7 +121,7 @@ impl StatuslineWarmup {
             return;
         }
         state.pending = true;
-        // setTimeout counts from the call; 	eardown clears the timer, so the runtime closing ends the wait.
+        // setTimeout counts from the call; teardown clears the timer, so the runtime closing ends the wait.
         let deadline = tokio::time::Instant::now() + delay;
         let closed = bound.gates.closed();
         let this = self.clone();
@@ -161,26 +161,30 @@ impl StatuslineWarmup {
                 return;
             }
         }
-        if let Err(error) = Self::refresh_idle(bound).await {
-            tracing::debug!(%error, "[statusline-usage] the warm-up failed");
+        match Self::refresh_idle(bound).await {
+            // Node's mark after the preparation and the dispatch of the refresh, only for the scheduled warm (not a settled turn).
+            Ok(Some(provider)) => bound.gates.profile("statusline-usage:warm-ready", &format!("provider={provider}")),
+            Ok(None) => {}
+            Err(error) => tracing::debug!(%error, "[statusline-usage] the warm-up failed"),
         }
     }
 
     /// `refreshIdleStatuslineUsage`: the route's provider prepared, then the reading of the route that was prepared (not
-    /// of one selected while the preparation was pending).
-    async fn refresh_idle(bound: &Bindings) -> Result<(), String> {
+    /// of one selected while the preparation was pending). The provider of the route whose reading was dispatched, or none
+    /// when the runtime was closing.
+    async fn refresh_idle(bound: &Bindings) -> Result<Option<String>, String> {
         if bound.gates.closing() {
-            return Ok(());
+            return Ok(None);
         }
         let route = (bound.route)();
         let provider = clean(route.get("provider"));
         let config = bound.loaded.get();
         bound.readiness.ensure_providers_ready(Some(ensure_provider_enabled(&config, &provider))).await.map_err(|error| error.message)?;
         if bound.gates.closing() {
-            return Ok(());
+            return Ok(None);
         }
         bound.sink.refresh_route(&route);
-        Ok(())
+        Ok(Some(provider))
     }
 
     /// `rt.wakeDeferredWarmups()`: a parked run re-checks once, on its own tick.

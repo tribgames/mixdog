@@ -31,8 +31,10 @@ pub trait WarmupGates: Send + Sync {
     fn busy(&self) -> Option<&'static str>;
     /// `isCloseRequested()`.
     fn closing(&self) -> bool;
-    /// Resolves when the runtime starts closing (	eardown clears the warm-up timers): a pending delay ends at once.
+    /// Resolves when the runtime starts closing (teardown clears the warm-up timers): a pending delay ends at once.
     fn closed(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+    /// `bootProfile(event, detail)`: the diagnostic mark Node writes at the end of a warm.
+    fn profile(&self, event: &str, detail: &str);
 }
 
 /// `envFlag(name)`: only the documented spellings flip the fallback.
