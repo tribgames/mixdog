@@ -18,6 +18,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
 use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ProviderReadiness};
@@ -69,6 +70,8 @@ pub struct ListHost {
     last: Arc<Mutex<serde_json::Map<String, Value>>>,
     /// The background load a quick read started (`warmProviderModelCache`).
     warm: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    /// A full load completed (`caches.providerModelsCache.models` is set).
+    loaded: Arc<AtomicBool>,
 }
 
 /// The loaded config's agent section and its providers.
@@ -85,7 +88,7 @@ impl ListHost {
         route: Arc<dyn Fn() -> Obj + Send + Sync>,
         initial: serde_json::Map<String, Value>,
     ) -> Self {
-        Self { readiness, effective, config, route, last: Arc::new(Mutex::new(initial)), warm: Arc::new(Mutex::new(None)) }
+        Self { readiness, effective, config, route, last: Arc::new(Mutex::new(initial)), warm: Arc::new(Mutex::new(None)), loaded: Arc::new(AtomicBool::new(false)) }
     }
 
     /// The providers of the last load, in configuration order.
@@ -185,11 +188,21 @@ impl ModelListService {
                 Some(provider) => self.catalog.refresh_matching(provider).await,
                 None => self.catalog.refresh().await,
             };
+            self.mark_loaded();
             return;
         }
         let snapshot = self.catalog.snapshot();
         if snapshot.generation == 0 && snapshot.status.is_empty() {
             self.catalog.refresh_due().await;
+        }
+        self.mark_loaded();
+    }
+
+    /// The authoritative load ran (`providerModelsCache.models` is an array). A refresh with no source
+    /// publishes a new generation too, so the snapshot cannot say whether the providers were ever asked.
+    fn mark_loaded(&self) {
+        if let Some(host) = &self.host {
+            host.loaded.store(true, Ordering::Release);
         }
     }
 
@@ -221,8 +234,7 @@ impl ModelListService {
     pub async fn rows_for(&self, force: bool, quick: bool, provider: Option<&str>) -> Result<Vec<Value>, String> {
         if let Some(host) = &self.host {
             let snapshot = self.catalog.snapshot();
-            let loaded = snapshot.generation != 0 || !snapshot.status.is_empty();
-            if quick && !force && !loaded {
+            if quick && !force && !host.loaded.load(Ordering::Acquire) {
                 // A quick read before any load answers from the profile and seeds the full load in
                 // the background (`warmProviderModelCache`); a failed warm is logged and leaves the
                 // cache empty, as its `onFailed` does (`provider-models.mjs`).
@@ -231,6 +243,7 @@ impl ModelListService {
                     match warm.prepare().await {
                         Ok(Some(_)) => {
                             catalog.refresh_due().await;
+                            warm.loaded.store(true, Ordering::Release);
                         }
                         Ok(None) => {}
                         Err(error) => tracing::warn!(%error, "[provider-models] the warm load failed"),
