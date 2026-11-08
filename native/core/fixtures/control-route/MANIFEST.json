@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-control-route.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 6069,
+      "path": "control-route-twin.json",
+      "sha256": "5e697c3751d46aa5024923e9039f4b7f464ee845371d6b61237ee21b9efa9e67"
+    }
+  ],
+  "product": {
+    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
+    "commit": null,
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9139,
+    "refComparison": {
+      "closestCommit": "cf2388c95ee5a1be78cbe554decab0de217f37f0",
+      "commitFilesMissingFromTree": 143,
+      "exact": false,
+      "filesDifferingFromCommit": 158
+    },
+    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "archive",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-control-route.mjs",
+  "set": "control-route",
+  "totalBytes": 6069
+}

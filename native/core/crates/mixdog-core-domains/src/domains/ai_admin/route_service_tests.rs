@@ -362,3 +362,33 @@ async fn an_addressed_selection_follows_under_the_lease_it_was_opened_with() {
     assert_eq!(follows.len(), 1);
     assert!(follows[0].switch_established && follows[0].lease == Some(0));
 }
+
+/// The desktop's control session is created before any model is chosen, so its route has none. Its readying
+/// (`ready_control`, which `NewThreadRoute::adopt_control` answers the route of) gives it the route the config resolves to,
+/// as Node's `syncEmptyMainRoute` does at a config adoption; the sessionless `setFast` then acts on that route and is
+/// refused with the text Node throws for it (`fixtures/control-route/control-route-twin.json`, Node's real code).
+#[tokio::test]
+async fn the_control_route_is_the_one_node_syncs_and_set_fast_is_refused_on_it_as_node_refuses() {
+    let thread = ThreadId::from("control");
+    let recorded: Value = serde_json::from_str(include_str!("../../../../../fixtures/control-route/control-route-twin.json")).unwrap();
+    let cases = recorded["cases"].as_array().unwrap();
+    assert!(cases.iter().any(|case| case["setFast"].get("error").is_some()) && cases.iter().any(|case| case["setFast"].get("value").is_some()));
+    for case in cases {
+        let label = case["label"].as_str().unwrap();
+        let (service, writer, _log, _dir) = rig(case).await;
+        service.ready_control(&thread).await.unwrap_or_else(|e| panic!("{label}: {e}"));
+        assert_eq!(Value::Object(writer.route(&thread)), case["afterSync"], "{label}: the route after the sync");
+        let got = match service.set_fast(&thread, FastValue::On).await {
+            Ok(v) => json!({ "value": v }),
+            Err(e) => json!({ "error": e }),
+        };
+        assert_eq!(got, case["setFast"], "{label}: setFast");
+        // The recording's config save is a stub, so a refused setFast leaves the route whole, and an accepted one is compared on
+        // what it decides: the model and the fast flag.
+        let route = Value::Object(writer.route(&thread));
+        let keys: &[&str] = if got.get("error").is_some() { &["provider", "model", "preset", "effort", "fast", "autoEffort", "modelParameters"] } else { &["provider", "model", "fast"] };
+        for key in keys {
+            assert_eq!(route[*key], case["afterSetFast"][*key], "{label}: the route after setFast, {key}");
+        }
+    }
+}

@@ -1,0 +1,241 @@
+{
+  "domain": "control-route-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-control-route.mjs",
+  "cases": [
+    {
+      "label": "a custom model without fast support, the Main route empty",
+      "config": {
+        "presets": [
+          {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "type": "agent",
+            "provider": "custom-harness",
+            "model": "harness-model"
+          }
+        ],
+        "default": "workflow-lead"
+      },
+      "live": {
+        "provider": "openai",
+        "model": "",
+        "preset": null,
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      },
+      "meta": {
+        "id": "harness-model",
+        "provider": "custom-harness",
+        "name": "harness-model",
+        "supportsFastMode": false,
+        "contextWindow": 128000,
+        "maxContextWindow": 128000
+      },
+      "fastTable": {
+        "openai": false,
+        "custom-harness": false
+      },
+      "afterSync": {
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "preset": {
+          "id": "workflow-lead",
+          "name": "WORKFLOW LEAD",
+          "type": "agent",
+          "provider": "custom-harness",
+          "model": "harness-model"
+        },
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      },
+      "setFast": {
+        "error": "fast mode is not available for custom-harness/harness-model"
+      },
+      "afterSetFast": {
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "preset": {
+          "id": "workflow-lead",
+          "name": "WORKFLOW LEAD",
+          "type": "agent",
+          "provider": "custom-harness",
+          "model": "harness-model"
+        },
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      }
+    },
+    {
+      "label": "a model with fast support, the Main route empty",
+      "config": {
+        "presets": [
+          {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "type": "agent",
+            "provider": "openai",
+            "model": "gpt-5"
+          }
+        ],
+        "default": "workflow-lead"
+      },
+      "live": {
+        "provider": "openai",
+        "model": "",
+        "preset": null,
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      },
+      "meta": {
+        "id": "gpt-5",
+        "provider": "openai",
+        "name": "GPT-5",
+        "supportsFastMode": true,
+        "contextWindow": 400000,
+        "maxContextWindow": 400000
+      },
+      "fastTable": {
+        "openai": true,
+        "custom-harness": false
+      },
+      "afterSync": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "preset": {
+          "id": "workflow-lead",
+          "name": "WORKFLOW LEAD",
+          "type": "agent",
+          "provider": "openai",
+          "model": "gpt-5"
+        },
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      },
+      "setFast": {
+        "value": true
+      },
+      "afterSetFast": {
+        "provider": "openai",
+        "model": "gpt-5",
+        "preset": null,
+        "effort": null,
+        "fast": true,
+        "autoEffort": true,
+        "modelParameters": {}
+      }
+    },
+    {
+      "label": "a config that resolves to no model, the Main route empty",
+      "config": {},
+      "live": {
+        "provider": "openai",
+        "model": "",
+        "preset": null,
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      },
+      "meta": {
+        "id": "harness-model",
+        "provider": "custom-harness",
+        "name": "harness-model",
+        "supportsFastMode": false,
+        "contextWindow": 128000,
+        "maxContextWindow": 128000
+      },
+      "fastTable": {
+        "openai": false,
+        "custom-harness": false
+      },
+      "afterSync": {
+        "provider": "openai",
+        "model": "",
+        "preset": null,
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      },
+      "setFast": {
+        "error": "fast mode is not available for openai/"
+      },
+      "afterSetFast": {
+        "provider": "openai",
+        "model": "",
+        "preset": null,
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      }
+    },
+    {
+      "label": "a Main route that already has a model stays",
+      "config": {
+        "presets": [
+          {
+            "id": "workflow-lead",
+            "name": "WORKFLOW LEAD",
+            "type": "agent",
+            "provider": "openai",
+            "model": "gpt-5"
+          }
+        ],
+        "default": "workflow-lead"
+      },
+      "live": {
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "preset": null,
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      },
+      "meta": {
+        "id": "harness-model",
+        "provider": "custom-harness",
+        "name": "harness-model",
+        "supportsFastMode": false,
+        "contextWindow": 128000,
+        "maxContextWindow": 128000
+      },
+      "fastTable": {
+        "openai": false,
+        "custom-harness": false
+      },
+      "afterSync": {
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "preset": null,
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      },
+      "setFast": {
+        "error": "fast mode is not available for custom-harness/harness-model"
+      },
+      "afterSetFast": {
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "preset": null,
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {}
+      }
+    }
+  ]
+}
