@@ -79,6 +79,14 @@ impl LocalProviderService {
         Ok(status)
     }
 
+    /// What Node's settings methods answer after a change: `getToolModuleSettings()`.
+    async fn tool_settings_view(&self) -> Result<Value, ProviderError> {
+        match self.provider.tool_settings().await {
+            Some(settings) => Ok(settings),
+            None => self.settings_view().await,
+        }
+    }
+
     /// `startLocalProviderInstallation`: starts the job and tracks it in the background; a failure
     /// that no paused job explains becomes the installation command error.
     pub(super) fn begin_installation(&self, phase: &str, model: Option<&str>) -> Result<(), ProviderError> {
@@ -141,23 +149,23 @@ impl LocalProviderService {
                 };
                 provider.set_context(id, tokens).await?;
                 self.settings.catalog_changed().await;
-                Ok(self.settings_view().await?)
+                Ok(self.tool_settings_view().await?)
             }
             "localProvider/installLocalProviderModel" => {
                 let id = text(&args, "modelId").unwrap_or("");
                 provider.install_model_and_wait(id).await?;
                 self.settings.catalog_changed().await;
-                Ok(self.settings_view().await?)
+                Ok(self.tool_settings_view().await?)
             }
             "localProvider/startLocalProviderInstallation" => {
                 let (phase, model) = (text(&args, "phase").unwrap_or(""), text(&args, "modelId"));
                 self.begin_installation(phase, model)?;
-                Ok(self.settings_view().await?)
+                Ok(self.tool_settings_view().await?)
             }
             "localProvider/cancelLocalProviderInstallation" => {
                 let job = text(&args, "jobId").filter(|s| !mixdog_js::js_trim(s).is_empty()).ok_or_else(|| failed("localProvider", "jobId is required."))?;
                 provider.installs.cancel(job).map_err(|e| failed("localProvider", e.to_string()))?;
-                Ok(self.settings_view().await?)
+                Ok(self.tool_settings_view().await?)
             }
             "localProvider/discardLocalProviderInstallation" => {
                 let phase = text(&args, "phase").filter(|p| ["runtime", "model", "verify", "repair"].contains(p)).ok_or_else(|| failed("localProvider", "phase must be runtime, model, verify or repair."))?;
@@ -167,14 +175,14 @@ impl LocalProviderService {
                 }
                 provider.discard_installation(phase, if phase == "runtime" { None } else { model }).await?;
                 *self.command_error.lock().unwrap() = None;
-                Ok(self.settings_view().await?)
+                Ok(self.tool_settings_view().await?)
             }
             "localProvider/setLocalProviderIdleTtl" => {
                 let value = args.get("seconds").and_then(Value::as_i64).ok_or_else(|| failed("localProvider", "idleTtlSeconds must be an integer from 0 (disabled) to 86400."))?;
                 let seconds = local_idle_ttl_seconds(value).map_err(|e| failed("localProvider", e.to_string()))?;
                 self.settings.persist_idle_ttl(seconds).await.map_err(|_| domain("settingsFailed"))?;
                 provider.queue.configure(seconds);
-                Ok(self.settings_view().await?)
+                Ok(self.tool_settings_view().await?)
             }
             _ => Err(invalid("method", "localProvider/*")),
         }
@@ -266,5 +274,29 @@ mod tests {
         for (method, params, want) in refusals {
             assert_eq!(text(call(&service, method, params).await).1, want, "{method}");
         }
+    }
+
+    struct Owner;
+
+    #[async_trait]
+    impl super::super::provider::ToolSettings for Owner {
+        async fn tool_module_settings(&self) -> Value {
+            json!({"autoEffortBase": "medium"})
+        }
+    }
+
+    /// Node's `setLocalProviderIdleTtl` answers `getToolModuleSettings()` (`local-provider-settings.mjs`),
+    /// not the provider's status.
+    #[tokio::test]
+    async fn a_change_answers_the_tool_module_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let service = LocalProviderService::new(provider(dir.path()), Arc::new(Settings(Mutex::default())));
+        let owner: Arc<dyn super::super::provider::ToolSettings> = Arc::new(Owner);
+        service.provider.attach_tool_settings(Arc::downgrade(&owner));
+        let answer = match call(&service, "localProvider/setLocalProviderIdleTtl", json!({"opId": "o", "seconds": 600})).await.unwrap() {
+            Reply::Value(v) => v,
+            _ => panic!("not a value"),
+        };
+        assert_eq!(answer, json!({"autoEffortBase": "medium"}));
     }
 }

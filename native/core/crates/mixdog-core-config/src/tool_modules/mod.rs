@@ -75,6 +75,16 @@ pub trait ToolModulesHost: Send + Sync + 'static {
     async fn shutdown_effort_judge(&self);
     fn invalidate_context_status_cache(&self);
     fn invalidate_pre_session_tool_surface(&self);
+
+    /// The settings the local provider answers its changes with (`getToolModuleSettings()`).
+    fn attach_tool_settings(&self, _settings: std::sync::Weak<dyn mixdog_services::local_provider::provider::ToolSettings>) {}
+}
+
+#[async_trait]
+impl mixdog_services::local_provider::provider::ToolSettings for ToolModules {
+    async fn tool_module_settings(&self) -> Value {
+        self.settings().await
+    }
 }
 
 #[derive(Debug)]
@@ -145,6 +155,7 @@ impl ToolModules {
             env,
             refreshes,
         });
+        service.host.attach_tool_settings(Arc::downgrade(&service) as std::sync::Weak<dyn mixdog_services::local_provider::provider::ToolSettings>);
         mixdog_rt::spawn("tool-modules", TaskClass::Work, service.clone().publish_loop(requests, cancel));
         service
     }
