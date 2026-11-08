@@ -16,6 +16,10 @@ use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
 use mixdog_core_base::support::decode;
 use mixdog_core_base::support::wrong_method;
+use mixdog_core_base::support::failed;
+use mixdog_core_ports::ports::memory_source::ThreadMessages;
+use mixdog_core_ports::ports::route::has_session;
+use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_ledger::stats::session_usage_snapshot;
 use serde_json::Map;
 use serde_json::Value;
@@ -54,11 +58,14 @@ pub fn other_session_ids(options: Option<&Value>, session_id: &str) -> Vec<Strin
 pub struct SessionUsageService {
     ledger: Arc<dyn LedgerAccess>,
     accounts: AccountStore,
+    /// The thread records, for whether a thread has its session yet (`has_session`).
+    threads: Arc<dyn ThreadState>,
+    messages: Arc<dyn ThreadMessages>,
 }
 
 impl SessionUsageService {
-    pub fn new(ledger: Arc<dyn LedgerAccess>, accounts: AccountStore) -> Arc<Self> {
-        Arc::new(Self { ledger, accounts })
+    pub fn new(ledger: Arc<dyn LedgerAccess>, accounts: AccountStore, threads: Arc<dyn ThreadState>, messages: Arc<dyn ThreadMessages>) -> Arc<Self> {
+        Arc::new(Self { ledger, accounts, threads, messages })
     }
 
     /// `sessionUsageIdsFor`: the session's own id and the per-account ids it sent under.
@@ -121,6 +128,14 @@ impl DomainService for SessionUsageService {
         let params: ThreadGetSessionUsageParams = decode(&req)?;
         // No session is `getSessionId()` null: the answer is null.
         let Some(thread) = params.thread_id else { return Ok(Reply::Value(Value::Null)) };
+        // A thread with no session yet is `getSessionId()` null as well. A thread the directory does not know is a session
+        // that ran and is gone: its totals are still in the ledger.
+        if let Ok(header) = self.threads.header(&thread).await {
+            let rows = self.messages.messages(&thread).await.map_err(|e| failed(DOMAIN, format!("{e:?}")))?;
+            if !has_session(&header, &rows) {
+                return Ok(Reply::Value(Value::Null));
+            }
+        }
         self.read(thread.as_str(), params.options.as_ref()).await.map(Reply::Value)
     }
 

@@ -240,6 +240,21 @@ async fn the_preflight_answers_nodes_verdict_for_the_heir_route() {
     assert_eq!((none["provider"].clone(), none["model"].clone(), none["known"].clone()), (json!(""), json!(""), json!(false)));
 }
 
+/// With no source named the preflight falls back to the current session (`getSessionId()`); a thread with no session yet has
+/// none, so Node names no source (`sourceSessionId: null`), and a thread that has its session names itself.
+#[tokio::test(start_paused = true)]
+async fn the_preflight_names_no_current_session_for_a_thread_without_one() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let header = |value: Value| value.as_object().cloned().expect("header");
+    directory.create_with_id(mixdog_core_api::ids::ThreadId::from("sess_reserved"), header(json!({ "cwd": "/ws" })), json!({})).await.expect("create");
+    directory.create_with_id(mixdog_core_api::ids::ThreadId::from("sess_seated"), header(json!({ "cwd": "/ws", "provider": "openai", "model": "gpt-5" })), json!({})).await.expect("create");
+    for (thread, source) in [("sess_reserved", Value::Null), ("sess_seated", json!("sess_seated"))] {
+        let got = preflight(&directory, json!({ "threadId": thread })).await;
+        assert_eq!(got["sourceSessionId"], source, "{thread}");
+    }
+}
+
 /// `compact(options)` of the session ops (`session-ops.mjs`): refused with Node's answer while a
 /// turn runs; a `skipped` result is the answer as is, before PostCompact; any other runs
 /// PostCompact, re-marks the Goal reminder `compaction`, re-arms the late tools, recovers the

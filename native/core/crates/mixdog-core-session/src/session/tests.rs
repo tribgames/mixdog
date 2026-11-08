@@ -1008,6 +1008,60 @@ async fn a_started_thread_adopts_its_route_before_its_tools_and_seats_it_once_cr
     assert_eq!(*lock(&steps), [json!(["adopt", second, Value::Null]), json!(["seed", second]), json!(["seat", second])]);
 }
 
+/// `inheritFrom` into a thread that has no session yet (the control session, started before any model was chosen) creates
+/// that session first - the route the config now resolves to is readied and seated - and only then looks the source up
+/// (Node: `createCurrentSession('inherit')`, then "session ... was not found"); a thread that has its session is left as it is.
+#[tokio::test(start_paused = true)]
+async fn an_inherit_creates_the_heirs_session_before_the_source_is_looked_up() {
+    type Steps = Arc<Mutex<Vec<Value>>>;
+    struct Route(Steps);
+    #[async_trait::async_trait]
+    impl super::NewThreadRoute for Route {
+        async fn adopt(&self, _: &ThreadId, _: Option<&serde_json::Map<String, Value>>) -> Result<serde_json::Map<String, Value>, String> {
+            panic!("an inherit starts no thread")
+        }
+        async fn adopt_control(&self, thread: &ThreadId) -> Result<serde_json::Map<String, Value>, String> {
+            lock(&self.0).push(json!(["adoptControl", thread]));
+            Ok(serde_json::Map::new())
+        }
+        async fn seat(&self, thread: &ThreadId) -> Result<(), String> {
+            lock(&self.0).push(json!(["seat", thread]));
+            Ok(())
+        }
+    }
+    let rig = Rig::new();
+    let steps: Steps = Arc::default();
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_route = Arc::new(Route(steps.clone()));
+    let directory = SessionDirectory::new(Arc::new(deps));
+    let header = |value: Value| value.as_object().cloned().expect("header");
+    directory.create_with_id(ThreadId::from("sess_control"), header(json!({ "cwd": "/ws" })), json!({})).await.expect("create");
+    directory.create_with_id(ThreadId::from("sess_seated"), header(json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model" })), json!({})).await.expect("create");
+    // A restart reads the same records: what has no session is still without one, and what has one still has it (a 1.4.5
+    // record names its model, so it is a session).
+    let mut deps = rig.deps_parts(rig.store.clone());
+    deps.new_route = Arc::new(Route(steps.clone()));
+    let reopened = SessionDirectory::new(Arc::new(deps));
+    for (when, directory) in [("before a restart", &directory), ("after a restart", &reopened)] {
+        for (heir, expected) in [("sess_control", vec![json!(["adoptControl", "sess_control"]), json!(["seat", "sess_control"])]), ("sess_seated", Vec::new())] {
+            // A request naming no source (empty or whitespace) is refused before the reservation is touched (`inheritFrom`
+            // checks the source id first), the same way every time.
+            lock(&steps).clear();
+            for source in ["", " \t "] {
+                let params = json!({ "threadId": source, "intoThreadId": heir, "opId": "op-inherit" });
+                let refused = directory.request(request("thread/fork", params, "op-inherit")).await;
+                assert!(matches!(refused, Err(CoreError::InvalidParams { .. })), "{when} {heir} source {source:?}: {refused:?}");
+                assert!(lock(&steps).is_empty(), "{when} {heir}: a refused request seats nothing");
+            }
+            lock(&steps).clear();
+            let params = json!({ "threadId": "harness-no-such-session", "intoThreadId": heir, "opId": "op-inherit" });
+            let refused = directory.request(request("thread/fork", params, "op-inherit")).await;
+            assert!(matches!(refused, Err(CoreError::ThreadNotFound { .. })), "{when} {heir}: {refused:?}");
+            assert_eq!(*lock(&steps), expected, "{when} {heir}");
+        }
+    }
+}
+
 /// A route the adoption refuses (a default with no model, as Node's `prepareRoute` throws) fails
 /// `thread/start` with that text and no code before anything else runs: no tools are composed and
 /// no thread exists.
