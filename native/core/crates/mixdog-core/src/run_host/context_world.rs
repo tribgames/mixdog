@@ -208,7 +208,12 @@ impl ContextWorld for LiveContextWorld {
             }));
         }
         let active = self.session.has_user_conversation(&rows) || rows.iter().any(is_summary_anchor);
-        let messages = rows.iter().map(|row| message_of(row).map_err(|e| failed(DOMAIN, e))).collect::<Result<Vec<_>, _>>()?;
+        // Node's `session.messages` lead with the system blocks the request is sent with; the turn builds its request from the
+        // same header fields (`system_messages`), so the status counts that request, not the transcript alone.
+        let mut messages = super::factory::system_messages(&header);
+        for row in &rows {
+            messages.push(message_of(row).map_err(|e| failed(DOMAIN, e))?);
+        }
         let provider = Some(text(&header, "provider")).filter(|p| !p.is_empty()).unwrap_or_else(|| text(&route, "provider"));
         let model = Some(text(&header, "model")).filter(|m| !m.is_empty()).unwrap_or_else(|| text(&route, "model"));
         let docs: Vec<Value> = header.get("tools").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -404,6 +409,37 @@ mod tests {
         assert_eq!(compared, 15);
         let host = LiveContextStatus::new(Arc::new(world(&golden["cases"][1])));
         assert_eq!(host.context_status(Some(ThreadId::from("absent".to_owned())), None).await.expect("status"), Value::Null);
+    }
+
+    /// The status counts the request's messages as Node's `session.messages` hold them: the header's system blocks (the ones
+    /// `system_messages` sends) lead the stored rows (the recorded task session of `fixtures/context-status-route` answers
+    /// 4 system messages after its turn, with the text not recorded, so the blocks here are stated).
+    #[tokio::test]
+    async fn the_status_counts_the_system_messages_the_request_is_sent_with() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/context-status/golden.json")).expect("golden");
+        let case = golden["cases"].as_array().expect("cases").iter().find(|case| case["status"]["messages"]["count"].as_u64() > Some(0)).expect("a case with messages");
+        let name = ThreadId::from(case["name"].as_str().expect("name").to_owned());
+        let read = |case: Value| {
+            let name = name.clone();
+            async move { LiveContextStatus::new(Arc::new(world(&case))).context_status(Some(name), None).await.expect("status") }
+        };
+        let mut stated = case.clone();
+        let fields = [("promptBase", "rules"), ("promptStable", "stable"), ("bp3CoreContext", "core"), ("promptEnv", "env")];
+        for (key, value) in fields {
+            stated["header"][key] = json!(value);
+        }
+        stated["header"]["bp3EnvSplit"] = json!(true);
+        let sent = system_messages_of(&stated);
+        assert_eq!(sent, 4, "the header states four blocks");
+        let (without, with) = (read(case.clone()).await, read(stated).await);
+        let count = |status: &Value, path: &[&str]| path.iter().fold(status, |v, k| &v[*k]).as_u64().expect("a count");
+        assert_eq!(count(&with, &["messages", "count"]), count(&without, &["messages", "count"]) + 4);
+        assert_eq!(count(&with, &["messages", "roles", "system", "count"]), count(&without, &["messages", "roles", "system", "count"]) + 4);
+        assert!(count(&with, &["currentEstimatedTokens"]) > count(&without, &["currentEstimatedTokens"]));
+    }
+
+    fn system_messages_of(case: &Value) -> usize {
+        super::super::factory::system_messages(case["header"].as_object().expect("header")).len()
     }
 
     /// The route facts of a route change over the window rule alone (no catalog row): the model's window as
