@@ -16,6 +16,8 @@ use mixdog_exthost::RenderBrowserConfig;
 use mixdog_exthost::worker_count;
 use mixdog_migrate::run::cli::MigrateArgs;
 use mixdog_migrate::session::context_blobs::OfficeExtractor;
+use mixdog_rt::Backend;
+use mixdog_rt::TaskClass;
 
 use clap::ArgGroup;
 use clap::Args;
@@ -155,13 +157,14 @@ fn migrate(args: &MigrateArgs) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let runtime = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
-        Ok(runtime) => runtime,
+    let (executors, tokens) = match mixdog_app_server_daemon::boot_executors() {
+        Ok(booted) => booted,
         Err(err) => {
-            eprintln!("mixdogd migrate: starting the async runtime: {err}");
+            eprintln!("mixdogd migrate: starting the executors: {err}");
             return ExitCode::FAILURE;
         }
     };
+    let runtime = executors.handle(TaskClass::Work);
     let pool = {
         let _context = runtime.enter();
         ExtHostPool::new(ExtHostConfig {
@@ -170,8 +173,7 @@ fn migrate(args: &MigrateArgs) -> ExitCode {
             electron: js.electron,
             workers: worker_count(None, std::thread::available_parallelism().map_or(1, |n| n.get())),
             pending_cap: DEFAULT_PENDING_CAP,
-            // The inline test backend, as `serve` has it until WP-RT's executors replace it.
-            spawn_io: mixdog_rt::testing::tokens().spawn_io,
+            spawn_io: tokens.spawn_io,
             render_browser: RenderBrowserConfig {
                 command: None,
                 profile_root: roots.data.join("render-browser"),
@@ -186,7 +188,7 @@ fn migrate(args: &MigrateArgs) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let office = OfficeExtractor { docs: Arc::new(ExtDocumentText::new(pool.clone())), runtime: runtime.handle().clone() };
+    let office = OfficeExtractor { docs: Arc::new(ExtDocumentText::new(pool.clone())), runtime: runtime.clone() };
     let status = mixdog_migrate::run::cli::main(roots, Arc::new(projector::StoreProjector), office);
     runtime.block_on(pool.close());
     ExitCode::from(status)
@@ -296,17 +298,7 @@ fn serve() -> ExitCode {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .with_writer(std::io::stderr)
         .init();
-    let runtime = match tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-    {
-        Ok(runtime) => runtime,
-        Err(err) => {
-            eprintln!("mixdogd: starting the async runtime: {err}");
-            return ExitCode::FAILURE;
-        }
-    };
-    match runtime.block_on(mixdog_app_server_daemon::serve()) {
+    match mixdog_app_server_daemon::run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
             eprintln!("mixdogd: {err}");

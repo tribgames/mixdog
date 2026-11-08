@@ -47,9 +47,8 @@ mixdog-statefile = { workspace = true }
 async-trait = { workspace = true }
 futures = { workspace = true, features = ["alloc"] }
 mixdog-protocol = { workspace = true }
-# The mock seams stay linked until the real core, transport and server replace them.
-mixdog-core-api = { workspace = true, features = ["mock"] }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-core-api = { workspace = true }
+mixdog-rt = { workspace = true }
 arc-swap = { workspace = true }
 base64 = { workspace = true }
 rand = { workspace = true }
@@ -79,6 +78,9 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
+# The mock seams and the inline lane backend are test fixtures only; the daemon runs on `mixdog_rt::exec`.
+mixdog-core-api = { workspace = true, features = ["mock"] }
+mixdog-rt = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time", "test-util", "net"] }
 # The scripted relay of `domain_seams/remote/e2e.rs` (shared with mixdog-remote's integration tests).

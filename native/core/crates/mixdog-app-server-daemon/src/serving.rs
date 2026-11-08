@@ -16,9 +16,11 @@ use mixdog_app_server_transport::websocket::ListenError;
 use mixdog_app_server_transport::websocket::ListenerOrigin;
 use mixdog_app_server_transport::websocket::WebSocketListener;
 use mixdog_core_base::state::SectionFeedState;
+use mixdog_rt::Backend;
 use mixdog_rt::LaneToken;
 use mixdog_rt::LaneTokens;
 use mixdog_rt::TaskClass;
+use mixdog_rt::exec::Executors;
 use tokio_util::sync::CancellationToken;
 
 use crate::compose::ComposedCore;
@@ -37,7 +39,11 @@ use crate::lifecycle::Lifecycle;
 use crate::lifecycle::LifecycleConfig;
 use crate::lifecycle::Ports;
 use crate::lifecycle::RuntimeCore;
+use crate::lifecycle::StallConfig;
+use crate::lifecycle::StallMonitor;
+use crate::lifecycle::StallReporter;
 use crate::lifecycle::new_instance_id;
+use crate::lifecycle::tokio_post;
 use crate::server::Running;
 use crate::verdict::OsProcessTable;
 use crate::verdict::ProcessTable;
@@ -89,8 +95,23 @@ pub struct Serving {
     pub release: Arc<ReleaseSlot>,
     /// The discovery writer: lush blocks until what was published is on disk.
     pub discovery: Arc<DiscoveryPublication>,
+    core_port: Arc<LateCorePort>,
+    runtime_root: PathBuf,
     _control: ControlServer,
 }
+
+impl Serving {
+    /// Starts the stall monitor over `executors` (LR §5.4): it probes RT-W with a posted task and watches every pooled lane for workers stuck past their lease, and
+    /// reports both to the core's `health` / `lane_health` and to `stall.jsonl` beside `daemon.json`. It reports and never acts; dropping it stops the watch.
+    pub fn watch_stalls(&self, executors: Arc<Executors>) -> StallMonitor {
+        let work = executors.handle(TaskClass::Work);
+        let reporter = StallReporter::new(self.core_port.clone(), self.runtime_root.join(STALL_FILE)).watching_lanes(executors);
+        StallMonitor::spawn(StallConfig::default(), tokio_post(work), self.lifecycle.clone(), reporter)
+    }
+}
+
+/// The stall monitor's diagnostics file, in the runtime root.
+const STALL_FILE: &str = "stall.jsonl";
 
 /// A blocking call as a durability-lane job.
 async fn blocking<T: Send + 'static>(tokens: &LaneTokens, f: impl FnOnce() -> T + Send + 'static) -> std::io::Result<T> {
@@ -238,6 +259,7 @@ pub struct Booting {
     pub release: Arc<ReleaseSlot>,
     pub discovery: Arc<DiscoveryPublication>,
     core_port: Arc<LateCorePort>,
+    runtime_root: PathBuf,
     token: String,
     control: ControlServer,
 }
@@ -290,7 +312,7 @@ pub async fn begin(tokens: &LaneTokens, given: StartIn) -> Result<Booting, Servi
     let discovery = publication.clone();
     let core_port = Arc::new(LateCorePort { release: release.clone(), core: OnceLock::new() });
     let lifecycle = Lifecycle::new(
-        LifecycleConfig { instance_id: instance_id.clone(), version: version.to_owned(), runtime_root: root },
+        LifecycleConfig { instance_id: instance_id.clone(), version: version.to_owned(), runtime_root: root.clone() },
         Ports { core: core_port.clone(), discovery: publication, exiter },
     );
     let control = ControlServer::serve(
@@ -308,7 +330,7 @@ pub async fn begin(tokens: &LaneTokens, given: StartIn) -> Result<Booting, Servi
         lifecycle.clone(),
     )
     .map_err(ServingError::Control)?;
-    Ok(Booting { lifecycle, release, discovery, core_port, token, control })
+    Ok(Booting { lifecycle, release, discovery, core_port, runtime_root: root, token, control })
 }
 
 /// LR §3 step 6: the core is composed, so its lifecycle port is bound, the cells only the server can bind are bound and verified, and the RPC listener opens. The
@@ -318,7 +340,7 @@ pub async fn attach(
     core: Arc<ComposedCore>,
     outgoing: Arc<mixdog_app_server::Outgoing>,
 ) -> Result<Serving, ServingError> {
-    let Booting { lifecycle, release, discovery, core_port, token, control } = booting;
+    let Booting { lifecycle, release, discovery, core_port, runtime_root, token, control } = booting;
     let running = Running::build(core.clone(), outgoing).map_err(ServingError::Limits)?;
     // The local dialer of a phone served by this core: the connection hub and the hand-off to the server's drive loop exist only now.
     {
@@ -360,7 +382,7 @@ pub async fn attach(
     let runtime = core.remote().runtime.clone();
     core.on_stop("remote access", async move { runtime.close().await });
     crate::domain_seams::remote::start_remote(core.remote(), core.state_publisher().clone()).await;
-    Ok(Serving { lifecycle, sections, release, discovery, _control: control })
+    Ok(Serving { lifecycle, sections, release, discovery, core_port, runtime_root, _control: control })
 }
 
 /// `begin`, then `attach`: the whole of serving for a caller whose core is composed already (the tests).

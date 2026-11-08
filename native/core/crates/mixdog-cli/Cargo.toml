@@ -16,7 +16,7 @@ mixdog-app-server-daemon = { workspace = true }
 mixdog-app-server-client = { workspace = true }
 mixdog-exthost = { workspace = true }
 mixdog-migrate = { workspace = true }
-mixdog-rt = { workspace = true, features = ["test-support"] }
+mixdog-rt = { workspace = true }
 mixdog-store = { workspace = true }
 mixdog-js = { workspace = true }
 mixdog-protocol = { workspace = true }

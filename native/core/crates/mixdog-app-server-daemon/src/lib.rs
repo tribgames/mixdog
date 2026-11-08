@@ -1,7 +1,14 @@
 //! The daemon: composition root and lifecycle of the `mixdogd` process (SPEC §3.2). Module
 //! owners add their own `pub mod` line below.
 
+use std::sync::Arc;
+
 use mixdog_core_api::CoreState;
+use mixdog_rt::Backend;
+use mixdog_rt::LaneTokens;
+use mixdog_rt::TaskClass;
+use mixdog_rt::exec::Executors;
+use mixdog_rt::exec::RtConfig;
 
 pub mod acquired;
 pub mod agent_lifecycle;
@@ -90,14 +97,29 @@ pub enum ServeError {
     Lifecycle(#[from] lifecycle::CommandError),
     #[error("waiting for the stop signal: {0}")]
     Signal(#[source] std::io::Error),
+    #[error("{0}")]
+    Executors(#[from] mixdog_rt::exec::BootError),
+}
+
+/// Starts the process's executors (RT-C, RT-W and the lanes) and installs them as the one backend, once. Every production entry point that submits lane jobs or spawns
+/// through `mixdog_rt` calls this before it does; the `Arc` is what the stall monitor reads and must outlive them.
+pub fn boot_executors() -> Result<(Arc<Executors>, LaneTokens), ServeError> {
+    Ok(mixdog_rt::exec::boot(RtConfig::detect())?)
+}
+
+/// `mixdogd serve`: boots the executors and serves until the process is told to stop.
+///
+/// The process has no runtime of its own: the calling thread blocks inside RT-W's context, so the composition's tasks and every ambient `Handle::current()` land on the
+/// executors, and the connection tasks the transport spawns with `TaskClass::Control` run on RT-C. Blocking work goes to the lanes, never to either runtime.
+pub fn run() -> Result<(), ServeError> {
+    let (executors, tokens) = boot_executors()?;
+    executors.handle(TaskClass::Work).block_on(serve(&executors, tokens))
 }
 
 /// Composes the core and serves until the process is told to stop.
 ///
 /// The core is the real composition (see [`compose`]); the transport and the server attach here.
-pub async fn serve() -> Result<(), ServeError> {
-    // The inline test backend runs lane jobs on the calling thread; WP-RT's executors replace it.
-    let tokens = mixdog_rt::testing::tokens();
+async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), ServeError> {
     // Every install ships the manifest: a missing or broken one is a startup error.
     let js_runtime = js_runtime::resolve_current_on(tokens.interactive_io).await?;
     // The install names its ONNX Runtime library in the same manifest; one that names none has no models.
@@ -182,6 +204,8 @@ pub async fn serve() -> Result<(), ServeError> {
             return Err(error);
         }
     };
+    // The report-only stall monitor (LR §5.4): the runtime probe and the lanes' wedge watch. It lives as long as the process serves.
+    let _stall_monitor = serving.watch_stalls(executors.clone());
     // A stop that arrived on the way is handed over now: the watcher has been live since boot.
     let signal = watch.wait().await.map_err(ServeError::Signal)?;
     signals::stop_for(&serving.lifecycle, signal);
