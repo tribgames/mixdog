@@ -1008,7 +1008,7 @@ test('a user connect to a stopped server window reopens it in place instead of a
 
 test('the daemon behind the tunnel must be the probed one, and no token is sent to check it', async (t) => {
   const seen = [];
-  let answer = { status: 'ok', pid: 41, buildHash: 'abc123' };
+  let answer = { status: 'ok', pid: 41, version: '1.4.6' };
   const server = createServer((request, response) => {
     seen.push({ url: request.url, token: request.headers['x-mixdog-daemon-token'] ?? null });
     response.end(JSON.stringify(answer));
@@ -1018,16 +1018,17 @@ test('the daemon behind the tunnel must be the probed one, and no token is sent 
   const { port } = server.address();
   const health = await readDaemonHealth(port, 2_000);
   assert.equal(health.pid, 41);
-  assert.equal(health.buildHash, 'abc123');
-  assert.equal(isExpectedDaemon(health, { pid: 41, buildHash: 'abc123' }), true);
-  assert.equal(isExpectedDaemon(health, { pid: 41, buildHash: null }), true, 'the probe named no build: pid decides');
-  assert.equal(isExpectedDaemon(health, { pid: 42, buildHash: 'abc123' }), false, 'another process on the freed port');
-  assert.equal(isExpectedDaemon(health, { pid: 41, buildHash: 'zzz' }), false, 'another build');
+  assert.equal(health.version, '1.4.6');
+  assert.equal(isExpectedDaemon(health, { pid: 41, version: '1.4.6' }), true);
+  assert.equal(isExpectedDaemon(health, { pid: 42, version: '1.4.6' }), false, 'another process on the freed port');
+  assert.equal(isExpectedDaemon(health, { pid: 41, version: '1.4.7' }), false, 'same pid, another build');
+  answer = { status: 'ok', pid: 41 };
+  assert.equal(isExpectedDaemon(await readDaemonHealth(port, 2_000), { pid: 41, version: '1.4.6' }), false, 'an answer that names no build');
   answer = { status: 'starting', pid: 41 };
   assert.equal(await readDaemonHealth(port, 2_000), null);
   assert.deepEqual(
     seen.map((entry) => entry.token),
-    [null, null]
+    [null, null, null]
   );
   assert.equal(daemonIdentityError('root@host').kind, 'terminal');
 });

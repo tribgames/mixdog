@@ -17,7 +17,11 @@ const notAvailable = Object.assign(new Error('rpc'), {
 function coreClient({ refuse = false, config = undefined, answer = async () => ({ ok: true }) } = {}) {
   const calls = [];
   const protocol = {
-    snapshot: () => ({ status: 'ready', entries: config === undefined ? [] : [{ section: 'config', value: config }] }),
+    // The core publishes each subtree of `config` as an entry of its own, keyed by the subtree's name.
+    snapshot: () => ({
+      status: 'ready',
+      entries: Object.entries(config ?? {}).map(([key, value]) => ({ section: 'config', key, value })),
+    }),
     noteUserInput() {},
     onEvent: () => () => undefined,
     call: async (method, params) => {

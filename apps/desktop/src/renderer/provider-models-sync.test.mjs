@@ -3,6 +3,8 @@ import test from 'node:test';
 import { PROVIDER_MODELS_EVENT } from '../shared/provider-models.ts';
 import { subscribeModelCatalogInvalidation } from './model-catalog-cache.ts';
 import { createRemoteApi } from './remote-shim-api.ts';
+import { sectionStoreFor } from './section-store.ts';
+import { toolModulesSource } from './test-support/test-dom.mjs';
 import { publishedCeilings, withShim } from './remote-shim-test-harness.mjs';
 import {
   PROVIDER_MODELS_INSTANCE_ID,
@@ -14,6 +16,10 @@ import {
 } from './sidebar-reference-cache.ts';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+/** The window's store has folded its first snapshot. That fold invalidates the keys that follow a section, which
+ *  would drop a read already in flight; a mounted window reads once the store is up. */
+const storeUp = (api) => sectionStoreFor(api).ready();
 
 function fakeHost() {
   const listeners = new Set();
@@ -103,10 +109,14 @@ test('a local window provider invalidation re-reads references without forcing t
   const previous = globalThis.window;
   globalThis.window = new EventTarget();
   const calls = [];
+  // The provider setup is a section the core pushes: reading it is reading the store, never a capability request.
+  const core = toolModulesSource();
+  core.publishSection('providerSetup', { oauth: [{ id: 'openai-oauth', authenticated: true }] });
   const api = {
+    sections: core.sections,
     invokeCapability: async ({ capability, args }) => {
       calls.push({ capability, args });
-      return { value: { oauth: [{ id: 'openai-oauth', authenticated: true }] } };
+      return { value: {} };
     },
     listProviderModels: async (options) => {
       calls.push({ models: options });
@@ -115,12 +125,17 @@ test('a local window provider invalidation re-reads references without forcing t
   };
   const unsubscribe = subscribeProviderModelsSync(api);
   try {
+    await storeUp(api);
     await loadSidebarReferences(api, ['providerSetup', 'quickProviderModels']);
+    assert.equal(readSidebarReference('providerSetup').oauth[0].authenticated, true);
+    core.publishSection('providerSetup', { oauth: [{ id: 'openai-oauth', authenticated: false }] });
     globalThis.window.dispatchEvent(new Event('mixdog:remote-reconnected'));
     await tick();
     await loadSidebarReferences(api, ['providerSetup', 'quickProviderModels']);
-    assert.equal(calls.filter((call) => call.capability === 'getProviderSetup').length, 2);
-    assert.ok(!calls.some((call) => call.args?.[0]?.force || call.models?.force));
+    assert.equal(readSidebarReference('providerSetup').oauth[0].authenticated, false, 'the re-read follows the section');
+    assert.equal(calls.filter((call) => call.models).length, 2, 'the models are read again');
+    assert.ok(!calls.some((call) => call.capability === 'getProviderSetup'), 'the setup never goes over a request');
+    assert.ok(!calls.some((call) => call.models?.force));
   } finally {
     unsubscribe();
     if (previous === undefined) delete globalThis.window;
@@ -136,17 +151,11 @@ for (const event of ['mixdog:remote-reconnected', 'mixdog:remote-state-gap']) {
     globalThis.window = Object.assign(new EventTarget(), { mixdogDesktop: { connection: { kind: 'ssh' } } });
     let connected = false;
     const calls = [];
+    const core = toolModulesSource();
+    core.publishSection('providerSetup', { managedByClient: true, unavailable: true, oauth: [] });
     const api = {
-      invokeCapability: async ({ capability, args }) => {
-        calls.push({ capability, args });
-        return {
-          value: {
-            managedByClient: true,
-            unavailable: !connected,
-            oauth: connected ? [{ id: 'openai-oauth', usable: true }] : [],
-          },
-        };
-      },
+      sections: core.sections,
+      invokeCapability: async () => ({ value: {} }),
       listProviderModels: async (options) => {
         calls.push({ models: options });
         return connected ? [{ provider: 'openai-oauth', model: 'new-model' }] : [];
@@ -154,16 +163,21 @@ for (const event of ['mixdog:remote-reconnected', 'mixdog:remote-state-gap']) {
     };
     const unsubscribe = subscribeProviderModelsSync(api);
     try {
+      await storeUp(api);
       const offline = await loadSidebarReferences(api, ['providerSetup', 'quickProviderModels']);
       assert.equal(offline.error, 'Desktop model providers are unavailable');
       assert.equal(readSidebarReference('providerSetup'), undefined);
       connected = true;
+      core.publishSection('providerSetup', {
+        managedByClient: true,
+        unavailable: false,
+        oauth: [{ id: 'openai-oauth', usable: true }],
+      });
       globalThis.window.dispatchEvent(new Event(event));
       await tick();
       await loadSidebarReferences(api, ['providerSetup', 'quickProviderModels']);
       assert.equal(readSidebarReference('providerSetup').oauth[0].usable, true);
       assert.equal(readSidebarReference('quickProviderModels')[0].model, 'new-model');
-      assert.ok(calls.some((call) => call.capability === 'getProviderSetup' && call.args[0]?.force));
       assert.ok(calls.some((call) => call.models?.force));
     } finally {
       unsubscribe();
