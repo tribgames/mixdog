@@ -10,6 +10,7 @@ use mixdog_app_server_transport::relay::{RelayEndpoint, RelayOut, open_relay};
 use mixdog_app_server_transport::{AcceptedConnection, ConnectionHub};
 
 use super::{DialError, Dialer, Frame, UpEvent, Upstream};
+use crate::registry::DeviceRegistry;
 
 /// Hands an accepted connection to the server that drives it.
 pub type Accept = Arc<dyn Fn(AcceptedConnection) + Send + Sync>;
@@ -17,11 +18,14 @@ pub type Accept = Arc<dyn Fn(AcceptedConnection) + Send + Sync>;
 pub struct LocalDialer {
     hub: ConnectionHub,
     accept: Accept,
+    /// Told of each connection this dialer opens, before the server drives it: the one place a
+    /// relay connection is born, so the registry knows it before its first frame.
+    devices: Arc<DeviceRegistry>,
 }
 
 impl LocalDialer {
-    pub fn new(hub: ConnectionHub, accept: Accept) -> Self {
-        Self { hub, accept }
+    pub fn new(hub: ConnectionHub, accept: Accept, devices: Arc<DeviceRegistry>) -> Self {
+        Self { hub, accept, devices }
     }
 }
 
@@ -34,6 +38,7 @@ pub struct LocalUpstream {
 impl Dialer for LocalDialer {
     async fn dial(&self, peer_id: &str) -> Result<Box<dyn Upstream>, DialError> {
         let (accepted, endpoint) = open_relay(&self.hub, peer_id.to_owned()).map_err(|_| DialError)?;
+        self.devices.connect_relay(accepted.id.0, peer_id);
         (self.accept)(accepted);
         Ok(Box::new(LocalUpstream { endpoint: Some(endpoint) }))
     }

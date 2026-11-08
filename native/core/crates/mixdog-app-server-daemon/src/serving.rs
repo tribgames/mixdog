@@ -325,7 +325,11 @@ pub async fn attach(
     {
         let server = running.server.clone();
         core.local_dialer()
-            .bind(running.hub.clone(), Arc::new(move |accepted| crate::server::spawn_drive(server.clone(), accepted)))
+            .bind(
+                running.hub.clone(),
+                Arc::new(move |accepted| crate::server::spawn_drive(server.clone(), accepted)),
+                core.remote().registry.clone(),
+            )
             .map_err(ServingError::Bound)?;
     }
     let sections = core.sections().clone();
@@ -353,6 +357,10 @@ pub async fn attach(
             followed.set_state(current);
         }
     });
+    // The relay opens last (DS 7.2 "relay starts at core boot"): the listener, the lifecycle and the dialer are bound, so a phone that gets through at once finds a serving core.
+    let runtime = core.remote().runtime.clone();
+    core.on_stop("remote access", async move { runtime.close().await });
+    crate::domain_seams::remote::start_remote(core.remote(), core.state_publisher().clone()).await;
     Ok(Serving { lifecycle, sections, release, discovery, _control: control })
 }
 

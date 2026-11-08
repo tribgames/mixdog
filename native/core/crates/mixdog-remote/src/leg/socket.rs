@@ -6,7 +6,9 @@ use std::time::Duration;
 
 use base64::Engine;
 use futures::{SinkExt, StreamExt};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc;
+use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
@@ -162,6 +164,7 @@ impl LegConfig {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum Ended {
     Cancelled,
     Closed(Option<u16>),
@@ -187,52 +190,68 @@ async fn serve_leg(
         result = crate::dial::connect(request, Some(ws_config)) => result,
     };
     let (socket, _) = connected.map_err(|_| ())?;
+    Ok(serve_socket(socket, config, events, outgoing, redial, cancel).await)
+}
+
+/// Serves one open leg until it ends.
+async fn serve_socket<S>(
+    socket: WebSocketStream<S>,
+    config: &LegConfig,
+    events: &mpsc::Sender<LegEvent>,
+    outgoing: &mut mpsc::Receiver<Outgoing>,
+    redial: &mut Redial,
+    cancel: &CancellationToken,
+) -> Ended
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     let (mut sink, mut stream) = socket.split();
     redial.on_open();
     let stable = tokio::time::sleep(config.stable_reset.unwrap_or(Duration::MAX / 4));
     tokio::pin!(stable);
     let mut stable_done = config.stable_reset.is_none();
     if events.send(LegEvent::Open).await.is_err() {
-        return Ok(Ended::Cancelled);
+        return Ended::Cancelled;
     }
     let mut beat = tokio::time::interval(config.heartbeat);
     beat.tick().await;
     let mut alive = true;
+    // A write that fails does not end the leg on the spot. Node's `ws` reads the socket whatever the
+    // writes do, so a close frame the relay sent before the write failed still gives the leg its code
+    // (remote-relay-connection.ts `ws.on('close', (code) => ...)`): the code decides an immediate redial. A
+    // write error means the transport is gone, so the read side ends right after what it already holds.
+    let mut write_failed = false;
     loop {
         tokio::select! {
             () = cancel.cancelled() => {
                 let _ = sink.close().await;
-                return Ok(Ended::Cancelled);
+                return Ended::Cancelled;
             }
             () = &mut stable, if !stable_done => {
                 stable_done = true;
                 redial.on_stable();
             }
             _ = beat.tick() => {
-                if !alive {
-                    return Ok(Ended::Closed(None));
+                if write_failed || !alive {
+                    return Ended::Closed(None);
                 }
                 alive = false;
-                if sink.send(Message::Ping(Vec::new().into())).await.is_err() {
-                    return Ok(Ended::Closed(None));
-                }
+                write_failed = sink.send(Message::Ping(Vec::new().into())).await.is_err();
             }
-            sent = outgoing.recv() => {
-                let Some(sent) = sent else { return Ok(Ended::Cancelled) };
+            sent = outgoing.recv(), if !write_failed => {
+                let Some(sent) = sent else { return Ended::Cancelled };
                 let message = match sent {
                     Outgoing::Text(text) => Message::Text(text.into()),
                     Outgoing::Binary(bytes) => Message::Binary(bytes.into()),
                 };
-                if sink.send(message).await.is_err() {
-                    return Ok(Ended::Closed(None));
-                }
+                write_failed = sink.send(message).await.is_err();
             }
             received = stream.next() => {
                 alive = true;
                 let event = match received {
-                    None | Some(Err(_)) => return Ok(Ended::Closed(None)),
+                    None | Some(Err(_)) => return Ended::Closed(None),
                     Some(Ok(Message::Close(frame))) => {
-                        return Ok(Ended::Closed(frame.map(|f| u16::from(f.code))));
+                        return Ended::Closed(frame.map(|f| u16::from(f.code)));
                     }
                     Some(Ok(Message::Text(text))) => match config.framing {
                         Framing::Desktop => read_message(Some(text.as_str()), None).map(LegEvent::Inbound),
@@ -246,7 +265,7 @@ async fn serve_leg(
                 if let Some(event) = event
                     && events.send(event).await.is_err()
                 {
-                    return Ok(Ended::Cancelled);
+                    return Ended::Cancelled;
                 }
             }
         }
@@ -282,5 +301,86 @@ pub async fn run_leg(
             () = cancel.cancelled() => return,
             () = tokio::time::sleep(delay) => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::io::DuplexStream;
+    use tokio::task::JoinHandle;
+    use tokio_tungstenite::tungstenite::protocol::Role;
+    use tokio_tungstenite::tungstenite::protocol::frame::CloseFrame;
+
+    use super::*;
+    use crate::leg::redial::DESKTOP_HANDSHAKE_STALLED_CLOSE;
+
+    /// What the pipe between the legs holds in each direction: a frame larger than this cannot be written until the other end
+    /// reads, so a write of one stays in flight.
+    const PIPE_ROOM: usize = 1024;
+
+    struct Pipe {
+        /// The relay's end of the leg.
+        relay: WebSocketStream<DuplexStream>,
+        outgoing: mpsc::Sender<Outgoing>,
+        leg: JoinHandle<Ended>,
+    }
+
+    /// A desktop leg served over an in-memory pipe, past its open.
+    async fn open_leg() -> Pipe {
+        let (desktop_end, relay_end) = tokio::io::duplex(PIPE_ROOM);
+        let desktop = WebSocketStream::from_raw_socket(desktop_end, Role::Client, None).await;
+        let relay = WebSocketStream::from_raw_socket(relay_end, Role::Server, None).await;
+        let (events, mut opened) = mpsc::channel(1);
+        // One slot: a send that completes proves the leg has taken the previous message.
+        let (outgoing, mut queue) = mpsc::channel(1);
+        let config = LegConfig::desktop(
+            "ws://127.0.0.1".to_owned(),
+            DeviceIdentity { device_id: "00000000".to_owned(), device_secret: "0".repeat(16) },
+            PIPE_ROOM,
+        );
+        let leg = tokio::spawn(async move {
+            serve_socket(desktop, &config, &events, &mut queue, &mut Redial::default(), &CancellationToken::new()).await
+        });
+        assert!(matches!(opened.recv().await, Some(LegEvent::Open)));
+        Pipe { relay, outgoing, leg }
+    }
+
+    fn stalled_close() -> Option<CloseFrame> {
+        Some(CloseFrame { code: DESKTOP_HANDSHAKE_STALLED_CLOSE.into(), reason: "".into() })
+    }
+
+    /// The relay closes the leg with the stalled-handshake code while the desktop is inside a write that cannot finish. The write
+    /// then fails because the relay is gone; the code the relay sent first still decides the redial (Node's `ws` has read the
+    /// frame by then), so the next dial is immediate and not a backoff.
+    #[tokio::test]
+    async fn a_close_code_received_while_a_write_was_in_flight_still_classifies_the_leg() {
+        let Pipe { mut relay, outgoing, leg } = open_leg().await;
+        outgoing.send(Outgoing::Binary(vec![0; PIPE_ROOM * 4])).await.unwrap();
+        // Completes once the leg took the first message, which it then cannot finish writing.
+        outgoing.send(Outgoing::Binary(vec![0; 1])).await.unwrap();
+        relay.close(stalled_close()).await.unwrap();
+        drop(relay);
+        let Ended::Closed(code) = leg.await.unwrap() else { panic!("the relay closed the leg") };
+        assert_eq!(code, Some(DESKTOP_HANDSHAKE_STALLED_CLOSE));
+        assert!(Redial::default().after_close(code).is_zero(), "the redial is immediate");
+    }
+
+    /// A write that fails with no close frame sent has no code: Node's `ws` closes with 1006, which is not the stalled code.
+    #[tokio::test]
+    async fn a_write_that_failed_with_no_close_frame_has_no_code() {
+        let Pipe { relay, outgoing, leg } = open_leg().await;
+        outgoing.send(Outgoing::Binary(vec![0; PIPE_ROOM * 4])).await.unwrap();
+        outgoing.send(Outgoing::Binary(vec![0; 1])).await.unwrap();
+        drop(relay);
+        assert_eq!(leg.await.unwrap(), Ended::Closed(None));
+    }
+
+    /// The idle leg reads the relay's close frame and its code.
+    #[tokio::test]
+    async fn a_close_code_received_on_an_idle_leg_classifies_it() {
+        // The sender stays alive: a closed queue would end the leg itself.
+        let Pipe { mut relay, leg, outgoing: _outgoing } = open_leg().await;
+        relay.close(stalled_close()).await.unwrap();
+        assert_eq!(leg.await.unwrap(), Ended::Closed(Some(DESKTOP_HANDSHAKE_STALLED_CLOSE)));
     }
 }

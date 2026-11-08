@@ -908,11 +908,17 @@
       "type": "object"
     },
     "UiScreenSessionsChangedParams": {
-      "description": "Client notification `ui/screenSessions/changed` (UI → core): the sessions the user is looking at right now. Node asks `isSessionOnScreen(sessionId)` (`screen-sessions.ts`) at each delivery: true only while the window is visible, not minimized and focused, and its page reports painting that session. The host applies those window conditions itself, so this is the effective set: empty while the window is hidden, minimized or unfocused, or its page is gone (reload, navigation, renderer crash). It is a full replacement, sent on every change of the set (a report from the page, focus, blur, minimize, hide, show) and once when the UI attaches. The core treats a session as on screen only while it is in the latest set, and treats a detached UI as an empty set. No response.\n\nA paired phone sends the same notification over its relay connection, with its page visibility and app foreground applied. `browserId` is the id its direct Web Push subscription is keyed by (Node's `setForeground(visible, browserId)`): at most 64 UTF-16 units, kept until the phone states another, and ignored on every connection that is not a relay connection.",
+      "description": "Client notification `ui/screenSessions/changed` (UI → core): the sessions the user is looking at right now. Node asks `isSessionOnScreen(sessionId)` (`screen-sessions.ts`) at each delivery: true only while the window is visible, not minimized and focused, and its page reports painting that session. The host applies those window conditions itself, so this is the effective set: empty while the window is hidden, minimized or unfocused, or its page is gone (reload, navigation, renderer crash). It is a full replacement, sent on every change of the set (a report from the page, focus, blur, minimize, hide, show) and once when the UI attaches. The core treats a session as on screen only while it is in the latest set, and treats a detached UI as an empty set. No response.\n\nA paired phone sends the same notification over its relay connection, with its page visibility and app foreground applied. `browserId` is the id its direct Web Push subscription is keyed by (Node's `setForeground(visible, browserId)`): at most 64 UTF-16 units, kept until the phone states another, and ignored on every connection that is not a relay connection.\n\nOn a relay connection two more optional fields carry what Node's phone sent as `setForeground` and `setVisualizePanels`: `foreground` (false = the app is backgrounded; a connection starts in the foreground) and `visualizeSessionIds` (the sessions whose visualize panel the page shows; none until stated). Each is kept until the phone states another, and ignored on every connection that is not a relay connection. A paired phone counts as viewing a session's visualize panel (`hostState` key `remoteViewing`) only while attached, in the foreground and with that session in `visualizeSessionIds` (Node's `clientViewsSessionLane`).",
       "properties": {
         "browserId": {
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "foreground": {
+          "type": [
+            "boolean",
             "null"
           ]
         },
@@ -921,6 +927,15 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "visualizeSessionIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
         }
       },
       "required": [

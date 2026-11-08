@@ -496,6 +496,7 @@ impl Shared {
         let capabilities = params.capabilities.unwrap_or_default();
         let client = params.client_info;
         let device = client.title.clone().unwrap_or_else(|| client.name.clone());
+        let kind = client.kind;
         let session = Session {
             opt_out_notification_methods: capabilities
                 .opt_out_notification_methods
@@ -511,6 +512,8 @@ impl Shared {
             self.reject(conn, id, &ErrorData::AlreadyInitialized);
             return Inbound::Continue;
         }
+        // Before the response: the client sends nothing the registry must know about until it has read it.
+        self.core.connection_opened(conn.id, origin, &device, kind);
         let response = v1::InitializeResponse {
             user_agent: config.user_agent.clone(),
             platform_family: config.platform_family.clone(),

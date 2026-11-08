@@ -1,0 +1,148 @@
+{
+  "note": "Node createRelayDeviceConnection: the delay (ms) of the redial scheduled after each close of the relay leg. `code: null` is a dropped connection with no close frame.",
+  "stalledCloseCode": 4010,
+  "ladder": [
+    {
+      "op": "drop",
+      "code": null,
+      "delayMs": 1000
+    },
+    {
+      "op": "fail",
+      "delayMs": 2000
+    },
+    {
+      "op": "fail",
+      "delayMs": 4000
+    },
+    {
+      "op": "recover"
+    }
+  ],
+  "stalled": [
+    {
+      "op": "drop",
+      "code": 4010,
+      "delayMs": 0
+    },
+    {
+      "op": "recover"
+    },
+    {
+      "op": "drop",
+      "code": 4010,
+      "delayMs": 0
+    },
+    {
+      "op": "recover"
+    },
+    {
+      "op": "drop",
+      "code": 4010,
+      "delayMs": 1000
+    },
+    {
+      "op": "recover"
+    }
+  ],
+  "full": [
+    {
+      "op": "stable"
+    },
+    {
+      "op": "drop",
+      "code": null,
+      "delayMs": 1000
+    },
+    {
+      "op": "fail",
+      "delayMs": 2000
+    },
+    {
+      "op": "fail",
+      "delayMs": 4000
+    },
+    {
+      "op": "fail",
+      "delayMs": 8000
+    },
+    {
+      "op": "fail",
+      "delayMs": 16000
+    },
+    {
+      "op": "fail",
+      "delayMs": 30000
+    },
+    {
+      "op": "fail",
+      "delayMs": 30000
+    },
+    {
+      "op": "recover"
+    },
+    {
+      "op": "drop",
+      "code": 1001,
+      "delayMs": 1000
+    },
+    {
+      "op": "recover"
+    },
+    {
+      "op": "drop",
+      "code": 4010,
+      "delayMs": 0
+    },
+    {
+      "op": "recover"
+    },
+    {
+      "op": "drop",
+      "code": 4010,
+      "delayMs": 0
+    },
+    {
+      "op": "recover"
+    },
+    {
+      "op": "drop",
+      "code": 4010,
+      "delayMs": 1000
+    },
+    {
+      "op": "fail",
+      "delayMs": 2000
+    },
+    {
+      "op": "recover"
+    },
+    {
+      "op": "drop",
+      "code": null,
+      "delayMs": 4000
+    },
+    {
+      "op": "recover"
+    },
+    {
+      "op": "stable"
+    },
+    {
+      "op": "drop",
+      "code": null,
+      "delayMs": 1000
+    },
+    {
+      "op": "recover"
+    },
+    {
+      "op": "drop",
+      "code": 4010,
+      "delayMs": 0
+    },
+    {
+      "op": "recover"
+    }
+  ]
+}

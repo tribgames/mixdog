@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use mixdog_remote::bridge::{DialError, Dialer, Frame, UpEvent, Upstream};
 use mixdog_remote::identity::load_or_create_e2ee_identity;
+use mixdog_remote::registry::ScreenReport;
 use serde_json::{Value, json};
 
 use crate::common;
@@ -50,6 +51,11 @@ impl Upstream for CoreSocket {
     async fn close(&mut self, _: u16) {}
 }
 
+/// A report of the screen set alone: the optional visualize and foreground fields are not stated.
+fn screen_of(sessions: std::collections::HashSet<String>, browser_id: Option<&str>) -> ScreenReport<'_> {
+    ScreenReport { sessions, browser_id, visualize: None, foreground: None }
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_phone_reporting_its_screen_decides_foreground() {
     let dir = tempfile::tempdir().unwrap();
@@ -84,7 +90,7 @@ async fn a_phone_reporting_its_screen_decides_foreground() {
     registry.connect_relay(7, PHONE);
     registry.watch().wait_for(|_| registry.describe(7).is_some()).await.expect("the registry ended");
     assert!(!runtime.is_credential_foreground(CRED_A, "t1"), "nothing is shown until the phone says so");
-    assert!(registry.report_screen(7, ["t1", "t9"].map(String::from).into(), Some("browserX")));
+    assert!(registry.report_screen(7, screen_of(["t1", "t9"].map(String::from).into(), Some("browserX"))));
     assert!(runtime.is_credential_foreground(CRED_A, "t1") && runtime.is_credential_foreground(CRED_A, "t9"));
     assert!(!runtime.is_credential_foreground(CRED_A, "t2"));
     assert!(!runtime.is_credential_foreground(CRED_B, "t1"), "another paired phone shows nothing");
@@ -93,14 +99,14 @@ async fn a_phone_reporting_its_screen_decides_foreground() {
     // The two identities are separate questions: a phone paired as A that reports B's
     // credential id as its browser id does not make B foreground, and a credential id is no
     // browser id.
-    assert!(registry.report_screen(7, ["t1"].map(String::from).into(), Some(CRED_B)));
+    assert!(registry.report_screen(7, screen_of(["t1"].map(String::from).into(), Some(CRED_B))));
     assert!(runtime.is_browser_foreground(CRED_B, "t1"));
     assert!(!runtime.is_credential_foreground(CRED_B, "t1"));
     assert!(!runtime.is_browser_foreground(CRED_A, "t1"));
     // A backgrounded phone sends an empty set.
-    assert!(registry.report_screen(7, Default::default(), None));
+    assert!(registry.report_screen(7, screen_of(Default::default(), None)));
     assert!(!runtime.is_credential_foreground(CRED_A, "t1") && !runtime.is_browser_foreground(CRED_B, "t1"));
-    assert!(registry.report_screen(7, ["t1"].map(String::from).into(), None));
+    assert!(registry.report_screen(7, screen_of(["t1"].map(String::from).into(), None)));
 
     // Every frame is the core's, byte for byte: the runtime no longer reads the phone's text.
     let screen = json!({ "method": "ui/screenSessions/changed", "params": { "sessionIds": ["t1"] } });

@@ -45,12 +45,35 @@ pub struct Described {
 }
 
 /// What a bridged phone said it is looking at (`ui/screenSessions/changed`): the whole effective
-/// set, empty while its page is hidden or the app backgrounded, and the browser id its direct
-/// Web Push subscription is keyed by.
+/// set, empty while its page is hidden or the app backgrounded, the browser id its direct
+/// Web Push subscription is keyed by, the visualize panels its page shows
+/// (`setVisualizePanels`) and whether the app is in the foreground (`setForeground`).
 #[derive(Default)]
 struct Screen {
     sessions: HashSet<String>,
     browser_id: String,
+    /// A leg that never reported panels views none (`visualizePanelSessionIds?.has(..) === true`).
+    visualize: HashSet<String>,
+    /// Node's `RelayClientState.background`, `false` when the client is created
+    /// (`remote-relay-clients.ts:294`), set by `setForeground(false)`.
+    background: bool,
+}
+
+/// One `ui/screenSessions/changed` of a bridged phone. `visualize` and `foreground` are optional
+/// on the wire: a report without them leaves the last stated value.
+pub struct ScreenReport<'a> {
+    pub sessions: HashSet<String>,
+    pub browser_id: Option<&'a str>,
+    /// The sessions whose visualize panel the page has on screen.
+    pub visualize: Option<&'a [String]>,
+    /// `setForeground`'s first parameter: false = the app is backgrounded.
+    pub foreground: Option<bool>,
+}
+
+/// `filterSessionIds` of `desktop-state.ts:50-94`: a session id is `[A-Za-z0-9_-]+`, anything else
+/// is dropped from the reported list.
+fn is_session_id(value: &str) -> bool {
+    !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
 }
 
 enum Link {
@@ -135,13 +158,19 @@ impl DeviceRegistry {
     /// `ui/screenSessions/changed` from `connection`: false when it is no relay connection (the
     /// caller then treats it as the desktop's own report). The set replaces the last one; a
     /// browser id is kept until the phone states another.
-    pub fn report_screen(&self, connection: u64, sessions: HashSet<String>, browser_id: Option<&str>) -> bool {
+    pub fn report_screen(&self, connection: u64, report: ScreenReport<'_>) -> bool {
         {
             let mut inner = self.inner();
             let Some(Link::Relay { screen, .. }) = inner.connections.get_mut(&connection) else { return false };
-            screen.sessions = sessions;
-            if let Some(id) = browser_id {
+            screen.sessions = report.sessions;
+            if let Some(id) = report.browser_id {
                 screen.browser_id = slice_utf16(id, BROWSER_ID_MAX);
+            }
+            if let Some(panels) = report.visualize {
+                screen.visualize = panels.iter().filter(|id| is_session_id(id)).cloned().collect();
+            }
+            if let Some(foreground) = report.foreground {
+                screen.background = !foreground;
             }
         }
         self.changed();
@@ -154,14 +183,20 @@ impl DeviceRegistry {
         self.shown_by(|described, _| !credential.is_empty() && described.credential == credential, thread_id)
     }
 
-    /// Every session an attached paired device shows (the union of their reported sets).
-    pub fn shown_sessions(&self) -> std::collections::BTreeSet<String> {
+    /// Every session some paired device views as a visualize panel: Node's `viewsSessionLane(id,
+    /// REMOTE_VISUALIZE_LANE)` over all its clients (`remote-relay.ts:611`), each judged by
+    /// `clientViewsSessionLane` (`remote-relay-clients.ts:134-141`). A client counts only with a
+    /// live channel (a peer attached after its handshake) in the foreground, and only for the
+    /// panels it reported.
+    pub fn visualize_viewed_sessions(&self) -> std::collections::BTreeSet<String> {
         let inner = self.inner();
         inner
             .connections
             .values()
             .filter_map(|link| match link {
-                Link::Relay { peer_id, screen } if inner.peers.contains_key(peer_id) => Some(screen.sessions.iter().cloned()),
+                Link::Relay { peer_id, screen } if inner.peers.contains_key(peer_id) && !screen.background => {
+                    Some(screen.visualize.iter().cloned())
+                }
                 _ => None,
             })
             .flatten()

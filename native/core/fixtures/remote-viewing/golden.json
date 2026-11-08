@@ -1,0 +1,4199 @@
+{
+  "note": "Node viewsSessionLane (the visualize lane): the per-client rule over its input domain, and the real relay handle after each phone call.",
+  "lane": "visualize",
+  "table": [
+    {
+      "channel": false,
+      "background": false,
+      "panels": null,
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": null,
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": null,
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": null,
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": null,
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": null,
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": null,
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": null,
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": null,
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": null,
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": null,
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": null,
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": null,
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": null,
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": null,
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": null,
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": null,
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": null,
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": null,
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": null,
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": null,
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": null,
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": null,
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": null,
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": null,
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": null,
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": null,
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": null,
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": null,
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": null,
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": null,
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": null,
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": false,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": null,
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": null,
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": null,
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": null,
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": null,
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": null,
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": null,
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": null,
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": null,
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": null,
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": null,
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": null,
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": null,
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": null,
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": null,
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": null,
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": false,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": true
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": null,
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": null,
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": null,
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": null,
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": null,
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": null,
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": null,
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": null,
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": null,
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": null,
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": null,
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": null,
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": null,
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": null,
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": null,
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": null,
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": null,
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "visualize"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [],
+      "sessionId": "s2",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s1",
+      "views": false
+    },
+    {
+      "channel": true,
+      "background": true,
+      "panels": [
+        "s1",
+        "s2"
+      ],
+      "lanes": [
+        "terminal"
+      ],
+      "visible": [
+        "s1"
+      ],
+      "sessionId": "s2",
+      "views": false
+    }
+  ],
+  "scenarios": [
+    {
+      "op": "open",
+      "client": "A",
+      "views": {
+        "s1": false,
+        "s2": false,
+        "bad id!": false,
+        "": false
+      }
+    },
+    {
+      "op": "panels",
+      "client": "A",
+      "ids": [
+        "s1"
+      ],
+      "views": {
+        "s1": true,
+        "s2": false,
+        "bad id!": false,
+        "": false
+      }
+    },
+    {
+      "op": "foreground",
+      "client": "A",
+      "visible": false,
+      "browserId": "browser-a",
+      "views": {
+        "s1": false,
+        "s2": false,
+        "bad id!": false,
+        "": false
+      }
+    },
+    {
+      "op": "foreground",
+      "client": "A",
+      "visible": true,
+      "browserId": "browser-a",
+      "views": {
+        "s1": true,
+        "s2": false,
+        "bad id!": false,
+        "": false
+      }
+    },
+    {
+      "op": "panels",
+      "client": "A",
+      "ids": [
+        "s2"
+      ],
+      "views": {
+        "s1": false,
+        "s2": true,
+        "bad id!": false,
+        "": false
+      }
+    },
+    {
+      "op": "panels",
+      "client": "A",
+      "ids": [
+        "bad id!",
+        "s1",
+        "s1"
+      ],
+      "views": {
+        "s1": true,
+        "s2": false,
+        "bad id!": false,
+        "": false
+      }
+    },
+    {
+      "op": "panels",
+      "client": "A",
+      "ids": [],
+      "views": {
+        "s1": false,
+        "s2": false,
+        "bad id!": false,
+        "": false
+      }
+    },
+    {
+      "op": "panels",
+      "client": "A",
+      "ids": [
+        "s1"
+      ],
+      "views": {
+        "s1": true,
+        "s2": false,
+        "bad id!": false,
+        "": false
+      }
+    },
+    {
+      "op": "open",
+      "client": "B",
+      "views": {
+        "s1": true,
+        "s2": false,
+        "bad id!": false,
+        "": false
+      }
+    },
+    {
+      "op": "panels",
+      "client": "B",
+      "ids": [
+        "s2"
+      ],
+      "views": {
+        "s1": true,
+        "s2": true,
+        "bad id!": false,
+        "": false
+      }
+    },
+    {
+      "op": "foreground",
+      "client": "A",
+      "visible": false,
+      "browserId": "browser-a",
+      "views": {
+        "s1": false,
+        "s2": true,
+        "bad id!": false,
+        "": false
+      }
+    },
+    {
+      "op": "foreground",
+      "client": "B",
+      "visible": false,
+      "browserId": "browser-b",
+      "views": {
+        "s1": false,
+        "s2": false,
+        "bad id!": false,
+        "": false
+      }
+    },
+    {
+      "op": "foreground",
+      "client": "A",
+      "visible": true,
+      "browserId": "browser-a",
+      "views": {
+        "s1": true,
+        "s2": false,
+        "bad id!": false,
+        "": false
+      }
+    },
+    {
+      "op": "close",
+      "client": "A",
+      "views": {
+        "s1": false,
+        "s2": false,
+        "bad id!": false,
+        "": false
+      }
+    },
+    {
+      "op": "foreground",
+      "client": "B",
+      "visible": true,
+      "browserId": "browser-b",
+      "views": {
+        "s1": false,
+        "s2": true,
+        "bad id!": false,
+        "": false
+      }
+    },
+    {
+      "op": "close",
+      "client": "B",
+      "views": {
+        "s1": false,
+        "s2": false,
+        "bad id!": false,
+        "": false
+      }
+    },
+    {
+      "op": "open",
+      "client": "C",
+      "views": {
+        "s1": false,
+        "s2": false,
+        "bad id!": false,
+        "": false
+      }
+    },
+    {
+      "op": "panels",
+      "client": "C",
+      "ids": [
+        "s1",
+        "s2"
+      ],
+      "views": {
+        "s1": true,
+        "s2": true,
+        "bad id!": false,
+        "": false
+      }
+    },
+    {
+      "op": "leg-lost",
+      "views": {
+        "s1": false,
+        "s2": false,
+        "bad id!": false,
+        "": false
+      }
+    }
+  ]
+}

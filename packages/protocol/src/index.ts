@@ -4387,8 +4387,16 @@ tab?: string, reveal?: boolean, };
  * subscription is keyed by (Node's `setForeground(visible, browserId)`): at most 64 UTF-16
  * units, kept until the phone states another, and ignored on every connection that is not a
  * relay connection.
+ *
+ * On a relay connection two more optional fields carry what Node's phone sent as `setForeground`
+ * and `setVisualizePanels`: `foreground` (false = the app is backgrounded; a connection starts in
+ * the foreground) and `visualizeSessionIds` (the sessions whose visualize panel the page shows;
+ * none until stated). Each is kept until the phone states another, and ignored on every
+ * connection that is not a relay connection. A paired phone counts as viewing a session's
+ * visualize panel (`hostState` key `remoteViewing`) only while attached, in the foreground and
+ * with that session in `visualizeSessionIds` (Node's `clientViewsSessionLane`).
  */
-export type UiScreenSessionsChangedParams = { sessionIds: Array<string>, browserId?: string, };
+export type UiScreenSessionsChangedParams = { sessionIds: Array<string>, browserId?: string, visualizeSessionIds?: Array<string>, foreground?: boolean, };
 
 /**
  * Client notification `ui/terminalRun/claimed` (UI → core): a pane now shows the terminal of a

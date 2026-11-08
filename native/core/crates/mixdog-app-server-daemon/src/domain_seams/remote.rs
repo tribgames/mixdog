@@ -14,9 +14,13 @@ use std::sync::PoisonError;
 
 use async_trait::async_trait;
 use mixdog_app_server_transport::ConnectionHub;
+use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::state::SectionChange;
 use mixdog_core_api::state::StatePublisher;
+use mixdog_core_domains::domains::host::publish_remote_viewing;
 use mixdog_js::js_trim;
+use mixdog_protocol::ConnectionKind;
+use mixdog_protocol::Origin;
 use mixdog_protocol::SectionName;
 use mixdog_remote::access::AccessSettings;
 use mixdog_remote::access::LegLink;
@@ -31,9 +35,11 @@ use mixdog_remote::bridge::local::Accept;
 use mixdog_remote::bridge::local::LocalDialer;
 use mixdog_remote::leg::validated_relay_url;
 use mixdog_remote::registry::DeviceRegistry;
+use mixdog_remote::registry::LocalKind;
 use mixdog_remote::section::RemoteSection;
 use mixdog_remote::section::RemoteSectionValue;
 use mixdog_rt::DurabilityIo;
+use mixdog_rt::TaskClass;
 use serde_json::Value;
 
 use crate::pair_code::ComposedPairCodeEffects;
@@ -83,8 +89,8 @@ impl mixdog_core::run_host::late::Bound for LateDialer {
 
 impl LateDialer {
     /// `accept` hands an accepted connection to the server's drive loop (`spawn_drive`).
-    pub fn bind(&self, hub: ConnectionHub, accept: Accept) -> Result<(), &'static str> {
-        self.0.set(LocalDialer::new(hub, accept)).map_err(|_| "the local dialer is already bound")
+    pub fn bind(&self, hub: ConnectionHub, accept: Accept, devices: Arc<DeviceRegistry>) -> Result<(), &'static str> {
+        self.0.set(LocalDialer::new(hub, accept, devices)).map_err(|_| "the local dialer is already bound")
     }
 }
 
@@ -189,6 +195,50 @@ pub fn build_remote(inputs: RemoteInputs) -> Result<BuiltRemote, String> {
     );
     Ok(BuiltRemote { runtime: Arc::new(runtime), registry })
 }
+
+/// `CoreHandle::connection_opened` for the paired-device registry: a client that connected from
+/// this machine (`Local`, or an SSH tunnel's `Ssh`) is recorded under the identity its
+/// `initialize` stated, so approvals stamp its device (compose-seams §F step 7). A relay
+/// connection is recorded by the dialer that opened it, with the peer id the registry follows to
+/// the paired device; a local client that claims to be a phone or a remote desktop is not
+/// recorded, because only a paired relay peer is one.
+pub fn register_local(registry: &DeviceRegistry, connection: ConnectionId, origin: Origin, device: &str, kind: ConnectionKind) {
+    if origin == Origin::Relay {
+        return;
+    }
+    let kind = match kind {
+        ConnectionKind::Desktop => LocalKind::Desktop,
+        ConnectionKind::Tui => LocalKind::Tui,
+        ConnectionKind::Cli => LocalKind::Cli,
+        ConnectionKind::ChannelBridge => LocalKind::ChannelBridge,
+        ConnectionKind::Phone | ConnectionKind::RemoteDesktop => return,
+    };
+    registry.connect_local(connection.0, device, kind);
+}
+
+/// The paired credential a connection acts as, for the phone file grants (SPEC.md R44, DS 4.7): that of a relay peer attached after
+/// its handshake. A local client, whatever device name or kind it states, and a peer whose pairing ended have none.
+pub fn phone_credential(registry: Arc<DeviceRegistry>) -> Arc<dyn Fn(ConnectionId) -> Option<String> + Send + Sync> {
+    Arc::new(move |connection| registry.describe(connection.0).map(|described| described.credential).filter(|credential| !credential.is_empty()))
+}
+
+/// Opens the core's relay once it serves (DS §7.2 "relay starts at core boot"; compose-seams §F
+/// step 3, Node's `remoteAccessStart`): the dialer is bound to the server's connection hub by
+/// then. Starts publishing `hostState.remoteViewing`, loads the roster and connects if remote
+/// access was activated and is enabled. A failure is logged, not fatal: `start` has already
+/// published relay status `failed` and retries with backoff.
+pub async fn start_remote(remote: &BuiltRemote, publisher: Arc<dyn StatePublisher>) {
+    mixdog_rt::spawn("remote-viewing", TaskClass::Work, publish_remote_viewing(Arc::downgrade(&remote.registry), publisher));
+    if let Err(error) = remote.runtime.prepare().await {
+        tracing::warn!(%error, "remote access roster did not load");
+    }
+    if let Err(error) = remote.runtime.start(false).await {
+        tracing::warn!(%error, "remote access did not start");
+    }
+}
+
+#[cfg(test)]
+mod e2e;
 
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, reason = "the test lays out its fixture files with blocking calls on the test thread")]

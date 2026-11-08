@@ -22,7 +22,8 @@ use mixdog_remote::identity::load_or_create_e2ee_identity;
 use serde_json::{Value, json};
 
 use crate::common;
-use common::{driven_relay, on_lane, runtime_for};
+use common::{driven_relay, on_lane, runtime_with};
+use mixdog_remote::registry::DeviceRegistry;
 
 const VERSION: &str = "1.4.6";
 const CRED: &str = "aaaaaaa1";
@@ -105,7 +106,8 @@ async fn a_phone_and_a_direct_connection_receive_the_same_thread_frames() {
         on_lane(move |lane| load_or_create_e2ee_identity(lane, &path).unwrap())
     };
     let relay = driven_relay(json!([])).await;
-    let runtime = runtime_for(path, relay.port, Arc::new(LocalDialer::new(hub.clone(), accept.clone())));
+    let devices = Arc::new(DeviceRegistry::default());
+    let runtime = runtime_with(path, relay.port, Arc::new(LocalDialer::new(hub.clone(), accept.clone(), devices.clone())), devices);
     runtime.start(true).await.unwrap();
     runtime.watch_connected().wait_for(|up| *up).await.expect("the runtime ended");
     let mut phone = relay.pair_phone(&identity, "p1", CRED).await;
@@ -191,7 +193,8 @@ async fn a_phone_is_a_relay_connection_and_methods_outside_that_origin_are_refus
         on_lane(move |lane| load_or_create_e2ee_identity(lane, &path).unwrap())
     };
     let relay = driven_relay(json!([])).await;
-    let runtime = runtime_for(path, relay.port, Arc::new(LocalDialer::new(hub, accept)));
+    let devices = Arc::new(DeviceRegistry::default());
+    let runtime = runtime_with(path, relay.port, Arc::new(LocalDialer::new(hub, accept, devices.clone())), devices);
     runtime.start(true).await.unwrap();
     runtime.watch_connected().wait_for(|up| *up).await.expect("the runtime ended");
     let mut phone = relay.pair_phone(&identity, "p1", CRED).await;
