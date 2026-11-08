@@ -1,0 +1,500 @@
+{
+  "domain": "stdio-spawn",
+  "recorder": "benchmarks/rust-core/recorders/record-stdio-spawn.mjs",
+  "host": {
+    "pathext": ".COM;.EXE;.BAT;.CMD",
+    "comspec": "C:\\Windows\\System32\\cmd.exe",
+    "processCwd": "<ROOT>/work"
+  },
+  "files": [
+    {
+      "path": "bin/tool.exe",
+      "text": ""
+    },
+    {
+      "path": "bin/tool.cmd",
+      "text": ""
+    },
+    {
+      "path": "bin/both.cmd",
+      "text": ""
+    },
+    {
+      "path": "bin/both.com",
+      "text": ""
+    },
+    {
+      "path": "bin/shimmed.cmd",
+      "text": ""
+    },
+    {
+      "path": "bin/plain",
+      "text": "not a program"
+    },
+    {
+      "path": "bin/node.exe",
+      "text": ""
+    },
+    {
+      "path": "bin/script.js",
+      "text": "#!/usr/bin/env node\nconsole.log(1)\n"
+    },
+    {
+      "path": "bin/shellscript",
+      "text": "#!/bin/sh -e\necho 1\n"
+    },
+    {
+      "path": "bin/lost",
+      "text": "#!/usr/bin/python3\nprint(1)\n"
+    },
+    {
+      "path": "bin/envonly",
+      "text": "#!/usr/bin/env\n"
+    },
+    {
+      "path": "other/local.exe",
+      "text": ""
+    },
+    {
+      "path": "work/here.exe",
+      "text": ""
+    },
+    {
+      "path": "work/node_modules/.bin/shim.cmd",
+      "text": ""
+    }
+  ],
+  "parse": [
+    {
+      "name": "exe-by-name",
+      "command": "tool",
+      "args": [
+        "a"
+      ],
+      "cwd": null,
+      "path": "<ROOT>\\bin",
+      "processPath": null,
+      "launch": {
+        "kind": "direct",
+        "shown": "tool",
+        "args": [
+          "a"
+        ],
+        "program": "<ROOT>\\bin\\tool.EXE"
+      }
+    },
+    {
+      "name": "exe-with-extension",
+      "command": "tool.exe",
+      "args": [
+        "a b"
+      ],
+      "cwd": null,
+      "path": "<ROOT>\\bin",
+      "processPath": null,
+      "launch": {
+        "kind": "direct",
+        "shown": "tool.exe",
+        "args": [
+          "a b"
+        ],
+        "program": "<ROOT>\\bin\\tool.exe"
+      }
+    },
+    {
+      "name": "pathext-order-picks-com",
+      "command": "both",
+      "args": [],
+      "cwd": null,
+      "path": "<ROOT>\\bin",
+      "processPath": null,
+      "launch": {
+        "kind": "direct",
+        "shown": "both",
+        "args": [],
+        "program": "<ROOT>\\bin\\both.COM"
+      }
+    },
+    {
+      "name": "cmd-script",
+      "command": "shimmed",
+      "args": [
+        "x"
+      ],
+      "cwd": null,
+      "path": "<ROOT>\\bin",
+      "processPath": null,
+      "launch": {
+        "kind": "shell",
+        "file": "C:\\Windows\\System32\\cmd.exe",
+        "args": [
+          "/d",
+          "/s",
+          "/c",
+          "\"shimmed ^\"x^\"\""
+        ]
+      }
+    },
+    {
+      "name": "unresolved",
+      "command": "harness-no-such-command",
+      "args": [],
+      "cwd": null,
+      "path": "<ROOT>\\bin",
+      "processPath": null,
+      "launch": {
+        "kind": "shell",
+        "file": "C:\\Windows\\System32\\cmd.exe",
+        "args": [
+          "/d",
+          "/s",
+          "/c",
+          "\"harness-no-such-command\""
+        ]
+      }
+    },
+    {
+      "name": "unresolved-with-arguments",
+      "command": "harness-no-such-command",
+      "args": [
+        "--flag",
+        "a b",
+        "say \"hi\"",
+        "C:\\dir\\",
+        "back\\\"slash",
+        "%PATH%",
+        "^&|<>",
+        "",
+        "trail\\\\",
+        "x\"",
+        "\\\"",
+        "(paren)!",
+        "tick`",
+        "wild*?",
+        "semi;comma,"
+      ],
+      "cwd": null,
+      "path": "<ROOT>\\bin",
+      "processPath": null,
+      "launch": {
+        "kind": "shell",
+        "file": "C:\\Windows\\System32\\cmd.exe",
+        "args": [
+          "/d",
+          "/s",
+          "/c",
+          "\"harness-no-such-command ^\"--flag^\" ^\"a^ b^\" ^\"say^ \\^\"hi\\^\"^\" ^\"C:\\dir\\\\^\" ^\"back\\\\\\^\"slash^\" ^\"^%PATH^%^\" ^\"^^^&^|^<^>^\" ^\"^\" ^\"trail\\\\\\^\" ^\"x\\^\"^\" ^\"\\\\\\^\"^\" ^\"^(paren^)^!^\" ^\"tick^`^\" ^\"wild^*^?^\" ^\"semi^;comma^,^\"\""
+        ]
+      }
+    },
+    {
+      "name": "extensionless-file",
+      "command": "plain",
+      "args": [
+        "x"
+      ],
+      "cwd": null,
+      "path": "<ROOT>\\bin",
+      "processPath": null,
+      "launch": {
+        "kind": "shell",
+        "file": "C:\\Windows\\System32\\cmd.exe",
+        "args": [
+          "/d",
+          "/s",
+          "/c",
+          "\"plain ^\"x^\"\""
+        ]
+      }
+    },
+    {
+      "name": "shebang-env-node",
+      "command": "script.js",
+      "args": [
+        "--port",
+        "1"
+      ],
+      "cwd": null,
+      "path": "<ROOT>\\bin",
+      "processPath": null,
+      "launch": {
+        "kind": "direct",
+        "shown": "node",
+        "args": [
+          "<ROOT>\\bin\\script.js",
+          "--port",
+          "1"
+        ]
+      }
+    },
+    {
+      "name": "shebang-with-argument",
+      "command": "shellscript",
+      "args": [],
+      "cwd": null,
+      "path": "<ROOT>\\bin",
+      "processPath": null,
+      "launch": {
+        "kind": "shell",
+        "file": "C:\\Windows\\System32\\cmd.exe",
+        "args": [
+          "/d",
+          "/s",
+          "/c",
+          "\"sh^ -e ^\"<ROOT>\\bin\\shellscript^\"\""
+        ]
+      }
+    },
+    {
+      "name": "shebang-interpreter-missing",
+      "command": "lost",
+      "args": [
+        "x"
+      ],
+      "cwd": null,
+      "path": "<ROOT>\\bin",
+      "processPath": null,
+      "launch": {
+        "kind": "shell",
+        "file": "C:\\Windows\\System32\\cmd.exe",
+        "args": [
+          "/d",
+          "/s",
+          "/c",
+          "\"python3 ^\"<ROOT>\\bin\\lost^\" ^\"x^\"\""
+        ]
+      }
+    },
+    {
+      "name": "shebang-env-without-program",
+      "command": "envonly",
+      "args": [],
+      "cwd": null,
+      "path": "<ROOT>\\bin",
+      "processPath": null,
+      "launch": {
+        "kind": "shell",
+        "file": "C:\\Windows\\System32\\cmd.exe",
+        "args": [
+          "/d",
+          "/s",
+          "/c",
+          "\"envonly\""
+        ]
+      }
+    },
+    {
+      "name": "forward-slash-path",
+      "command": "<ROOT>/bin/tool.exe",
+      "args": [
+        "x"
+      ],
+      "cwd": null,
+      "path": "<ROOT>\\bin",
+      "processPath": null,
+      "launch": {
+        "kind": "direct",
+        "shown": "<ROOT>/bin/tool.exe",
+        "args": [
+          "x"
+        ],
+        "program": "<ROOT>\\bin\\tool.exe"
+      }
+    },
+    {
+      "name": "relative-path-in-cwd",
+      "command": "./bin/tool.exe",
+      "args": [],
+      "cwd": "<ROOT>",
+      "path": "<ROOT>\\bin",
+      "processPath": null,
+      "launch": {
+        "kind": "direct",
+        "shown": "./bin/tool.exe",
+        "args": [],
+        "program": "<ROOT>\\bin\\tool.exe"
+      }
+    },
+    {
+      "name": "process-directory-first",
+      "command": "here",
+      "args": [],
+      "cwd": null,
+      "path": "<ROOT>\\bin",
+      "processPath": null,
+      "launch": {
+        "kind": "direct",
+        "shown": "here",
+        "args": [],
+        "program": "<ROOT>\\work\\here.EXE"
+      }
+    },
+    {
+      "name": "custom-cwd-first",
+      "command": "local",
+      "args": [],
+      "cwd": "<ROOT>/other",
+      "path": "<ROOT>\\bin",
+      "processPath": null,
+      "launch": {
+        "kind": "direct",
+        "shown": "local",
+        "args": [],
+        "program": "<ROOT>\\other\\local.EXE"
+      }
+    },
+    {
+      "name": "custom-cwd-missing",
+      "command": "tool",
+      "args": [],
+      "cwd": "<ROOT>/missing",
+      "path": "<ROOT>\\bin",
+      "processPath": null,
+      "launch": {
+        "kind": "direct",
+        "shown": "tool",
+        "args": [],
+        "program": "<ROOT>\\bin\\tool.EXE"
+      }
+    },
+    {
+      "name": "quoted-path-entry",
+      "command": "tool",
+      "args": [],
+      "cwd": null,
+      "path": "\"<ROOT>\\bin\"",
+      "processPath": null,
+      "launch": {
+        "kind": "direct",
+        "shown": "tool",
+        "args": [],
+        "program": "<ROOT>\\bin\\tool.EXE"
+      }
+    },
+    {
+      "name": "path-empty-falls-back-to-process",
+      "command": "tool",
+      "args": [],
+      "cwd": null,
+      "path": "",
+      "processPath": "<ROOT>\\bin",
+      "launch": {
+        "kind": "direct",
+        "shown": "tool",
+        "args": [],
+        "program": "<ROOT>\\bin\\tool.EXE"
+      }
+    },
+    {
+      "name": "cmd-shim-double-escape",
+      "command": "<ROOT>\\work\\node_modules\\.bin\\shim.cmd",
+      "args": [
+        "a&b",
+        "say \"hi\"",
+        "plain"
+      ],
+      "cwd": null,
+      "path": "<ROOT>\\bin",
+      "processPath": null,
+      "launch": {
+        "kind": "shell",
+        "file": "C:\\Windows\\System32\\cmd.exe",
+        "args": [
+          "/d",
+          "/s",
+          "/c",
+          "\"<ROOT>\\work\\node_modules\\.bin\\shim.cmd ^^^\"a^^^&b^^^\" ^^^\"say^^^ \\^^^\"hi\\^^^\"^^^\" ^^^\"plain^^^\"\""
+        ]
+      }
+    },
+    {
+      "name": "command-with-spaces",
+      "command": "<ROOT>\\program files\\x y",
+      "args": [
+        "z"
+      ],
+      "cwd": null,
+      "path": "<ROOT>\\bin",
+      "processPath": null,
+      "launch": {
+        "kind": "shell",
+        "file": "C:\\Windows\\System32\\cmd.exe",
+        "args": [
+          "/d",
+          "/s",
+          "/c",
+          "\"<ROOT>\\program^ files\\x^ y ^\"z^\"\""
+        ]
+      }
+    }
+  ],
+  "connect": [
+    {
+      "name": "exits-with-stderr",
+      "entry": {
+        "type": "stdio",
+        "command": "node",
+        "args": [
+          "-e",
+          "process.stderr.write('fatal: out of cheese\\n'); process.exit(1);"
+        ]
+      },
+      "localeBound": false,
+      "failure": "MCP error -32000: Connection closed\n--- server stderr (tail) ---\nfatal: out of cheese"
+    },
+    {
+      "name": "unresolved-command",
+      "entry": {
+        "type": "stdio",
+        "command": "harness-no-such-command"
+      },
+      "localeBound": true,
+      "failure": "MCP error -32000: Connection closed\n--- server stderr (tail) ---\n'harness-no-such-command'��(��) ���� �Ǵ� �ܺ� ����, ������ �� �ִ� ���α׷�, �Ǵ�\r\n��ġ ������ �ƴմϴ�."
+    },
+    {
+      "name": "missing-cwd",
+      "entry": {
+        "type": "stdio",
+        "command": "node",
+        "args": [
+          "-e",
+          "0"
+        ],
+        "cwd": "<ROOT>/missing"
+      },
+      "localeBound": false,
+      "failure": "spawn node ENOENT"
+    },
+    {
+      "name": "never-answers",
+      "entry": {
+        "type": "stdio",
+        "command": "node",
+        "args": [
+          "-e",
+          "process.stderr.write('still installing deps...\\n'); setInterval(() => {}, 1000);"
+        ],
+        "startupTimeoutMs": 2500
+      },
+      "localeBound": false,
+      "failure": "MCP server \"never-answers\" startup exceeded 2500ms budget — raise per-server \"startupTimeoutSec\"/\"startupTimeoutMs\" or env MIXDOG_MCP_STARTUP_TIMEOUT_MS\n--- server stderr (tail) ---\nstill installing deps..."
+    },
+    {
+      "name": "answers-then-dies",
+      "entry": {
+        "type": "stdio",
+        "command": "node",
+        "args": [
+          "-e",
+          "\nlet buffered = '';\nconst send = (message) => process.stdout.write(JSON.stringify(message) + '\\n');\nprocess.stdin.on('data', (chunk) => {\n  buffered += chunk;\n  for (let end = buffered.indexOf('\\n'); end >= 0; end = buffered.indexOf('\\n')) {\n    const message = JSON.parse(buffered.slice(0, end));\n    buffered = buffered.slice(end + 1);\n    if (message.method === 'initialize') {\n      send({ jsonrpc: '2.0', id: message.id, result: { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'crashy', version: '1' } } });\n    } else if (message.method === 'tools/list') {\n      send({ jsonrpc: '2.0', id: message.id, result: { tools: [] } });\n      setTimeout(() => { process.stderr.write('crashing on purpose\\n'); process.exit(1); }, 200);\n    }\n  }\n});"
+        ]
+      },
+      "localeBound": false,
+      "failure": null,
+      "status": {
+        "connected": false,
+        "error": "MCP server \"answers-then-dies\" closed\n--- server stderr (tail) ---\ncrashing on purpose"
+      }
+    }
+  ]
+}

@@ -26,10 +26,15 @@ use crate::rpc::RpcError;
 use crate::server::CallError;
 use crate::server::McpServer;
 use crate::server::ToolEntry;
+use crate::transport::append_stderr_tail;
 
 pub(crate) fn tool_error(server: &McpServer, error: CallError) -> ToolError {
     let capability = format!("mcp:{}", server.name());
-    let message = server.scrub(&error.to_string());
+    let message = match &error {
+        CallError::Rpc(RpcError::Closed(tail)) => append_stderr_tail(&error.to_string(), tail),
+        _ => error.to_string(),
+    };
+    let message = server.scrub(&message);
     match error {
         CallError::NotReady { .. } => ToolError::new(
             ToolErrorCode::Unavailable { capability, reason: message.clone() },

@@ -29,6 +29,7 @@ mod skillfm_suite;
 mod skillport_suite;
 mod skills_listed_suite;
 mod skillsapi_suite;
+mod stdio_spawn_suite;
 mod transport_suite;
 mod uv_error_suite;
 mod watch_cache_suite;
