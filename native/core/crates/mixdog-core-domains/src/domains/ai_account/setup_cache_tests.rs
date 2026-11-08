@@ -212,3 +212,78 @@ async fn the_proxy_mode_is_never_cached_and_a_failed_build_is_an_error() {
     assert_eq!(error.message(), "keychain unreachable");
     assert!(!setup.has_cached(), "a failure is not cached, so the next read tries again");
 }
+
+/// Node's two reads of a cold start (`fixtures/provider-setup-warmup/golden.json`, `record-provider-setup-warmup.mjs`):
+/// the snapshot flagged `pendingSecrets`, then, once the warm-up built the setup, the authoritative one.
+fn warmup_golden() -> Value {
+    serde_json::from_str(include_str!("../../../../../fixtures/provider-setup-warmup/golden.json")).unwrap()
+}
+
+/// Builds Node's recorded documents: the snapshot for the no-secrets build, the full setup otherwise.
+struct Recorded(Value);
+
+#[async_trait]
+impl SetupBuilder for Recorded {
+    async fn build(&self, options: SetupOptions) -> Result<Value, Failure> {
+        Ok(self.0["built"][if options.check_secrets { "full" } else { "quick" }].clone())
+    }
+    async fn proxy(&self, _force: bool) -> Result<Value, Failure> {
+        unreachable!("the recording is not the proxy mode")
+    }
+}
+
+/// The recording has no keyring alert and no catalog failure, so both overlays leave the document as it is.
+struct Plain;
+
+impl SetupOverlays for Plain {
+    fn with_live_keychain(&self, setup: Value) -> Value {
+        setup
+    }
+    fn with_catalog_errors(&self, setup: Value) -> Value {
+        setup
+    }
+}
+
+#[tokio::test]
+async fn the_pushed_section_follows_the_warmup_to_the_setup_nodes_next_read_answers() {
+    use mixdog_core_api::mock::MockStatePublisher;
+    use mixdog_core_api::state::SectionChange;
+    use mixdog_protocol::SectionName;
+
+    use super::account::{SectionPush, republish_on_wakes};
+    use super::collaborators::ProviderSetup;
+
+    mixdog_rt::testing::tokens();
+    let golden = warmup_golden();
+    let keychain = Arc::new(Keychain { ready: AtomicBool::new(false), recovers: AtomicBool::new(false), changes: AtomicBool::new(false), interactive: Mutex::default(), forced: Mutex::default() });
+    let setup = CachedProviderSetup::new(Arc::new(Recorded(golden.clone())), keychain, Arc::new(Plain), Arc::new(Host::default()));
+    let publisher = Arc::new(MockStatePublisher::default());
+    let pushed = Arc::new(SectionPush::new(publisher.clone()));
+    let (_config, config_rx) = tokio::sync::watch::channel(0u64);
+    let (done, mut published) = tokio::sync::mpsc::unbounded_channel();
+    let section = {
+        let (setup, pushed) = (setup.clone(), pushed.clone());
+        move || {
+            let (setup, pushed, done) = (setup.clone(), pushed.clone(), done.clone());
+            async move {
+                if let Ok(value) = setup.get_setup(false, false, false, false).await {
+                    pushed.push(SectionName::ProviderSetup, None, value);
+                }
+                done.send(()).unwrap();
+            }
+        }
+    };
+    mixdog_rt::spawn("test-sections", mixdog_rt::TaskClass::Work, republish_on_wakes(config_rx, Arc::new(tokio::sync::Notify::new()), setup.filled(), section));
+    // The section's first value, then the one the warm-up's fill wakes.
+    published.recv().await.unwrap();
+    published.recv().await.unwrap();
+    let values: Vec<Value> = publisher
+        .published()
+        .iter()
+        .map(|(_, _, change)| {
+            let SectionChange::Set(bytes) = change else { panic!("a small value is carried whole") };
+            serde_json::from_slice(bytes).unwrap()
+        })
+        .collect();
+    assert_eq!(values, [golden["reads"][0]["value"].clone(), golden["reads"][1]["value"].clone()]);
+}

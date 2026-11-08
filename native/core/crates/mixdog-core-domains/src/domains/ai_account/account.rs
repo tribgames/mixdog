@@ -75,6 +75,24 @@ impl SectionPush {
     }
 }
 
+/// Runs `publish` once, then after each wake: a change of the config, of an account file, or a complete provider setup
+/// filling its cache. The last is what a cold read's background build ends in; Node pushes nothing, its next read
+/// answers the built setup, so the pushed section has to follow it.
+pub(super) async fn republish_on_wakes<F, Fut>(mut config: watch::Receiver<u64>, files: Arc<Notify>, mut filled: watch::Receiver<u64>, mut publish: F)
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    loop {
+        publish().await;
+        tokio::select! {
+            changed = config.changed() => if changed.is_err() { return },
+            () = files.notified() => {}
+            changed = filled.changed() => if changed.is_err() { return },
+        }
+    }
+}
+
 pub struct AccountService {
     admin: Arc<ProviderAdmin>,
     flows: OAuthFlows,
@@ -137,17 +155,11 @@ impl AccountService {
         // The sections hold a value from the start; a change of the config or of an account file
         // (another process's included: Node reads them on every call) pushes the next one.
         let task = service.clone();
-        let mut config = wake.config;
+        let (config, filled) = (wake.config, service.setup.filled());
         mixdog_rt::spawn("account-sections", mixdog_rt::TaskClass::Work, async move {
             // The file watch lives as long as the task.
             let _trigger = trigger;
-            loop {
-                task.publish_sections().await;
-                tokio::select! {
-                    changed = config.changed() => if changed.is_err() { return },
-                    () = files_changed.notified() => {}
-                }
-            }
+            republish_on_wakes(config, files_changed, filled, || task.publish_sections()).await;
         });
         Ok(service)
     }

@@ -18,7 +18,6 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::PoisonError;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use async_trait::async_trait;
 use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ProviderReadiness};
@@ -70,12 +69,33 @@ pub struct ListHost {
     last: Arc<Mutex<serde_json::Map<String, Value>>>,
     /// The background load a quick read started (`warmProviderModelCache`).
     warm: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    /// The cache state; one lock, so an adoption cannot interleave with an invalidation.
+    cache: Arc<Mutex<CacheState>>,
+}
+
+/// What `providerModelCaches` holds of a load.
+struct CacheState {
     /// A full load completed (`caches.providerModelsCache.models` is set).
-    loaded: Arc<AtomicBool>,
+    loaded: bool,
     /// `caches.providerModelsLoadSeq`: a load that began under an older one is not adopted.
-    seq: Arc<AtomicU64>,
+    seq: u64,
     /// The registry's catalog revision the cache was built under (`observedCatalogRevision`).
-    observed: Arc<AtomicU64>,
+    observed: u64,
+}
+
+impl CacheState {
+    /// `Object.assign(providerModelCaches, emptyModelCaches()); providerModelsLoadSeq += 1`.
+    fn invalidate(&mut self) {
+        self.seq += 1;
+        self.loaded = false;
+    }
+
+    /// `syncCatalogRevision`: the cache goes when the registry's catalog moved on.
+    fn sync(&mut self, revision: u64) {
+        if std::mem::replace(&mut self.observed, revision) != revision {
+            self.invalidate();
+        }
+    }
 }
 
 /// The loaded config's agent section and its providers.
@@ -92,7 +112,7 @@ impl ListHost {
         route: Arc<dyn Fn() -> Obj + Send + Sync>,
         initial: serde_json::Map<String, Value>,
     ) -> Self {
-        let observed = Arc::new(AtomicU64::new(readiness.catalog_revision()));
+        let cache = CacheState { loaded: false, seq: 0, observed: readiness.catalog_revision() };
         Self {
             readiness,
             effective,
@@ -100,37 +120,50 @@ impl ListHost {
             route,
             last: Arc::new(Mutex::new(initial)),
             warm: Arc::new(Mutex::new(None)),
-            loaded: Arc::new(AtomicBool::new(false)),
-            seq: Arc::new(AtomicU64::new(0)),
-            observed,
+            cache: Arc::new(Mutex::new(cache)),
         }
     }
 
-    /// The provider-models cache is dropped and loads in flight are superseded
-    /// (`Object.assign(providerModelCaches, emptyModelCaches()); providerModelsLoadSeq += 1`).
+    fn cache(&self) -> std::sync::MutexGuard<'_, CacheState> {
+        self.cache.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// The provider-models cache is dropped and loads in flight are superseded.
     fn invalidate(&self) {
-        self.seq.fetch_add(1, Ordering::SeqCst);
-        self.loaded.store(false, Ordering::SeqCst);
+        self.cache().invalidate();
     }
 
-    /// `syncCatalogRevision`: the cache goes when the registry's catalog moved on.
-    fn sync_revision(&self) {
-        let now = self.readiness.catalog_revision();
-        if self.observed.swap(now, Ordering::SeqCst) != now {
-            self.invalidate();
-        }
+    /// `Array.isArray(caches.providerModelsCache.models)` after `syncCatalogRevision()`.
+    fn loaded_now(&self) -> bool {
+        let mut cache = self.cache();
+        cache.sync(self.readiness.catalog_revision());
+        cache.loaded
     }
 
-    /// The sequence a load starts under.
+    /// The sequence a load starts under, the revision synced first.
     fn begin(&self) -> u64 {
-        self.seq.load(Ordering::SeqCst)
+        let mut cache = self.cache();
+        cache.sync(self.readiness.catalog_revision());
+        cache.seq
     }
 
-    /// `adoptProviderModelCache`: a load that is still current fills the cache.
+    /// After the preparation (`catalog-load.mjs`, `ownsLoad`): the revision it moved is carried forward for a load that is
+    /// still current, never for a superseded one. Returns the sequence the load goes on under.
+    fn carry(&self, seq: u64) -> u64 {
+        let mut cache = self.cache();
+        let owns = cache.seq == seq;
+        cache.sync(self.readiness.catalog_revision());
+        if owns { cache.seq } else { seq }
+    }
+
+    /// `adoptProviderModelCache`: the revision is synced before the sequence is checked
+    /// (`provider-models.mjs`), so a revision change during the load supersedes it; a load that is
+    /// still current fills the cache, all under the one lock an invalidation takes.
     fn adopt(&self, seq: u64) {
-        if self.seq.load(Ordering::SeqCst) == seq {
-            self.observed.store(self.readiness.catalog_revision(), Ordering::SeqCst);
-            self.loaded.store(true, Ordering::SeqCst);
+        let mut cache = self.cache();
+        cache.sync(self.readiness.catalog_revision());
+        if cache.seq == seq {
+            cache.loaded = true;
         }
     }
 
@@ -256,8 +289,7 @@ impl ModelListService {
     pub fn cache_loaded(&self) -> bool {
         match &self.host {
             Some(host) => {
-                host.sync_revision();
-                host.loaded.load(Ordering::SeqCst)
+                host.loaded_now()
             }
             None => {
                 let snapshot = self.catalog.snapshot();
@@ -311,6 +343,7 @@ impl ModelListService {
                 let started = mixdog_rt::spawn("model-list-warm", mixdog_rt::TaskClass::Work, async move {
                     match warm.prepare().await {
                         Ok(Some(_)) => {
+                            let seq = warm.carry(seq);
                             catalog.refresh_due().await;
                             warm.adopt(seq);
                         }

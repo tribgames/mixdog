@@ -1,0 +1,131 @@
+{
+  "built": {
+    "quick": {
+      "api": [
+        {
+          "id": "openai",
+          "name": "openai",
+          "authenticated": false,
+          "env": true
+        }
+      ],
+      "oauth": [
+        {
+          "id": "anthropic-oauth",
+          "name": "anthropic-oauth",
+          "authenticated": false
+        }
+      ],
+      "local": [
+        {
+          "id": "ollama",
+          "name": "ollama",
+          "authenticated": false
+        }
+      ]
+    },
+    "full": {
+      "api": [
+        {
+          "id": "openai",
+          "name": "openai",
+          "authenticated": true,
+          "env": true,
+          "status": "Connected",
+          "stored": true
+        }
+      ],
+      "oauth": [
+        {
+          "id": "anthropic-oauth",
+          "name": "anthropic-oauth",
+          "authenticated": true,
+          "status": "Connected",
+          "plan": "max"
+        }
+      ],
+      "local": [
+        {
+          "id": "ollama",
+          "name": "ollama",
+          "authenticated": true,
+          "detected": true,
+          "status": "Detected"
+        }
+      ]
+    }
+  },
+  "builds": [
+    {
+      "detectLocal": false,
+      "checkSecrets": false
+    },
+    {
+      "detectLocal": true,
+      "checkSecrets": true
+    }
+  ],
+  "reads": [
+    {
+      "when": "cold, keychain prewarm pending",
+      "value": {
+        "api": [
+          {
+            "id": "openai",
+            "name": "openai",
+            "authenticated": false,
+            "env": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "anthropic-oauth",
+            "name": "anthropic-oauth",
+            "authenticated": false
+          }
+        ],
+        "local": [
+          {
+            "id": "ollama",
+            "name": "ollama",
+            "authenticated": false
+          }
+        ],
+        "pendingSecrets": true
+      }
+    },
+    {
+      "when": "after the warm-up",
+      "value": {
+        "api": [
+          {
+            "id": "openai",
+            "name": "openai",
+            "authenticated": true,
+            "env": true,
+            "status": "Connected",
+            "stored": true
+          }
+        ],
+        "oauth": [
+          {
+            "id": "anthropic-oauth",
+            "name": "anthropic-oauth",
+            "authenticated": true,
+            "status": "Connected",
+            "plan": "max"
+          }
+        ],
+        "local": [
+          {
+            "id": "ollama",
+            "name": "ollama",
+            "authenticated": true,
+            "detected": true,
+            "status": "Detected"
+          }
+        ]
+      }
+    }
+  ]
+}

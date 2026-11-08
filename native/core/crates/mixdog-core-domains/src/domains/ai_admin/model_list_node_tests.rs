@@ -57,6 +57,10 @@ const ENDPOINT: &str = "http://127.0.0.1:9";
 /// The local fake model endpoint: GET of a recorded path answers its body, any other path an empty list.
 struct Endpoint {
     routes: BTreeMap<String, Value>,
+    /// Every request waits here until the gate is open; a test closes it to hold a load in flight.
+    gate: tokio::sync::watch::Receiver<bool>,
+    /// One permit per request that reached the gate.
+    arrived: Arc<tokio::sync::Semaphore>,
 }
 
 struct Body(Option<bytes::Bytes>);
@@ -78,6 +82,8 @@ impl HttpSend for Endpoint {
         };
         // Anything but the recorded endpoint is unreachable, as the recorded Node processes' fetch of other hosts was.
         let Some(path) = request.url.strip_prefix(ENDPOINT) else { return Ok(reply(503, json!({}))) };
+        self.arrived.add_permits(1);
+        self.gate.clone().wait_for(|open| *open).await.expect("the gate outlives the rig");
         let path = path.split('?').next().unwrap_or(path);
         let answer = self.routes.get(path).cloned().unwrap_or_else(|| json!({ "object": "list", "data": [] }));
         // `{ "__status": n }` is that HTTP status with an empty object.
@@ -167,6 +173,9 @@ struct Rig {
     loaded: Arc<LoadedConfig>,
     service: Arc<ModelListService>,
     host: ListHost,
+    /// Closing it holds the endpoint's requests; `arrived` counts those held.
+    gate: tokio::sync::watch::Sender<bool>,
+    arrived: Arc<tokio::sync::Semaphore>,
     _dir: tempfile::TempDir,
 }
 
@@ -202,8 +211,12 @@ async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
     let env: Arc<dyn Environment> = Arc::new(Vars(env_vars));
     let keys = ApiKeyStore::new(Arc::new(MemoryVault::default()), env.clone(), false);
     let accounts = AccountStore::new(dir.path().join("accounts"), io());
+    let (gate, gate_rx) = tokio::sync::watch::channel(true);
+    let arrived = Arc::new(tokio::sync::Semaphore::new(0));
     let endpoint = Arc::new(Endpoint {
         routes: scenario["stub"].as_object().map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default(),
+        gate: gate_rx,
+        arrived: arrived.clone(),
     });
     let link = Arc::new(ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap());
     let builder: Arc<dyn ProviderBuilder> = Arc::new(Builder {
@@ -251,7 +264,7 @@ async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
         unsupported: Arc::new(UnsupportedEfforts::default()),
         host: Some(host.clone()),
     });
-    Rig { config, catalog, registry, readiness, effective, loaded, service, host, _dir: dir }
+    Rig { config, catalog, registry, readiness, effective, loaded, service, host, gate, arrived, _dir: dir }
 }
 
 fn node_calls(scenario: &Value) -> [&Value; 3] {
@@ -438,4 +451,38 @@ async fn the_registered_providers_listings_are_the_catalogs_sources() {
     let outcome = rig.catalog.refresh().await;
     let refreshed: Vec<&str> = outcome.refreshed.iter().map(|p| p.as_str()).collect();
     assert_eq!(refreshed, ["custom-aaaa"]);
+}
+
+// A quick read starts the warm load; the endpoint holds it between `begin` and `adopt` while the cache is invalidated,
+// so the order is the test's, not the scheduler's. The load that began under the old epoch must not fill the new one.
+async fn warm_held_while(change: impl FnOnce(&Rig)) -> Rig {
+    let recording = recording();
+    let scenario = recording["scenarios"].as_array().unwrap().iter().find(|s| s["name"] == "custom-discovery").unwrap();
+    let rig = rig(scenario, &recording["seeds"], false).await;
+    rig.gate.send_replace(false);
+    rig.service.rows(false, true).await.unwrap();
+    rig.arrived.acquire().await.unwrap().forget();
+    change(&rig);
+    rig.gate.send_replace(true);
+    rig.host.settle_warm().await;
+    rig
+}
+
+#[tokio::test]
+async fn a_warm_load_overtaken_by_an_invalidation_does_not_fill_the_new_cache() {
+    let rig = warm_held_while(|rig| rig.service.invalidate()).await;
+    assert!(!rig.service.cache_loaded());
+}
+
+#[tokio::test]
+async fn a_warm_load_overtaken_by_a_registry_revision_change_does_not_fill_the_cache() {
+    // No invalidation hook is bound: only the revision moves (`model-meta.mjs` `syncCatalogRevision`, run before the sequence check).
+    let rig = warm_held_while(|rig| rig.readiness.invalidate_provider_caches(true)).await;
+    assert!(!rig.service.cache_loaded());
+}
+
+#[tokio::test]
+async fn an_undisturbed_warm_load_fills_the_cache() {
+    let rig = warm_held_while(|_| {}).await;
+    assert!(rig.service.cache_loaded());
 }

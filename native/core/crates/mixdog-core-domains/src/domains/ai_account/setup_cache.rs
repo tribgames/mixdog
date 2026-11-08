@@ -16,6 +16,7 @@ use async_trait::async_trait;
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use serde_json::{Value, json};
+use tokio::sync::watch;
 
 use super::collaborators::ProviderSetup;
 use super::failure::Failure;
@@ -87,6 +88,8 @@ struct Inner {
     overlays: Arc<dyn SetupOverlays>,
     host: Arc<dyn SetupHost>,
     state: Mutex<State>,
+    /// Counts the complete setups that filled the cache (the readers of the pushed section wake on it).
+    filled: watch::Sender<u64>,
 }
 
 #[derive(Clone)]
@@ -94,7 +97,7 @@ pub struct CachedProviderSetup(Arc<Inner>);
 
 impl CachedProviderSetup {
     pub fn new(builder: Arc<dyn SetupBuilder>, keychain: Arc<dyn KeychainLive>, overlays: Arc<dyn SetupOverlays>, host: Arc<dyn SetupHost>) -> Self {
-        Self(Arc::new(Inner { builder, keychain, overlays, host, state: Mutex::new(State::default()) }))
+        Self(Arc::new(Inner { builder, keychain, overlays, host, state: Mutex::new(State::default()), filled: watch::channel(0).0 }))
     }
 
     fn state(&self) -> std::sync::MutexGuard<'_, State> {
@@ -152,6 +155,7 @@ impl CachedProviderSetup {
             state.pending = None;
             if let (Ok(setup), true) = (&result, state.generation == generation) {
                 state.setup = Some(setup.clone());
+                self.0.filled.send_modify(|count| *count += 1);
             }
         }
         result.map_err(Failure::error)
@@ -224,5 +228,9 @@ impl CachedProviderSetup {
 impl ProviderSetup for CachedProviderSetup {
     async fn get(&self, force: bool, refresh: bool, unlock_keychain: bool, recheck_keychain: bool) -> Result<Value, Failure> {
         self.get_setup(force, refresh, unlock_keychain, recheck_keychain).await
+    }
+
+    fn filled(&self) -> watch::Receiver<u64> {
+        self.0.filled.subscribe()
     }
 }

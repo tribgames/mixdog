@@ -44,6 +44,10 @@ impl ProviderSetup for Replay {
         assert!(!(force || refresh || unlock || recheck), "Node asks for getProviderSetup({{}})");
         Ok(self.take("getProviderSetup", json!([{}])).unwrap())
     }
+
+    fn filled(&self) -> tokio::sync::watch::Receiver<u64> {
+        tokio::sync::watch::channel(0).1
+    }
 }
 
 #[async_trait]
