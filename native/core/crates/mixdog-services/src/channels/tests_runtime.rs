@@ -62,12 +62,30 @@ impl ChannelSettings for FakeSettings {
 #[derive(Default)]
 struct FakeServices {
     log: Mutex<Vec<String>>,
+    /// While set, `sync` announces itself on `entered` and waits for `release`.
+    held: Mutex<bool>,
+    entered: tokio::sync::Notify,
+    release: tokio::sync::Notify,
+    /// One permit per finished `sync`.
+    synced: tokio::sync::Notify,
+    prepares: AtomicUsize,
 }
 
 #[async_trait]
 impl AutomationServices for FakeServices {
+    async fn prepare(&self, _: &CancellationToken) -> Result<(), String> {
+        self.prepares.fetch_add(1, Ordering::SeqCst);
+        self.log.lock().unwrap().push("prepare".into());
+        Ok(())
+    }
     async fn sync(&self, reload: bool) -> Result<(), String> {
+        let held = *self.held.lock().unwrap();
+        if held {
+            self.entered.notify_one();
+            self.release.notified().await;
+        }
         self.log.lock().unwrap().push(format!("sync:{reload}"));
+        self.synced.notify_one();
         Ok(())
     }
     async fn stop(&self) {
@@ -669,7 +687,7 @@ async fn the_boot_check_starts_the_runtime_for_enabled_automation_without_an_adm
 
     e.admin.start_active_automation(&open).await;
     assert!(e.runtime.automation_running());
-    assert_eq!(e.services.log.lock().unwrap().clone(), vec!["sync:false".to_string()]);
+    assert_eq!(e.services.log.lock().unwrap().clone(), vec!["prepare".to_string(), "sync:false".to_string()]);
     assert_eq!(e.runtime.scheduler().status().iter().map(|r| r.name.as_str()).collect::<Vec<_>>(), ["on"]);
     e.runtime.stop_owned_runtime("test").await.unwrap();
 
@@ -684,16 +702,51 @@ async fn the_boot_check_starts_the_runtime_for_enabled_automation_without_an_adm
     disabled.admin.start_active_automation(&open).await;
     assert!(!disabled.runtime.automation_running(), "MIXDOG_DISABLE_CHANNEL_START");
     disabled.admin.save_schedule(&recurring("saved")).await.unwrap();
-    assert!(!disabled.runtime.automation_running(), "a save does not start it either");
+    assert_eq!(disabled.services.prepares.load(Ordering::SeqCst), 0, "a save does not start it either");
 }
 
-/// The enabling call has started the runtime when it returns.
+/// A close that arrives while the start is pending ends the boot check without a panic or a
+/// stuck gate: the same runtime starts normally afterwards.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn enabling_a_webhook_has_started_the_runtime_when_the_call_returns() {
+async fn a_close_during_the_pending_boot_start_ends_it_cleanly() {
+    let e = env().await;
+    e.schedules.upsert(&sched("on")).await.unwrap();
+    *e.services.held.lock().unwrap() = true;
+    let closing = CancellationToken::new();
+    let boot = tokio::spawn({
+        let (admin, closing) = (e.admin.clone(), closing.clone());
+        async move { admin.start_active_automation(&closing).await }
+    });
+    e.services.entered.notified().await;
+    closing.cancel();
+    boot.await.unwrap();
+    assert!(!e.runtime.automation_running(), "the cut start did not finish");
+
+    *e.services.held.lock().unwrap() = false;
+    e.admin.start_active_automation(&CancellationToken::new()).await;
+    assert!(e.runtime.automation_running(), "the start gate was released");
+    e.runtime.stop_owned_runtime("test").await.unwrap();
+}
+
+/// Node's `ensureAutomationRuntime` schedules the start and the save returns; the start runs only
+/// when something is enabled, and the one thing the save waits for is the identity step.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_save_returns_before_the_pending_start_and_only_enabled_automation_starts_it() {
     let e = env().await;
     e.admin.save_webhook(&json!({"name": "gh", "instructions": "x", "enabled": false})).await.unwrap();
+    e.admin.save_schedule(&json!({"name": "off", "time": "0 9 * * *", "instructions": "x", "enabled": false})).await.unwrap();
+    assert_eq!(e.services.prepares.load(Ordering::SeqCst), 0, "saving disabled rows starts nothing, not even the identity");
+    assert!(!e.runtime.automation_running());
+
+    *e.services.held.lock().unwrap() = true;
     e.admin.set_webhook_enabled("gh", true).await.unwrap();
-    assert!(e.runtime.automation_running(), "the start has finished when the call returns");
+    assert!(e.services.prepares.load(Ordering::SeqCst) >= 1, "the identity step is done when the call returns");
+    assert!(!e.runtime.automation_running(), "the webhook sync is still pending");
+    e.services.entered.notified().await;
+    e.services.release.notify_one();
+    e.services.synced.notified().await;
+    assert_eq!(e.services.prepares.load(Ordering::SeqCst), 2, "the scheduled start prepares first too");
+    assert_eq!(e.services.log.lock().unwrap().iter().filter(|l| *l == "sync:false").count(), 1);
     e.runtime.stop_owned_runtime("test").await.unwrap();
 }
 
@@ -707,9 +760,12 @@ struct LoopbackServer {
 
 #[async_trait]
 impl WebhookListener for LoopbackServer {
-    async fn start(&self, _: &WebhookSettings) -> Result<(), String> {
+    async fn prepare(&self, cancel: &CancellationToken) -> Result<(), String> {
+        self.tunnels.prepare(cancel).await
+    }
+    async fn start(&self, _: &WebhookSettings, cancel: &CancellationToken) -> Result<(), String> {
         let mut server = WebhookServer::new(self.service.clone(), self.tunnels.clone(), 0);
-        server.start().await?;
+        server.start(cancel).await?;
         let replaced = self.server.lock().await.replace(server);
         if let Some(mut old) = replaced {
             old.stop().await;

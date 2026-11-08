@@ -119,6 +119,14 @@ impl ChannelRuntime {
         }
     }
 
+    /// The start's first step (ahead of the provider init): the receiver's local identity write,
+    /// under the epoch a stop ends. A failure is logged; the start goes on, as Node's does.
+    pub async fn prepare_automation(&self) {
+        if let Err(error) = self.services.prepare(&self.epoch()).await {
+            tracing::warn!("mixdog channels: automation prepare failed: {error}");
+        }
+    }
+
     /// Scheduler + webhook receiver, without activating the channel bridge. Loads the
     /// schedules first, as the worker's config load does.
     pub async fn start_automation(&self) -> Result<(), String> {
@@ -137,6 +145,7 @@ impl ChannelRuntime {
                 st.stop_requested = false;
             }
         }
+        self.prepare_automation().await;
         self.init_providers().await;
         if self.state.lock().unwrap().stop_requested {
             return Ok(());
