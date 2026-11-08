@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import { createConnection, createServer } from 'node:net';
 import { PassThrough } from 'node:stream';
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 
 import { CallbackPortInUseError, MAX_CARRIED_CONNECTIONS, openCallbackForward } from './callback-forward.ts';
 import { parseSshTarget } from './ssh-command.ts';
@@ -19,9 +19,30 @@ const freePort = () =>
     });
   });
 
+// A timer a test leaves running keeps this file's process alive, so a run without --test-force-exit
+// never ends after the last test. Every test has to stop what it started.
+after(() => {
+  assert.deepEqual(
+    process.getActiveResourcesInfo().filter((resource) => resource === 'Timeout'),
+    []
+  );
+});
+
 /** An ssh child that answers each line it is sent with `server:<line>`. */
 function fakeSsh() {
   const children = [];
+  const spawnListeners = new Set();
+  /** Settles once `count` connections have each started their ssh. */
+  const spawned = (count) =>
+    new Promise((resolve) => {
+      const check = () => {
+        if (children.length < count) return;
+        spawnListeners.delete(check);
+        resolve();
+      };
+      spawnListeners.add(check);
+      check();
+    });
   const spawnImpl = (command, args) => {
     const child = new EventEmitter();
     Object.assign(child, { command, args, exitCode: null, signalCode: null, context: currentSshContext() });
@@ -35,9 +56,10 @@ function fakeSsh() {
       return true;
     };
     children.push(child);
+    for (const check of [...spawnListeners]) check();
     return child;
   };
-  return { children, spawnImpl };
+  return { children, spawnImpl, spawned };
 }
 
 const exchange = (port, line) =>
@@ -120,6 +142,7 @@ test('a clean ssh exit before its stdout drains still delivers the whole answer 
     socket.once('error', reject);
     let bytes = 0;
     let tail = '';
+    let next;
     socket.on('readable', function readSlowly() {
       socket.off('readable', readSlowly);
       const drain = () => {
@@ -128,11 +151,14 @@ test('a clean ssh exit before its stdout drains still delivers the whole answer 
           bytes += chunk.length;
           tail = (tail + chunk.toString('latin1')).slice(-3);
         }
-        setTimeout(drain, chunk ? 1 : 5);
+        next = setTimeout(drain, chunk ? 1 : 5);
       };
       drain();
     });
-    socket.once('end', () => resolve({ bytes, tail }));
+    socket.once('end', () => {
+      clearTimeout(next);
+      resolve({ bytes, tail });
+    });
     socket.write('GET /auth/callback HTTP/1.1\r\n\r\n');
   });
   assert.equal(received.bytes, Buffer.byteLength(response));
@@ -160,16 +186,22 @@ test('the connections carried at once are capped', async () => {
   const port = await freePort();
   const forward = await openCallbackForward({ target, port, spawnImpl: ssh.spawnImpl });
   const sockets = [];
-  for (let index = 0; index < MAX_CARRIED_CONNECTIONS + 2; index += 1) {
-    const socket = createConnection({ host: '127.0.0.1', port });
-    socket.on('error', () => undefined);
-    sockets.push(socket);
-    await new Promise((resolve) => socket.once('connect', resolve));
-  }
-  for (let index = 0; index < 100 && ssh.children.length < MAX_CARRIED_CONNECTIONS; index += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  // The two over the cap are dropped by the forward; that is the sign it has seen every connection.
+  const refused = new Promise((resolve) => {
+    let dropped = 0;
+    const onClose = () => {
+      dropped += 1;
+      if (dropped === 2) resolve();
+    };
+    for (let index = 0; index < MAX_CARRIED_CONNECTIONS + 2; index += 1) {
+      const socket = createConnection({ host: '127.0.0.1', port });
+      socket.on('error', () => undefined);
+      socket.once('close', onClose);
+      sockets.push(socket);
+    }
+  });
+  await Promise.all(sockets.map((socket) => once(socket, 'connect')));
+  await refused;
   assert.equal(ssh.children.length, MAX_CARRIED_CONNECTIONS);
   for (const socket of sockets) socket.destroy();
   await forward.close();
@@ -182,10 +214,8 @@ test('closing the forward stops the ssh of a connection still open', async () =>
   const socket = createConnection({ host: '127.0.0.1', port });
   socket.on('error', () => undefined);
   const closed = new Promise((resolve) => socket.once('close', resolve));
-  await new Promise((resolve) => socket.once('connect', resolve));
-  for (let index = 0; index < 100 && ssh.children.length === 0; index += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
-  }
+  await once(socket, 'connect');
+  await ssh.spawned(1);
   assert.equal(ssh.children.length, 1);
   await forward.close();
   await closed;
