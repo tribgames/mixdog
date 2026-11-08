@@ -2,9 +2,11 @@
 //! grammar (`GET /mgmt/status`, `POST /mgmt/{hold,stop,cancelDrain,release,terminate}`, JSON bodies, `Authorization: Bearer`)
 //! over a fresh loopback connection per request, so it works while the core's RPC runtime is stalled or draining.
 //!
-//! Calls carry no timeout: the control thread answers without awaiting the core, and a caller that wants a bound wraps the call.
+//! Every call is bounded like the Node session client's (`session-client.mjs` `request`): `status` is its `/health` probe
+//! (800 ms of silence and 800 ms in all), every other command a lifecycle call (3000 ms of silence, no total), and a call
+//! past its bound fails with `session timeout: <method> <path>`.
 
-use std::path::Path;
+use std::{future::Future, path::Path, time::Duration};
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use tokio::{
@@ -19,12 +21,63 @@ use crate::{
 /// A control reply is a small snapshot; anything larger is a broken peer.
 const MAX_REPLY_BYTES: usize = 1 << 20;
 
+/// The bound of one call: Node's `request({ timeoutMs, deadlineMs })`. `inactivity` is `timeoutMs`, the longest the
+/// connection may stay silent (a trickling reply keeps resetting it); `total` is `deadlineMs`, the longest the call may
+/// last, which only probes set.
+#[derive(Debug, Clone, Copy)]
+struct Bound {
+    inactivity: Duration,
+    total: Option<Duration>,
+}
+
+/// `probeSessionHealth` (`timeoutMs: 800`, `deadlineMs: max(1, timeoutMs)`): `status`.
+const PROBE: Bound = Bound {
+    inactivity: Duration::from_millis(800),
+    total: Some(Duration::from_millis(800)),
+};
+
+/// The lifecycle calls (`/shutdown`, `/stop`, `/install-hold`, `/upgrade`, `/client/register`: `timeoutMs: 3000`, no
+/// deadline): `hold`, `stop`, `cancelDrain`, `release`, `terminate`.
+const LIFECYCLE: Bound = Bound {
+    inactivity: Duration::from_millis(3000),
+    total: None,
+};
+
+/// One request in flight: what its timeout error names and the bound it runs under.
+struct Call {
+    verb: &'static str,
+    path: String,
+    bound: Bound,
+}
+
+impl Call {
+    /// `sessionTimeoutError(method, urlPath)`.
+    fn timed_out(&self) -> CtlError {
+        CtlError::Timeout {
+            method: self.verb,
+            path: self.path.clone(),
+        }
+    }
+
+    /// One connection operation under the inactivity bound (Node's socket `timeout`, reset by every byte moved).
+    async fn idle<T>(&self, op: impl Future<Output = std::io::Result<T>>) -> Result<T, CtlError> {
+        tokio::time::timeout(self.bound.inactivity, op)
+            .await
+            .map_err(|_| self.timed_out())?
+            .map_err(CtlError::Io)
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CtlError {
     #[error(transparent)]
     Discovery(#[from] DiscoveryError),
     #[error("control listener: {0}")]
     Io(#[from] std::io::Error),
+    /// No answer within the call's bound: the core may be busy with it, not gone (`ESESSIONTIMEOUT`). `path` is the
+    /// request path.
+    #[error("session timeout: {method} {path}")]
+    Timeout { method: &'static str, path: String },
     /// The listener answered something that is not its grammar.
     #[error("bad control reply: {0}")]
     BadReply(String),
@@ -210,7 +263,7 @@ impl CtlClient {
     }
 
     pub async fn status(&self) -> Result<CoreStatus, CtlError> {
-        self.request("GET", "status", None).await
+        self.request("GET", "status", None, PROBE).await
     }
 
     /// `hold{on}`: new turn starts are deferred, not refused (LR §5.1 step 1).
@@ -279,33 +332,48 @@ impl CtlClient {
         body: &B,
     ) -> Result<R, CtlError> {
         let body = serde_json::to_vec(body).map_err(|e| CtlError::BadReply(e.to_string()))?;
-        self.request("POST", name, Some(body)).await
+        self.request("POST", name, Some(body), LIFECYCLE).await
     }
 
-    async fn request<R: DeserializeOwned>(
-        &self,
-        verb: &str,
-        name: &str,
-        body: Option<Vec<u8>>,
-    ) -> Result<R, CtlError> {
-        let mut stream = TcpStream::connect(("127.0.0.1", self.endpoint.port)).await?;
+    /// Connects, sends the request and reads the reply; every step runs under the call's inactivity bound.
+    async fn exchange(&self, call: &Call, body: Option<Vec<u8>>) -> Result<Reply, CtlError> {
+        let mut stream = call.idle(TcpStream::connect(("127.0.0.1", self.endpoint.port))).await?;
         let body = body.unwrap_or_default();
         let mut head = format!(
-            "{verb} /mgmt/{name} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {}\r\nConnection: close\r\n",
-            self.endpoint.port, self.endpoint.token
+            "{} {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {}\r\nConnection: close\r\n",
+            call.verb, call.path, self.endpoint.port, self.endpoint.token
         );
-        if verb == "POST" {
+        if call.verb == "POST" {
             head.push_str(&format!(
                 "Content-Type: application/json\r\nContent-Length: {}\r\n",
                 body.len()
             ));
         }
         head.push_str("\r\n");
-        stream.write_all(head.as_bytes()).await?;
-        stream.write_all(&body).await?;
-        stream.flush().await?;
+        call.idle(stream.write_all(head.as_bytes())).await?;
+        call.idle(stream.write_all(&body)).await?;
+        call.idle(stream.flush()).await?;
+        read_reply(call, &mut stream).await
+    }
 
-        let reply = read_reply(&mut stream).await?;
+    async fn request<R: DeserializeOwned>(
+        &self,
+        verb: &'static str,
+        name: &str,
+        body: Option<Vec<u8>>,
+        bound: Bound,
+    ) -> Result<R, CtlError> {
+        let call = Call {
+            verb,
+            path: format!("/mgmt/{name}"),
+            bound,
+        };
+        let reply = match bound.total {
+            Some(total) => tokio::time::timeout(total, self.exchange(&call, body))
+                .await
+                .map_err(|_| call.timed_out())??,
+            None => self.exchange(&call, body).await?,
+        };
         match reply.status {
             200..=299 => serde_json::from_slice(&reply.body)
                 .map_err(|e| CtlError::BadReply(format!("body: {e}"))),
@@ -330,7 +398,7 @@ struct Reply {
 
 /// Reads one `Content-Length` reply. The listener closes after each reply (`Connection: close`), so a reply without a
 /// length is read to the end of the stream.
-async fn read_reply(stream: &mut TcpStream) -> Result<Reply, CtlError> {
+async fn read_reply(call: &Call, stream: &mut TcpStream) -> Result<Reply, CtlError> {
     let mut buf = Vec::with_capacity(1024);
     let head_end = loop {
         if let Some(i) = find_head_end(&buf) {
@@ -339,7 +407,7 @@ async fn read_reply(stream: &mut TcpStream) -> Result<Reply, CtlError> {
         if buf.len() > MAX_REPLY_BYTES {
             return Err(CtlError::BadReply("header too large".into()));
         }
-        if stream.read_buf(&mut buf).await? == 0 {
+        if call.idle(stream.read_buf(&mut buf)).await? == 0 {
             return Err(CtlError::BadReply("closed inside the header".into()));
         }
     };
@@ -373,14 +441,14 @@ async fn read_reply(stream: &mut TcpStream) -> Result<Reply, CtlError> {
         Some(n) if n > MAX_REPLY_BYTES => return Err(CtlError::BadReply("body too large".into())),
         Some(n) => {
             while body.len() < n {
-                if stream.read_buf(&mut body).await? == 0 {
+                if call.idle(stream.read_buf(&mut body)).await? == 0 {
                     return Err(CtlError::BadReply("closed inside the body".into()));
                 }
             }
             body.truncate(n);
         }
         None => {
-            while stream.read_buf(&mut body).await? != 0 {
+            while call.idle(stream.read_buf(&mut body)).await? != 0 {
                 if body.len() > MAX_REPLY_BYTES {
                     return Err(CtlError::BadReply("body too large".into()));
                 }
@@ -575,6 +643,67 @@ mod tests {
         let refusal = serde_json::to_vec(&wire::ErrorReply::new("notDraining", "no drain")).unwrap();
         let refusal: RefusalBody = serde_json::from_slice(&refusal).unwrap();
         assert_eq!((refusal.code.as_str(), refusal.message.as_str()), ("notDraining", "no drain"));
+    }
+
+    /// Accepts one connection and never answers; the stream is held open so the peer sees silence, not a close.
+    async fn silent_listener() -> (u16, tokio::task::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let task = tokio::spawn(async move {
+            let _held = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        (port, task)
+    }
+
+    /// `session-client.mjs` `request`: a core that accepts and says nothing ends the call with `session timeout:
+    /// <method> <path>` (`status` is the 800 ms `/health` probe, a command the 3000 ms lifecycle call).
+    #[tokio::test(start_paused = true)]
+    async fn a_silent_core_times_out_with_nodes_text() {
+        let (port, _held) = silent_listener().await;
+        let started = tokio::time::Instant::now();
+        let err = client(port).status().await.unwrap_err();
+        assert!(matches!(err, CtlError::Timeout { .. }), "{err:?}");
+        assert_eq!(err.to_string(), "session timeout: GET /mgmt/status");
+        assert_eq!(started.elapsed(), Duration::from_millis(800));
+
+        let (port, _held) = silent_listener().await;
+        let started = tokio::time::Instant::now();
+        let err = client(port).hold(true).await.unwrap_err();
+        assert_eq!(err.to_string(), "session timeout: POST /mgmt/hold");
+        assert_eq!(started.elapsed(), Duration::from_millis(3000));
+    }
+
+    /// Answers with the headers at once and the body one byte per `every`, never silent for as long as `every`.
+    async fn trickling_listener(every: Duration, body: &'static str) -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        tokio::spawn(async move {
+            let (mut s, _) = listener.accept().await.unwrap();
+            let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", body.len());
+            s.write_all(head.as_bytes()).await.unwrap();
+            for byte in body.bytes() {
+                tokio::time::sleep(every).await;
+                if s.write_all(&[byte]).await.is_err() {
+                    return;
+                }
+            }
+            std::future::pending::<()>().await;
+        });
+        port
+    }
+
+    /// `timeoutMs` is socket inactivity, `deadlineMs` the total: a reply that trickles past 3000 ms in all still lands
+    /// for a lifecycle command, and past 800 ms in all it times `status` out.
+    #[tokio::test(start_paused = true)]
+    async fn a_trickling_reply_resets_the_silence_bound_but_not_the_probes_total() {
+        let body = draining_status().to_string().leak();
+        let port = trickling_listener(Duration::from_millis(20), body).await;
+        assert_eq!(client(port).hold(true).await.unwrap().state, CoreStateName::Draining);
+
+        let port = trickling_listener(Duration::from_millis(20), body).await;
+        let err = client(port).status().await.unwrap_err();
+        assert_eq!(err.to_string(), "session timeout: GET /mgmt/status");
     }
 
     #[tokio::test]

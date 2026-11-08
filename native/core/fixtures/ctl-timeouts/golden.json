@@ -1,0 +1,56 @@
+{
+  "cases": [
+    {
+      "name": "lifecycle: silent core",
+      "call": "forceDaemonUpgrade",
+      "settled": "rejected",
+      "code": "ESESSIONTIMEOUT",
+      "message": "session timeout: POST /upgrade"
+    },
+    {
+      "name": "lifecycle: answer after 2900 ms",
+      "call": "forceDaemonUpgrade",
+      "settled": "resolved",
+      "value": true
+    },
+    {
+      "name": "lifecycle: answer after 3300 ms",
+      "call": "forceDaemonUpgrade",
+      "settled": "rejected",
+      "code": "ESESSIONTIMEOUT",
+      "message": "session timeout: POST /upgrade"
+    },
+    {
+      "name": "lifecycle: a trickle that outlasts 3000 ms but never goes silent for 3000 ms",
+      "call": "forceDaemonUpgrade",
+      "settled": "resolved",
+      "value": true
+    },
+    {
+      "name": "probe: silent core",
+      "call": "probeSessionHealth",
+      "settled": "resolved",
+      "value": null
+    },
+    {
+      "name": "probe: answer after 600 ms",
+      "call": "probeSessionHealth",
+      "settled": "resolved",
+      "value": {
+        "status": "ok"
+      }
+    },
+    {
+      "name": "probe: answer after 1000 ms",
+      "call": "probeSessionHealth",
+      "settled": "resolved",
+      "value": null
+    },
+    {
+      "name": "probe: a trickle that never goes silent for 800 ms but outlasts it",
+      "call": "probeSessionHealth",
+      "settled": "resolved",
+      "value": null
+    }
+  ]
+}
