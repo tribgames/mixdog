@@ -643,6 +643,8 @@ test('an outside result waits until this view’s running generation settles', a
         published.add(listener);
         return () => published.delete(listener);
       },
+      // A running job follows its `media:<id>` feed: the window asks main to subscribe and answers `{}` (not absent).
+      call: async () => ({}),
     },
   };
   const finishJob = () => {
