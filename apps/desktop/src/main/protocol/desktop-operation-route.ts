@@ -8,7 +8,8 @@ import { isSessionRetentionSettingKey } from '../../shared/contract-settings';
 import { readSettingsChange, SETTINGS_CHANGED_EVENT } from '../../shared/settings-changed';
 import { pairedDeviceInfo } from '../notification-center';
 import { desktopSettingsFromConfig, storedPinsState } from '../settings-store';
-import type { ProtocolConnection } from './connection';
+import { createProjectWatchRegistry } from '../../shared/project-watch-registry';
+import type { ProtocolConnection, ProtocolWindow } from './connection';
 import { coreErrorForWindow } from './core-error';
 import { remoteAccessInfo, remotePagedMember } from './remote-reads';
 import {
@@ -285,8 +286,8 @@ const OPERATION_ROUTES: Readonly<Record<string, Mapper>> = {
 
 /** Operations with a Rust op that the window serves over its own connection, so no operation call carries them. */
 const NEEDS_RULING: Readonly<Record<string, string>> = {
-  // Served by the window process over the connection, not by an operation call (protocol/window-ipc.ts): on a core
-  // connection the renderer's project watch is `sections.call('fs/watch')` (renderer/project-file-changes.ts).
+  // Not one request: a reference-counted watch. A window holds its own (protocol/window-ipc.ts, renderer/
+  // project-file-changes.ts); the operation lane serves the callers without a window (the relay) before routing.
   folderWatch: 'fs/watch is owned by the window that watches (ProtocolConnection.watchFiles)',
   folderUnwatch: 'fs/unwatch is owned by the window that watches (ProtocolConnection.unwatchFiles)',
   listListeningPorts: 'system/ports/subscribe is owned by the viewing window (ProtocolConnection.viewPorts)',
@@ -572,15 +573,74 @@ export function createOperationLane({
   protocol,
   host = DEFAULT_OPERATION_HOST,
 }: {
-  protocol: Pick<ProtocolConnection, 'call' | 'notify'> & Partial<Pick<ProtocolConnection, 'snapshot' | 'whenSynced'>>;
+  protocol: Pick<ProtocolConnection, 'call' | 'notify' | 'attach' | 'watchFiles' | 'unwatchFiles'> &
+    Partial<Pick<ProtocolConnection, 'snapshot' | 'whenSynced'>>;
   host?: Partial<OperationHost>;
 }): OperationLane {
   const call = (method: string, params: unknown): Promise<unknown> =>
     protocol.call(method, params).catch((error: unknown) => {
       throw coreErrorForWindow(error);
     });
+  // `folderWatch`/`folderUnwatch` for callers that hold no window of their own (the paired phones, through the relay's
+  // remote methods): Node's reference-counted folder watcher raised `folder-changed` for the directory; here the same
+  // project watch registry the windows use (`fs/watch`) raises it. This lane owns the watches, as one window of the
+  // connection, and they end with the last unwatch.
+  const folderWatchIds = new Map<string, () => void>();
+  const folderSubscriptions = new Map<string, { count: number; off: () => void }>();
+  let nextFolderWatch = 1;
+  let detachFolderOwner: (() => void) | null = null;
+  const folderOwner: ProtocolWindow = {
+    push() {},
+    loginFeedLost() {},
+    notification(method, params) {
+      if (method !== 'fs/changed') return;
+      const watchId = (params as { watchId?: unknown } | null)?.watchId;
+      if (typeof watchId === 'string') folderWatchIds.get(watchId)?.();
+    },
+  };
+  const folderWatches = createProjectWatchRegistry({
+    keyOf: (path) => (process.platform === 'win32' ? path.toLocaleLowerCase() : path),
+    async start(target) {
+      const watchId = `host-folder-${nextFolderWatch++}`;
+      folderWatchIds.set(watchId, target.changed);
+      try {
+        await protocol.watchFiles(folderOwner, { watchId, path: target.path, recursive: target.recursive });
+      } catch (error) {
+        folderWatchIds.delete(watchId);
+        throw error;
+      }
+      return () => {
+        folderWatchIds.delete(watchId);
+        return protocol.unwatchFiles(watchId);
+      };
+    },
+    idle() {
+      detachFolderOwner?.();
+      detachFolderOwner = null;
+    },
+  });
+  const folderOperation = (name: string, args: readonly unknown[]): null => {
+    const dir = String(args[0]);
+    const recursive = args[1] === true;
+    const key = `${dir}\0${recursive}`;
+    const held = folderSubscriptions.get(key);
+    if (name === 'folderWatch') {
+      if (held) held.count += 1;
+      else {
+        detachFolderOwner ??= protocol.attach(folderOwner);
+        // One event per change however many callers watch the directory, as Node's registry raised it.
+        const off = folderWatches.subscribe(dir, () => host.emitDesktopEvent?.('folder-changed', dir), recursive);
+        folderSubscriptions.set(key, { count: 1, off });
+      }
+    } else if (held && --held.count <= 0) {
+      folderSubscriptions.delete(key);
+      held.off();
+    }
+    return null;
+  };
   const lane: OperationLane = {
     async invoke(name, args = []) {
+      if (name === 'folderWatch' || name === 'folderUnwatch') return folderOperation(name, args);
       const notification = routeDesktopNotification(name, args);
       if (notification) {
         protocol.notify(notification.method, notification.params);

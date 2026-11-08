@@ -7,6 +7,7 @@ import type {
 import { ProjectRecoveryPanel, type ProjectRecoveryLabels } from './ProjectRecoveryPanel';
 import { confirmAction } from './app-confirm';
 import { t } from './i18n';
+import { subscribeProjectFileChanges } from './project-file-changes';
 import { recoveryFailureCode } from '../shared/project-recovery';
 
 export function ProjectRecoverySurface({
@@ -91,8 +92,9 @@ export function ProjectRecoverySurface({
     void refresh();
     const focus = () => void refresh();
     window.addEventListener('focus', focus);
-    const off = api?.subscribeFolderChanges?.((dir) => {
-      if (dir !== projectPath) return;
+    // The project's own file watch (shared with the explorer): a core window's is the core's `fs/watch`, which
+    // `subscribeFolderChanges` never reports.
+    const off = subscribeProjectFileChanges(projectPath, () => {
       clearTimeout(timer);
       timer = setTimeout(focus, 250);
     });
@@ -102,7 +104,7 @@ export function ProjectRecoverySurface({
       generation.current++;
       clearTimeout(timer);
       window.removeEventListener('focus', focus);
-      off?.();
+      off();
     };
   }, [api, projectPath, initialRecordId, initiallyOpen, request]);
   const confirm = useCallback(
