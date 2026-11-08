@@ -47,6 +47,7 @@ pub fn busy_reason(liveness: &RuntimeLiveness, directory: &LateDirectory) -> Opt
 pub struct WarmupSignals {
     pub prewarm: mixdog_core::run_host::code_graph_prewarm::SessionPrewarm,
     pub catalog: Arc<crate::catalog::CatalogWarmup>,
+    pub models: Arc<mixdog_core_domains::domains::ai_admin::model_warmup::ModelWarmup>,
 }
 
 impl CodeGraphPrewarmSignals for WarmupSignals {
@@ -57,10 +58,33 @@ impl CodeGraphPrewarmSignals for WarmupSignals {
     fn wake(&self) {
         self.prewarm.wake();
         self.catalog.wake();
+        self.models.wake();
+    }
+
+    fn turn_settled(&self) {
+        self.models.first_turn_settled();
     }
 
     fn lazy(&self) -> bool {
         self.prewarm.lazy()
+    }
+}
+
+/// The gates of the provider model warm (`busyReason` and `isCloseRequested`): the same probe the other background
+/// warm-ups use.
+pub struct DaemonWarmupGates {
+    pub liveness: Arc<RuntimeLiveness>,
+    pub directory: Arc<LateDirectory>,
+    pub close_requested: CancellationToken,
+}
+
+impl mixdog_core_domains::domains::ai_admin::model_warmup::WarmupGates for DaemonWarmupGates {
+    fn busy(&self) -> Option<&'static str> {
+        busy_reason(&self.liveness, &self.directory)
+    }
+
+    fn closing(&self) -> bool {
+        self.close_requested.is_cancelled()
     }
 }
 

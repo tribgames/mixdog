@@ -23,7 +23,7 @@ use mixdog_ai::providers::openai::adapter::SessionContext;
 use mixdog_ai::providers::openai::config::{CodexIdentity, NoFacts};
 use mixdog_ai::registry::builder::{BuilderEnv, DefaultProviderBuilder};
 use mixdog_ai::registry::effective::EffectiveProviders;
-use mixdog_ai::registry::keys::{ApiKeyStore, Environment, MemoryVault};
+use mixdog_ai::registry::keys::{ApiKeyStore, Environment, MemoryVault, SecretVault, VaultError};
 use mixdog_ai::registry::providers::{ProviderBuilder, ProviderRegistry};
 use mixdog_ai::service::admin_route::{Obj, resolve_route};
 use mixdog_ai::service::effort_configuration::UnsupportedEfforts;
@@ -44,7 +44,7 @@ use crate::domains::ai_account::collaborators::WebSearchModels;
 use crate::domains::ai_account::failure::Failure;
 
 /// The Node recording; a profile's `baseURL`s name the recorder's loopback endpoint.
-fn recording() -> Value {
+pub(super) fn recording() -> Value {
     serde_json::from_str(include_str!("../../../../../fixtures/model-lists/node-model-lists.json")).unwrap()
 }
 
@@ -61,6 +61,8 @@ struct Endpoint {
     gate: tokio::sync::watch::Receiver<bool>,
     /// One permit per request that reached the gate.
     arrived: Arc<tokio::sync::Semaphore>,
+    /// Every request that reached the endpoint.
+    hits: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 struct Body(Option<bytes::Bytes>);
@@ -83,6 +85,7 @@ impl HttpSend for Endpoint {
         // Anything but the recorded endpoint is unreachable, as the recorded Node processes' fetch of other hosts was.
         let Some(path) = request.url.strip_prefix(ENDPOINT) else { return Ok(reply(503, json!({}))) };
         self.arrived.add_permits(1);
+        self.hits.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.gate.clone().wait_for(|open| *open).await.expect("the gate outlives the rig");
         let path = path.split('?').next().unwrap_or(path);
         let answer = self.routes.get(path).cloned().unwrap_or_else(|| json!({ "object": "list", "data": [] }));
@@ -91,6 +94,30 @@ impl HttpSend for Endpoint {
             Some(status) => Ok(reply(status as u16, json!({}))),
             None => Ok(reply(200, answer)),
         }
+    }
+}
+
+/// The keychain of the rig: every secret read is counted, and a closed gate holds it (a load held in its preparation).
+struct WatchedVault {
+    inner: MemoryVault,
+    gate: tokio::sync::watch::Receiver<bool>,
+    arrived: Arc<tokio::sync::Semaphore>,
+    reads: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+#[async_trait]
+impl SecretVault for WatchedVault {
+    async fn get(&self, account: &str) -> Result<Option<String>, VaultError> {
+        self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.arrived.add_permits(1);
+        self.gate.clone().wait_for(|open| *open).await.expect("the gate outlives the rig");
+        self.inner.get(account).await
+    }
+    async fn set(&self, account: &str, value: &str) -> Result<(), VaultError> {
+        self.inner.set(account, value).await
+    }
+    async fn delete(&self, account: &str) -> Result<(), VaultError> {
+        self.inner.delete(account).await
     }
 }
 
@@ -164,23 +191,29 @@ fn put(path: &Path, body: &str) {
     .unwrap();
 }
 
-struct Rig {
-    config: Config,
-    catalog: Arc<CatalogService>,
-    registry: Arc<ProviderRegistry>,
-    readiness: Arc<ProviderReadiness>,
-    effective: Arc<EffectiveProviders>,
-    loaded: Arc<LoadedConfig>,
-    service: Arc<ModelListService>,
-    host: ListHost,
+pub(super) struct Rig {
+    pub(super) config: Config,
+    pub(super) catalog: Arc<CatalogService>,
+    pub(super) registry: Arc<ProviderRegistry>,
+    pub(super) readiness: Arc<ProviderReadiness>,
+    pub(super) effective: Arc<EffectiveProviders>,
+    pub(super) loaded: Arc<LoadedConfig>,
+    pub(super) service: Arc<ModelListService>,
+    pub(super) host: ListHost,
     /// Closing it holds the endpoint's requests; `arrived` counts those held.
-    gate: tokio::sync::watch::Sender<bool>,
-    arrived: Arc<tokio::sync::Semaphore>,
-    _dir: tempfile::TempDir,
+    pub(super) gate: tokio::sync::watch::Sender<bool>,
+    pub(super) arrived: Arc<tokio::sync::Semaphore>,
+    pub(super) hits: Arc<std::sync::atomic::AtomicUsize>,
+    /// The keychain: closing the gate holds its reads, `vault_arrived` has one permit per read that reached it, and
+    /// `secret_reads` counts them.
+    pub(super) vault_gate: tokio::sync::watch::Sender<bool>,
+    pub(super) vault_arrived: Arc<tokio::sync::Semaphore>,
+    pub(super) secret_reads: Arc<std::sync::atomic::AtomicUsize>,
+    pub(super) _dir: tempfile::TempDir,
 }
 
 /// One recorded profile's pipeline; `fail` makes the provider builds refuse.
-async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
+pub(super) async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let io = || CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
@@ -209,14 +242,20 @@ async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
     );
     let env_vars: HashMap<String, String> = scenario["env"].as_object().map(|m| m.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect()).unwrap_or_default();
     let env: Arc<dyn Environment> = Arc::new(Vars(env_vars));
-    let keys = ApiKeyStore::new(Arc::new(MemoryVault::default()), env.clone(), false);
+    let (vault_gate, vault_gate_rx) = tokio::sync::watch::channel(true);
+    let vault_arrived = Arc::new(tokio::sync::Semaphore::new(0));
+    let secret_reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let vault = WatchedVault { inner: MemoryVault::default(), gate: vault_gate_rx, arrived: vault_arrived.clone(), reads: secret_reads.clone() };
+    let keys = ApiKeyStore::new(Arc::new(vault), env.clone(), false);
     let accounts = AccountStore::new(dir.path().join("accounts"), io());
     let (gate, gate_rx) = tokio::sync::watch::channel(true);
     let arrived = Arc::new(tokio::sync::Semaphore::new(0));
+    let hits = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let endpoint = Arc::new(Endpoint {
         routes: scenario["stub"].as_object().map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default(),
         gate: gate_rx,
         arrived: arrived.clone(),
+        hits: hits.clone(),
     });
     let link = Arc::new(ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap());
     let builder: Arc<dyn ProviderBuilder> = Arc::new(Builder {
@@ -264,16 +303,16 @@ async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
         unsupported: Arc::new(UnsupportedEfforts::default()),
         host: Some(host.clone()),
     });
-    Rig { config, catalog, registry, readiness, effective, loaded, service, host, gate, arrived, _dir: dir }
+    Rig { config, catalog, registry, readiness, effective, loaded, service, host, gate, arrived, hits, vault_gate, vault_arrived, secret_reads, _dir: dir }
 }
 
-fn node_calls(scenario: &Value) -> [&Value; 3] {
+pub(super) fn node_calls(scenario: &Value) -> [&Value; 3] {
     let calls = scenario["calls"].as_array().unwrap();
     assert_eq!(calls.len(), 3, "{}: quick, full and web-search reads", scenario["name"]);
     [&calls[0]["value"], &calls[1]["value"], &calls[2]["value"]]
 }
 
-fn assert_rows(what: &str, got: &[Value], want: &Value) {
+pub(super) fn assert_rows(what: &str, got: &[Value], want: &Value) {
     let want = want.as_array().unwrap_or_else(|| panic!("{what}: Node recorded no list"));
     let ids = |rows: &[Value]| rows.iter().map(|r| format!("{}:{}", r["provider"], r["id"])).collect::<Vec<_>>();
     assert_eq!(ids(got), ids(want), "{what}: rows in order");
@@ -282,7 +321,7 @@ fn assert_rows(what: &str, got: &[Value], want: &Value) {
     }
 }
 
-fn web_search(rig: &Rig) -> WebSearchModelsService {
+pub(super) fn web_search(rig: &Rig) -> WebSearchModelsService {
     WebSearchModelsService::new(
         rig.catalog.clone(),
         rig.config.clone(),
