@@ -2068,17 +2068,6 @@ mod tests {
         }
     }
 
-    struct NoPostTool;
-    #[async_trait]
-    impl super::super::hooks::PostToolDispatch for NoPostTool {
-        async fn post_tool(&self, _: &super::super::hooks::PostToolEvent) -> Option<JsonValue> {
-            None
-        }
-        async fn post_failure(&self, _: &super::super::hooks::PostToolEvent) {}
-        async fn post_batch(&self, _: &str, _: &str, _: usize) -> Option<super::super::hooks::BatchDecision> {
-            None
-        }
-    }
 
     struct PoolResolver(Vec<Arc<dyn Tool>>);
     impl mixdog_tools::policy::ToolResolver for PoolResolver {

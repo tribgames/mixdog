@@ -11,7 +11,7 @@ use mixdog_app_protocol::v2::thread::ThreadItemsListResponse;
 use mixdog_core_api::call::{CallContext, CoreRequest};
 use mixdog_core_api::domain::tool::SurfaceKind;
 use mixdog_core_api::ids::{Method, OpId, ThreadId};
-use mixdog_core_api::{Reply, ThreadDirectory, ThreadHandle};
+use mixdog_core_api::{Reply, ThreadDirectory};
 use mixdog_core_config::config::Settings;
 use mixdog_core_session::session::SessionDirectory;
 use mixdog_protocol::{ThreadItem, TurnId};

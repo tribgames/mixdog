@@ -41,6 +41,7 @@ fn a_system_error_carries_the_name_node_gives_it() {
     assert_eq!(error_code(&std::io::Error::other("no code")), None);
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 const NAMES: &str = include_str!("../../../../fixtures/plugins-status/uv-errno-names.json");
 
 /// Every errno of 1..=200 that has a name, against the list libuv's `errno.h` gives; what no errno of

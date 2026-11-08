@@ -59,15 +59,6 @@ struct StyleEntry {
     raw: String,
 }
 
-fn truthy(value: Option<&Value>) -> bool {
-    match value {
-        None | Some(Value::Null | Value::Bool(false)) => false,
-        Some(Value::String(s)) => !s.is_empty(),
-        Some(Value::Number(n)) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
-        Some(_) => true,
-    }
-}
-
 /// `String(value ?? '')`.
 fn text_of(value: Option<&Value>) -> String {
     match value {

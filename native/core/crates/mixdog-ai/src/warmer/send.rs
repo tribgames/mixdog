@@ -16,7 +16,7 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::chain::{WarmRequest, WarmTarget};
-use super::gate::{GateTarget, WarmGate};
+use super::gate::GateTarget;
 use super::stream::{WarmFailure, WarmUsage, read_cache_warm_stream};
 use crate::transport::link::{BodyStream, HttpResponse};
 

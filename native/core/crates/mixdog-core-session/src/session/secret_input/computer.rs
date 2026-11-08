@@ -72,7 +72,6 @@ mod tests {
     use super::*;
 
     const ID: &str = "secret_0123456789ab";
-    const VALUE: &str = "Tr0ub4dor&3";
 
     /// The helper, answering a recorded script and keeping what it was sent.
     struct Helper {

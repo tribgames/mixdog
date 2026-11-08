@@ -252,7 +252,8 @@ impl Snapshots {
             .ok()?
     }
 
-    /// Removes every snapshot this runtime made; the host calls it at graceful shutdown.
+    /// Removes every snapshot this runtime made; the host calls it at graceful shutdown
+    /// (`drainShellSnapshots`, Node's process-exit hook).
     pub async fn drain(&self, lane: MaintenanceIo, cancel: &CancellationToken) {
         let files: Vec<PathBuf> = std::mem::take(&mut *lock(&self.cache)).into_values().collect();
         if let Ok(job) = lane.submit(cancel, move |_| {
@@ -262,5 +263,22 @@ impl Snapshots {
         }) {
             let _ = job.await;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn drain_removes_every_snapshot_file_the_runtime_made() {
+        let dir = tempfile::tempdir().unwrap();
+        let snapshots = Snapshots::default();
+        let file = dir.path().join("snapshot-bash-1-abc.sh");
+        std::fs::write(&file, "alias ll='ls -l'").unwrap();
+        lock(&snapshots.cache).insert("bash|1|1".into(), file.clone());
+        snapshots.drain(mixdog_rt::testing::tokens().maintenance_io, &CancellationToken::new()).await;
+        assert!(!file.exists());
+        assert!(lock(&snapshots.cache).is_empty());
     }
 }

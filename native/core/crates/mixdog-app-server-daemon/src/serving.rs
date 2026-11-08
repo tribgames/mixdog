@@ -26,7 +26,6 @@ use crate::compose::drain_feed;
 use crate::control::ControlConfig;
 use crate::control::ControlServer;
 use crate::control::Legacy;
-use crate::lifecycle::CorePort;
 use crate::lifecycle::Exiter;
 use crate::control::new_token;
 use crate::control::ControlListener;

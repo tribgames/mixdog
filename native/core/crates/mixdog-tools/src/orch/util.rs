@@ -209,7 +209,6 @@ pub(crate) fn text(text: impl Into<String>) -> ToolOutcome {
 pub(crate) trait JsStr {
     fn js_trim(&self) -> &str;
     fn js_trim_start(&self) -> &str;
-    fn js_trim_end(&self) -> &str;
     /// `value.length`.
     fn js_len(&self) -> usize;
 }
@@ -221,10 +220,6 @@ impl JsStr for str {
 
     fn js_trim_start(&self) -> &str {
         mixdog_js::js_trim_start(self)
-    }
-
-    fn js_trim_end(&self) -> &str {
-        mixdog_js::js_trim_end(self)
     }
 
     fn js_len(&self) -> usize {
@@ -261,10 +256,4 @@ pub(crate) fn pretty<T: serde::Serialize>(value: &T) -> String {
 
 pub(crate) fn compact<T: serde::Serialize>(value: &T) -> String {
     serde_json::to_string(value).expect("in-memory values serialize")
-}
-
-/// The arguments as an object; the pipeline already validated them against the schema.
-pub(crate) fn object(args: &Value) -> Result<&serde_json::Map<String, Value>, ToolError> {
-    args.as_object()
-        .ok_or_else(|| invalid("", "arguments must be an object"))
 }

@@ -171,8 +171,6 @@ struct HostGate {
 #[derive(Default)]
 pub struct HostPacer {
     hosts: Mutex<HashMap<String, Arc<HostGate>>>,
-    /// Ends every queued caller and the operation in flight ([`Self::close`]).
-    cancel: mixdog_rt::CancellationToken,
 }
 
 impl HostPacer {
@@ -200,7 +198,8 @@ impl HostPacer {
     ) -> Result<T, FetchError> {
         let gate = self.gate(host);
         gate.turn
-            .run(&self.cancel, async {
+            // Node's pacer has no shutdown; the caller's own cancel (`Pipeline::run`) ends the wait and the operation.
+            .run(&mixdog_rt::CancellationToken::new(), async {
                 let ready_at = *gate.ready_at.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                 tokio::time::sleep_until(tokio::time::Instant::from_std(ready_at)).await;
                 let result = operation.await;
@@ -215,11 +214,6 @@ impl HostPacer {
             })
             .await
             .unwrap_or_else(|_| Err(FetchError::new(FetchKind::Cancelled, "fetch cancelled")))
-    }
-
-    /// Shutdown: queued fetches leave and a stuck one is dropped.
-    pub fn close(&self) {
-        self.cancel.cancel();
     }
 }
 

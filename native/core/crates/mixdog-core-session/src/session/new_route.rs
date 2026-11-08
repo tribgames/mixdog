@@ -11,7 +11,6 @@
 
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_domains::domains::ai_admin::route_service::RouteService;
-use mixdog_core_ports::ports::route_write::RouteWriter;
 use mixdog_protocol::ModelSelection;
 use serde_json::Map;
 use serde_json::Value;

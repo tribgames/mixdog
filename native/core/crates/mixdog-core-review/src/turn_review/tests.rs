@@ -27,7 +27,6 @@ use super::line_diff::LineDiffBudget;
 use super::line_diff::LineDiffer;
 use super::nodepath;
 use super::nodepath::Style;
-use super::ports::ReviewDisk;
 use super::review_diff;
 use super::testing::review_at;
 

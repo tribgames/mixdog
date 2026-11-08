@@ -617,7 +617,7 @@ impl RoomExchangeHost for View {
     }
 
     fn random(&self) -> f64 {
-        rand::thread_rng().r#gen::<f64>()
+        rand::rng().random::<f64>()
     }
 
     fn max_rounds(&self) -> u32 {

@@ -9,7 +9,6 @@
 use std::sync::{Arc, OnceLock, Weak};
 
 use async_trait::async_trait;
-use mixdog_agent::env::TailReminder;
 use mixdog_core_api::domain::provider::{ModelRequest, Role};
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_session::session::SessionDirectory;

@@ -342,7 +342,9 @@ mod tests {
 
     fn settled_signal(service: &CatalogService) -> tokio::sync::mpsc::UnboundedReceiver<()> {
         let (send, receive) = tokio::sync::mpsc::unbounded_channel();
-        service.on_refresh_settled(Arc::new(move || drop(send.send(()))));
+        service.on_refresh_settled(Arc::new(move || {
+            send.send(()).ok();
+        }));
         receive
     }
 

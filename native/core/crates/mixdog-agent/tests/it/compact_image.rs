@@ -2,8 +2,6 @@
 //! supersedes an earlier size annotation, and the fixed text for undecodable and unsupported images.
 //! The decoder is the host's; these tests drive the pipeline through a scripted one.
 
-use crate::compact_support;
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::Mutex;

@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use mixdog_core_agents::agents::{AgentDefinition, AgentDefinitions, AgentRow};
+use mixdog_core_agents::agents::{AgentDefinitions, AgentRow};
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_core_rooms::rooms::catalog_rows::MemberNames;
 use mixdog_js::js_trim;
@@ -102,6 +102,7 @@ mod tests {
     use serde_json::{Map, Value};
 
     use super::*;
+    use mixdog_core_agents::agents::AgentDefinition;
 
     fn row(id: &str, label: &str, fixed: bool, definition_name: Option<&str>) -> AgentRow {
         AgentRow {

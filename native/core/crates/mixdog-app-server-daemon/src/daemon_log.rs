@@ -276,7 +276,7 @@ impl DaemonLog {
             .lane
             .submit(&self.shared.cancel, move |lane| {
                 drain(lane, &job_shared);
-                guard.shared = None;
+                guard.shared.take();
             })
             .is_ok()
     }
@@ -492,7 +492,7 @@ mod tests {
                     "held" => entered.recv_timeout(Duration::from_secs(30)).unwrap(),
                     "release" => release_tx.send(()).unwrap(),
                     "flush" => {
-                        window = None;
+                        drop(window.take());
                         log.flush().await;
                         window = Some(mixdog_rt::testing::refuse_jobs_on_this_thread());
                     }

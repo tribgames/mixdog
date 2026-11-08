@@ -219,14 +219,6 @@ impl SessionState {
         self.window.iter().find(|row| updates(&row.item, update)).map(|row| row.item.clone())
     }
 
-    /// The item in view with `id`.
-    pub fn shown(&self, id: &ItemId) -> Option<Arc<ThreadItem>> {
-        self.window
-            .iter()
-            .find(|row| row.item.id() == id)
-            .map(|row| row.item.clone())
-    }
-
     fn remerge_prompts(&mut self) {
         self.prompt_history = prompt_history::merge(&self.prompt_session, &self.prompt_persisted);
     }

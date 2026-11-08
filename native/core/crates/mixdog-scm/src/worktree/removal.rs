@@ -854,7 +854,7 @@ impl Worktrees {
         self.assert_recovery_stores_clear(record, cancel).await?;
         let head = self.checkout_head_commit(record, cancel).await?;
         record.state = "deleting".into();
-        record.extra.remove("removalIncomplete");
+        record.extra.shift_remove("removalIncomplete");
         let mut deleting = json!({ "force": false, "automatic": true, "headCommit": head, "startedAt": now_ms(), "remaining": [] });
         if options.preserve_branch {
             deleting["preserveBranch"] = json!(true);
@@ -990,7 +990,7 @@ impl Worktrees {
         let _lock = opened.lock_repository().await?;
         let mut current = self.record(cancel, entry_id).await?.ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
         current.extra.insert("disposable".into(), json!(disposable));
-        current.extra.remove("disposableReason");
+        current.extra.shift_remove("disposableReason");
         self.put_record(cancel, current.clone()).await?;
         Ok(current)
     }
@@ -1018,7 +1018,7 @@ impl Worktrees {
             if disposable {
                 current.extra.insert("disposableReason".into(), json!("archived"));
             } else {
-                current.extra.remove("disposableReason");
+                current.extra.shift_remove("disposableReason");
             }
             self.put_record(cancel, current.clone()).await?;
             changed.push(current.id);

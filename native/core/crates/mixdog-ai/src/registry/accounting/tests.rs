@@ -270,7 +270,7 @@ mod through_the_registry {
     use mixdog_protocol::ProviderId;
 
     use super::*;
-    use crate::registry::accounted::{AccountingDeps, SendScope};
+    use crate::registry::accounted::AccountingDeps;
     use crate::registry::providers::{ProviderBuilder, ProviderRegistry};
 
     struct NoCodec;

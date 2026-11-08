@@ -14,7 +14,6 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::FutureExt;
-use mixdog_ai::transport::BodyStream;
 use mixdog_ai::transport::HttpSend;
 use mixdog_ai::transport::KeepaliveSchedule;
 use mixdog_ai::transport::ReqwestLink;

@@ -1046,6 +1046,11 @@ impl ExecRuntime {
         })
     }
 
+    /// Shutdown: removes the shell snapshots this runtime made.
+    pub async fn drain_snapshots(&self, cancel: &CancellationToken) {
+        self.snapshots.drain(self.config.lanes.maintenance, cancel).await;
+    }
+
     /// Remembers the shells a timeout reap of `owner` stopped.
     pub(crate) fn note_reaped(&self, owner: &ThreadId, ids: Vec<String>) {
         if !ids.is_empty() {

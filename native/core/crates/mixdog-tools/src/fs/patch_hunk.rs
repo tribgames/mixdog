@@ -976,27 +976,8 @@ fn order_hunks(source: &[String], hunks: &[Hunk], fuzzy: bool) -> Vec<Hunk> {
     keyed.into_iter().map(|(_, _, h)| h).collect()
 }
 
-/// Added and removed line counts of one hunk as the unified diff shows them: lines unchanged at
-/// either end of the replaced window count as neither.
-fn change_counts(old: &[String], new: &[String]) -> (usize, usize) {
-    let mut a = 0;
-    while a < old.len() && a < new.len() && old[a] == new[a] {
-        a += 1;
-    }
-    let (mut oe, mut ne) = (old.len(), new.len());
-    while oe > a && ne > a && old[oe - 1] == new[ne - 1] {
-        oe -= 1;
-        ne -= 1;
-    }
-    (ne - a, oe - a)
-}
-
 pub(super) struct Applied {
     pub lines: Lines,
-    pub added: usize,
-    pub removed: usize,
-    /// Hunks that located something to change (blank ones are skipped).
-    pub emitted: usize,
 }
 
 /// Applies every hunk of `hunks` to `source`. `path` names the section in hunk errors (`V4A hunk
@@ -1040,20 +1021,12 @@ pub(super) fn apply_hunks(
     }
     reps.sort_by_key(|l| l.start);
     assert_safe_plan(&reps.iter().map(|l| (l.start, l.match_len)).collect::<Vec<_>>(), overlap_label)?;
-    let (mut added, mut removed) = (0, 0);
-    for loc in &reps {
-        let old = if loc.match_len == 0 { &[][..] } else { &loc.pattern[..] };
-        let (a, r) = change_counts(old, &loc.new_lines);
-        added += a;
-        removed += r;
-    }
-    let emitted = reps.len();
     for loc in reps.into_iter().rev() {
         let old_terms: Vec<String> = lines.terms[loc.start..loc.start + loc.match_len].to_vec();
         let new_terms = loc.ops.as_ref().map(|ops| terminators_for_ops(ops, &old_terms, &lines.local_terminator(loc.start, loc.match_len)));
         lines.splice(loc.start, loc.match_len, loc.new_lines, new_terms);
     }
-    Ok(Applied { lines, added, removed, emitted })
+    Ok(Applied { lines })
 }
 
 // ---- unified conversion ----

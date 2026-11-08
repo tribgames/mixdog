@@ -2,6 +2,7 @@
 //! `trace-store/agent-call-rows.mjs`, `agent-session-summary.mjs`), as pure functions. Columns
 //! carry what Node binds, so a test compares them with the recorded parameters.
 
+#[cfg(test)]
 use mixdog_js::json_number;
 use mixdog_js::to_number;
 use mixdog_js::value_to_string;
@@ -68,6 +69,7 @@ fn number_or_null(value: Option<&Value>) -> Option<f64> {
     value.filter(|v| !v.is_null()).map(to_number)
 }
 
+#[cfg(test)]
 fn number_json(value: Option<f64>) -> Value {
     value.map_or(Value::Null, json_number)
 }

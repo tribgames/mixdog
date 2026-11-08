@@ -173,7 +173,6 @@ struct FileInfo {
     mime: String,
     filename: String,
     key: String,
-    is_ref: bool,
 }
 
 #[derive(Clone)]
@@ -279,12 +278,12 @@ impl MediaLowering {
             ContentPart::Document { source: DocumentSource::Base64 { media_type, data }, title } if !data.is_empty() => {
                 let mime = mime_of(media_type);
                 let mime = if inline_file_kind(&mime, data, "") == FileKind::Pdf { "application/pdf".to_owned() } else { mime };
-                Lookup::Info(FileInfo { key: sha256_hex(data), data: data.clone(), mime, filename: title.clone().unwrap_or_default(), is_ref: false })
+                Lookup::Info(FileInfo { key: sha256_hex(data), data: data.clone(), mime, filename: title.clone().unwrap_or_default() })
             }
             ContentPart::File { source: BinarySource::Base64(data), mime_type, filename, text: None } if !data.is_empty() => {
                 let mime = mime_of(mime_type);
                 let mime = if inline_file_kind(&mime, data, "") == FileKind::Pdf { "application/pdf".to_owned() } else { mime };
-                Lookup::Info(FileInfo { key: sha256_hex(data), data: data.clone(), mime, filename: filename.clone().unwrap_or_default(), is_ref: false })
+                Lookup::Info(FileInfo { key: sha256_hex(data), data: data.clone(), mime, filename: filename.clone().unwrap_or_default() })
             }
             ContentPart::File { source: BinarySource::AttachmentRef(reference), mime_type, filename, text: None } => {
                 match self.memo().resolved.get(reference) {
@@ -293,7 +292,7 @@ impl MediaLowering {
                     Some(Resolved::Bytes(data)) => {
                         let mime = mime_of(mime_type);
                         let mime = if inline_file_kind(&mime, data, "") == FileKind::Pdf { "application/pdf".to_owned() } else { mime };
-                        Lookup::Info(FileInfo { key: reference.clone(), data: data.clone(), mime, filename: filename.clone().unwrap_or_default(), is_ref: true })
+                        Lookup::Info(FileInfo { key: reference.clone(), data: data.clone(), mime, filename: filename.clone().unwrap_or_default() })
                     }
                 }
             }
