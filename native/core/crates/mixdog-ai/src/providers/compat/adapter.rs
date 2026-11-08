@@ -6,7 +6,7 @@
 //!
 //! The HTTP exchange is the shared `transport::HttpSend` seam.
 
-use crate::transport::deadlines::COMPAT_MODEL_LIST;
+use crate::transport::deadlines::compat_model_list;
 use crate::transport::deadlines::MODEL_STREAM;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -285,7 +285,7 @@ pub(super) async fn fetch_json(
                 headers,
                 body: Vec::new(),
             },
-            COMPAT_MODEL_LIST,
+            compat_model_list(profile.id),
         )
         .await?;
     let ok = response.is_success();

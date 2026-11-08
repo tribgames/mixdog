@@ -36,7 +36,7 @@ use crate::oauth::classify_refresh_failure;
 use crate::oauth::CredentialFile;
 use crate::oauth::Probe;
 use crate::transport::HttpSend;
-use crate::transport::deadlines::TOKEN_EXCHANGE;
+use crate::transport::deadlines::TOKEN_OPENAI;
 
 pub const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 pub const TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
@@ -155,7 +155,7 @@ impl Inner {
                     )],
                     body,
                 },
-                TOKEN_EXCHANGE,
+                TOKEN_OPENAI,
             )
             .await;
         let (status, body) = match response {

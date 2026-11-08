@@ -76,7 +76,7 @@ impl HttpResponse {
                 Ok(())
             })
             .await
-            .map_err(|expired| deadline_error(expired, DeliveryState::Accepted))?;
+            .map_err(|expired| deadline_error(expired, DeliveryState::Accepted, NODE_DISPATCHER.surface))?;
         drained?;
         Ok(ErrorResponse {
             status: Some(self.status),
@@ -107,10 +107,20 @@ pub enum Redirect {
 /// error stays the only thing logic reads; this is the sentence users and logs see.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Surface {
-    /// A raw `fetch`: its network errors are `TypeError: fetch failed`, whatever the cause.
+    /// A raw `fetch` with no timer of its own: its network errors are `TypeError: fetch failed`, whatever the
+    /// cause, and so is a missed undici `headersTimeout` (`HeadersTimeoutError` is the `cause`).
     Fetch,
+    /// A raw `fetch` under `AbortSignal.timeout(ms)`: the same `fetch failed` for the network, and the
+    /// `TimeoutError` DOMException itself when the timer fires.
+    FetchSignal,
+    /// A raw `fetch` whose caller aborts a controller on a bare `setTimeout`: `AbortError` when the timer fires.
+    FetchAborted,
+    /// A raw `fetch` under `createTimeoutSignal(…, label)` (`stall-policy.mjs:384`): the signal's reason, a
+    /// `ProviderTimeoutError` `"<label> timed out after <ms>ms"`, is what the fetch rejects with.
+    FetchLabeled(&'static str),
     /// The OpenAI / Anthropic SDK: it wraps a connect failure of its fetch as
-    /// `APIConnectionError: Connection error.`.
+    /// `APIConnectionError: Connection error.`; its own timer (and an abort at connect) throws
+    /// `APIConnectionTimeoutError: Request timed out.`.
     Sdk,
     /// Node's `http2`: a socket error whose text names the resolved address (`connect ECONNREFUSED
     /// 1.2.3.4:443`), which the link cannot know; the fault's own description stands.
@@ -121,13 +131,31 @@ pub enum Surface {
 pub const FETCH_FAILED: &str = "fetch failed";
 /// `APIConnectionError: Connection error.`, the SDK's wrapper of a failed connection.
 pub const CONNECTION_ERROR: &str = "Connection error.";
+/// `APIConnectionTimeoutError: Request timed out.`, the SDK's timer.
+pub const REQUEST_TIMED_OUT: &str = "Request timed out.";
+/// `AbortSignal.timeout`'s `TimeoutError` message.
+pub const SIGNAL_TIMED_OUT: &str = "The operation was aborted due to timeout";
+/// A bare `controller.abort()`'s `AbortError` message.
+pub const ABORTED: &str = "This operation was aborted";
 
 impl Surface {
     /// Node's text for a connection failure, `None` where the link has none to give.
     pub const fn connection_text(self) -> Option<&'static str> {
         match self {
-            Self::Fetch => Some(FETCH_FAILED),
+            Self::Fetch | Self::FetchSignal | Self::FetchAborted | Self::FetchLabeled(_) => Some(FETCH_FAILED),
             Self::Sdk => Some(CONNECTION_ERROR),
+            Self::Socket => None,
+        }
+    }
+
+    /// Node's text for an exchange that outlived its `after`, `None` where the link has none to give.
+    pub fn timeout_text(self, after: std::time::Duration) -> Option<String> {
+        match self {
+            Self::Fetch => Some(FETCH_FAILED.to_owned()),
+            Self::FetchSignal => Some(SIGNAL_TIMED_OUT.to_owned()),
+            Self::FetchAborted => Some(ABORTED.to_owned()),
+            Self::FetchLabeled(label) => Some(format!("{label} timed out after {}ms", after.as_millis())),
+            Self::Sdk => Some(REQUEST_TIMED_OUT.to_owned()),
             Self::Socket => None,
         }
     }
@@ -302,9 +330,11 @@ fn response_of(response: reqwest::Response) -> HttpResponse {
 
 /// The deadline passed: a transient transport fact (Node: undici
 /// `UND_ERR_HEADERS_TIMEOUT` / `UND_ERR_BODY_TIMEOUT`, both retried as transient).
-pub(crate) fn deadline_error(expired: Expired, delivery: DeliveryState) -> ProviderError {
+pub(crate) fn deadline_error(expired: Expired, delivery: DeliveryState, surface: Surface) -> ProviderError {
     let mut error = ProviderError::transport(TransportFault::Io { os_code: None }, delivery);
-    error.message = format!("request timed out after {}ms", expired.after.as_millis());
+    error.message = surface
+        .timeout_text(expired.after)
+        .unwrap_or_else(|| format!("request timed out after {}ms", expired.after.as_millis()));
     error
 }
 
@@ -402,7 +432,7 @@ async fn settle(
     let response = liveness
         .bound_head(answer)
         .await
-        .map_err(|expired| deadline_error(expired, DeliveryState::Ambiguous))??;
+        .map_err(|expired| deadline_error(expired, DeliveryState::Ambiguous, exchange.surface))??;
     let mut response = response_of(response);
     if let Some(total) = liveness.total_deadline() {
         response.body = Box::new(DeadlineBody {
@@ -645,6 +675,7 @@ mod tests {
             .await
             .expect_err("the error body never ends");
         assert_eq!(error.delivery, DeliveryState::Accepted);
-        assert_eq!(error.message, "request timed out after 600000ms");
+        // The ceiling is the dispatcher's own: a raw `fetch`'s `fetch failed`.
+        assert_eq!(error.message, "fetch failed");
     }
 }

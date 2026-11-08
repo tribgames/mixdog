@@ -21,6 +21,10 @@
 // a raw `fetch` => "fetch failed"), the connection test that gets as far as discovery (its `phase: 'discovery'` result) and
 // the one that sends (a manual model, the SDK => the thrown "Connection error.").
 //
+// `--only transports` records `transports` alone: for each failure kind (refused, dns, reset, badPort, tls, response and
+// connect timeout) what each class of Node call (the SDKs, and the raw `fetch` under each kind of timer) throws; see
+// `recordTransports`.
+//
 // The loop is driven the way `send-phase.mjs` drives it: a `retry_transport` verdict adds one to `transportRetriesUsed`
 // and carries `transportRetryMax` into the next call; a thrown error ends the turn. Waits are recorded, not served
 // (the timers `sleepWithAbort` arms are armed at 0 ms), and `Math.random` is pinned to 0.5 so every jittered wait is
@@ -211,6 +215,97 @@ async function badPorts() {
   return found.sort((a, b) => a - b);
 }
 
+// --- transports: what each way Node issues a request shows for each way the request can fail ---------------------
+// Classes (the Node call site decides which a Rust `Exchange` is; `transport/deadlines.rs`):
+//   sdkOpenAI / sdkAnthropic  the pinned SDKs' `chat.completions.create` / `messages.create` on the provider's own client
+//   fetchDispatcher           a raw `fetch` with no timer of its own, on the shared undici dispatcher
+//   fetchSignal               a raw `fetch` under `AbortSignal.timeout`
+//   fetchLabeled              a raw `fetch` under `createTimeoutSignal(…, label)` (`stall-policy.mjs:384`)
+//   fetchAborted              a raw `fetch` whose caller aborts a controller on a bare `setTimeout`
+// Kinds: refused, dns, reset, badPort, tls (a plain server answering the TLS handshake with HTTP), responseTimeout (the
+// server accepts and never answers) and connectTimeout (an address no one answers: 192.0.2.1, TEST-NET-1).
+// Every timer is TRANSPORT_TIMEOUT_MS so the recording takes seconds; the undici connector's own 10 s is waited out once.
+const TRANSPORT_TIMEOUT_MS = 400;
+async function recordTransports() {
+  process.env.MIXDOG_LLM_HEADERS_TIMEOUT_MS = String(TRANSPORT_TIMEOUT_MS);
+  process.env.MIXDOG_LLM_BODY_TIMEOUT_MS = String(TRANSPORT_TIMEOUT_MS);
+  const { getLlmDispatcher } = await load('src/runtime/shared/llm/http-agent.mjs');
+  const { createTimeoutSignal } = await load(`${orchestrator}/stall-policy.mjs`);
+  const { AnthropicProvider } = await load(`${orchestrator}/providers/anthropic.mjs`);
+  const dispatcher = getLlmDispatcher();
+  const messages = [{ role: 'user', content: 'hi' }];
+  const clients = {
+    sdkOpenAI: async (base) => {
+      const client = new OpenAICompatProvider('custom-harness', { apiKey: 'fixture', baseURL: base, preconnect: false })._createClient('fixture');
+      client.timeout = TRANSPORT_TIMEOUT_MS;
+      return client.chat.completions.create({ model: 'm', messages });
+    },
+    sdkAnthropic: async (base) => {
+      const client = new AnthropicProvider({ name: 'custom-harness-a', apiKey: 'fixture', baseURL: base })._createClient('fixture');
+      client.timeout = TRANSPORT_TIMEOUT_MS;
+      return client.messages.create({ model: 'm', max_tokens: 16, messages });
+    },
+    fetchDispatcher: (base) => fetch(`${base}/models`, { dispatcher }),
+    fetchSignal: (base) => fetch(`${base}/models`, { dispatcher, signal: AbortSignal.timeout(TRANSPORT_TIMEOUT_MS) }),
+    fetchLabeled: async (base) => {
+      const timer = createTimeoutSignal(null, TRANSPORT_TIMEOUT_MS, 'probe label');
+      try {
+        return await fetch(`${base}/models`, { dispatcher, signal: timer.signal });
+      } finally {
+        timer.cleanup();
+      }
+    },
+    fetchAborted: async (base) => {
+      const controller = new AbortController();
+      const timer = realSetTimeout(() => controller.abort(), TRANSPORT_TIMEOUT_MS);
+      try {
+        return await fetch(`${base}/models`, { dispatcher, signal: controller.signal });
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  };
+  const silent = () =>
+    new Promise((done) => {
+      const server = createServer((socket) => socket.on('error', () => {})).listen(0, '127.0.0.1', () => done({ server, port: server.address().port }));
+    });
+  const plainOnTls = () =>
+    new Promise((done) => {
+      const server = createServer((socket) => {
+        socket.on('error', () => {});
+        socket.once('data', () => socket.end('HTTP/1.1 400 Bad Request\r\ncontent-length: 0\r\n\r\n'));
+      }).listen(0, '127.0.0.1', () => done({ server, port: server.address().port }));
+    });
+  const reset = await resetServer();
+  const quiet = await silent();
+  const tls = await plainOnTls();
+  const kinds = {
+    refused: `http://127.0.0.1:${await closedPort()}/v1`,
+    dns: 'https://connect-errors-no-such-host.invalid/v1',
+    reset: `http://127.0.0.1:${reset.port}/v1`,
+    badPort: 'http://127.0.0.1:9/v1',
+    tls: `https://127.0.0.1:${tls.port}/v1`,
+    responseTimeout: `http://127.0.0.1:${quiet.port}/v1`,
+    connectTimeout: 'https://192.0.2.1/v1',
+  };
+  const out = {};
+  for (const [kind, base] of Object.entries(kinds)) {
+    out[kind] = {};
+    for (const [name, run] of Object.entries(clients)) {
+      try {
+        await run(base);
+        out[kind][name] = { resolved: true };
+      } catch (error) {
+        out[kind][name] = { name: error.name ?? null, message: portless(String(error.message)), chain: chainOf(error) };
+      }
+    }
+  }
+  reset.server.close();
+  quiet.server.close();
+  tls.server.close();
+  return { timeoutMs: TRANSPORT_TIMEOUT_MS, kinds: out };
+}
+
 const only = args.includes('--only') ? args[args.indexOf('--only') + 1] : null;
 const goldenFile = join(here, 'golden', 'connect_errors.json');
 const golden = only ? JSON.parse(readFileSync(goldenFile, 'utf8')) : { transportRetryMax: TRANSPORT_RETRY_MAX, badPorts: await badPorts(), cases: {} };
@@ -230,7 +325,8 @@ if (!only || only === 'probes') {
     dns: await recordProbes('https://connect-errors-no-such-host.invalid/v1'),
   };
 }
-for (const [name, first] of only === 'probes' ? [] : [
+if (!only || only === 'transports') golden.transports = await recordTransports();
+for (const [name, first] of only === 'probes' || only === 'transports' ? [] : [
   ['cut', ': open\n\n'],
   ['cutRole', `data: ${JSON.stringify({ id: 'c1', object: 'chat.completion.chunk', model: 'm', choices: [{ index: 0, delta: { role: 'assistant' } }] })}\n\n`],
 ]) {

@@ -32,6 +32,7 @@ use mixdog_ai::registry::keys::ApiKeyStore;
 use mixdog_ai::registry::keys::Environment;
 use mixdog_ai::registry::keys::SecretVault;
 use mixdog_ai::registry::keys::VaultError;
+use mixdog_ai::transport::HttpSend;
 use mixdog_ai::transport::KeepaliveDialer;
 use mixdog_ai::transport::KeepaliveSchedule;
 use mixdog_ai::transport::ReqwestLink;
@@ -139,6 +140,11 @@ pub(super) struct World {
 }
 
 pub(super) async fn world(env: HashMap<String, String>) -> World {
+    world_over(env, None).await
+}
+
+/// The same world with its model calls over `http` instead of the real link (everything above the socket stays real).
+pub(super) async fn world_over(env: HashMap<String, String>, http: Option<Arc<dyn HttpSend>>) -> World {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let io = || CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
@@ -159,7 +165,7 @@ pub(super) async fn world(env: HashMap<String, String>) -> World {
     let accounts = AccountStore::new(dir.path().join("accounts"), io());
     let link = Arc::new(ReqwestLink::new(&KeepaliveSchedule::SPEC, false).unwrap());
     let builder = Arc::new(DefaultProviderBuilder::new(BuilderEnv {
-        http: link.clone(),
+        http: http.unwrap_or_else(|| link.clone()),
         bidi: link,
         dial: Arc::new(KeepaliveDialer::new(KeepaliveSchedule::SPEC)),
         keys: keys.clone(),

@@ -878,5 +878,696 @@
         "thrown": "Connection error."
       }
     }
+  },
+  "transports": {
+    "timeoutMs": 400,
+    "kinds": {
+      "refused": {
+        "sdkOpenAI": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNREFUSED",
+              "message": "connect ECONNREFUSED 127.0.0.1:<port>"
+            }
+          ]
+        },
+        "sdkAnthropic": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNREFUSED",
+              "message": "connect ECONNREFUSED 127.0.0.1:<port>"
+            }
+          ]
+        },
+        "fetchDispatcher": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNREFUSED",
+              "message": "connect ECONNREFUSED 127.0.0.1:<port>"
+            }
+          ]
+        },
+        "fetchSignal": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNREFUSED",
+              "message": "connect ECONNREFUSED 127.0.0.1:<port>"
+            }
+          ]
+        },
+        "fetchLabeled": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNREFUSED",
+              "message": "connect ECONNREFUSED 127.0.0.1:<port>"
+            }
+          ]
+        },
+        "fetchAborted": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNREFUSED",
+              "message": "connect ECONNREFUSED 127.0.0.1:<port>"
+            }
+          ]
+        }
+      },
+      "dns": {
+        "sdkOpenAI": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ENOTFOUND",
+              "message": "getaddrinfo ENOTFOUND connect-errors-no-such-host.invalid"
+            }
+          ]
+        },
+        "sdkAnthropic": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ENOTFOUND",
+              "message": "getaddrinfo ENOTFOUND connect-errors-no-such-host.invalid"
+            }
+          ]
+        },
+        "fetchDispatcher": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ENOTFOUND",
+              "message": "getaddrinfo ENOTFOUND connect-errors-no-such-host.invalid"
+            }
+          ]
+        },
+        "fetchSignal": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ENOTFOUND",
+              "message": "getaddrinfo ENOTFOUND connect-errors-no-such-host.invalid"
+            }
+          ]
+        },
+        "fetchLabeled": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ENOTFOUND",
+              "message": "getaddrinfo ENOTFOUND connect-errors-no-such-host.invalid"
+            }
+          ]
+        },
+        "fetchAborted": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ENOTFOUND",
+              "message": "getaddrinfo ENOTFOUND connect-errors-no-such-host.invalid"
+            }
+          ]
+        }
+      },
+      "reset": {
+        "sdkOpenAI": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNRESET",
+              "message": "read ECONNRESET"
+            }
+          ]
+        },
+        "sdkAnthropic": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNRESET",
+              "message": "read ECONNRESET"
+            }
+          ]
+        },
+        "fetchDispatcher": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNRESET",
+              "message": "read ECONNRESET"
+            }
+          ]
+        },
+        "fetchSignal": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNRESET",
+              "message": "read ECONNRESET"
+            }
+          ]
+        },
+        "fetchLabeled": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNRESET",
+              "message": "read ECONNRESET"
+            }
+          ]
+        },
+        "fetchAborted": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ECONNRESET",
+              "message": "read ECONNRESET"
+            }
+          ]
+        }
+      },
+      "badPort": {
+        "sdkOpenAI": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": null,
+              "message": "bad port"
+            }
+          ]
+        },
+        "sdkAnthropic": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": null,
+              "message": "bad port"
+            }
+          ]
+        },
+        "fetchDispatcher": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": null,
+              "message": "bad port"
+            }
+          ]
+        },
+        "fetchSignal": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": null,
+              "message": "bad port"
+            }
+          ]
+        },
+        "fetchLabeled": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": null,
+              "message": "bad port"
+            }
+          ]
+        },
+        "fetchAborted": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": null,
+              "message": "bad port"
+            }
+          ]
+        }
+      },
+      "tls": {
+        "sdkOpenAI": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ERR_SSL_PACKET_LENGTH_TOO_LONG",
+              "message": "6CA30000:error:0A0000C6:SSL routines:tls_get_more_records:packet length too long:c:\\ws\\deps\\openssl\\openssl\\ssl\\record\\methods\\tls_common.c:663:\n"
+            }
+          ]
+        },
+        "sdkAnthropic": {
+          "name": "Error",
+          "message": "Connection error.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Connection error."
+            },
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ERR_SSL_PACKET_LENGTH_TOO_LONG",
+              "message": "6CA30000:error:0A0000C6:SSL routines:tls_get_more_records:packet length too long:c:\\ws\\deps\\openssl\\openssl\\ssl\\record\\methods\\tls_common.c:663:\n"
+            }
+          ]
+        },
+        "fetchDispatcher": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ERR_SSL_PACKET_LENGTH_TOO_LONG",
+              "message": "6CA30000:error:0A0000C6:SSL routines:tls_get_more_records:packet length too long:c:\\ws\\deps\\openssl\\openssl\\ssl\\record\\methods\\tls_common.c:663:\n"
+            }
+          ]
+        },
+        "fetchSignal": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ERR_SSL_PACKET_LENGTH_TOO_LONG",
+              "message": "6CA30000:error:0A0000C6:SSL routines:tls_get_more_records:packet length too long:c:\\ws\\deps\\openssl\\openssl\\ssl\\record\\methods\\tls_common.c:663:\n"
+            }
+          ]
+        },
+        "fetchLabeled": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ERR_SSL_PACKET_LENGTH_TOO_LONG",
+              "message": "6CA30000:error:0A0000C6:SSL routines:tls_get_more_records:packet length too long:c:\\ws\\deps\\openssl\\openssl\\ssl\\record\\methods\\tls_common.c:663:\n"
+            }
+          ]
+        },
+        "fetchAborted": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "Error",
+              "code": "ERR_SSL_PACKET_LENGTH_TOO_LONG",
+              "message": "6CA30000:error:0A0000C6:SSL routines:tls_get_more_records:packet length too long:c:\\ws\\deps\\openssl\\openssl\\ssl\\record\\methods\\tls_common.c:663:\n"
+            }
+          ]
+        }
+      },
+      "responseTimeout": {
+        "sdkOpenAI": {
+          "name": "Error",
+          "message": "Request timed out.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Request timed out."
+            }
+          ]
+        },
+        "sdkAnthropic": {
+          "name": "Error",
+          "message": "Request timed out.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Request timed out."
+            }
+          ]
+        },
+        "fetchDispatcher": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "HeadersTimeoutError",
+              "code": "UND_ERR_HEADERS_TIMEOUT",
+              "message": "Headers Timeout Error"
+            }
+          ]
+        },
+        "fetchSignal": {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout",
+          "chain": [
+            {
+              "name": "TimeoutError",
+              "code": 23,
+              "message": "The operation was aborted due to timeout"
+            }
+          ]
+        },
+        "fetchLabeled": {
+          "name": "ProviderTimeoutError",
+          "message": "probe label timed out after 400ms",
+          "chain": [
+            {
+              "name": "ProviderTimeoutError",
+              "code": "EPROVIDERTIMEOUT",
+              "message": "probe label timed out after 400ms"
+            }
+          ]
+        },
+        "fetchAborted": {
+          "name": "AbortError",
+          "message": "This operation was aborted",
+          "chain": [
+            {
+              "name": "AbortError",
+              "code": 20,
+              "message": "This operation was aborted"
+            }
+          ]
+        }
+      },
+      "connectTimeout": {
+        "sdkOpenAI": {
+          "name": "Error",
+          "message": "Request timed out.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Request timed out."
+            }
+          ]
+        },
+        "sdkAnthropic": {
+          "name": "Error",
+          "message": "Request timed out.",
+          "chain": [
+            {
+              "name": "Error",
+              "code": null,
+              "message": "Request timed out."
+            }
+          ]
+        },
+        "fetchDispatcher": {
+          "name": "TypeError",
+          "message": "fetch failed",
+          "chain": [
+            {
+              "name": "TypeError",
+              "code": null,
+              "message": "fetch failed"
+            },
+            {
+              "name": "ConnectTimeoutError",
+              "code": "UND_ERR_CONNECT_TIMEOUT",
+              "message": "Connect Timeout Error (attempted address: 192.0.2.1:443, timeout: 10000ms)"
+            }
+          ]
+        },
+        "fetchSignal": {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout",
+          "chain": [
+            {
+              "name": "TimeoutError",
+              "code": 23,
+              "message": "The operation was aborted due to timeout"
+            }
+          ]
+        },
+        "fetchLabeled": {
+          "name": "ProviderTimeoutError",
+          "message": "probe label timed out after 400ms",
+          "chain": [
+            {
+              "name": "ProviderTimeoutError",
+              "code": "EPROVIDERTIMEOUT",
+              "message": "probe label timed out after 400ms"
+            }
+          ]
+        },
+        "fetchAborted": {
+          "name": "AbortError",
+          "message": "This operation was aborted",
+          "chain": [
+            {
+              "name": "AbortError",
+              "code": 20,
+              "message": "This operation was aborted"
+            }
+          ]
+        }
+      }
+    }
   }
 }

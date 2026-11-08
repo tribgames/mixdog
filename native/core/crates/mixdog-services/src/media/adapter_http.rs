@@ -8,7 +8,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_ai::netproxy::RoutedClients;
+use mixdog_ai::transport::ABORTED;
 use mixdog_ai::transport::FETCH_FAILED;
+use mixdog_ai::transport::SIGNAL_TIMED_OUT;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
@@ -49,7 +51,7 @@ fn failure(message: &str, timed_out: bool) -> HttpFailure {
 }
 
 fn transport(error: &reqwest::Error) -> HttpFailure {
-    if error.is_timeout() { failure("The operation was aborted due to timeout", true) } else { failure(FETCH_FAILED, false) }
+    if error.is_timeout() { failure(SIGNAL_TIMED_OUT, true) } else { failure(FETCH_FAILED, false) }
 }
 
 impl RoutedJsonPost {
@@ -63,7 +65,7 @@ impl RoutedJsonPost {
         for (name, value) in headers {
             request = request.header(name, value);
         }
-        let aborted = || failure("This operation was aborted", false);
+        let aborted = || failure(ABORTED, false);
         let response = tokio::select! {
             () = cancel.cancelled() => return Err(aborted()),
             sent = request.send() => sent.map_err(|error| transport(&error))?,

@@ -317,24 +317,104 @@ async fn refused(exchange: mixdog_ai::transport::Exchange, url: String) -> mixdo
     .expect("nothing listens there")
 }
 
-#[tokio::test]
-async fn a_refused_connection_reads_as_the_call_sites_text_and_stays_a_typed_connect_fault() {
-    use mixdog_ai::transport::deadlines::{COMPAT_MODEL_LIST, MODEL_STREAM};
-    // Node: a raw `fetch` call (the model list) says `fetch failed`, the SDK call (the model stream)
-    // `Connection error.` (`golden/connect_errors.json`, `cases.refused.ended`).
-    for (exchange, text) in [(COMPAT_MODEL_LIST, "fetch failed"), (MODEL_STREAM, "Connection error.")] {
-        let error = refused(exchange, closed_port_url().await).await;
-        assert!(matches!(error.transport, Some(TransportFault::Connect { .. })), "{error:?}");
-        assert_eq!(error.message, text);
-    }
+/// What Node's call classes threw for each failure kind (`golden/connect_errors.json` `transports`, recorded by
+/// `connect-errors/record.mjs --only transports`), and the `Surface` each class is on the Rust side. The exchange
+/// carries the recorded timer for a timeout kind (so it reads the same milliseconds) and a long one otherwise: a
+/// refused loopback connect takes seconds on Windows and must not be mistaken for a timeout.
+fn recorded_texts(kind: &str) -> Vec<(mixdog_ai::transport::Exchange, String, String)> {
+    use mixdog_ai::transport::Exchange;
+    use mixdog_ai::transport::Redirect;
+    use mixdog_ai::transport::Surface;
+    use mixdog_rt::Liveness;
+
+    let golden: serde_json::Value =
+        serde_json::from_str(include_str!("../../../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
+    let transports = &golden["transports"];
+    let timer = if kind == "responseTimeout" { Duration::from_millis(transports["timeoutMs"].as_u64().unwrap()) } else { Duration::from_secs(60) };
+    [
+        ("sdkOpenAI", Surface::Sdk),
+        ("sdkAnthropic", Surface::Sdk),
+        ("fetchDispatcher", Surface::Fetch),
+        ("fetchSignal", Surface::FetchSignal),
+        ("fetchLabeled", Surface::FetchLabeled("probe label")),
+        ("fetchAborted", Surface::FetchAborted),
+    ]
+    .into_iter()
+    .map(|(class, surface)| {
+        let message = transports["kinds"][kind][class]["message"].as_str().unwrap_or_else(|| panic!("{kind}/{class} recorded")).to_owned();
+        (Exchange::new(Liveness::unary(timer), Redirect::Follow, surface), class.to_owned(), message)
+    })
+    .collect()
 }
 
+/// Every failure kind against a real socket, each class reading as Node's recorded text, while the fault stays typed.
+/// Not covered here: a connect that hangs (192.0.2.1) needs a network that drops instead of rejecting; it expires in
+/// `settle` exactly as the unanswered response does.
 #[tokio::test]
-async fn a_restricted_port_reads_as_the_call_sites_text_without_connecting() {
-    use mixdog_ai::transport::deadlines::{COMPAT_MODEL_LIST, MODEL_STREAM};
-    for (exchange, text) in [(COMPAT_MODEL_LIST, "fetch failed"), (MODEL_STREAM, "Connection error.")] {
+async fn every_failure_kind_reads_as_each_classes_recorded_text() {
+    use tokio::io::AsyncWriteExt;
+
+    // refused: a typed connect fault.
+    for (exchange, class, text) in recorded_texts("refused") {
+        let error = refused(exchange, closed_port_url().await).await;
+        assert!(matches!(error.transport, Some(TransportFault::Connect { .. })), "{class}: {error:?}");
+        assert_eq!(error.message, text, "refused/{class}");
+    }
+    // badPort: fails before connecting, an I/O fault.
+    for (exchange, class, text) in recorded_texts("badPort") {
         let error = refused(exchange, "http://127.0.0.1:9/v1".into()).await;
-        assert_eq!(error.transport, Some(TransportFault::Io { os_code: None }));
-        assert_eq!(error.message, text);
+        assert_eq!(error.transport, Some(TransportFault::Io { os_code: None }), "{class}");
+        assert_eq!(error.message, text, "badPort/{class}");
+    }
+    // dns: a name that never resolves.
+    for (exchange, class, text) in recorded_texts("dns") {
+        let error = refused(exchange, "https://connect-errors-no-such-host.invalid/v1".into()).await;
+        assert_eq!(error.message, text, "dns/{class}");
+    }
+    // tls: a plain-HTTP peer answering the handshake.
+    let tls = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let tls_url = format!("https://{}/v1", tls.local_addr().unwrap());
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = tls.accept().await else { return };
+            tokio::spawn(async move {
+                let mut hello = [0u8; 512];
+                let _ = socket.read(&mut hello).await;
+                let _ = socket.write_all(b"HTTP/1.1 400 Bad Request\r\ncontent-length: 0\r\n\r\n").await;
+            });
+        }
+    });
+    for (exchange, class, text) in recorded_texts("tls") {
+        let error = refused(exchange, tls_url.clone()).await;
+        assert_eq!(error.message, text, "tls/{class}");
+    }
+    // reset: the peer resets the connection before any header.
+    let resetting = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let reset_url = format!("http://{}/v1", resetting.local_addr().unwrap());
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut socket, _)) = resetting.accept().await else { return };
+            let mut request = [0u8; 1024];
+            let _ = socket.read(&mut request).await;
+            socket.set_linger(Some(Duration::ZERO)).unwrap();
+            drop(socket);
+        }
+    });
+    for (exchange, class, text) in recorded_texts("reset") {
+        let error = refused(exchange, reset_url.clone()).await;
+        assert_eq!(error.message, text, "reset/{class}");
+    }
+    // responseTimeout: the peer accepts and never answers; the exchange's own timer expires.
+    let quiet = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let quiet_url = format!("http://{}/v1", quiet.local_addr().unwrap());
+    tokio::spawn(async move {
+        let mut held = Vec::new();
+        while let Ok((socket, _)) = quiet.accept().await {
+            held.push(socket);
+        }
+    });
+    for (exchange, class, text) in recorded_texts("responseTimeout") {
+        let error = refused(exchange, quiet_url.clone()).await;
+        assert_eq!(error.message, text, "responseTimeout/{class}");
     }
 }

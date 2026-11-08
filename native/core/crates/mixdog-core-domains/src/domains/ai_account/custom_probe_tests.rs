@@ -224,12 +224,48 @@ async fn an_unreachable_endpoint_reads_as_node_shows_it() {
         assert_eq!(w.admin.discover_models(input.clone()).await.unwrap(), recorded["discover"]["result"], "{name}: discover");
         assert_eq!(w.admin.test(input).await.unwrap(), recorded["testDiscovery"]["result"], "{name}: test through discovery");
         // The send retries on the 1, 2, 4, 8 s ladder before it throws; a refused loopback connect on Windows
-        // takes seconds per attempt and would outlast the 20 s limit, so only the restricted port (no connect) sends.
+        // takes seconds per attempt and would outlast the 20 s limit, so only the restricted port (no connect) sends
+        // here; the refused send is `a_refused_send_throws_the_sdks_text_after_the_retry_ladder`.
         if name == "badPort" {
             let thrown = w.admin.test(manual).await.unwrap_err();
             assert_eq!(thrown.message(), recorded["testSend"]["thrown"].as_str().unwrap(), "{name}: test send");
         }
     }
+}
+
+/// Refuses every send at once, as the link does a closed port, with the text of the exchange's class.
+struct Refusing {
+    sends: Mutex<Vec<mixdog_ai::transport::Surface>>,
+}
+
+#[async_trait]
+impl HttpSend for Refusing {
+    async fn send(&self, _request: WireRequest, exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+        self.sends.lock().unwrap().push(exchange.surface);
+        let mut error = ProviderError::transport(TransportFault::Connect { os_code: Some(111) }, DeliveryState::NotSent);
+        error.message = exchange.surface.text(|| "connect refused".to_owned());
+        Err(error)
+    }
+}
+
+/// The connection test's send over a refusing link, through the real adapter, retry ladder and probe: what Node
+/// recorded (`probes.refused.testSend.thrown`) is thrown once the ladder is spent, and every send went out as the SDK
+/// class. The ladder's waits run on the paused clock.
+#[tokio::test]
+async fn a_refused_send_throws_the_sdks_text_after_the_retry_ladder() {
+    use super::collaborators::CustomProviders as _;
+    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/agent/connect-errors/golden/connect_errors.json")).unwrap();
+    let link = Arc::new(Refusing { sends: Mutex::new(Vec::new()) });
+    let w = super::custom_admin_tests::world_over(std::collections::HashMap::new(), Some(link.clone())).await;
+    let manual = json!({ "name": "Probe", "protocol": "openai-chat", "baseURL": "http://127.0.0.1:1/v1", "apiKey": "sk-DUMMY-probe-secret-0123456789", "schemaVersion": 2, "modelOverrides": { "m-manual": { "manual": true } } });
+    tokio::time::pause();
+    let started = tokio::time::Instant::now();
+    let thrown = w.admin.test(manual).await.unwrap_err();
+    assert_eq!(thrown.message(), golden["probes"]["refused"]["testSend"]["thrown"].as_str().unwrap());
+    let sends = link.sends.lock().unwrap();
+    assert!(sends.len() > 1, "the ladder retried: {}", sends.len());
+    assert!(sends.iter().all(|surface| *surface == mixdog_ai::transport::Surface::Sdk), "{sends:?}");
+    assert!(started.elapsed() < TEST_TIMEOUT, "the ladder ends inside the 20 s limit: {:?}", started.elapsed());
 }
 
 #[test]
