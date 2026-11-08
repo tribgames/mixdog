@@ -407,7 +407,9 @@ thread_local! {
 /// The in-process line for one lock path (`lockQueue` of `file-lock.mjs`): requests of this
 /// process take their turn first-come first-served and only the one at the front polls the
 /// file, so a thread that releases and asks again cannot starve the others between their
-/// polls.
+/// polls. Like Node's queue, the line has no deadline: a request's wait budget is for the file
+/// and starts at its turn, so a holder of this process never spends the budget of the requests
+/// behind it.
 #[derive(Default)]
 struct Line {
     state: Mutex<LineState>,
@@ -418,8 +420,6 @@ struct Line {
 struct LineState {
     next: u64,
     serving: u64,
-    /// Tickets whose holder gave up waiting.
-    abandoned: HashSet<u64>,
 }
 
 fn line_of(lock: &Path) -> Arc<Line> {
@@ -434,31 +434,22 @@ struct Turn(Arc<Line>);
 impl Drop for Turn {
     fn drop(&mut self) {
         let mut guard = self.0.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let state = &mut *guard;
-        state.serving += 1;
-        while state.abandoned.remove(&state.serving) {
-            state.serving += 1;
-        }
+        guard.serving += 1;
         self.0.advanced.notify_all();
     }
 }
 
-/// Waits for this request's turn until `deadline`; `None` when it did not come (a try-once
-/// request, `deadline` already due, gives up unless nobody is ahead).
-fn take_turn(line: &Arc<Line>, deadline: Instant, try_once: bool) -> Option<Turn> {
+/// Waits for this request's turn; `None` for a try-once request when somebody is ahead.
+fn take_turn(line: &Arc<Line>, try_once: bool) -> Option<Turn> {
     let mut state = line.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if try_once && state.next != state.serving {
         return None;
     }
     let ticket = state.next;
     state.next += 1;
+    crate::trace::queued();
     while state.serving != ticket {
-        let left = deadline.saturating_duration_since(Instant::now());
-        if left.is_zero() {
-            state.abandoned.insert(ticket);
-            return None;
-        }
-        state = line.advanced.wait_timeout(state, left).unwrap_or_else(std::sync::PoisonError::into_inner).0;
+        state = line.advanced.wait(state).unwrap_or_else(std::sync::PoisonError::into_inner);
     }
     Some(Turn(Arc::clone(line)))
 }
@@ -472,15 +463,12 @@ pub(crate) fn locked<R>(lock: &Path, opts: &LockOpts, body: impl FnOnce() -> R) 
     if let Some(dir) = lock.parent() {
         fs::create_dir_all(dir)?;
     }
-    let deadline = Instant::now() + timeout;
-    let Some(_turn) = take_turn(&line_of(lock), deadline, timeout.is_zero()) else {
-        let holder = describe_holder(lock);
-        return Err(if timeout.is_zero() {
-            LockError::Contended { path: lock.to_owned(), holder }
-        } else {
-            LockError::Timeout { path: lock.to_owned(), timeout, holder }
-        });
+    let Some(_turn) = take_turn(&line_of(lock), timeout.is_zero()) else {
+        return Err(LockError::Contended { path: lock.to_owned(), holder: describe_holder(lock) });
     };
+    // The budget is for the file: it starts at the front of the line (`acquireLock` runs after
+    // `lockQueue` hands over), not when the request joins it.
+    let deadline = Instant::now() + timeout;
     let mut attempt = 0;
     loop {
         let error = match publish_lock(lock) {
