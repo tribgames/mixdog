@@ -9,6 +9,7 @@ pub mod media;
 pub mod memory;
 pub mod model_install;
 pub mod native_asset;
+pub(crate) mod params;
 pub mod scheduler;
 pub mod task_reports;
 pub mod tidy;

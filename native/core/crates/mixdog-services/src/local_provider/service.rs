@@ -12,6 +12,8 @@ use serde_json::{Value, json};
 
 use super::provider::{LocalProvider, ProviderError};
 use super::request_queue::local_idle_ttl_seconds;
+use crate::params;
+use mixdog_core_base::support::failed;
 
 /// Where the provider's persisted settings live (the config layer).
 #[async_trait]
@@ -38,7 +40,8 @@ fn invalid(path: &str, expected: &str) -> CoreError {
 impl From<ProviderError> for CoreError {
     fn from(e: ProviderError) -> Self {
         match e {
-            ProviderError::Invalid(m) => invalid("params", &m),
+            // Node's `TypeError` text is what the window shows; `invalidParams` would drop it.
+            ProviderError::Invalid(m) => failed("localProvider", m),
             // The `[local-provider] …` text is what Node's error carries to the caller.
             ProviderError::Failed(message) => CoreError::DomainError {
                 domain: "localProvider".into(),
@@ -103,8 +106,8 @@ impl LocalProviderService {
         Ok(())
     }
 
-    async fn dispatch(&self, method: &str, request: &Value) -> Result<Value, CoreError> {
-        let args = request.get("params").filter(|p| p.is_object()).cloned().unwrap_or_else(|| json!({}));
+    async fn dispatch(&self, method: &str, wire: &Value) -> Result<Value, CoreError> {
+        let args = params::object(wire).cloned().unwrap_or_else(|| json!({}));
         let provider = &self.provider;
         match method {
             "localProvider/searchLocalProviderModels" => Ok(provider.hf.search(args.get("query")).await.map_err(hf)?),
@@ -131,7 +134,7 @@ impl LocalProviderService {
                 Ok(result)
             }
             "localProvider/setLocalProviderContext" => {
-                let id = text(&args, "modelId").filter(|s| !s.is_empty()).ok_or_else(|| invalid("params.modelId", "string"))?;
+                let id = text(&args, "modelId").filter(|s| !s.is_empty()).ok_or_else(|| failed("localProvider", "Unknown local model."))?;
                 let tokens = match args.get("tokens") {
                     None | Some(Value::Null) => None,
                     Some(v) => Some(v.as_i64().ok_or_else(|| invalid("params.tokens", "integer or null"))?),
@@ -152,23 +155,23 @@ impl LocalProviderService {
                 Ok(self.settings_view().await?)
             }
             "localProvider/cancelLocalProviderInstallation" => {
-                let job = text(&args, "jobId").filter(|s| !mixdog_js::js_trim(s).is_empty()).ok_or_else(|| invalid("params.jobId", "string"))?;
-                provider.installs.cancel(job).map_err(|_| domain("jobNotFound"))?;
+                let job = text(&args, "jobId").filter(|s| !mixdog_js::js_trim(s).is_empty()).ok_or_else(|| failed("localProvider", "jobId is required."))?;
+                provider.installs.cancel(job).map_err(|e| failed("localProvider", e.to_string()))?;
                 Ok(self.settings_view().await?)
             }
             "localProvider/discardLocalProviderInstallation" => {
-                let phase = text(&args, "phase").filter(|p| ["runtime", "model", "verify", "repair"].contains(p)).ok_or_else(|| invalid("params.phase", "runtime | model | verify | repair"))?;
+                let phase = text(&args, "phase").filter(|p| ["runtime", "model", "verify", "repair"].contains(p)).ok_or_else(|| failed("localProvider", "phase must be runtime, model, verify or repair."))?;
                 let model = text(&args, "modelId").filter(|m| !mixdog_js::js_trim(m).is_empty());
                 if phase != "runtime" && model.is_none() {
-                    return Err(invalid("params.modelId", "string"));
+                    return Err(failed("localProvider", "modelId is required."));
                 }
                 provider.discard_installation(phase, if phase == "runtime" { None } else { model }).await?;
                 *self.command_error.lock().unwrap() = None;
                 Ok(self.settings_view().await?)
             }
             "localProvider/setLocalProviderIdleTtl" => {
-                let value = args.get("seconds").and_then(Value::as_i64).ok_or_else(|| invalid("params.seconds", "integer"))?;
-                let seconds = local_idle_ttl_seconds(value).map_err(|_| invalid("params.seconds", "integer from 0 (disabled) to 86400"))?;
+                let value = args.get("seconds").and_then(Value::as_i64).ok_or_else(|| failed("localProvider", "idleTtlSeconds must be an integer from 0 (disabled) to 86400."))?;
+                let seconds = local_idle_ttl_seconds(value).map_err(|e| failed("localProvider", e.to_string()))?;
                 self.settings.persist_idle_ttl(seconds).await.map_err(|_| domain("settingsFailed"))?;
                 provider.queue.configure(seconds);
                 Ok(self.settings_view().await?)
@@ -180,7 +183,7 @@ impl LocalProviderService {
 
 fn hf(e: super::hugging_face::HfError) -> CoreError {
     match e {
-        super::hugging_face::HfError::Invalid(m) => invalid("params", &m),
+        super::hugging_face::HfError::Invalid(m) => failed("localProvider", m),
         _ => domain("huggingFaceFailed"),
     }
 }
@@ -210,5 +213,58 @@ impl DomainService for LocalProviderService {
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
         Admit::Accepted
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use async_trait::async_trait;
+
+    use super::super::provider::tests::provider;
+    use super::*;
+
+    struct Settings(Mutex<Vec<u64>>);
+
+    #[async_trait]
+    impl LocalProviderSettings for Settings {
+        async fn persist_idle_ttl(&self, seconds: u64) -> Result<(), String> {
+            self.0.lock().unwrap().push(seconds);
+            Ok(())
+        }
+        async fn catalog_changed(&self) {}
+    }
+
+    async fn call(service: &LocalProviderService, method: &'static str, params: Value) -> Result<Reply, CoreError> {
+        let request = CoreRequest { method: Method(method), params, op: None, ctx: mixdog_core_api::CallContext::internal("test") };
+        service.call(request).await
+    }
+
+    fn text(reply: Result<Reply, CoreError>) -> (Option<String>, String) {
+        match reply.err().unwrap() {
+            CoreError::DomainError { code, message, .. } => (code.map(|c| c.to_string()), message.map(|m| m.to_string()).unwrap_or_default()),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// The request's `params` are the method's arguments (not a nested `params` member), and a
+    /// refusal answers Node's message (`install-progress.mjs`, `model-maintenance.mjs`,
+    /// `server.mjs`).
+    #[tokio::test]
+    async fn the_wire_params_reach_the_method() {
+        let dir = tempfile::tempdir().unwrap();
+        let settings = Arc::new(Settings(Mutex::default()));
+        let service = LocalProviderService::new(provider(dir.path()), settings.clone());
+
+        call(&service, "localProvider/setLocalProviderIdleTtl", json!({"opId": "o", "seconds": 600})).await.unwrap();
+        assert_eq!(*settings.0.lock().unwrap(), vec![600]);
+        let refusals = [
+            ("localProvider/cancelLocalProviderInstallation", json!({"opId": "o", "jobId": "harness-no-such-job"}), "[local-provider] installation job not found; refresh status before cancelling"),
+            ("localProvider/discardLocalProviderInstallation", json!({"opId": "o", "phase": "model", "modelId": "harness-no-such-model"}), "[local-provider] unknown model"),
+            ("localProvider/startLocalProviderModelMaintenance", json!({"opId": "o", "modelId": "harness-no-such-model", "operation": "verify"}), "[local-provider] unknown model"),
+            ("localProvider/setLocalProviderContext", json!({"opId": "o", "modelId": "harness-no-such-model", "tokens": 4096}), "Unknown local model."),
+        ];
+        for (method, params, want) in refusals {
+            assert_eq!(text(call(&service, method, params).await).1, want, "{method}");
+        }
     }
 }

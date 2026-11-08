@@ -53,11 +53,8 @@ impl From<Failure> for CoreError {
     }
 }
 
-fn object<'a>(params: &'a Value) -> Result<&'a Value, Invalid> {
-    match params.get("params") {
-        Some(v) if v.is_object() => Ok(v),
-        _ => Err(Invalid("params", "object")),
-    }
+fn object(params: &Value) -> Result<&Value, Invalid> {
+    crate::params::object(params).ok_or(Invalid("params", "object"))
 }
 
 fn source_of(value: Option<&Value>) -> Result<Source, Invalid> {
@@ -123,7 +120,7 @@ impl ImportService {
     async fn dispatch(&self, method: &str, request: &Value) -> Result<Value, Failure> {
         match method {
             "import/getConversationImportJobs" => {
-                let job_id = request.get("params").and_then(|p| p.get("jobId")).and_then(Value::as_str);
+                let job_id = request.get("jobId").and_then(Value::as_str);
                 Ok(self.jobs.get_jobs(job_id))
             }
             "import/listImportableConversations" => {
