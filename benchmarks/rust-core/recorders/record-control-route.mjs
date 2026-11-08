@@ -6,11 +6,14 @@
 // route after the sync, and what `setFast(true)` answered (the refusal text names the route's provider/model).
 //
 //   node benchmarks/rust-core/recorders/record-control-route.mjs --tree <dir>
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, REPO_ROOT, importFrom, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const cli = parseArgs();
 const tree = resolveTree(cli);
+// The Node commit the fixture is recorded from; the manifest names it only when the tree is exactly this commit.
+const NODE_COMMIT = execFileSync('git', ['rev-parse', 'b6f10295a^{commit}'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
 const rc = 'src/runtime/agent/orchestrator/runtime-core/';
 const helpers = await importFrom(tree, `${rc}config-helpers.mjs`);
 const caps = await importFrom(tree, `${rc}model-capabilities.mjs`);
@@ -106,5 +109,6 @@ writeSetManifest(outDir, {
   recorder: 'benchmarks/rust-core/recorders/record-control-route.mjs',
   command: 'node benchmarks/rust-core/recorders/record-control-route.mjs --tree <tree>',
   identityTree: tree,
+  identityRef: NODE_COMMIT,
 });
 console.log(`recorded ${cases.length} control-route cases (${cases.filter((c) => c.setFast.error).length} refusals)`);

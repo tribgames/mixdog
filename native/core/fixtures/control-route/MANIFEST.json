@@ -10,18 +10,18 @@
   ],
   "product": {
     "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": null,
-    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
     "files": 9139,
     "refComparison": {
-      "closestCommit": "cf2388c95ee5a1be78cbe554decab0de217f37f0",
-      "commitFilesMissingFromTree": 143,
-      "exact": false,
-      "filesDifferingFromCommit": 158
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
     },
     "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "archive",
+    "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-control-route.mjs",
