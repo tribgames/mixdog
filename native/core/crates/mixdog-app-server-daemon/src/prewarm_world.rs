@@ -20,7 +20,7 @@ use crate::compose_domains::EnvReader;
 pub struct DaemonPrewarmWorld {
     pub tool: Arc<CodeGraphTool>,
     pub io: mixdog_rt::MaintenanceIo,
-    /// `rt.closeRequested` (cancelled by the first stop step).
+    /// `rt.closeRequested` (cancelled when the release begins: `ComposedCore::set_stop_reason`).
     pub close_requested: CancellationToken,
     /// Ends an in-flight build with the process.
     pub cancel: CancellationToken,
@@ -48,6 +48,7 @@ pub struct WarmupSignals {
     pub prewarm: mixdog_core::run_host::code_graph_prewarm::SessionPrewarm,
     pub catalog: Arc<crate::catalog::CatalogWarmup>,
     pub models: Arc<mixdog_core_domains::domains::ai_admin::model_warmup::ModelWarmup>,
+    pub statusline: Arc<mixdog_core_domains::domains::ai_admin::statusline_warmup::StatuslineWarmup>,
 }
 
 impl CodeGraphPrewarmSignals for WarmupSignals {
@@ -59,10 +60,12 @@ impl CodeGraphPrewarmSignals for WarmupSignals {
         self.prewarm.wake();
         self.catalog.wake();
         self.models.wake();
+        self.statusline.wake();
     }
 
     fn turn_settled(&self) {
         self.models.first_turn_settled();
+        self.statusline.turn_settled();
     }
 
     fn lazy(&self) -> bool {
@@ -85,6 +88,11 @@ impl mixdog_core_domains::domains::ai_admin::model_warmup::WarmupGates for Daemo
 
     fn closing(&self) -> bool {
         self.close_requested.is_cancelled()
+    }
+
+    fn closed(&self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+        let closing = self.close_requested.clone();
+        Box::pin(async move { closing.cancelled().await })
     }
 }
 

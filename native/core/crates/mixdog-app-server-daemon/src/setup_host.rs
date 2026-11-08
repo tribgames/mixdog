@@ -122,6 +122,19 @@ impl SetupWarmup {
 /// The model warm's late cell: bound once the model list and the runtime's gates exist; `verify_bound` checks it.
 pub struct ModelWarmupCell(pub Arc<ModelWarmup>);
 
+/// The statusline usage warm-up's late cell: bound once the usage service exists; `verify_bound` checks it.
+pub struct StatuslineWarmupCell(pub Arc<mixdog_core_domains::domains::ai_admin::statusline_warmup::StatuslineWarmup>);
+
+impl Bound for StatuslineWarmupCell {
+    fn cell(&self) -> &'static str {
+        "statusline usage warm-up"
+    }
+
+    fn is_bound(&self) -> bool {
+        self.0.is_bound()
+    }
+}
+
 impl Bound for ModelWarmupCell {
     fn cell(&self) -> &'static str {
         "provider model warm-up"

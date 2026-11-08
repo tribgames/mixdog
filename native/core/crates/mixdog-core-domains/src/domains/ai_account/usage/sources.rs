@@ -12,6 +12,7 @@ use mixdog_ai::service::oauth_usage::OAuthUsage;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::route::Route;
 use mixdog_core_ports::ports::route_write::StatuslineUsage;
+use crate::domains::ai_admin::statusline_warmup::StatuslineSink;
 use mixdog_ai::service::api_usage::ApiUsageService;
 use mixdog_ai::service::oauth_usage::RouteInfo;
 use serde_json::Value;
@@ -84,6 +85,19 @@ pub fn statusline_target(route: &Route, registered: &dyn Fn(&str) -> bool) -> Op
 /// account in the background, a failure dropped.
 impl StatuslineUsage for ProviderUsageSources {
     fn refresh(&self, _thread: &ThreadId, route: &Route) {
+        self.refresh_route_now(route);
+    }
+}
+
+/// The statusline warm-up's refresh of the route it prepared (`refreshStatuslineUsageSnapshot(route)`).
+impl StatuslineSink for ProviderUsageSources {
+    fn refresh_route(&self, route: &Route) {
+        self.refresh_route_now(route);
+    }
+}
+
+impl ProviderUsageSources {
+    fn refresh_route_now(&self, route: &Route) {
         let Some((provider, model)) = statusline_target(route, &|name| self.registry.registered(name).is_some()) else { return };
         let (oauth, accounts) = (self.oauth.clone(), self.accounts.clone());
         drop(mixdog_rt::spawn("statusline-usage", mixdog_rt::TaskClass::Work, async move {

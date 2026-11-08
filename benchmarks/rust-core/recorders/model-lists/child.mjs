@@ -1,6 +1,6 @@
 // Child of record.mjs: one Node daemon in the isolated env it was started in; records the model-list reads.
 //   node --experimental-transform-types child.mjs <nodeTree> <workspace> <scenario.json>
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, watch } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -8,6 +8,22 @@ const [nodeTree, workspace, scenarioFile] = process.argv.slice(2);
 const scenario = JSON.parse(readFileSync(scenarioFile, 'utf8'));
 const client = await import(pathToFileURL(join(nodeTree, 'src', 'standalone', 'session-client.mjs')).href);
 const out = { name: scenario.name, calls: [] };
+// Resolves when the daemon's log (the daemon owns its stderr as <data dir>/daemon.log once it is ready) holds the text: a
+// directory watch, one read per change, and one deadline timer.
+function untilLogged(text, timeoutMs) {
+  const file = join(process.env.MIXDOG_DATA_DIR, 'daemon.log');
+  return new Promise((resolve, reject) => {
+    const logged = () => existsSync(file) && readFileSync(file, 'utf8').includes(text);
+    const finish = (error) => {
+      clearTimeout(timer);
+      watcher.close();
+      error ? reject(error) : resolve();
+    };
+    const watcher = watch(process.env.MIXDOG_DATA_DIR, () => logged() && finish());
+    const timer = setTimeout(() => finish(new Error('never logged: ' + text)), timeoutMs);
+    if (logged()) finish();
+  });
+}
 let discovery = null;
 let attached = null;
 let failure = null;
@@ -18,6 +34,14 @@ try {
   const created = await attached.call('session.create', open);
   const sessionId = String(created?.sessionId || '');
   if (!sessionId) throw new Error('session.create returned no sessionId');
+  // Node registers the route's OAuth provider from its statusline-usage warm-up (800 ms after boot) and reports the end of that
+  // preparation as the boot-profile event below: the one read that follows lists the provider.
+  if (scenario.waitListed) {
+    await untilLogged('statusline-usage:warm-ready', 60_000);
+    const rows = (await attached.call('session.read', { sessionId, action: 'listProviderModels', args: [{}], open, baseRevision: null }))?.value ?? [];
+    if (!rows.some((row) => row.provider === scenario.waitListed)) throw new Error(`provider ${scenario.waitListed} not listed after the warm-up`);
+    out.waited = { rows };
+  }
   for (const call of scenario.calls) {
     let entry;
     try {

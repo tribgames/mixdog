@@ -332,6 +332,9 @@ impl ComposedCore {
     /// later `stop` agree on one reason.
     pub fn set_stop_reason(&self, reason: &str) {
         let _ = self.stop_reason.0.set(reason.to_owned());
+        // The stop's entry is also where closing is requested (Node's `closeRequested` flag, set before its first step): the warm-ups
+        // waiting on it end now, not in the late session-directory step, which a step over its budget would skip.
+        self.real.close_requested.cancel();
     }
 
     /// The cell the stop steps read (`Real::session_shutdown_step`): it is filled by the time any step runs.
@@ -771,6 +774,83 @@ mod tests {
         core.run_final_barriers();
         core.run_stop_steps().await;
         assert_eq!(*order.lock().unwrap(), ["first", "second", "step"]);
+    }
+
+    /// Closing is requested when the release begins, before any budgeted step: whether a later step runs over its budget (and so skips
+    /// the stop steps, with the late session-directory step) cannot matter to the warm-ups waiting on the close.
+    #[tokio::test]
+    #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
+    async fn the_release_has_requested_closing_before_its_first_budgeted_step() {
+        use crate::lifecycle::testing::Recorder;
+        use crate::lifecycle::{CorePort, DrainNotice, Lifecycle, LifecycleConfig, Ports, ReleaseBudgets, Running};
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::time::Duration;
+
+        /// The recorder, except that the release states its reason to the real core (as `serving.rs` wires `release_started`), and
+        /// the first budgeted step (`finalBarriers`) notes whether closing was already requested when it started.
+        struct Entry {
+            core: Arc<ComposedCore>,
+            inner: Arc<Recorder>,
+            requested_at_first_step: Arc<AtomicBool>,
+        }
+        impl CorePort for Entry {
+            fn drain_notice(&self, notice: &DrainNotice) {
+                self.inner.drain_notice(notice);
+            }
+            fn health(&self, stalled_ms: u64) {
+                self.inner.health(stalled_ms);
+            }
+            fn cancel_running(&self, running: &[Running]) {
+                self.inner.cancel_running(running);
+            }
+            fn release_decision(&self, pid: u32) {
+                self.inner.release_decision(pid);
+            }
+            fn release_started(&self, reason: &str) {
+                self.core.set_stop_reason(reason);
+            }
+            fn final_barriers(&self) {
+                self.requested_at_first_step.store(self.core.real.close_requested.is_cancelled(), Ordering::SeqCst);
+                self.inner.final_barriers();
+            }
+            fn close_connections(&self) {
+                self.inner.close_connections();
+            }
+            fn close_ext_host(&self) {
+                self.inner.close_ext_host();
+            }
+            fn close_data_handles(&self) {
+                self.inner.close_data_handles();
+            }
+            fn flush_log(&self) {
+                self.inner.flush_log();
+            }
+        }
+
+        let _one = crate::compose_test_support::exclusive().await;
+        let dir = tempfile::tempdir().unwrap();
+        let log = crate::daemon_log::DaemonLog::new(dir.path().join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new());
+        let core = Arc::new(compose(&mixdog_rt::testing::tokens(), config(dir.path(), log, mixdog_rt::CancellationToken::new())).await.unwrap());
+        assert!(!core.real.close_requested.is_cancelled());
+        let requested_at_first_step = Arc::new(AtomicBool::new(false));
+        let recorder = Arc::new(Recorder::default());
+        let ample = Duration::from_secs(3600);
+        let budgets = ReleaseBudgets { final_barriers: ample, close_connections: ample, close_ext_host: ample, record_exit: ample, withdraw_discovery: ample, close_data_handles: ample };
+        let lifecycle = Lifecycle::with_budgets(
+            LifecycleConfig { instance_id: "instance-1".into(), version: "1.4.6".into(), runtime_root: dir.path().to_owned() },
+            Ports { core: Arc::new(Entry { core: core.clone(), inner: recorder.clone(), requested_at_first_step: requested_at_first_step.clone() }), discovery: recorder.clone(), exiter: recorder.clone() },
+            budgets,
+        );
+        lifecycle.set_serving().unwrap();
+        drop(lifecycle.connection(crate::lifecycle::ClientKind::Session));
+        // wait_exit blocks the thread; the release runs on its own.
+        tokio::task::spawn_blocking({
+            let recorder = recorder.clone();
+            move || recorder.wait_exit()
+        })
+        .await
+        .unwrap();
+        assert!(requested_at_first_step.load(Ordering::SeqCst), "closing was already requested when the first budgeted step started");
     }
 
     /// The stop procedure writes the log out before the run token ends: a line a step logs is on disk when it returns.

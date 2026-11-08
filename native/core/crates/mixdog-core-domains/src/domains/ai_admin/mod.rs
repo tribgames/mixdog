@@ -7,6 +7,9 @@ pub mod chain;
 pub mod chat_routes;
 pub mod model_list;
 pub mod model_warmup;
+pub mod statusline_warmup;
+#[cfg(test)]
+mod statusline_warmup_tests;
 pub mod model_proxy;
 pub mod model_proxy_service;
 pub mod provider_status;
