@@ -36,7 +36,11 @@ fn main() {
     println!("cargo:rerun-if-env-changed={SECRET_VAR}");
     let repo = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets it")).join("../../../..");
     let generated = repo.join(GENERATED);
-    println!("cargo:rerun-if-changed={}", generated.display());
+    // Cargo treats a missing rerun-if-changed path as always changed, which reran this script and
+    // recompiled every downstream crate on each build. While the file is absent, watch the nearest
+    // existing ancestor instead: creating the file still bumps that directory.
+    let watched = generated.ancestors().find(|path| path.exists()).unwrap_or(&repo);
+    println!("cargo:rerun-if-changed={}", watched.display());
 
     let (id, secret) = (text(std::env::var(ID_VAR).ok()), text(std::env::var(SECRET_VAR).ok()));
     let client = if !id.is_empty() && !secret.is_empty() {
@@ -54,5 +58,8 @@ fn main() {
         None => "None".to_owned(),
     };
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("cargo sets it")).join("google_client.rs");
-    std::fs::write(out, source).expect("write the embedded client");
+    // An unchanged rewrite would still bump the mtime that rustc's dep-info compares.
+    if std::fs::read_to_string(&out).ok().as_deref() != Some(source.as_str()) {
+        std::fs::write(out, source).expect("write the embedded client");
+    }
 }
