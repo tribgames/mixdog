@@ -11,7 +11,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::fs;
+use std::fs::Metadata;
 use std::io;
 use std::io::Write;
 use std::path::Path;
@@ -25,6 +25,12 @@ use std::time::Instant;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
+use mixdog_fsio::ReadProof;
+use mixdog_fsio::WriteProof;
+
+use mixdog_rt::InLane;
+
+use crate::WriteLane;
 use crate::publish::rename_retryable;
 
 /// `DEFAULT_LOCK_TIMEOUT_MS`, or `MIXDOG_LOCK_TIMEOUT_MS` when that is a number of at least 0.
@@ -146,9 +152,9 @@ struct Owner {
 }
 
 /// `readLockOwner`: `<pid> <ms> <token>`, or the legacy `{"pid":N,...}`. Unreadable is no owner.
-fn read_owner(path: &Path) -> Owner {
+fn read_owner(proof: &impl ReadProof, path: &Path) -> Owner {
     let none = Owner { pid: None, token: None };
-    let Ok(bytes) = fs::read(path) else { return none };
+    let Ok(bytes) = mixdog_fsio::read(proof, path) else { return none };
     let text = String::from_utf8_lossy(&bytes);
     let text = text.trim();
     if text.starts_with('{') {
@@ -215,12 +221,12 @@ fn owner_is_live(owner: &Owner) -> bool {
     }
 }
 
-fn owned_by_self(path: &Path) -> bool {
-    let owner = read_owner(path);
+fn owned_by_self(proof: &impl ReadProof, path: &Path) -> bool {
+    let owner = read_owner(proof, path);
     owner.pid == Some(std::process::id()) && owner.token.as_deref() == Some(owner_token())
 }
 
-fn modified_ms_ago(meta: &fs::Metadata) -> u128 {
+fn modified_ms_ago(meta: &Metadata) -> u128 {
     meta.modified()
         .ok()
         .and_then(|m| SystemTime::now().duration_since(m).ok())
@@ -228,9 +234,9 @@ fn modified_ms_ago(meta: &fs::Metadata) -> u128 {
 }
 
 /// `describeLockHolder`.
-fn describe_holder(path: &Path) -> String {
-    let Ok(meta) = fs::metadata(path) else { return "holder unknown (lock file unreadable/absent)".into() };
-    let owner = read_owner(path);
+fn describe_holder(proof: &impl ReadProof, path: &Path) -> String {
+    let Ok(meta) = mixdog_fsio::metadata(proof, path) else { return "holder unknown (lock file unreadable/absent)".into() };
+    let owner = read_owner(proof, path);
     let live = match owner.pid {
         None => "unknown",
         Some(_) if owner_is_live(&owner) => "live",
@@ -241,30 +247,31 @@ fn describe_holder(path: &Path) -> String {
     format!("holder pid={pid} token={token} age={}ms {live}", modified_ms_ago(&meta))
 }
 
-fn create_exclusive(path: &Path, data: &str) -> io::Result<()> {
-    let mut options = fs::OpenOptions::new();
+fn create_exclusive(proof: &impl WriteProof, path: &Path, data: &str) -> io::Result<()> {
+    let mut options = mixdog_fsio::OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options.open(path)?.write_all(data.as_bytes())
+    options.mode(0o600);
+    options.open(proof, path)?.write_all(data.as_bytes())
 }
 
 /// `publishLock`: the owner record is staged privately, hard-linked to the lock path, and the
 /// staged name removed whether or not the link won.
-fn publish_lock(lock: &Path) -> io::Result<()> {
+fn publish_lock(proof: &impl WriteProof, lock: &Path) -> io::Result<()> {
     let staged = PathBuf::from(format!("{}.{}.{}.tmp", lock.display(), std::process::id(), hex16()));
-    let linked = create_exclusive(&staged, &format!("{} {} {}\n", std::process::id(), now_ms(), owner_token()))
-        .and_then(|()| fs::hard_link(&staged, lock));
-    let _ = fs::remove_file(&staged);
+    let linked = create_exclusive(proof, &staged, &format!("{} {} {}
+", std::process::id(), now_ms(), owner_token()))
+        .and_then(|()| mixdog_fsio::hard_link(proof, &staged, lock));
+    let _ = mixdog_fsio::remove_file(proof, &staged);
     linked
 }
 
 /// Identity of a file across renames: the volume and file index (device and inode on Unix).
-fn file_id(path: &Path) -> io::Result<(u64, u64)> {
+fn file_id(proof: &impl ReadProof, path: &Path) -> io::Result<(u64, u64)> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        let meta = fs::metadata(path)?;
+        let meta = mixdog_fsio::metadata(proof, path)?;
         Ok((meta.dev(), meta.ino()))
     }
     #[cfg(windows)]
@@ -272,7 +279,7 @@ fn file_id(path: &Path) -> io::Result<(u64, u64)> {
         use std::os::windows::io::AsRawHandle;
         use windows_sys::Win32::Storage::FileSystem::BY_HANDLE_FILE_INFORMATION;
         use windows_sys::Win32::Storage::FileSystem::GetFileInformationByHandle;
-        let file = fs::File::open(path)?;
+        let file = mixdog_fsio::File::open(proof, path)?;
         // SAFETY: zeroed is a valid initial state for this plain-data struct.
         let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
         // SAFETY: `file` is an open handle; `info` is an out-parameter.
@@ -294,54 +301,55 @@ struct ReclaimGuard {
 /// `revokeDeadReclaimGuard`: only a guard whose owner is proven dead and which is older than any
 /// live reclaim, moved aside first; if the moved file is not the one inspected, a newer guard was
 /// displaced and is linked back.
-fn revoke_dead_guard(guard: &Path) -> bool {
-    let Ok(before_meta) = fs::metadata(guard) else { return false };
-    let Ok(before) = file_id(guard) else { return false };
+fn revoke_dead_guard(proof: &impl WriteProof, guard: &Path) -> bool {
+    let Ok(before_meta) = mixdog_fsio::metadata(proof, guard) else { return false };
+    let Ok(before) = file_id(proof, guard) else { return false };
     if modified_ms_ago(&before_meta) < RECLAIM_GUARD_STALE.as_millis() {
         return false;
     }
-    let owner = read_owner(guard);
+    let owner = read_owner(proof, guard);
     if owner.pid.is_some() && owner_is_live(&owner) {
         return false;
     }
     let tomb = PathBuf::from(format!("{}.{}.{}.revoked", guard.display(), std::process::id(), hex16()));
-    if fs::rename(guard, &tomb).is_err() {
+    if mixdog_fsio::rename(proof, guard, &tomb).is_err() {
         return false;
     }
-    let revoked = file_id(&tomb).is_ok_and(|moved| moved == before);
+    let revoked = file_id(proof, &tomb).is_ok_and(|moved| moved == before);
     if !revoked {
-        let _ = fs::hard_link(&tomb, guard);
+        let _ = mixdog_fsio::hard_link(proof, &tomb, guard);
     }
-    let _ = fs::remove_file(&tomb);
+    let _ = mixdog_fsio::remove_file(proof, &tomb);
     revoked
 }
 
 /// `tryAcquireReclaimGuard`.
-fn acquire_reclaim_guard(lock: &Path) -> Option<ReclaimGuard> {
+fn acquire_reclaim_guard(proof: &impl WriteProof, lock: &Path) -> Option<ReclaimGuard> {
     let guard = PathBuf::from(format!("{}.reclaim", lock.display()));
-    let token = format!("{} {} {}\n", std::process::id(), now_ms(), hex16());
+    let token = format!("{} {} {}
+", std::process::id(), now_ms(), hex16());
     for attempt in 0..2 {
         let staged = PathBuf::from(format!("{}.{}.{}.tmp", guard.display(), std::process::id(), hex16()));
-        let linked = create_exclusive(&staged, &token).and_then(|()| fs::hard_link(&staged, &guard));
-        let _ = fs::remove_file(&staged);
+        let linked = create_exclusive(proof, &staged, &token).and_then(|()| mixdog_fsio::hard_link(proof, &staged, &guard));
+        let _ = mixdog_fsio::remove_file(proof, &staged);
         match linked {
             Ok(()) => return Some(ReclaimGuard { path: guard, token }),
             Err(error) if !rename_retryable(&error) => return None,
-            Err(_) if attempt > 0 || !revoke_dead_guard(&guard) => return None,
+            Err(_) if attempt > 0 || !revoke_dead_guard(proof, &guard) => return None,
             Err(_) => {}
         }
     }
     None
 }
 
-fn release_reclaim_guard(guard: &ReclaimGuard) {
-    if fs::read_to_string(&guard.path).is_ok_and(|text| text == guard.token) {
-        let _ = fs::remove_file(&guard.path);
+fn release_reclaim_guard(proof: &impl WriteProof, guard: &ReclaimGuard) {
+    if mixdog_fsio::read_to_string(proof, &guard.path).is_ok_and(|text| text == guard.token) {
+        let _ = mixdog_fsio::remove_file(proof, &guard.path);
     }
 }
 
 /// `lockReclaimable`: owner dead, or no owner and outlived the stale window.
-fn reclaimable(owner: &Owner, meta: &fs::Metadata, opts: &LockOpts) -> bool {
+fn reclaimable(owner: &Owner, meta: &Metadata, opts: &LockOpts) -> bool {
     if owner.pid.is_some() {
         return !owner_is_live(owner);
     }
@@ -352,29 +360,29 @@ fn reclaimable(owner: &Owner, meta: &fs::Metadata, opts: &LockOpts) -> bool {
 }
 
 /// `tryReclaimStaleLock`: true when the stale lock was removed and publishing should be retried.
-fn try_reclaim(lock: &Path, opts: &LockOpts) -> bool {
-    let Ok(initial) = fs::metadata(lock) else { return false };
-    let owner = read_owner(lock);
+fn try_reclaim(proof: &impl WriteProof, lock: &Path, opts: &LockOpts) -> bool {
+    let Ok(initial) = mixdog_fsio::metadata(proof, lock) else { return false };
+    let owner = read_owner(proof, lock);
     if !reclaimable(&owner, &initial, opts) {
         return false;
     }
-    let Some(guard) = acquire_reclaim_guard(lock) else { return false };
+    let Some(guard) = acquire_reclaim_guard(proof, lock) else { return false };
     let removed = (|| {
-        let current = fs::metadata(lock).ok()?;
-        let now = read_owner(lock);
+        let current = mixdog_fsio::metadata(proof, lock).ok()?;
+        let now = read_owner(proof, lock);
         if now.pid != owner.pid || now.token != owner.token || !reclaimable(&now, &current, opts) {
             return None;
         }
-        fs::remove_file(lock).ok()
+        mixdog_fsio::remove_file(proof, lock).ok()
     })()
     .is_some();
-    release_reclaim_guard(&guard);
+    release_reclaim_guard(proof, &guard);
     removed
 }
 
 /// A staged record left by a process killed between its create and unlink: swept once per lock
 /// path, only when old and its pid is dead. Cleanup only; no lock decision depends on it.
-fn sweep_staged(lock: &Path) {
+fn sweep_staged(proof: &impl WriteProof, lock: &Path) {
     static SWEPT: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
     let first = SWEPT.get_or_init(Mutex::default).lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(lock.to_owned());
     if !first {
@@ -382,7 +390,7 @@ fn sweep_staged(lock: &Path) {
     }
     let (Some(dir), Some(name)) = (lock.parent(), lock.file_name()) else { return };
     let prefix = format!("{}.", name.to_string_lossy());
-    let Ok(entries) = fs::read_dir(dir) else { return };
+    let Ok(entries) = mixdog_fsio::read_dir(proof, dir) else { return };
     for entry in entries.flatten() {
         let file = entry.file_name().to_string_lossy().into_owned();
         let Some(rest) = file.strip_prefix(&prefix).and_then(|r| r.strip_suffix(".tmp")) else { continue };
@@ -392,9 +400,9 @@ fn sweep_staged(lock: &Path) {
         else {
             continue;
         };
-        let old = entry.metadata().is_ok_and(|m| modified_ms_ago(&m) >= STAGED_STALE.as_millis());
+        let old = entry.metadata(proof).is_ok_and(|m| modified_ms_ago(&m) >= STAGED_STALE.as_millis());
         if old && !owner_is_live(&Owner { pid: Some(pid), token: None }) {
-            let _ = fs::remove_file(entry.path());
+            let _ = mixdog_fsio::remove_file(proof, entry.path());
         }
     }
 }
@@ -455,57 +463,62 @@ fn take_turn(line: &Arc<Line>, try_once: bool) -> Option<Turn> {
 }
 
 /// Runs `body` holding the lock at `lock`.
-pub(crate) fn locked<R>(lock: &Path, opts: &LockOpts, body: impl FnOnce() -> R) -> Result<R, LockError> {
+pub(crate) fn locked<L: WriteLane, R>(
+    proof: &InLane<L>,
+    lock: &Path,
+    opts: &LockOpts,
+    body: impl FnOnce() -> R,
+) -> Result<R, LockError> {
     if HELD.with(|held| held.borrow().contains(lock)) {
         return Ok(body());
     }
     let timeout = opts.timeout.unwrap_or_else(default_timeout);
     if let Some(dir) = lock.parent() {
-        fs::create_dir_all(dir)?;
+        mixdog_fsio::create_dir_all(proof, dir)?;
     }
     let Some(_turn) = take_turn(&line_of(lock), timeout.is_zero()) else {
-        return Err(LockError::Contended { path: lock.to_owned(), holder: describe_holder(lock) });
+        return Err(LockError::Contended { path: lock.to_owned(), holder: describe_holder(proof, lock) });
     };
     // The budget is for the file: it starts at the front of the line (`acquireLock` runs after
     // `lockQueue` hands over), not when the request joins it.
     let deadline = Instant::now() + timeout;
     let mut attempt = 0;
     loop {
-        let error = match publish_lock(lock) {
+        let error = match publish_lock(proof, lock) {
             Ok(()) => break,
             Err(error) if !rename_retryable(&error) => return Err(LockError::Io(error)),
             Err(error) => error,
         };
         drop(error);
-        if try_reclaim(lock, opts) {
+        if try_reclaim(proof, lock, opts) {
             continue;
         }
         if timeout.is_zero() {
-            return Err(LockError::Contended { path: lock.to_owned(), holder: describe_holder(lock) });
+            return Err(LockError::Contended { path: lock.to_owned(), holder: describe_holder(proof, lock) });
         }
         if Instant::now() >= deadline {
-            return Err(LockError::Timeout { path: lock.to_owned(), timeout, holder: describe_holder(lock) });
+            return Err(LockError::Timeout { path: lock.to_owned(), timeout, holder: describe_holder(proof, lock) });
         }
-        std::thread::sleep(retry_delay(attempt, deadline));
+        mixdog_fsio::sleep(proof, retry_delay(attempt, deadline));
         attempt += 1;
     }
     HELD.with(|held| held.borrow_mut().insert(lock.to_owned()));
     let result = {
-        let _release = Release(lock);
+        let _release = Release(proof, lock);
         body()
     };
-    sweep_staged(lock);
+    sweep_staged(proof, lock);
     Ok(result)
 }
 
 /// Releases the lock when the body ends, by return or by panic (`releaseLock`).
-struct Release<'a>(&'a Path);
+struct Release<'a, P: WriteProof>(&'a P, &'a Path);
 
-impl Drop for Release<'_> {
+impl<P: WriteProof> Drop for Release<'_, P> {
     fn drop(&mut self) {
-        HELD.with(|held| held.borrow_mut().remove(self.0));
-        if owned_by_self(self.0) {
-            let _ = fs::remove_file(self.0);
+        HELD.with(|held| held.borrow_mut().remove(self.1));
+        if owned_by_self(self.0, self.1) {
+            let _ = mixdog_fsio::remove_file(self.0, self.1);
         }
     }
 }
