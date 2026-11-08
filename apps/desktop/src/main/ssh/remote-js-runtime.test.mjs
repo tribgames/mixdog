@@ -14,7 +14,8 @@ import { fileURLToPath } from 'node:url';
 
 import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
 import { FrameDecoder, Kind, encodeFrame, encodeJsonFrame } from '../../../../../src/ext-host/frame.mjs';
-import { buildJsPayload, createBundleArchive, packedFiles } from '../../../scripts/stage-js-bundle.mjs';
+import { deriveRemoteRoots } from '../../../scripts/remote-js-roots.mjs';
+import { buildJsPayload, createBundleArchive } from '../../../scripts/stage-js-bundle.mjs';
 import { shellPath } from './remote-fixture.mjs';
 import { remoteProgramScript } from './remote-install-program.ts';
 
@@ -56,7 +57,12 @@ test('the bundle installs under a real sh and its js-runtime.json starts an ext-
     cacheDir: join(work, 'cache'),
     fetchNode: async () => ({ node: process.execPath, license: join(repoRoot, 'LICENSE'), version: process.version }),
     installModules: async (pkgDir) => mkdirSync(join(pkgDir, 'node_modules'), { recursive: true }),
-    listPackageFiles: packedFiles,
+    // Only what the two entries started below can load: `npm pack` over the whole package is a real npm run
+    // and some 3000 files copied one at a time, which a loaded machine cannot finish within the lane's budget.
+    listPackageFiles: async () => [
+      'package.json',
+      ...deriveRemoteRoots({ packageRootDir: repoRoot, entries: ['src/ext-host/worker.mjs', 'src/skill-script-entry.mjs'] }).reached,
+    ],
     packageRootDir: repoRoot,
   });
   const binary = join(work, 'mixdogd');
