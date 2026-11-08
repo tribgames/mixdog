@@ -44,7 +44,7 @@ fn stored(doc: &Value) -> Value {
 
 #[tokio::test]
 async fn reads_and_setters_match_the_recorded_node_settings() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/desktop/settings/config-settings-twin.json");
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/config-settings/config-settings-twin.json");
     let twin: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     let node_is_windows = twin["platform"] == "win32";
     let entries = twin["entries"].as_array().unwrap();

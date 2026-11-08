@@ -36,7 +36,7 @@ impl WorkflowConfig {
             (SectionName::Presets, None, Some(self.list_presets())),
             (SectionName::WebSearch, None, self.web_search_route().ok()),
             (SectionName::Workflows, None, self.list_workflows().await.ok()),
-            (SectionName::Config, Some("onboarding"), self.onboarding_status().ok()),
+            (SectionName::Config, Some("onboarding"), self.onboarding_status().await.ok()),
         ]
     }
 }

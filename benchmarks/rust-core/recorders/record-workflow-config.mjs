@@ -11,6 +11,7 @@
 // root of both sides.
 //
 //   node benchmarks/rust-core/recorders/record-workflow-config.mjs --tree <dir>
+import { execFileSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
@@ -18,6 +19,8 @@ import { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSe
 
 const cli = parseArgs();
 const tree = resolveTree(cli);
+// The Node commit the fixture is recorded from; the manifest names it only when the tree is exactly this commit.
+const NODE_COMMIT = execFileSync('git', ['rev-parse', 'b6f10295a^{commit}'], { cwd: tree, encoding: 'utf8' }).trim();
 const outDir = cli.get('out') ?? join(FIXTURES_ROOT, 'workflow-config');
 
 const NOW = '2026-01-02T03:04:05.678Z';
@@ -46,6 +49,12 @@ const cfgReal = await importFrom(tree, 'src/runtime/agent/orchestrator/config.mj
 const { withGrandfatheredBuiltins } = await importFrom(tree, `${rc}builtin-features.mjs`);
 const md = await importFrom(tree, 'src/runtime/shared/markdown-frontmatter.mjs');
 const { ONBOARDING_VERSION } = await importFrom(tree, `${s}quick-web-search-models.mjs`);
+const { registerBotRouteStore } = await importFrom(tree, 'src/runtime/shared/agent-store.mjs');
+
+// A store bot's route lives in its folder, and every route read of the summary asks the bot store first (`registerBotRouteStore`,
+// `configuredAgentRouteCandidates`): the store reads the data dir of the scenario that runs.
+let botStoreDir = '';
+registerBotRouteStore(() => botStoreDir);
 
 const stage = stageSet(outDir);
 const shippedRoot = join(stage, 'shipped');
@@ -142,6 +151,23 @@ const SCENARIOS = [
     ],
   },
   {
+    // The maintainer and the worker are store bots: the maintainer's route is in its folder; the worker has none there, so the
+    // route the config holds for it is not read. `getOnboardingStatus` and `saveStarterGuideState` answer the summary.
+    name: 'onboarding-bot-routes',
+    config: { agents: { worker: { provider: 'anthropic', model: 'config-worker' } } },
+    files: {
+      'bots/migration.json': JSON.stringify({ version: 1, bots: ['maintainer', 'worker'] }),
+      'bots/maintainer/agent.json': JSON.stringify({ route: { provider: 'custom-harness', model: 'harness-model', fast: false, modelParameters: {} } }),
+      'bots/worker/agent.json': JSON.stringify({ name: 'Worker' }),
+    },
+    steps: [
+      step('getOnboardingStatus'),
+      step('saveStarterGuideState', { state: { closed: false, welcomed: true, visited: ['provider'] } }),
+      step('skipOnboarding'),
+      step('getOnboardingStatus'),
+    ],
+  },
+  {
     name: 'onboarding-complete-guide',
     config: { onboarding: { completed: true, starterGuide: { closed: true, welcomed: 1, visited: ['remote', 'remote', 'bogus', 'provider'] } } },
     steps: [step('completeOnboarding', { payload: {} }), step('skipOnboarding')],
@@ -204,6 +230,7 @@ const scrub = (value, dataDir) => JSON.parse(JSON.stringify(value ?? null, (_k, 
 
 async function run(scenario) {
   const dataDir = mkdtempSync(join(tmpdir(), 'wf-config-'));
+  botStoreDir = dataDir;
   for (const [path, text] of Object.entries(scenario.files ?? {})) {
     mkdirSync(join(dataDir, path, '..'), { recursive: true });
     writeFileSync(join(dataDir, path), text);
@@ -306,6 +333,8 @@ async function run(scenario) {
     getConfiguredOrchestrationMode: () => api.getConfiguredOrchestrationMode(),
     setWebSearchRoute: (p) => search.setWebSearchRoute(p.next),
     setModelPreferences: (p) => saveModelPreferences(cfgMod, p.providerId, p.changes),
+    getOnboardingStatus: () => api.getOnboardingStatus(),
+    saveStarterGuideState: (p) => api.saveStarterGuideState(p.state),
     skipOnboarding: () => api.skipOnboarding(),
     completeOnboarding: (p) => api.completeOnboarding(p.payload),
   };
@@ -340,6 +369,7 @@ writeSetManifest(stage, {
   recorder: 'benchmarks/rust-core/recorders/record-workflow-config.mjs',
   command: 'node benchmarks/rust-core/recorders/record-workflow-config.mjs --tree <tree>',
   identityTree: tree,
+  identityRef: NODE_COMMIT,
 });
 commitStage(stage, outDir);
 console.log(`workflow-config: ${recorded.length} scenarios, ${recorded.reduce((n, x) => n + x.steps.length, 0)} steps -> ${outDir}`);

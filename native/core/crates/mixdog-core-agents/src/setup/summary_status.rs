@@ -137,7 +137,7 @@ impl StatusReader for SummaryStatus {
             }
         }
         let features = self.features.status().await?;
-        let onboarding = self.facts.onboarding()?;
+        let onboarding = self.facts.onboarding().await?;
         let onboarding = if truthy(Some(&onboarding)) { onboarding } else { Value::Null };
         Ok(json!({
             "route": route,

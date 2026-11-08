@@ -48,7 +48,9 @@ use self::ids::DEFAULT_WORKFLOW_ID;
 use self::ids::active_workflow_id;
 use self::ids::configured_orchestration_mode;
 use self::ids::workflow_id;
+use crate::config::AgentRoutes;
 use crate::config::Config;
+use crate::config::save_and_adopt;
 use crate::config::ConfigError;
 use mixdog_core_base::support::OpScopes;
 use mixdog_core_base::support::decode;
@@ -119,6 +121,8 @@ pub trait WorkflowHost: Send + Sync {
 
 pub struct WorkflowConfig {
     config: Config,
+    /// The bot store under the data directory: a store bot's route is read from it (botRouteResolver).
+    routes: AgentRoutes,
     paths: WorkflowPaths,
     host: Arc<dyn WorkflowHost>,
     ops: OpScopes,
@@ -168,6 +172,7 @@ impl WorkflowConfig {
         tokens: &LaneTokens,
     ) -> Arc<Self> {
         Arc::new(Self {
+            routes: AgentRoutes::new(config.clone(), paths.data.clone()),
             config,
             paths,
             host,
@@ -213,17 +218,9 @@ impl WorkflowConfig {
     }
 
     /// Writes `after` against `before` (what the caller started from).
-    /// `saveConfigAndAdopt`: the runtime holds the grandfathered config, so both sides of the
-    /// diff carry `builtins` and the first write seeds it.
+    /// `saveConfigAndAdopt`.
     async fn save(&self, before: &Doc, after: &Doc) -> Result<(), CoreError> {
-        // `after` descends from the adopted config, so it keeps the section `before` was stamped
-        // with: a Lead route it adds must not turn a fresh profile into a grandfathered one.
-        let before = with_grandfathered_builtins(before);
-        let mut after = after.clone();
-        if !after.contains_key("builtins") {
-            after.insert("builtins".into(), before.get("builtins").cloned().unwrap_or(Value::Null));
-        }
-        self.save_plain(&before, &after).await
+        save_and_adopt(&self.config, before, after).await.map_err(config_failure)
     }
 
     /// `cfgMod.saveConfig(next, { baseConfig })`: the diff of the documents as given.
@@ -388,8 +385,9 @@ impl WorkflowConfig {
     }
 
     /// `getOnboardingStatus()`.
-    pub fn onboarding_status(&self) -> Result<Value, CoreError> {
-        onboarding::status(&self.config.agent()).map_err(thrown)
+    pub async fn onboarding_status(&self) -> Result<Value, CoreError> {
+        let bots = onboarding::bot_routes(&self.routes).await.map_err(config_failure)?;
+        onboarding::status(&self.config.agent(), &bots).map_err(thrown)
     }
 
     /// `getWebSearchRoute()`: the stored route, the follow-Main marker when there is none.
@@ -399,8 +397,9 @@ impl WorkflowConfig {
 
     /// The status of the config a save just adopted: Node reads its in-memory config, which
     /// still holds what the stored form drops (an empty `modelParameters`).
-    fn adopted_status(&self, before: &Doc, adopted: &Doc) -> Result<Value, CoreError> {
-        onboarding::adopted_status(before, adopted).map_err(thrown)
+    async fn adopted_status(&self, before: &Doc, adopted: &Doc) -> Result<Value, CoreError> {
+        let bots = onboarding::bot_routes(&self.routes).await.map_err(config_failure)?;
+        onboarding::adopted_status(before, adopted, &bots).map_err(thrown)
     }
 
     async fn skip_onboarding(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
@@ -412,9 +411,9 @@ impl WorkflowConfig {
                     let before = self.config.agent();
                     let after = onboarding::skipped(&before, &(self.now)());
                     self.save(&before, &after).await?;
-                    self.adopted_status(&before, &after)
+                    self.adopted_status(&before, &after).await
                 },
-                || async { self.onboarding_status() },
+                || async { self.onboarding_status().await },
             )
             .await
     }
@@ -440,9 +439,9 @@ impl WorkflowConfig {
                     if let Some(lead) = completion.lead {
                         self.host.adopt_lead_route(onboarding::lead_selection(&lead)).await;
                     }
-                    self.adopted_status(&before, &completion.after)
+                    self.adopted_status(&before, &completion.after).await
                 },
-                || async { self.onboarding_status() },
+                || async { self.onboarding_status().await },
             )
             .await
     }

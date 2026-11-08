@@ -19,7 +19,12 @@ use super::ids::Doc;
 use super::ids::clean;
 use super::ids::has_own;
 use super::ids::truthy;
+use crate::config::AgentRoutes;
+use crate::config::ConfigError;
+
+use super::presets::BotRoutes;
 use super::presets::Effective;
+use super::presets::SUMMARY_AGENTS;
 use super::presets::effective;
 use super::presets::effective_keeping;
 use super::presets::summarize_workflow_routes;
@@ -58,12 +63,23 @@ fn with_starter_guide(previous: &Doc, mut onboarding: Doc) -> Doc {
 }
 
 /// `getOnboardingStatus()`.
-pub(crate) fn status(agent: &Doc) -> Result<Value, String> {
-    status_of(effective(agent))
+pub(crate) fn status(agent: &Doc, bots: &BotRoutes) -> Result<Value, String> {
+    status_of(effective(agent).with_bot_routes(bots))
+}
+
+/// The routes the bot store holds for the agents the status summarizes.
+pub(crate) async fn bot_routes(routes: &AgentRoutes) -> Result<BotRoutes, ConfigError> {
+    let mut bots = BotRoutes::new();
+    for (_, id) in SUMMARY_AGENTS {
+        if let Some(route) = routes.store_bot_route(id).await? {
+            bots.push((id.to_owned(), route));
+        }
+    }
+    Ok(bots)
 }
 
 /// The status of the config a save adopted: the presets it wrote keep their saved form.
-pub(crate) fn adopted_status(before: &Doc, adopted: &Doc) -> Result<Value, String> {
+pub(crate) fn adopted_status(before: &Doc, adopted: &Doc, bots: &BotRoutes) -> Result<Value, String> {
     let list = |doc: &Doc| doc.get("presets").and_then(Value::as_array).cloned().unwrap_or_default();
     let old = list(before);
     let written: Vec<String> = list(adopted)
@@ -71,7 +87,7 @@ pub(crate) fn adopted_status(before: &Doc, adopted: &Doc) -> Result<Value, Strin
         .filter(|preset| !old.contains(preset))
         .map(|preset| clean(preset.get("id")))
         .collect();
-    status_of(effective_keeping(adopted, &written))
+    status_of(effective_keeping(adopted, &written).with_bot_routes(bots))
 }
 
 fn status_of(view: Effective) -> Result<Value, String> {

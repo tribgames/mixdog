@@ -22,6 +22,8 @@ use super::WorkflowPaths;
 use super::ids::Doc;
 use crate::config::Config;
 use crate::config::ConfigLanes;
+use crate::config::NoEffects;
+use crate::config::Settings;
 use mixdog_core_base::support::testing::request;
 use mixdog_core_base::support::testing::scopes;
 use mixdog_core_base::support::testing::value;
@@ -161,9 +163,19 @@ async fn methods_match_node() {
                 params = json!({});
             }
             let n = i as u64 + 1;
-            let params = if method.starts_with("get") { params } else { with_op(params, n) };
-            let req = request(method_name(method), params, Some(n));
-            let got = match value(&*service, req).await {
+            let params = if method.starts_with("get") || method == "saveStarterGuideState" { params } else { with_op(params, n) };
+            // `getOnboardingStatus` is a session action served from a section, and `saveStarterGuideState` belongs to the settings:
+            // neither is a method of this service, so each is called on its owner over the same config and data dir.
+            let answer = match method {
+                "getOnboardingStatus" => service.onboarding_status().await,
+                "saveStarterGuideState" => Settings::new(config.clone(), Arc::new(NoEffects), Arc::new(|_| None))
+                    .with_data_dir(data.clone())
+                    .save_starter_guide_state(&params["state"])
+                    .await
+                    .map_err(|error| CoreError::DomainError { domain: "config".into(), code: None, message: Some(error.to_string().into()), detail: None }),
+                _ => value(&*service, request(method_name(method), params, Some(n))).await,
+            };
+            let got = match answer {
                 Ok(v) => json!({ "result": scrub(&v, &data.to_string_lossy()) }),
                 Err(CoreError::DomainError { message: Some(message), detail: None, .. }) => json!({ "error": &*message }),
                 Err(other) => panic!("{name} #{i} {method}: {other:?}"),
@@ -224,7 +236,7 @@ async fn the_sections_push_the_values_of_the_actions_and_only_what_changed() {
     assert_eq!(pushed(&first[0].2), service.list_presets());
     assert_eq!(pushed(&first[1].2), service.web_search_route().unwrap());
     assert_eq!(pushed(&first[2].2), service.list_workflows().await.unwrap());
-    assert_eq!(pushed(&first[3].2), service.onboarding_status().unwrap());
+    assert_eq!(pushed(&first[3].2), service.onboarding_status().await.unwrap());
     assert!(pushed(&first[3].2).get("workflowRoutes").is_some(), "the status carries the route summary");
 
     super::sections::push_changed(&service, &publisher, &mut last).await;

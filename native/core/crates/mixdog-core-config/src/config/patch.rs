@@ -173,6 +173,24 @@ pub fn seed_changes(config: &Doc, changes: &[ConfigChange]) -> Vec<ConfigChange>
     }
 }
 
+/// `canonicalizeShellStorage` (config-storage.mjs): the command under its one name (`command` ?? `path` ?? `executable` ?? `shell`,
+/// trimmed), no other alias, and an empty section is absent.
+fn canonical_shell(value: Option<&Value>) -> Option<Doc> {
+    let mut shell = value.and_then(Value::as_object).cloned().unwrap_or_default();
+    let command = ["command", "path", "executable", "shell"]
+        .iter()
+        .find_map(|key| shell.get(*key).filter(|value| !value.is_null()))
+        .map(|value| mixdog_js::js_trim(&mixdog_js::value_to_string(value)).to_owned())
+        .unwrap_or_default();
+    for alias in ["path", "executable", "shell", "command"] {
+        shell.shift_remove(alias);
+    }
+    if !command.is_empty() {
+        shell.insert("command".into(), Value::String(command));
+    }
+    (!shell.is_empty()).then_some(shell)
+}
+
 /// `createConfigPatch(before, after)`: the difference of the two stored forms.
 pub fn create_config_patch(before: &Doc, after: &Doc) -> Vec<ConfigChange> {
     diff_config(&stored_form(before), &stored_form(after))
@@ -230,12 +248,13 @@ pub fn stored_form(config: &Doc) -> Doc {
     for key in ["maintenance", "agents"] {
         next.insert(key.into(), routes.get(key).cloned().unwrap_or_else(|| Value::Object(Doc::new())));
     }
+    // `profile` is always stored whole: `canonicalRoutes.profile ?? normalizeProfileConfig(null)`.
+    next.insert("profile".into(), Value::Object(super::settings::normalize_profile(config.get("profile"))));
     for key in [
         "modelSettings",
         "onboarding",
         "workflow",
         "orchestrationMode",
-        "profile",
         "skills",
         "extensionScopes",
         "autoClear",
@@ -250,7 +269,11 @@ pub fn stored_form(config: &Doc) -> Doc {
         "instructionFiles",
         "autoEffortBase",
     ] {
-        if let Some(value) = config.get(key) {
+        if key == "shell" {
+            if let Some(shell) = canonical_shell(config.get(key)) {
+                next.insert(key.into(), Value::Object(shell));
+            }
+        } else if let Some(value) = config.get(key) {
             // Node stores `config.update || {}`, `onboarding || {}` and `recap || {}`.
             if is_truthy(value) {
                 next.insert(key.into(), value.clone());

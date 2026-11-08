@@ -69,6 +69,7 @@ use serde_json::Value;
 pub use output_style::OutputStyles;
 pub use settings::{normalize_profile, PROFILE_EXPERIENCE_LEVELS, PROFILE_LANGUAGES};
 pub use settings::NoEffects;
+pub(crate) use settings::save_and_adopt;
 pub use settings::Settings;
 pub use settings::SettingsEffects;
 pub use settings::SettingsEnv;

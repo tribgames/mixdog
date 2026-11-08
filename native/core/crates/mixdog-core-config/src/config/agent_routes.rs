@@ -186,6 +186,17 @@ impl AgentRoutes {
         }
     }
 
+    /// What the bot store answers for `id` (`botRouteResolver`, `readBotRoute`): `None` when `id` is no store bot, so the
+    /// config decides; `Some(route)` for a store bot, `Some(None)` when it has no complete route. Every route read of the
+    /// workflow summary asks the store first (`configuredAgentRouteCandidates`).
+    pub async fn store_bot_route(&self, id: &str) -> Result<Option<Option<Value>>, ConfigError> {
+        let (dir, key) = (self.data_dir.clone(), id.to_owned());
+        if !on_lane(self.config.lanes.read, move |lane| is_store_bot(lane, &dir, &key)).await? {
+            return Ok(None);
+        }
+        self.read_bot_route(id).await.map(Some)
+    }
+
     async fn read_bot_route(&self, bot: &str) -> Result<Option<Value>, ConfigError> {
         let file = self.data_dir.join(BOTS_DIR).join(bot).join("agent.json");
         let manifest = on_lane(self.config.lanes.read, move |lane| read_json(lane, &file)).await?;

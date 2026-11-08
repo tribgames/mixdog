@@ -210,8 +210,8 @@ impl WorkflowFacts for WorkflowGetters {
     fn web_search_route(&self) -> Result<Value, PortError> {
         self.0.web_search_route().map_err(|error| PortError::Failed { capability: "setup".into(), message: format!("{error:?}") })
     }
-    fn onboarding(&self) -> Result<Value, PortError> {
-        self.0.onboarding_status().map_err(|error| PortError::Failed { capability: "setup".into(), message: format!("{error:?}") })
+    async fn onboarding(&self) -> Result<Value, PortError> {
+        self.0.onboarding_status().await.map_err(|error| PortError::Failed { capability: "setup".into(), message: format!("{error:?}") })
     }
     async fn workflows(&self) -> Result<Value, PortError> {
         self.0.list_workflows().await.map_err(|error| PortError::Failed { capability: "setup".into(), message: format!("{error:?}") })
