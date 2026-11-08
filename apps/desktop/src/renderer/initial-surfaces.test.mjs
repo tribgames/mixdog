@@ -62,6 +62,26 @@ function harness(t, { globalTimers = false } = {}) {
   };
 }
 
+// A host whose `sections` source the test drives: `snapshot` is held until `loaded` resolves with the entries, and
+// `push` delivers a later change the way the core pushes one.
+function pushedSections() {
+  const loaded = Promise.withResolvers();
+  let listener = () => {};
+  let revision = 0;
+  const entry = (section, value) => ({ section, key: null, revision: ++revision, value });
+  return {
+    source: {
+      core: async () => false,
+      snapshot: async () => ({ status: 'ready', entries: await loaded.promise }),
+      subscribe: (next) => ((listener = next), () => {}),
+    },
+    entry,
+    load: (entries) => loaded.resolve(entries),
+    push: (section, value) =>
+      listener({ kind: 'sections', changes: [{ section, key: null, entry: entry(section, value) }] }),
+  };
+}
+
 test('cold lists expose a neutral pending state on their very first render', async (t) => {
   const view = harness(t);
   const [
@@ -266,29 +286,24 @@ test('Projects distinguishes an unknown catalog from a confirmed empty result an
 
 test('Workflow stays out of the row for a single pack, without reserving a slot, and returns when a choice exists', async (t) => {
   const view = harness(t);
-  const request = Promise.withResolvers();
-  window.mixdogDesktop.invokeCapability = () => request.promise;
+  // Workflows are the core's pushed `workflows` section (desktop-services.md §15 P13).
+  const sections = pushedSections();
+  Object.defineProperty(window.mixdogDesktop, 'sections', { value: sections.source, configurable: true });
   const { WorkflowSelect } = await import('./model-controls.tsx');
-  const { invalidateSidebarReferenceForMutation } = await import('./sidebar-reference-cache.ts');
   const props = { disabled: false, invokeResult: (work) => work(), applySnapshot() {} };
   await view.render(React.createElement(WorkflowSelect, props));
   // No reserved slot: a placeholder that resolves to a single pack would shift
   // the whole context row, which is what removing the control avoids.
   assert.equal(view.host.querySelector('[aria-busy="true"]'), null);
-  await view.settle(() => request.resolve({ value: [{ id: 'solo', name: 'Solo', active: true }] }));
+  await view.settle(() => sections.load([sections.entry('workflows', [{ id: 'solo', name: 'Solo', active: true }])]));
   assert.equal(view.host.querySelector('button'), null);
-  // A pack edit retires the shared list (the picker reads through the host-scoped
-  // sidebar reference loader); a second pack makes it a real choice.
-  const reloaded = Promise.withResolvers();
-  window.mixdogDesktop.invokeCapability = () => reloaded.promise;
-  await view.settle(() => invalidateSidebarReferenceForMutation('createWorkflow'));
+  // A pack edit is pushed as a new `workflows` value (the picker reads through the host-scoped sidebar reference
+  // loader, which follows the section); a second pack makes it a real choice.
   await view.settle(() =>
-    reloaded.resolve({
-      value: [
-        { id: 'solo', name: 'Solo', active: true },
-        { id: 'default', name: 'Default' },
-      ],
-    })
+    sections.push('workflows', [
+      { id: 'solo', name: 'Solo', active: true },
+      { id: 'default', name: 'Default' },
+    ])
   );
   assert.match(view.host.textContent, /Solo/);
   assert.equal(view.host.querySelector('button').disabled, false);

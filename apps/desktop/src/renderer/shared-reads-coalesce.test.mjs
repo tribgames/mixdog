@@ -33,15 +33,36 @@ function fakeApi() {
   };
 }
 
-test('concurrent workflow pickers share one listWorkflows daemon call', async () => {
-  resetSidebarReferenceCache();
+// Workflows are a pushed section (desktop-services.md §15 P13): a read is the section store, never a daemon call.
+function pushedWorkflowsApi() {
   const api = fakeApi();
+  api.snapshots = 0;
+  api.sections = {
+    async snapshot() {
+      api.snapshots += 1;
+      return {
+        status: 'connected',
+        entries: [{ section: 'workflows', key: null, revision: 1, value: [{ id: 'solo', name: 'Solo' }] }],
+      };
+    },
+    subscribe: () => () => undefined,
+  };
+  return api;
+}
+
+test('concurrent workflow pickers share one read of the pushed workflows section', async () => {
+  resetSidebarReferenceCache();
+  const api = pushedWorkflowsApi();
   await Promise.all(Array.from({ length: 12 }, () => loadSidebarReferences(api, ['workflows'])));
-  assert.deepEqual(api.calls, ['listWorkflows']);
+  // The store folding its first snapshot is itself a section change, which invalidates the key the load raced; the
+  // next load is answered from the store that already holds the section.
+  await loadSidebarReferences(api, ['workflows']);
+  assert.deepEqual(api.calls, [], 'no listWorkflows daemon call');
+  assert.equal(api.snapshots, 1);
   assert.equal(readSidebarReference('workflows').length, 1);
 });
 
-test('N workflow pickers mounting together make one daemon listWorkflows call', async () => {
+test('N workflow pickers mounting together read the pushed workflows section once and call no daemon', async () => {
   resetSidebarReferenceCache();
   const { WorkflowSelect } = await import('./model-controls.tsx');
   const { dom } = installTestDom(null, {
@@ -51,7 +72,7 @@ test('N workflow pickers mounting together make one daemon listWorkflows call', 
     actEnvironment: false,
   });
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-  const api = fakeApi();
+  const api = pushedWorkflowsApi();
   dom.window.mixdogDesktop = api;
   globalThis.window = dom.window;
   const picker = (key) =>
@@ -66,7 +87,8 @@ test('N workflow pickers mounting together make one daemon listWorkflows call', 
     root.render(React.createElement(React.Fragment, null, ...Array.from({ length: 8 }, (_, i) => picker(i))))
   );
   await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
-  assert.equal(api.calls.filter((c) => c === 'listWorkflows').length, 1);
+  assert.deepEqual(api.calls, []);
+  assert.equal(api.snapshots, 1);
   await act(async () => root.unmount());
 });
 
