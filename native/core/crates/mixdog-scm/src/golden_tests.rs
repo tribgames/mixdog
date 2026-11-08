@@ -786,6 +786,30 @@ async fn a_snapshot_is_locked_for_its_holder_and_leased_as_nodes_is() {
     assert_eq!(listing.lines().filter(|line| line.starts_with("worktree ")).count() as u64, node["worktrees"].as_u64().unwrap());
 }
 
+/// Node's `inspectRepo` and `listWorktrees` pass every path through `canonicalPath`; git's own
+/// `C:/…` spelling must not reach the callers that compare and key by these paths.
+#[tokio::test]
+async fn repository_facts_and_worktree_rows_carry_canonical_paths() {
+    use crate::worktree::manager::Worktrees;
+    use mixdog_workspace::pathguard::canonical_through_existing;
+    let (_guard, repo, _head) = fixture_repo();
+    let linked = _guard.path().join("linked");
+    git(&repo, &["worktree", "add", "-b", "side", linked.to_str().unwrap()]);
+    let data = tempfile::tempdir().unwrap();
+    let cancel = CancellationToken::new();
+    let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
+    let canon = |p: &Path| canonical_through_existing(p).unwrap();
+    let facts = worktrees.inspect_repo(&repo, &cancel).await.unwrap();
+    assert_eq!(facts.project_path, canon(&repo));
+    assert_eq!(facts.top_level, canon(&repo));
+    assert_eq!(facts.common_dir, canon(&repo.join(".git")));
+    let mut rows: Vec<String> = worktrees.list_git_worktrees(&repo, &cancel).await.unwrap().into_iter().map(|r| r.path).collect();
+    rows.sort();
+    let mut expected = vec![canon(&repo).to_string_lossy().into_owned(), canon(&linked).to_string_lossy().into_owned()];
+    expected.sort();
+    assert_eq!(rows, expected);
+}
+
 #[tokio::test]
 async fn a_snapshot_whose_lease_cannot_be_written_is_rolled_back_whole() {
     use crate::worktree::manager::Worktrees;

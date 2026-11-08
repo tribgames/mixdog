@@ -9,6 +9,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use mixdog_workspace::pathguard::canonical_through_existing;
 use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
@@ -312,6 +313,7 @@ impl Worktrees {
     /// Repository facts of `project`: `WORKTREE_PROJECT_UNKNOWN` when the folder is gone,
     /// `WORKTREE_UNSUPPORTED_REPO` for a non-repository, a bare one or one without a commit.
     pub async fn inspect_repo(&self, project: &Path, cancel: &CancellationToken) -> Result<RepoFacts, ScmFailure> {
+        let project = &self.canonical_paths(vec![project.to_path_buf()], cancel).await?[0];
         let project_text = path_text(project);
         if !project.is_dir() {
             return Err(errors::project_unknown_text(project_text, "missing", "The project folder no longer exists."));
@@ -334,18 +336,37 @@ impl Worktrees {
         if !head.success() {
             return Err(errors::unsupported_repo_text(project_text, "The repository has no commits yet; commit once first."));
         }
+        let [top_level, common_dir]: [PathBuf; 2] = self
+            .canonical_paths(vec![top_level, repo.identity.common_dir.clone()], cancel)
+            .await?
+            .try_into()
+            .expect("two paths in, two out");
         Ok(RepoFacts {
-            project_path: project.to_path_buf(),
+            project_path: project.clone(),
             current_branch: self.scm.checked_out_branch(cancel, &top_level).await?,
             top_level,
-            common_dir: repo.identity.common_dir.clone(),
+            common_dir,
             head: head.stdout_text().trim().to_owned(),
         })
     }
 
+    /// Node's `canonicalPath` for each path: through its nearest existing ancestor (git reports
+    /// `C:/…`, short names and links; callers compare and key by these).
+    async fn canonical_paths(&self, paths: Vec<PathBuf>, cancel: &CancellationToken) -> Result<Vec<PathBuf>, ScmFailure> {
+        on_lane(self.scm.lane, cancel, move || {
+            paths.into_iter().map(|p| canonical_through_existing(&p).unwrap_or(p)).collect()
+        })
+        .await
+    }
+
     pub async fn list_git_worktrees(&self, cwd: &Path, cancel: &CancellationToken) -> Result<Vec<GitWorktree>, ScmFailure> {
         let text = self.scm.git.read(cancel, cwd, &["worktree", "list", "--porcelain", "-z"]).await?;
-        Ok(parse_worktree_list(&text))
+        let mut rows = parse_worktree_list(&text);
+        let real = self.canonical_paths(rows.iter().map(|r| PathBuf::from(&r.path)).collect(), cancel).await?;
+        for (row, path) in rows.iter_mut().zip(real) {
+            row.path = path_text(&path);
+        }
+        Ok(rows)
     }
 
     async fn local_branches(&self, cwd: &Path, cancel: &CancellationToken) -> Result<HashSet<String>, ScmFailure> {
