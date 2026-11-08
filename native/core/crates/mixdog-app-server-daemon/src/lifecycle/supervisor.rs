@@ -48,17 +48,31 @@ pub enum StepEnd {
     OverBudget,
 }
 
-/// [`supervise`] for an async step, awaited from the runtime: the step runs to completion on its
-/// own thread through the runtime handle, and the wait for it is a blocking-pool task.
+/// [`supervise`] for an async step, awaited from the runtime: the step runs to completion on a
+/// `mixdog-release-<name>` thread of its own through the runtime handle, as a sync step does, and
+/// the wait for it is an async timeout, so no runtime worker and no blocking-pool thread is held
+/// for the length of the step.
 pub async fn supervise_async(
     name: &'static str,
     budget: Duration,
     step: impl std::future::Future<Output = ()> + Send + 'static,
 ) -> StepEnd {
     let runtime = tokio::runtime::Handle::current();
-    tokio::task::spawn_blocking(move || supervise(name, budget, move || runtime.block_on(step)))
-        .await
-        .unwrap_or(StepEnd::Panicked)
+    let (done, finished) = tokio::sync::oneshot::channel::<()>();
+    let spawned = std::thread::Builder::new().name(format!("mixdog-release-{name}")).spawn(move || {
+        runtime.block_on(step);
+        let _ = done.send(());
+    });
+    if let Err(error) = spawned {
+        tracing::error!(step = name, %error, "a release step thread did not start");
+        return StepEnd::Panicked;
+    }
+    match tokio::time::timeout(budget, finished).await {
+        Ok(Ok(())) => StepEnd::Finished,
+        // The sender dropped without sending: the step unwound.
+        Ok(Err(_)) => panicked(name),
+        Err(_) => over_budget(name, budget),
+    }
 }
 
 /// Runs `work` on a fresh `mixdog-release-<name>` thread and waits at most `budget` for it.
@@ -74,14 +88,17 @@ pub fn supervise(name: &'static str, budget: Duration, work: impl FnOnce() + Sen
     }
     match finished.recv_timeout(budget) {
         Ok(()) => StepEnd::Finished,
-        // The sender dropped without sending: the step unwound.
-        Err(RecvTimeoutError::Disconnected) => {
-            tracing::error!(step = name, "a release step panicked");
-            StepEnd::Panicked
-        }
-        Err(RecvTimeoutError::Timeout) => {
-            tracing::error!(step = name, budget_ms = u64::try_from(budget.as_millis()).unwrap_or(u64::MAX), "a release step is over its budget");
-            StepEnd::OverBudget
-        }
+        Err(RecvTimeoutError::Disconnected) => panicked(name),
+        Err(RecvTimeoutError::Timeout) => over_budget(name, budget),
     }
+}
+
+fn panicked(name: &'static str) -> StepEnd {
+    tracing::error!(step = name, "a release step panicked");
+    StepEnd::Panicked
+}
+
+fn over_budget(name: &'static str, budget: Duration) -> StepEnd {
+    tracing::error!(step = name, budget_ms = u64::try_from(budget.as_millis()).unwrap_or(u64::MAX), "a release step is over its budget");
+    StepEnd::OverBudget
 }
