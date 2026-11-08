@@ -209,8 +209,8 @@ test('pre-ready daemon handoff retries remain bounded by the startup timeout', a
 test('a terminal remote failure stops reconnecting and shows its reason at once', async () => {
   let connections = 0;
   const refusal = new RemoteBootstrapError(
-    'daemon-not-proxy',
-    'A Mixdog daemon (pid 1667) is already running on the server without desktop model proxy mode.'
+    'daemon-model-login',
+    'A Mixdog daemon (pid 1667) is already running on the server with another model login mode.'
   );
   const client = new DesktopServiceClient({
     connect() {

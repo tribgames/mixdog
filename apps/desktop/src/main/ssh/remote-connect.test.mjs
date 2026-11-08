@@ -208,7 +208,7 @@ function liveTunnel(health = {}) {
     };
     return child;
   };
-  const control = createServer((_req, res) => res.end(JSON.stringify({ status: 'ok', pid: 4242, busy: 0, ...health })));
+  const control = createServer((_req, res) => res.end(JSON.stringify({ status: 'ok', pid: 4242, version: '1.4.6', busy: 0, ...health })));
   control.listen(0, '127.0.0.1');
   control.unref();
   after(() => control.close());
@@ -259,6 +259,14 @@ test('another process answering behind the forward stops the connection before a
   await assert.rejects(session.connect(() => {}), (error) => error instanceof SshError && /Another process answered/.test(error.message));
   await assert.rejects(session.connect(() => {}), /Another process answered/);
   assert.equal(ssh.calls.length, 1, 'no second probe after a terminal failure');
+  assert.equal(session.currentDiscovery(), null);
+  await session.close();
+});
+
+test('the same pid answering as another build stops the connection before a token is sent', async () => {
+  const ssh = scriptedSsh([result()]);
+  const session = remoteSession(ssh, { tunnel: liveTunnel({ version: '1.4.7' }) });
+  await assert.rejects(session.connect(() => {}), (error) => error instanceof SshError && /Another process answered/.test(error.message));
   assert.equal(session.currentDiscovery(), null);
   await session.close();
 });

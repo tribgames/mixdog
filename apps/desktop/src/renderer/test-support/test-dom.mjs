@@ -30,6 +30,8 @@ export function toolModulesSource() {
   };
   return {
     sections: {
+      // These hosts answer capabilities themselves: no core endpoint behind the window.
+      core: async () => false,
       snapshot: async () => ({ status: 'ready', entries: [...latest.values()] }),
       subscribe: (next) => (listeners.add(next), () => void listeners.delete(next)),
     },
@@ -52,6 +54,7 @@ function withSectionsForLegacyPool(host) {
   let revision = 0;
   const entry = (section, value) => ({ section, key: null, revision: ++revision, value });
   const sections = {
+    core: async () => false,
     async snapshot() {
       const entries = [];
       const pool = has('listAgentPool') ? await host.listAgentPool() : null;

@@ -219,6 +219,8 @@ test('only the host, its client and readSessionAttachment name the history read'
     'main/desktop-service-contract.ts',
     // The download host's type Pick, handed on to readSessionAttachment.
     'main/file-downloads.ts',
+    // The service RPC's route onto the core's `thread/items/list` op (main <-> core only).
+    'main/protocol/service-route.ts',
     // The one caller.
     'main/session-attachments.ts',
     'main/session-host-transport.ts',
