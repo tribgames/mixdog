@@ -49,8 +49,10 @@ pub trait HostRuntime: Send + Sync + 'static {
     async fn attended(&self, session_id: &str) -> bool;
     /// The cwd the session's tools run in.
     fn runtime_cwd(&self, session_id: &str) -> String;
-    /// The session has a user conversation message (`hasUserConversationMessage`).
-    fn has_messages(&self, session_id: &str) -> bool;
+    /// The session's committed messages hold a user conversation message (`hasUserConversationMessage(session.messages)`).
+    async fn has_messages(&self, session_id: &str) -> Result<bool, ScmFailure>;
+    /// The session has a conversation, committed or in the running turn (`session-view.mjs`).
+    async fn has_conversation(&self, session_id: &str) -> Result<bool, ScmFailure>;
     /// Retarget the runtime cwd, the cwd override, the last-session cwd and the Lead's pool row.
     async fn set_runtime_cwd(&self, session_id: &str, cwd: &str) -> Result<(), ScmFailure>;
     /// The prompt's `presentedWorkspace`: `{cwd, environmentContext, coreMemoryContext,
@@ -168,8 +170,11 @@ impl WorkspaceHost for SessionWorkspaceHost {
             runtime_cwd: self.runtime.runtime_cwd(session_id),
             workspace,
             desktop_project,
-            has_messages: self.runtime.has_messages(session_id),
         })
+    }
+
+    async fn has_conversation(&self, session_id: &str) -> Result<bool, ScmFailure> {
+        self.runtime.has_conversation(session_id).await
     }
 
     async fn ensure_session(&self, session_id: &str) -> Result<(), ScmFailure> {
@@ -234,7 +239,7 @@ impl WorkspaceHost for SessionWorkspaceHost {
                     return Err(error);
                 }
             };
-            if self.runtime.has_messages(session_id) {
+            if self.runtime.has_messages(session_id).await? {
                 let presented = self.runtime.presented_workspace(session_id).await;
                 let from = change.moved.as_ref().map(|m| (m.from.as_str(), m.changes.as_deref()));
                 let staged = staged_reroot(header.get("workspaceReroot"), &presented, &change.cwd, &context, from);

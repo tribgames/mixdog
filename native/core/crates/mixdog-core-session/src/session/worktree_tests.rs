@@ -72,8 +72,11 @@ impl WorkspaceHost for FakeHost {
             runtime_cwd: state.cwd.clone(),
             workspace: state.workspace.clone(),
             desktop_project: None,
-            has_messages: false,
         })
+    }
+
+    async fn has_conversation(&self, _session_id: &str) -> Result<bool, ScmFailure> {
+        Ok(false)
     }
 
     async fn ensure_session(&self, session_id: &str) -> Result<(), ScmFailure> {

@@ -1353,6 +1353,40 @@ async fn an_inherit_compacts_as_node_does() {
     assert!(lock(&rig.compaction.heir_asked).is_empty());
 }
 
+/// The workspace move decides on the committed messages (`refreshSessionWorkspaceContext` reads `session.messages`), so a
+/// session whose turn has settled - its live turn messages are gone - still has its conversation; the intent's view
+/// (`session-view.mjs`) also counts a running turn's messages.
+#[tokio::test(start_paused = true)]
+async fn an_idle_session_with_committed_rows_holds_a_conversation() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let header = json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model" }).as_object().cloned().expect("header");
+    for id in ["sess_idle", "sess_live", "sess_empty"] {
+        directory.create_with_id(ThreadId::from(id), header.clone(), json!({})).await.expect("create");
+    }
+    let handle = |id: &str| {
+        let directory = &directory;
+        let id = ThreadId::from(id);
+        async move { directory.open_handle(&id, &CallContext::internal("test")).await.expect("open") }
+    };
+    let committed = CoreRequest {
+        method: mixdog_core_api::ids::Method("thread/inheritedRows/append"),
+        params: json!({ "messages": [{ "role": "user", "content": "hello" }, { "role": "assistant", "content": "hi" }] }),
+        op: None,
+        ctx: CallContext::internal("test"),
+    };
+    handle("sess_idle").await.request(committed).await.expect("append");
+    handle("sess_live").await.cell.turn_messages.send_replace(Arc::new(vec![json!({ "role": "user", "content": "typing" })]));
+    let ask = |id: &str| {
+        let id = ThreadId::from(id);
+        let directory = &directory;
+        async move { (directory.holds_user_conversation(&id).await.expect("read"), directory.holds_conversation(&id).await.expect("read")) }
+    };
+    assert_eq!(ask("sess_idle").await, (true, true), "committed rows, no live turn");
+    assert_eq!(ask("sess_live").await, (false, true), "only the running turn's messages");
+    assert_eq!(ask("sess_empty").await, (false, false));
+}
+
 /// `runtime.clear` answers false for a runtime with no session, which the host's reset turns into a refusal when it
 /// rebuilds the prompt (`session-reset.mjs`: "The conversation could not be cleared."); a session clears.
 #[tokio::test(start_paused = true)]
