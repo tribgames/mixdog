@@ -419,13 +419,56 @@ test('the lane sends the routed request through the connection and never falls b
   assert.deepEqual(await lane.invoke('gitBranches', [R]), { ok: true });
   assert.deepEqual(await lane.invoke('termProfiles', undefined), { ok: true });
   await assert.rejects(lane.invoke('gitPathspecChanges', [R]), { code: 'unknownMethod' });
-  await assert.rejects(lane.invoke('folderWatch', [R, true]), { code: 'unmappedOperation' });
   assert.deepEqual(calls, [
     { method: 'git/branches', params: { cwd: R } },
     { method: 'terminal/profiles', params: {} },
   ]);
 });
 
+// Node's reference-counted folder watcher raised `folder-changed` for the directory. A caller with no window of its own (the
+// paired phones, through the relay's remote methods) gets the same from the project watch registry over the core's
+// `fs/watch`: one watch per (directory, recursive) however many ask, ended with the last unwatch.
+test('folderWatch / folderUnwatch share one fs/watch per directory and raise folder-changed for it', async () => {
+  const events = [];
+  const watched = [];
+  const unwatched = [];
+  const attached = [];
+  let detached = 0;
+  const lane = createOperationLane({
+    protocol: {
+      notify: () => {},
+      call: async () => assert.fail('a folder watch is not a request of the operation lane'),
+      attach: (owner) => {
+        attached.push(owner);
+        return () => (detached += 1);
+      },
+      watchFiles: async (owner, params) => void watched.push({ owner, params }),
+      unwatchFiles: async (watchId) => void unwatched.push(watchId),
+    },
+    host: { emitDesktopEvent: (name, value) => events.push([name, value]) },
+  });
+  assert.equal(await lane.invoke('folderWatch', [R, true]), null);
+  assert.equal(await lane.invoke('folderWatch', [R, true]), null);
+  assert.equal(await lane.invoke('folderWatch', [`${R}-other`, false]), null);
+  assert.equal(watched.length, 2);
+  assert.equal(attached.length, 1);
+  const { watchId, ...rest } = watched[0].params;
+  assert.deepEqual(rest, { path: R, recursive: true });
+  assert.equal(watched[0].owner, attached[0]);
+  // Only this lane's watch ids are its own; the core's other `fs/changed` (a window's) are ignored.
+  attached[0].notification('fs/changed', { watchId: 'w1:x', changedPaths: [], kind: 'modified' });
+  attached[0].notification('fs/changed', { watchId, changedPaths: [`${R}/a.ts`], kind: 'modified' });
+  assert.deepEqual(events, [['folder-changed', R]]);
+  await lane.invoke('folderUnwatch', [R, true]);
+  assert.deepEqual(unwatched, []);
+  await lane.invoke('folderUnwatch', [R, true]);
+  await lane.invoke('folderUnwatch', [`${R}-other`, false]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(unwatched.sort(), [watchId, watched[1].params.watchId].sort());
+  assert.equal(detached, 1);
+  attached[0].notification('fs/changed', { watchId, changedPaths: [], kind: 'modified' });
+  assert.equal(events.length, 1, 'an ended watch raises nothing');
+});
 test('a domain error of the core reaches the window as the error Node raised', async () => {
   const failure = Object.assign(new Error('rpc'), {
     detail: { kind: 'rpc', data: { reason: 'domainError', message: 'Not a git repository', code: 'GIT_NOT_REPO', detail: {} } },

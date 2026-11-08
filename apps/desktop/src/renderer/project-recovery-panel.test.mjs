@@ -398,6 +398,8 @@ for (const source of ['focus', 'folder']) {
     const ui = await mount(t, { initiallyOpen: true }, ProjectRecoverySurface, (window) => {
       window.mixdogDesktop = {
         projectRecovery: async (_project, input) => ({ records, ...(input.action === 'inspect' ? { detail } : {}) }),
+        folderWatch: async () => {},
+        folderUnwatch: async () => {},
         subscribeFolderChanges: (callback) => {
           folderChanged = callback;
           return () => {};
@@ -424,6 +426,40 @@ for (const source of ['focus', 'folder']) {
   });
 }
 
+// A core window has no Node folder watcher: `subscribeFolderChanges` never fires there. The surface follows the project's
+// own file watch (the core's `fs/watch`, shared with the explorer) and refreshes on its `fs/changed`.
+test('open recovery refreshes on a core window when its project watch reports a change', async (t) => {
+  let records = [detail];
+  const watches = [];
+  let fsChanged;
+  const ui = await mount(t, { initiallyOpen: true }, ProjectRecoverySurface, (window) => {
+    window.mixdogDesktop = {
+      projectRecovery: async () => ({ records }),
+      sections: {
+        core: async () => true,
+        call: async (method, params) => void watches.push([method, params]),
+        subscribeFsChanged: (listener) => {
+          fsChanged = listener;
+          return () => {};
+        },
+      },
+    };
+  });
+  await act(async () => {});
+  const watch = watches.find(([method]) => method === 'fs/watch');
+  assert.deepEqual({ path: watch[1].path, recursive: watch[1].recursive }, { path: '/project-a', recursive: true });
+  assert.equal([...ui.document.querySelectorAll('button')].filter((b) => b.textContent === 'Inspect').length, 1);
+  records = [
+    { ...detail, id: '22345678-abcd-abcd-abcd-123456789abc' },
+    { ...detail, id: '32345678-abcd-abcd-abcd-123456789abc' },
+  ];
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await act(async () => {
+    fsChanged({ watchId: watch[1].watchId, changedPaths: ['/project-a/x'], kind: 'modified' });
+    t.mock.timers.tick(250);
+  });
+  assert.equal([...ui.document.querySelectorAll('button')].filter((b) => b.textContent === 'Inspect').length, 2);
+});
 test('an unavailable automatic refresh clears open controls and permits an explicit retry', async (t) => {
   let failed = false;
   const ui = await mount(t, { initiallyOpen: true }, ProjectRecoverySurface, (window) => {
