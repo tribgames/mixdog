@@ -232,9 +232,7 @@ const flightWorld = (over = {}) => ({
   catalogFailures: 0,
   ...over,
 });
-// `then = [call, kind]` makes that call in the continuation of the started one, the moment it settles,
-// with nothing in between (a caller that awaits a reset and opens at once).
-const start = (call, kind, then = null) => ({ op: 'start', call, kind, agent: 'ada', ...(then ? { then: { call: then[0], kind: then[1], agent: 'ada' } } : {}) });
+const start = (call, kind) => ({ op: 'start', call, kind, agent: 'ada' });
 // `abandon` drops the caller of a started call: nothing waits for its answer any more.
 const abandon = (call) => ({ op: 'abandon', call });
 const HOLD = { op: 'hold' };
@@ -253,12 +251,11 @@ const FLIGHT_CASES = [
   { name: 'resets queue one behind another and an open joins the last', world: flightWorld({ sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('first', 'reset'), start('second', 'reset'), start('open', 'open'), RELEASE, SETTLE] },
   { name: 'a reset runs on after the reset before it failed', world: flightWorld({ clearFails: true, sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('first', 'reset'), start('second', 'reset'), RELEASE, SETTLE] },
   { name: 'an open after a reset after an open joins the reset', world: flightWorld({ sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('first', 'open'), start('reset', 'reset'), start('second', 'open'), RELEASE, SETTLE] },
-  // The reset's flight leaves the map a few turns after its caller resumes; an open's before.
-  { name: 'an open made the moment an awaited reset returns joins that reset', world: flightWorld({ sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('reset', 'reset', ['now', 'open']), RELEASE, SETTLE, start('later', 'open'), SETTLE] },
-  { name: 'an open made the moment a failed reset rejects joins its failure', world: flightWorld({ clearFails: true, sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('reset', 'reset', ['now', 'open']), RELEASE, SETTLE, { op: 'world', patch: { clearFails: false } }, start('later', 'open'), SETTLE] },
-  { name: 'an open that joined a reset and opens again at once joins it again', world: flightWorld({ sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('reset', 'reset'), start('open', 'open', ['again', 'open']), RELEASE, SETTLE] },
-  { name: 'a call made the moment an awaited open returns starts its own flight', world: flightWorld(), ops: [HOLD, start('first', 'open', ['second', 'open']), RELEASE, SETTLE] },
-  { name: 'a reset made the moment an awaited open returns runs its own reset', world: flightWorld({ sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('open', 'open', ['reset', 'reset']), RELEASE, SETTLE] },
+  // The product issues a later call as a separate request, after the answer and the event loop's turn
+  // (desktop session-host-lifecycle.ts), so it never shares the answered flight.
+  { name: 'an open after a reset has answered starts a fresh resolution', world: flightWorld({ sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('reset', 'reset'), RELEASE, SETTLE, start('later', 'open'), SETTLE] },
+  { name: 'an open after a reset has failed starts a fresh resolution', world: flightWorld({ clearFails: true, sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('reset', 'reset'), RELEASE, SETTLE, start('later', 'open'), SETTLE] },
+  { name: 'a reset after an open has answered runs its own reset', world: flightWorld({ sessions: { sess_home_ada: SESSION_ADA } }), ops: [HOLD, start('open', 'open'), RELEASE, SETTLE, start('later', 'reset'), SETTLE] },
   // Promises run whether or not anything awaits them.
   { name: 'a flight whose caller is gone still completes and leaves the map', world: flightWorld(), ops: [HOLD, start('gone', 'open'), abandon('gone'), RELEASE, DRAIN, start('later', 'open'), SETTLE] },
   { name: 'a flight with every caller gone but one still answers that one', world: flightWorld(), ops: [HOLD, start('gone', 'open'), start('stays', 'open'), abandon('gone'), RELEASE, SETTLE] },
@@ -274,24 +271,18 @@ for (const flight of FLIGHT_CASES) {
   const home = createAgentHomeSessions(rig.deps);
   const pending = [];
   const ops = [];
-  // A call is made, and its answer noted by the very first reaction on its promise, so that the call
-  // `then` names is made in the same turn the first one settles.
   const call = (op) => {
-    const record = { call: op.call, outcome: null, followed: null, gone: false };
-    const note = (outcome) => {
-      record.outcome = outcome;
-      if (op.then) record.followed = call(op.then);
-    };
+    const record = { call: op.call, outcome: null, gone: false };
     const promise = op.kind === 'open' ? home.open(op.agent) : home.reset(op.agent);
     record.done = promise.then(
-      (result) => note({ result }),
-      (error) => note({ error: error instanceof Error ? error.message : String(error) })
+      (result) => { record.outcome = { result }; },
+      (error) => { record.outcome = { error: error instanceof Error ? error.message : String(error) }; }
     );
     return record;
   };
   const answered = async (record) => {
     await record.done;
-    return [{ call: record.call, ...record.outcome }, ...(record.followed ? await answered(record.followed) : [])];
+    return { call: record.call, ...record.outcome };
   };
   // The next request arrives in a later turn of the event loop, after every flight's cleanup.
   const barrier = () => new Promise((resolve) => setImmediate(resolve));
@@ -303,7 +294,7 @@ for (const flight of FLIGHT_CASES) {
     else if (op.op === 'abandon') pending.find((record) => record.call === op.call).gone = true;
     else {
       const calls = [];
-      for (const record of pending) if (!record.gone) calls.push(...(await answered(record)));
+      for (const record of pending) if (!record.gone) calls.push(await answered(record));
       pending.length = 0;
       await barrier();
       ops.push({ op: op.op, ...(op.op === 'settle' ? { calls } : {}), log: structuredClone(rig.log) });

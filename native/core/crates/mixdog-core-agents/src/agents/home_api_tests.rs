@@ -68,10 +68,13 @@ struct Home {
     /// The recorder's gate: while closed, the first dependency call of a resolution (the catalog,
     /// or Mixy's route) waits for it to open.
     gate: watch::Sender<bool>,
+    /// How many calls have reached the gate: the acknowledgement that a flight is under way.
+    entered: watch::Sender<usize>,
 }
 
 impl Home {
     async fn through_gate(&self) {
+        self.entered.send_modify(|count| *count += 1);
         let _ = self.gate.subscribe().wait_for(|open| *open).await;
     }
 }
@@ -259,28 +262,35 @@ fn home_world(scenario: &Value, twin: &Value) -> Arc<Home> {
         routes: twin["routes"].clone(),
         extras: twin["catalogExtras"].as_array().unwrap().clone(),
         gate: watch::channel(true).0,
+        entered: watch::channel(0).0,
     })
 }
 
-type Answers = Pin<Box<dyn Future<Output = Vec<Result<Value, CoreError>>> + Send>>;
+type Call = Pin<Box<dyn Future<Output = Result<Value, CoreError>> + Send>>;
 
-/// A call started and not yet awaited, with the call made in its continuation when the recording has
-/// one: its first poll ran it to its first wait, as Node's call runs to its first `await` when it is made.
+/// A call started and not yet awaited: its first poll made it (registered its flight, or joined
+/// the one pending), as Node's call runs to its first `await` when it is made.
 struct Started {
     call: String,
-    answers: Answers,
+    answer: Call,
 }
 
-fn start_call(homes: &AgentHomeSessions, op: &Value) -> impl Future<Output = Result<Value, CoreError>> + Send + use<> {
-    let (homes, agent, reset) = (homes.clone(), op["agent"].as_str().unwrap().to_owned(), op["kind"] == "reset");
-    async move { if reset { homes.reset(&agent).await } else { homes.open(&agent).await } }
+async fn started(homes: &AgentHomeSessions, call: &str, agent: &str, reset: bool) -> Started {
+    let (homes, agent) = (homes.clone(), agent.to_owned());
+    let mut answer: Call = Box::pin(async move { if reset { homes.reset(&agent).await } else { homes.open(&agent).await } });
+    // A call that already finished keeps its answer.
+    let answer = match futures::poll!(answer.as_mut()) {
+        std::task::Poll::Ready(done) => Box::pin(async move { done }),
+        std::task::Poll::Pending => answer,
+    };
+    Started { call: call.to_owned(), answer }
 }
 
 /// `flights` of the twin: calls of one agent started together while the gate is closed share the
 /// flight Node's `opening` map gives them, failures included; a reset queues behind the flight it
-/// finds; an open's flight leaves the map before its caller resumes and a reset's after, so a call
-/// made at once on an awaited reset joins it; a flight runs on when every caller is gone. Each
-/// `settle` answers what Node's calls answered, in start order, and the dependency calls made are Node's.
+/// finds; a flight leaves the map before its answer appears, so a call after an answer starts a
+/// fresh one; a flight runs on when every caller is gone. Each `settle` answers what Node's calls
+/// answered, in start order, and the dependency calls made are Node's.
 #[tokio::test]
 async fn calls_of_one_agent_in_flight_together_share_what_node_shared() {
     mixdog_rt::testing::tokens();
@@ -290,7 +300,7 @@ async fn calls_of_one_agent_in_flight_together_share_what_node_shared() {
         let name = flight["name"].as_str().unwrap();
         let home = home_world(flight, &twin);
         let homes = AgentHomeSessions::new(home.clone());
-        let mut started: Vec<Started> = Vec::new();
+        let mut pending: Vec<Started> = Vec::new();
         for (step, op) in flight["ops"].as_array().unwrap().iter().enumerate() {
             let label = format!("{name}, step {step}");
             match op["op"].as_str().unwrap() {
@@ -301,26 +311,9 @@ async fn calls_of_one_agent_in_flight_together_share_what_node_shared() {
                     home.gate.send_replace(true);
                 }
                 "world" => home.apply(&op["patch"]),
-                "start" => {
-                    let first = start_call(&homes, op);
-                    let then = op.get("then").map(|then| start_call(&homes, then));
-                    // The second call is made the moment the first returns, with nothing between.
-                    let mut answers: Answers = Box::pin(async move {
-                        let mut answers = vec![first.await];
-                        if let Some(then) = then {
-                            answers.push(then.await);
-                        }
-                        answers
-                    });
-                    let call = op["call"].as_str().unwrap().to_owned();
-                    // The first poll makes the call; a call that already finished keeps its answers.
-                    match futures::poll!(answers.as_mut()) {
-                        std::task::Poll::Ready(done) => started.push(Started { call, answers: Box::pin(async move { done }) }),
-                        std::task::Poll::Pending => started.push(Started { call, answers }),
-                    }
-                }
+                "start" => pending.push(started(&homes, op["call"].as_str().unwrap(), op["agent"].as_str().unwrap(), op["kind"] == "reset").await),
                 // Nobody waits for the call any more; its flight goes on.
-                "abandon" => started.retain(|call| call.call != op["call"].as_str().unwrap()),
+                "abandon" => pending.retain(|call| call.call != op["call"].as_str().unwrap()),
                 "drain" => {
                     homes.quiesced().await;
                     assert_eq!(home.take_log(), op["log"], "{label}: dependency calls");
@@ -328,8 +321,8 @@ async fn calls_of_one_agent_in_flight_together_share_what_node_shared() {
                 "settle" => {
                     let recorded = op["calls"].as_array().unwrap();
                     let mut got = Vec::new();
-                    for call in started.drain(..) {
-                        got.extend(call.answers.await);
+                    for call in pending.drain(..) {
+                        got.push(call.answer.await);
                     }
                     assert_eq!(recorded.len(), got.len(), "{label}: calls answered");
                     for (got, want) in got.iter().zip(recorded) {
@@ -347,9 +340,131 @@ async fn calls_of_one_agent_in_flight_together_share_what_node_shared() {
                 other => panic!("{label}: unknown op {other}"),
             }
         }
-        assert!(started.is_empty(), "{name}: every started call is settled");
+        assert!(pending.is_empty(), "{name}: every started call is settled");
     }
-    assert!(settled > 40, "{settled} calls settled");
+    assert!(settled > 35, "{settled} calls settled");
+}
+
+// ---- flights on the multi-thread executor --------------------------------------------------------
+// Each waits on acknowledgements (a dependency call entered, a flight ended), never on time.
+
+fn named<'a>(twin: &'a Value, name: &str) -> &'a Value {
+    twin["flights"].as_array().unwrap().iter().find(|flight| flight["name"] == name).unwrap_or_else(|| panic!("no recorded flight {name}"))
+}
+
+/// The dependency calls of each `settle` and `drain` of a recorded flight, in order.
+fn recorded_logs(flight: &Value) -> Vec<Value> {
+    flight["ops"].as_array().unwrap().iter().filter(|op| matches!(op["op"].as_str(), Some("settle" | "drain"))).map(|op| op["log"].clone()).collect()
+}
+
+/// The recorded answers of a flight's `settle`s, in order.
+fn recorded_answers(flight: &Value) -> Vec<Value> {
+    flight["ops"].as_array().unwrap().iter().filter(|op| op["op"] == "settle").flat_map(|op| op["calls"].as_array().unwrap().clone()).collect()
+}
+
+async fn entered(home: &Home, count: usize) {
+    let _ = home.entered.subscribe().wait_for(|entered| *entered >= count).await;
+}
+
+const ENDED: &str = "The agent home call ended without an answer.";
+
+/// Node's promise runs when nothing awaits it: the flight of a call whose every caller is gone still
+/// makes its dependency calls, answers and leaves the map.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_flight_whose_callers_are_all_gone_completes_and_leaves_the_map() {
+    mixdog_rt::testing::tokens();
+    let twin = twin("desktop/settings/agent-home-api-twin.json");
+    let scenario = named(&twin, "a flight whose caller is gone still completes and leaves the map");
+    let (logs, answers) = (recorded_logs(scenario), recorded_answers(scenario));
+    let home = home_world(scenario, &twin);
+    let homes = AgentHomeSessions::new(home.clone());
+    home.gate.send_replace(false);
+    let gone = started(&homes, "gone", "ada", false).await;
+    entered(&home, 1).await;
+    drop(gone);
+    home.gate.send_replace(true);
+    homes.quiesced().await;
+    assert_eq!(home.take_log(), logs[0], "the flight ran on with nobody waiting");
+    assert_eq!(homes.open("ada").await.unwrap(), answers[0]["result"], "the next open");
+    assert_eq!(home.take_log(), logs[1], "the next open starts a fresh flight");
+}
+
+/// A flight task that ends without answering (aborted, its future dropped at shutdown) answers its
+/// waiters with the terminal error, leaves the map and wakes `quiesced`; the next call starts fresh.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_flight_task_that_ends_unanswered_answers_its_waiters_and_leaves_the_map() {
+    mixdog_rt::testing::tokens();
+    let twin = twin("desktop/settings/agent-home-api-twin.json");
+    let scenario = named(&twin, "concurrent opens of a new home share one create; a later open starts a new flight");
+    let (logs, answers) = (recorded_logs(scenario), recorded_answers(scenario));
+    let home = home_world(scenario, &twin);
+    let homes = AgentHomeSessions::new(home.clone());
+    home.gate.send_replace(false);
+    let waiter = started(&homes, "waiter", "ada", false).await;
+    entered(&home, 1).await;
+    homes.abort_flight(0);
+    assert_eq!(message(&waiter.answer.await.unwrap_err()), ENDED);
+    homes.quiesced().await;
+    home.gate.send_replace(true);
+    assert_eq!(homes.open("ada").await.unwrap(), answers[0]["result"], "the next open");
+    assert_eq!(home.take_log(), logs[0], "the next open starts a fresh flight");
+}
+
+/// The guard of an older flight, ended after a newer flight replaced it in the map, leaves the newer
+/// one there: a call arriving meanwhile joins the newer flight instead of starting its own.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_older_flight_ending_after_a_replacement_leaves_the_newer_flight_in_the_map() {
+    mixdog_rt::testing::tokens();
+    let twin = twin("desktop/settings/agent-home-api-twin.json");
+    let scenario = named(&twin, "an open joins the reset in flight");
+    let (logs, answers) = (recorded_logs(scenario), recorded_answers(scenario));
+    let home = home_world(scenario, &twin);
+    let homes = AgentHomeSessions::new(home.clone());
+    home.gate.send_replace(false);
+    let older = started(&homes, "older", "ada", false).await;
+    entered(&home, 1).await;
+    // The reset queues behind the open and becomes the agent's flight.
+    let newer = started(&homes, "newer", "ada", true).await;
+    homes.abort_flight(0);
+    assert_eq!(message(&older.answer.await.unwrap_err()), ENDED);
+    // The reset runs on once the older flight has ended, and waits at the gate.
+    entered(&home, 2).await;
+    let joined = started(&homes, "joined", "ada", false).await;
+    home.gate.send_replace(true);
+    assert_eq!(newer.answer.await.unwrap(), answers[0]["result"], "the reset");
+    assert_eq!(joined.answer.await.unwrap(), answers[1]["result"], "the open that joined it");
+    homes.quiesced().await;
+    assert_eq!(home.take_log(), logs[0], "one resolution: the reset's");
+}
+
+/// A call made right after a reset's answer starts a fresh resolution. One worker runs the test and
+/// the flight task in turn, so the caller resumes before anything the flight does after answering.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn a_call_after_a_resets_answer_starts_a_fresh_resolution() {
+    mixdog_rt::testing::tokens();
+    tokio::spawn(async {
+        let twin = twin("desktop/settings/agent-home-api-twin.json");
+        for name in ["an open after a reset has answered starts a fresh resolution", "an open after a reset has failed starts a fresh resolution"] {
+            let scenario = named(&twin, name);
+            let (logs, answers) = (recorded_logs(scenario), recorded_answers(scenario));
+            let home = home_world(scenario, &twin);
+            let homes = AgentHomeSessions::new(home.clone());
+            let reset = homes.reset("ada").await;
+            let open = homes.open("ada").await;
+            for (got, want) in [(reset, &answers[0]), (open, &answers[1])] {
+                match (got, want.get("error")) {
+                    (Ok(value), None) => assert_eq!(value, want["result"], "{name}"),
+                    (Err(error), Some(text)) => assert_eq!(message(&error), text.as_str().unwrap(), "{name}"),
+                    (got, _) => panic!("{name}: got {got:?}, Node {want}"),
+                }
+            }
+            homes.quiesced().await;
+            let want_log: Vec<Value> = logs.iter().flat_map(|log| log.as_array().unwrap().clone()).collect();
+            assert_eq!(home.take_log(), Value::Array(want_log), "{name}: the open resolved afresh");
+        }
+    })
+    .await
+    .unwrap();
 }
 #[tokio::test]
 async fn open_and_reset_answer_what_node_answered_and_call_what_node_called() {
