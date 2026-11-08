@@ -51,6 +51,75 @@ fn comparable(header: &Header) -> Value {
     Value::Object(header.iter().filter(|(key, _)| !matches!(key.as_str(), "messages" | "tools" | "title" | "titleUpdatedAt")).map(|(k, v)| (k.clone(), v.clone())).collect())
 }
 
+fn snapshot_of(case: &Value, header: &Header, messages: &[AgentMessage]) -> Arc<ContextSnapshot> {
+    let wire = case["beforeRequestTools"].as_array().expect("tools");
+    let prefix = case["beforeNativePrefix"].as_u64().expect("prefix") as usize;
+    let provider = header["provider"].as_str().expect("provider").to_owned();
+    Arc::new(ContextSnapshot {
+        header: header.clone(),
+        provider: provider.clone(),
+        model: header["model"].as_str().expect("model").to_owned(),
+        context_window: Value::Null,
+        cwd: Value::Null,
+        mode: Value::Null,
+        messages: messages.to_vec(),
+        active: true,
+        request_native: wire[..prefix].to_vec(),
+        request_defined: definitions(&wire[prefix..]),
+        session_defined: definitions(case["before"]["tools"].as_array().expect("tools")),
+        agent_mode: false,
+        annotations: HashMap::new(),
+        media: Arc::new(TextOnly),
+        images: Arc::new(TextOnly),
+        rows: Arc::new(StoredBodies),
+        replay_owner: ProviderId::from(provider.as_str()),
+    })
+}
+
+/// A session whose request leads with four system blocks counts them in both numbers of the plan and
+/// of the commit: Node's `session.messages` hold them (w2f `compact`: five messages for one stored row).
+#[test]
+fn a_plan_and_its_commit_count_the_system_blocks_of_the_request() {
+    let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/compaction-commit/golden.json")).expect("golden json");
+    let case = golden["cases"].as_array().expect("cases").iter().find(|c| c["name"] == "a small conversation compacts by rules").expect("the small case");
+    let mut header = header_of(&case["before"]);
+    for (key, body) in [("promptBase", "rules"), ("promptStable", "stable"), ("bp3CoreContext", "core context"), ("promptEnv", "environment")] {
+        header.insert(key.into(), json!(body));
+    }
+    header.insert("bp3EnvSplit".into(), json!(true));
+    let rows: Vec<Value> = case["before"]["messages"].as_array().expect("messages").clone();
+    let transcript: Vec<AgentMessage> = rows.iter().map(|row| message_of(row).expect("a stored row")).collect();
+    let system = super::super::factory::system_messages(&header);
+    assert_eq!(system.len(), 4, "the header carries four system blocks");
+    let snapshot = snapshot_of(case, &header, &transcript);
+    let session_messages = priced(&header, &transcript);
+    let plan = forced_plan(&snapshot, &session_messages).expect("a window").expect("a plan");
+    let bare = forced_plan(&snapshot, &transcript).expect("a window").expect("a plan");
+    let system_tokens = with_status(&snapshot, &header, &system, |status| status.meter.messages(&system)) as f64;
+    assert_eq!(plan.messages, transcript.len() + 4);
+    assert_eq!(plan.before_message_tokens, bare.before_message_tokens + system_tokens);
+
+    // The compactor keeps the rows (it never sees the blocks); the commit prices them back in.
+    let facts = CommitFacts {
+        snapshot: snapshot.clone(),
+        messages: session_messages,
+        before_rows: rows.clone(),
+        plan,
+        compacted: transcript.clone(),
+        compacted_rows: rows,
+        fresh: SummaryFacts { usage: None, fresh_context: true, handoff_source: Some("rules".into()), summary_provider: None, summary_model: None, pipeline_mode: None, summary_route: None, forked: false, generated_ms: None, total_ms: None },
+        archived: None,
+        now: 1.0,
+        started_at: 1.0,
+        commit_started_at: 1.0,
+    };
+    let (_, result) = committed_header(&facts, &header, &[]);
+    assert_eq!(result["changed"], json!(false));
+    assert_eq!(result["beforeMessages"], json!(transcript.len() + 4));
+    assert_eq!(result["afterMessages"], result["beforeMessages"]);
+    assert_eq!(result["afterMessageTokens"], result["beforeMessageTokens"]);
+}
+
 #[test]
 fn a_committed_header_equals_nodes_session() {
     let golden: Value = serde_json::from_str(include_str!("../../../../../fixtures/compaction-commit/golden.json")).expect("golden json");
@@ -66,28 +135,7 @@ fn a_committed_header_equals_nodes_session() {
         let header = header_of(before);
         let before_rows: Vec<Value> = before["messages"].as_array().expect("messages").clone();
         let messages: Vec<AgentMessage> = before_rows.iter().map(|row| message_of(row).expect("a stored row")).collect();
-        let wire = case["beforeRequestTools"].as_array().expect("tools");
-        let prefix = case["beforeNativePrefix"].as_u64().expect("prefix") as usize;
-        let provider = header["provider"].as_str().expect("provider").to_owned();
-        let snapshot = Arc::new(ContextSnapshot {
-            header: header.clone(),
-            provider: provider.clone(),
-            model: header["model"].as_str().expect("model").to_owned(),
-            context_window: Value::Null,
-            cwd: Value::Null,
-            mode: Value::Null,
-            messages: messages.clone(),
-            active: true,
-            request_native: wire[..prefix].to_vec(),
-            request_defined: definitions(&wire[prefix..]),
-            session_defined: definitions(before["tools"].as_array().expect("tools")),
-            agent_mode: false,
-            annotations: HashMap::new(),
-            media: Arc::new(TextOnly),
-            images: Arc::new(TextOnly),
-            rows: Arc::new(StoredBodies),
-            replay_owner: ProviderId::from(provider.as_str()),
-        });
+        let snapshot = snapshot_of(case, &header, &messages);
         let plan = with_status(&snapshot, &header, &messages, |status| compaction_plan(status, false, true)).expect("a window").expect("a plan");
         let after = &case["after"];
         let appended_count = case["appendedCount"].as_u64().expect("appendedCount") as usize;
