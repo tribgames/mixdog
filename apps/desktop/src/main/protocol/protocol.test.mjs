@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { SECTIONS_IPC } from '../../shared/contract-sections.ts';
+import { createCapabilityLane } from './capability-route.ts';
 import { createProtocolConnection, MAX_FOLLOWED_LOGINS, SECTION_NAMES } from './connection.ts';
 import { parseDiscovery, resolveTunnelEndpoint } from './discovery.ts';
 import { createHostConnection } from './host-connection.ts';
@@ -40,6 +41,8 @@ function fakeClient() {
   const calls = [];
   const notes = [];
   const answers = [];
+  // The library client's own pending set: added when the core asks, removed when it resolves the ask, dropped with the socket.
+  const pending = [];
   return {
     store,
     calls,
@@ -53,11 +56,17 @@ function fakeClient() {
     notify: (method, params) => notes.push({ method, params }),
     subscribeApp: async () => {},
     respond: (id, answer) => answers.push({ id, answer }),
+    pendingServerRequests: () => pending,
     on: (listener) => {
       handlers.add(listener);
       return () => handlers.delete(listener);
     },
-    emit: (event) => handlers.forEach((h) => h(event)),
+    emit: (event) => {
+      if (event.type === 'serverRequest') pending.push(event.request);
+      else if (event.type === 'serverRequestResolved') pending.splice(0, pending.length, ...pending.filter((r) => r.id !== event.params.requestId));
+      else if (event.type === 'status' && event.status.state !== 'ready') pending.length = 0;
+      handlers.forEach((h) => h(event));
+    },
     close: async () => {},
   };
 }
@@ -741,3 +750,25 @@ test('a server core is reached through its SSH tunnel: the live attachment as is
   assert.equal(connects, 1);
 });
 
+
+// An approval card belongs to the core connection that asked it. The connection drops its client before closing it, so the lane
+// is never told the link went down: it must read the live client's pending set, not keep its own, or the card of a replaced
+// client could be answered through the new one (possibly on a reused request id).
+test('an approval is answered only on the client that asked it: a reopened connection offers none of the old ones', async () => {
+  const first = fakeClient();
+  const second = fakeClient();
+  const clients = [first, second];
+  const connection = createProtocolConnection({ open: async () => clients.shift() });
+  await connection.start();
+  const lane = createCapabilityLane({ protocol: connection });
+  const ask = { id: 7, method: 'item/tool/requestApproval', params: { threadId: 'pane-1', turnId: 't', itemId: 'i', order: 1, request: { name: 'shell' } } };
+  first.emit({ type: 'serverRequest', request: ask });
+  await connection.reopen();
+  // The new core asks again under the same id for another thread; the old card must not answer it.
+  second.emit({ type: 'serverRequest', request: { ...ask, params: { ...ask.params, threadId: 'pane-2' } } });
+  assert.equal(await lane.resolveToolApproval('pane-1', '7', { approved: true }), false);
+  assert.deepEqual([first.answers, second.answers], [[], []]);
+  assert.equal(await lane.resolveToolApproval('pane-2', '7', { approved: true }), true);
+  assert.deepEqual(second.answers, [{ id: 7, answer: { result: { approved: true } } }]);
+  assert.deepEqual(first.answers, []);
+});

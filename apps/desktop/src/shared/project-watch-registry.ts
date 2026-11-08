@@ -8,6 +8,8 @@ export interface ProjectWatchTarget {
   readonly recursive: boolean;
   /** Tells every subscriber of this watch that something under it changed. */
   changed(): void;
+  /** True once the last subscriber has left: a start that is still under way must not leave anything behind. */
+  released(): boolean;
 }
 
 export interface ProjectWatchRegistryOptions {
@@ -24,6 +26,7 @@ interface Entry {
   readonly recursive: boolean;
   readonly listeners: Set<() => void>;
   started: Promise<(() => unknown) | void>;
+  released: boolean;
 }
 
 export interface ProjectWatchRegistry {
@@ -41,7 +44,7 @@ export function createProjectWatchRegistry({ keyOf, start, idle }: ProjectWatchR
       const key = entryKey(path, recursive);
       let entry = entries.get(key);
       if (!entry) {
-        const created: Entry = { path, recursive, listeners: new Set(), started: Promise.resolve() };
+        const created: Entry = { path, recursive, listeners: new Set(), started: Promise.resolve(), released: false };
         entries.set(key, created);
         created.started = start({
           path,
@@ -49,6 +52,7 @@ export function createProjectWatchRegistry({ keyOf, start, idle }: ProjectWatchR
           changed: () => {
             for (const each of [...created.listeners]) each();
           },
+          released: () => created.released,
         }).catch(() => undefined);
         entry = created;
       }
@@ -62,6 +66,7 @@ export function createProjectWatchRegistry({ keyOf, start, idle }: ProjectWatchR
         current.listeners.delete(listener);
         if (current.listeners.size > 0) return;
         entries.delete(key);
+        current.released = true;
         void current.started.then((release) => release?.()).catch(() => undefined);
         if (entries.size === 0) idle?.();
       };

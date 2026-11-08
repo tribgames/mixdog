@@ -598,8 +598,11 @@ export function createOperationLane({
       if (typeof watchId === 'string') folderWatchIds.get(watchId)?.();
     },
   };
+  // One normalization for the registry and for this lane's own per-directory count, as Node's registry used one key for both
+  // watch and unwatch: C:\Work and c:\work are the same watch on Windows.
+  const folderKeyOf = (path: string): string => (process.platform === 'win32' ? path.toLocaleLowerCase() : path);
   const folderWatches = createProjectWatchRegistry({
-    keyOf: (path) => (process.platform === 'win32' ? path.toLocaleLowerCase() : path),
+    keyOf: folderKeyOf,
     async start(target) {
       const watchId = `host-folder-${nextFolderWatch++}`;
       folderWatchIds.set(watchId, target.changed);
@@ -622,7 +625,7 @@ export function createOperationLane({
   const folderOperation = (name: string, args: readonly unknown[]): null => {
     const dir = String(args[0]);
     const recursive = args[1] === true;
-    const key = `${dir}\0${recursive}`;
+    const key = `${folderKeyOf(dir)}\0${recursive}`;
     const held = folderSubscriptions.get(key);
     if (name === 'folderWatch') {
       if (held) held.count += 1;

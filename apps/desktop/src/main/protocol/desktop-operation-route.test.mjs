@@ -469,6 +469,25 @@ test('folderWatch / folderUnwatch share one fs/watch per directory and raise fol
   attached[0].notification('fs/changed', { watchId, changedPaths: [], kind: 'modified' });
   assert.equal(events.length, 1, 'an ended watch raises nothing');
 });
+// Node keyed watch and unwatch by one normalized key (`registryKey`); the paths of one Windows folder differ in case.
+test('folderUnwatch ends the watch whatever case the path is spelled in on a case-insensitive host', async () => {
+  const unwatched = [];
+  const lane = createOperationLane({
+    protocol: {
+      notify: () => {},
+      call: async () => ({}),
+      attach: () => () => {},
+      watchFiles: async () => {},
+      unwatchFiles: async (watchId) => void unwatched.push(watchId),
+    },
+  });
+  const respelled = process.platform === 'win32' ? 'C:\\Work\\Repo' : '/work/repo';
+  const other = respelled.toLowerCase();
+  await lane.invoke('folderWatch', [respelled, true]);
+  await lane.invoke('folderUnwatch', [other, true]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(unwatched.length, process.platform === 'win32' ? 1 : 0);
+});
 test('a domain error of the core reaches the window as the error Node raised', async () => {
   const failure = Object.assign(new Error('rpc'), {
     detail: { kind: 'rpc', data: { reason: 'domainError', message: 'Not a git repository', code: 'GIT_NOT_REPO', detail: {} } },

@@ -110,3 +110,39 @@ test('on a core connection project file-change subscriptions share one fs/watch 
     globalThis.window = originalWindow;
   }
 });
+
+// The last subscriber can leave while the window is still asking whether it is on a core connection. Nothing may outlive it: no
+// fs/changed listener, and no watch left started.
+test('a project watch released while it is still starting leaves no listener and no watch behind', async () => {
+  const originalWindow = globalThis.window;
+  const calls = [];
+  let listening = 0;
+  let answerCore;
+  globalThis.window = {
+    mixdogDesktop: {
+      sections: {
+        core: () => new Promise((resolve) => (answerCore = resolve)),
+        call: async (method, params) => void calls.push([method, params]),
+        subscribeFsChanged: () => {
+          listening += 1;
+          return () => (listening -= 1);
+        },
+      },
+    },
+  };
+
+  try {
+    const { subscribeProjectFileChanges } = await import('./project-file-changes.ts');
+    const release = subscribeProjectFileChanges('/work/late-release', () => {});
+    release();
+    answerCore(true);
+    await waitForTurn();
+    await waitForTurn();
+    assert.equal(listening, 0);
+    const started = calls.filter(([method]) => method === 'fs/watch').map(([, params]) => params.watchId);
+    const ended = calls.filter(([method]) => method === 'fs/unwatch').map(([, params]) => params.watchId);
+    assert.deepEqual(ended.sort(), started.sort());
+  } finally {
+    globalThis.window = originalWindow;
+  }
+});
