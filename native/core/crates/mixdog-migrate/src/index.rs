@@ -113,6 +113,7 @@ impl ItemDriver for IndexDriver {
         let stage = cx.stage_dir(item.key.as_str());
         durable::create_dir_all(&stage)?;
         let db = stage.join(STAGED_FILE);
+        durable::step(durable::Step::Project, &db, &[]);
         self.projector
             .project(&cx.roots.data, &db, &sessions(cx))
             .map_err(|os_error| Blocked::Io {
@@ -120,6 +121,7 @@ impl ItemDriver for IndexDriver {
                 path: db.clone(),
                 os_error,
             })?;
+        durable::step(durable::Step::Projected, &db, &[]);
         durable::sync_file(&db)?;
         Ok(Staged::Output {
             output_sha256: durable::hash_file(&db)?.1,

@@ -254,6 +254,7 @@ impl ItemDriver for LedgerDriver {
         }
         tx.execute_batch(LEDGER_V3_DELTA)
             .map_err(|e| Blocked::sqlite("upgrade", &path, e))?;
+        durable::step(durable::Step::SqliteCommit, &path, &[]);
         tx.commit().map_err(|e| Blocked::sqlite("commit", &path, e))?;
         conn.close().map_err(|(_, e)| Blocked::sqlite("close", &path, e))
     }

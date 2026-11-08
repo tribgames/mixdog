@@ -1,0 +1,19 @@
+{
+  "version": 2,
+  "assets": [
+    {
+      "id": "359f8f27-1d40-4426-880d-ca2dcad30aae",
+      "kind": "image",
+      "lane": "image",
+      "model": "stub-image",
+      "prompt": "a 1x1 pixel",
+      "options": {
+        "size": "1x1"
+      },
+      "mime": "image/png",
+      "bytes": 70,
+      "createdAt": 1794138443178,
+      "file": "images/image/stub-image/2026-11-08/359f8f27-1d40-4426-880d-ca2dcad30aae.png"
+    }
+  ]
+}

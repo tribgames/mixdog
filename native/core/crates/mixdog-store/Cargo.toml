@@ -7,6 +7,11 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# The crash hook of fsio::publish_file_with: for the dev-dependencies of crates whose tests kill a publication, never a
+# production build.
+crash-hook = []
+
 [dependencies]
 mixdog-rt = { workspace = true }
 mixdog-js = { workspace = true }

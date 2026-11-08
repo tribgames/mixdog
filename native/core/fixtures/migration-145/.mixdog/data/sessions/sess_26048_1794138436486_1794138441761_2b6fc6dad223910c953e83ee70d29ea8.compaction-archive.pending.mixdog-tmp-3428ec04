@@ -1,0 +1,1 @@
+{"v":1,"jobs":[{"seq":1,"at":1794138465978,"divider":true,"clearedThrough":0,"maxBytes":33554432,"messages":[{"role":"user","content":"a message the compaction drops","meta":{"transcript":{"messageId":"msg_9fadf8b0aa4f5d0374f1d7a9a75e6f70"}}},{"role":"assistant","content":"its answer, dropped too","meta":{"transcript":{"messageId":"msg_fa3baaa9fba7a4621dfc23d5568322b8"}}}]}]}

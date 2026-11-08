@@ -1,0 +1,8 @@
+{
+  "name": "Concierge",
+  "description": "Plans the day",
+  "route": {
+    "provider": "stub",
+    "model": "stub-model"
+  }
+}

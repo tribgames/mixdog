@@ -1,0 +1,112 @@
+{
+  "ui": {
+    "theme": "light"
+  },
+  "channels": {
+    "access": {
+      "allowFrom": [
+        "u1"
+      ]
+    },
+    "discord": {
+      "enabled": false
+    }
+  },
+  "voice": {
+    "enabled": true,
+    "language": "ko"
+  },
+  "desktop": {
+    "computerControl": true,
+    "browserControl": false,
+    "runInBackground": true,
+    "activityRailPins": {
+      "a": 1
+    },
+    "zoom": 1.25
+  },
+  "defaultsVersion": 2,
+  "agent": {
+    "default": "Main",
+    "presets": [
+      {
+        "id": "Main",
+        "name": "Main",
+        "type": "agent",
+        "provider": "stub",
+        "model": "stub-model",
+        "effort": "medium",
+        "tools": "full"
+      }
+    ],
+    "modelSettings": {
+      "stub/stub-model": {
+        "effort": "high",
+        "contextPercent": 80
+      }
+    },
+    "autoClear": {
+      "idleMinutes": 45
+    },
+    "profile": {
+      "title": "Recorded User",
+      "language": "ko",
+      "experienceLevel": ""
+    },
+    "webSearchRoute": {
+      "provider": "stub",
+      "model": "stub-model"
+    },
+    "builtins": {
+      "memory": false
+    },
+    "enabledAgents": [
+      "worker",
+      "reviewer"
+    ],
+    "orchestrationMode": "auto",
+    "promptCacheWarming": false,
+    "heartbeat": true,
+    "onboarding": {
+      "done": true,
+      "step": 4
+    },
+    "extensionScopes": {
+      "skills": {
+        "mode": [
+          "D:\\mixdog-build\\tmp\\migration-145\\w3\\all"
+        ]
+      },
+      "mcp": {},
+      "plugins": {}
+    },
+    "mcpServers": {
+      "filesystem": {
+        "command": "node",
+        "args": [
+          "server.js"
+        ],
+        "env": {
+          "MODE": "ro"
+        }
+      },
+      "remote": {
+        "url": "http://127.0.0.1:9/mcp",
+        "headers": {
+          "x-test": "1"
+        }
+      }
+    },
+    "compaction": {
+      "onModelChange": true,
+      "summaryModel": "stub/stub-model",
+      "memoryTimeoutMs": 7000,
+      "auto": false
+    },
+    "agents": {},
+    "providers": {}
+  },
+  "quotaResume": {
+    "autoResume": false
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "completedAt": "2026-11-08T11:47:23.056Z",
+  "bots": [
+    "concierge"
+  ],
+  "mixy": false,
+  "mixyHomeSessionId": null,
+  "copies": {
+    "concierge": {
+      "source": "294946c6d958a8690aaced44",
+      "copy": "294946c6d958a8690aaced44",
+      "at": 1794138443055
+    }
+  }
+}

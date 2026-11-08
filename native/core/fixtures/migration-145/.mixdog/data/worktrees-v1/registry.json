@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "entries": {
+    "wt1": {
+      "id": "wt1",
+      "txId": "tx1",
+      "repoCommonDir": "D:\\mixdog-build\\tmp\\migration-145\\w3\\native\\core\\fixtures\\migration-145.live\\work\\.git",
+      "projectPath": "D:\\mixdog-build\\tmp\\migration-145\\w3\\native\\core\\fixtures\\migration-145.live\\work",
+      "projectSubdir": "",
+      "path": "D:\\mixdog-build\\tmp\\migration-145\\w3\\native\\core\\fixtures\\migration-145.live\\work\\wt1",
+      "branch": "feature/x",
+      "baseCommit": "abc123",
+      "mergeTarget": "main",
+      "createdAt": 1700000000000,
+      "ownerSessionId": "sess_26048_1794138436483_1794138437579_6b1c2dcca07a02a77b47379d2617d228",
+      "existingBranch": false,
+      "exactBranch": false,
+      "state": "active",
+      "disposable": true,
+      "warnings": [],
+      "updatedAt": 1794138443171
+    }
+  }
+}

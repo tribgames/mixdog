@@ -1,0 +1,20 @@
+{
+  "grants": [
+    {
+      "id": "grant_e2406e0c659e7fccc960d92c",
+      "agentId": "worker",
+      "action": "comment",
+      "mode": "allow",
+      "device": "",
+      "at": 1794138443101
+    },
+    {
+      "id": "grant_7be01aeec173a8c978897055",
+      "agentId": "worker",
+      "action": "review",
+      "mode": "block",
+      "device": "",
+      "at": 1794138443121
+    }
+  ]
+}

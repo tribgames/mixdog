@@ -134,6 +134,31 @@ export function productIdentity(tree = loadedTree, ref = 'HEAD') {
   };
 }
 
+/**
+ * Identity of a product tree that is a git checkout of `tag`: HEAD is the tag's commit and the working tree has no
+ * change, so the files the recorder loads are the tag's. Throws otherwise (an archive or a modified checkout proves
+ * nothing about the release). The shape is `productIdentity`'s, with `exact` set by the comparison itself.
+ */
+export function tagCheckoutIdentity(tree, tag) {
+  if (!existsSync(join(tree, '.git'))) throw new Error(`tree ${tree} is not a git checkout (no .git): record from a clone at ${tag}`);
+  const git = (...a) => execFileSync('git', ['-C', tree, ...a], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }).trim();
+  const commit = git('rev-parse', 'HEAD');
+  const tagged = git('rev-parse', `refs/tags/${tag}^{commit}`);
+  if (commit !== tagged) throw new Error(`tree ${tree} is at ${commit}, not at ${tag} (${tagged})`);
+  const changed = git('status', '--porcelain', '--untracked-files=all');
+  if (changed) throw new Error(`tree ${tree} has changes against ${tag}:\n${changed}`);
+  return {
+    tree: 'product tree loaded by the recorder',
+    treeKind: 'git-checkout',
+    version: JSON.parse(readFileSync(join(tree, 'package.json'), 'utf8')).version,
+    tag,
+    commit,
+    exact: true,
+    comparedAgainst: tag,
+    refComparison: { closestCommit: tagged, exact: true, filesDifferingFromCommit: 0, commitFilesMissingFromTree: 0 },
+  };
+}
+
 /** Nearest-rank percentile of an ascending numeric array. */
 export function percentile(sorted, p) {
   if (!sorted.length) return null;
@@ -223,7 +248,7 @@ const identityFor = (tree, ref) => (tree ? productIdentity(tree, ref) : productI
  * size and sha256, the recorder command that reproduces it, and the identity
  * of the product it was recorded from. The manifest itself is excluded.
  */
-export function writeSetManifest(setDir, { set, recorder, command, extra = {}, identityTree = null, identityRef = 'HEAD' }) {
+export function writeSetManifest(setDir, { set, recorder, command, extra = {}, identityTree = null, identityRef = 'HEAD', identity = null }) {
   const files = walkFiles(setDir)
     .filter((f) => f !== join(setDir, 'MANIFEST.json'))
     .map((f) => {
@@ -235,7 +260,7 @@ export function writeSetManifest(setDir, { set, recorder, command, extra = {}, i
     set,
     recorder,
     command,
-    product: identityFor(identityTree, identityRef),
+    product: identity ?? identityFor(identityTree, identityRef),
     ...extra,
     fileCount: files.length,
     totalBytes: files.reduce((s, f) => s + f.bytes, 0),

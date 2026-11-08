@@ -42,7 +42,7 @@ use crate::framework::Verdict;
 use crate::framework::Wave;
 use crate::plan;
 use crate::plan::PlanSink;
-use crate::stores::is_interrupted_write;
+use crate::temp_files;
 use source::ARCHIVE_SUFFIX;
 use source::Fail;
 use source::JSON_SUFFIX;
@@ -96,7 +96,10 @@ fn classify(name: &str) -> Entry {
     if let Some(id) = with_id(name, ARCHIVE_SUFFIX).or_else(|| with_id(name, PENDING_SUFFIX)) {
         return Entry::Sidecar(id.into());
     }
-    if is_interrupted_write(name) {
+    // Interrupted writes: a session save (`<id>.json.<12 hex>.tmp`) and a compaction capture of a sidecar (`<sidecar>.mixdog-tmp-<8 hex>`).
+    if temp_files::session_save_base(name).is_some_and(|base| with_id(base, JSON_SUFFIX).is_some())
+        || temp_files::compaction_publish_base(name).is_some_and(|base| with_id(base, ARCHIVE_SUFFIX).or_else(|| with_id(base, PENDING_SUFFIX)).is_some())
+    {
         return Entry::Tmp;
     }
     let set_aside = |base: &str, tail: &dyn Fn(&str) -> bool| {
@@ -411,6 +414,13 @@ mod tests {
         assert_eq!(classify("sess_a.log.jsonl.torn-1-ab"), Entry::SetAside);
         assert_eq!(classify("sess_a.log.jsonl.foreign-1793-0a1b2c3d"), Entry::SetAside);
         assert_eq!(classify("sess_a.json.fa4245bfe458.tmp"), Entry::Tmp);
+        assert_eq!(classify("sess_a.compaction-archive.jsonl.mixdog-tmp-0123abcd"), Entry::Tmp);
+        assert_eq!(classify("sess_a.compaction-archive.pending.mixdog-tmp-0123abcd"), Entry::Tmp);
         assert_eq!(classify("sess_a.json.bak"), Entry::Unknown);
+        // Only the 8-digit capture temp and the 12-digit save temp are session-directory formats.
+        assert_eq!(classify("sess_a.compaction-archive.jsonl.mixdog-tmp-0123456789abcdef"), Entry::Unknown);
+        assert_eq!(classify("sess_a.json.mixdog-tmp-0123456789abcdef"), Entry::Unknown);
+        assert_eq!(classify("sess_a.compaction-archive.jsonl.mixdog-tmp-0123abc"), Entry::Unknown);
+        assert_eq!(classify("sess_a.json.0123456789abcdef01234567.tmp"), Entry::Unknown);
     }
 }

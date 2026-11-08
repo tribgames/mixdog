@@ -91,14 +91,25 @@ fn parent(path: &Path) -> &Path {
     }
 }
 
-/// Rename `from` to `to` (replacing it) so that the new entry is durable when this returns.
-pub fn durable_rename(from: &Path, to: &Path) -> Result<(), IoError> {
-    rename_through(from, to).map_err(err(IoOp::Rename, to))?;
+/// The rename alone, replacing `to` and written through; the new entry is durable only once the caller has synced the
+/// parents ([durable_rename] does both).
+pub fn rename_replace(from: &Path, to: &Path) -> Result<(), IoError> {
+    rename_through(from, to).map_err(err(IoOp::Rename, to))
+}
+
+/// Syncs the parents of a renamed entry: where it is now, and where it was.
+pub fn sync_rename_parents(from: &Path, to: &Path) -> Result<(), IoError> {
     sync_dir(parent(to))?;
     if parent(from) != parent(to) {
         sync_dir(parent(from))?;
     }
     Ok(())
+}
+
+/// Rename `from` to `to` (replacing it) so that the new entry is durable when this returns.
+pub fn durable_rename(from: &Path, to: &Path) -> Result<(), IoError> {
+    rename_replace(from, to)?;
+    sync_rename_parents(from, to)
 }
 
 #[cfg(windows)]
@@ -175,22 +186,83 @@ pub fn is_owner_only(path: &Path) -> Result<bool, IoError> {
     mixdog_statefile::unlaned::is_owner_only(path).map_err(err(IoOp::Read, path))
 }
 
+/// The boundaries of [publish_file_with], each reported before it is taken. Compiled only with the `crash-hook` feature,
+/// which only the dev-dependencies of crates whose tests kill a publication enable: a production build has no hook.
+#[cfg(feature = "crash-hook")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PublishStep {
+    /// The tmp about to be created: none of it exists yet.
+    Create,
+    /// The first half of the bytes written, the second not: a partial tmp.
+    Write,
+    /// All bytes written, the tmp not yet synced.
+    Sync,
+    /// The tmp synced, the rename that publishes it not yet done (the path is the target).
+    Rename,
+    /// Renamed, the parent directories not yet synced (the path is the target).
+    SyncDir,
+}
+
+/// Test seam: called at every [PublishStep] with the path it concerns and the bytes being published (empty at the last
+/// two). A test installs it in a child process that exits at the boundary it chooses.
+#[cfg(feature = "crash-hook")]
+pub type PublishHook = fn(PublishStep, &Path, &[u8]);
+
+#[cfg(feature = "crash-hook")]
+static PUBLISH_HOOK: std::sync::OnceLock<PublishHook> = std::sync::OnceLock::new();
+
+/// Installs the hook for the life of the process; a second installation is a bug of the caller.
+#[cfg(feature = "crash-hook")]
+pub fn set_publish_hook(hook: PublishHook) {
+    assert!(PUBLISH_HOOK.set(hook).is_ok(), "the publish hook is installed once");
+}
+
+#[cfg(feature = "crash-hook")]
+fn publish_step(step: PublishStep, path: &Path, bytes: &[u8]) {
+    if let Some(hook) = PUBLISH_HOOK.get() {
+        hook(step, path, bytes);
+    }
+}
+
 /// `publish_file` with `access` on the new file (the tmp is created with it and keeps it
 /// across the rename). Usable outside a write lane: it takes no lane proof.
 pub fn publish_file_with(path: &Path, bytes: &[u8], access: Access) -> Result<(), IoError> {
     create_dir_durable(parent(path))?;
     let tmp = tmp_path(path);
     let result = (|| {
+        #[cfg(feature = "crash-hook")]
+        publish_step(PublishStep::Create, &tmp, bytes);
         let mut file = create_new_platform(&tmp, access).map_err(err(IoOp::Open, &tmp))?;
-        file.write_all(bytes).map_err(err(IoOp::Write, &tmp))?;
+        write_body(&mut file, &tmp, bytes)?;
+        #[cfg(feature = "crash-hook")]
+        publish_step(PublishStep::Sync, &tmp, bytes);
         sync_file(&file, &tmp)?;
         drop(file);
-        durable_rename(&tmp, path)
+        #[cfg(feature = "crash-hook")]
+        publish_step(PublishStep::Rename, path, &[]);
+        rename_replace(&tmp, path)?;
+        #[cfg(feature = "crash-hook")]
+        publish_step(PublishStep::SyncDir, path, &[]);
+        sync_rename_parents(&tmp, path)
     })();
     if result.is_err() {
         let _ = std::fs::remove_file(&tmp);
     }
     result
+}
+
+/// The bytes in two halves, so that the boundary between them is a real partial tmp.
+#[cfg(feature = "crash-hook")]
+fn write_body(file: &mut File, tmp: &Path, bytes: &[u8]) -> Result<(), IoError> {
+    let (first, second) = bytes.split_at(bytes.len() / 2);
+    file.write_all(first).map_err(err(IoOp::Write, tmp))?;
+    publish_step(PublishStep::Write, tmp, bytes);
+    file.write_all(second).map_err(err(IoOp::Write, tmp))
+}
+
+#[cfg(not(feature = "crash-hook"))]
+fn write_body(file: &mut File, tmp: &Path, bytes: &[u8]) -> Result<(), IoError> {
+    file.write_all(bytes).map_err(err(IoOp::Write, tmp))
 }
 
 /// Publishes a staged directory as `target` (SM §7.3; migration targets only).

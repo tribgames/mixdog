@@ -1,0 +1,449 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-migration-145.mjs --tree <git clone at v1.4.5> --out <fixture dir>",
+  "fileCount": 85,
+  "files": [
+    {
+      "bytes": 46,
+      "path": ".mixdog/data/.mixdog-tmp-0123456789abcdef",
+      "sha256": "211ca11eeda5343b9de2db501d2d804fc17e7df1e631af2beacc80c02b6d969f"
+    },
+    {
+      "bytes": 218,
+      "path": ".mixdog/data/.mixdog-user-data.json",
+      "sha256": "198dc41c85c52f6bf0d6065cb9ebaa4eae55f09f6b274cff8d3a3c1766c76a64"
+    },
+    {
+      "bytes": 75,
+      "path": ".mixdog/data/agents/concierge/AGENT.md",
+      "sha256": "56a3df8f0e29e7a86f64a01f2d865db34d855cb64c8d5e7cd76585687319b483"
+    },
+    {
+      "bytes": 60,
+      "path": ".mixdog/data/agents/concierge/agent.json",
+      "sha256": "70dcf4c17cf17d0a5a9966e94699d99b83be7b86ea7cabfd78cd5ba3269f5048"
+    },
+    {
+      "bytes": 58,
+      "path": ".mixdog/data/agents/cut-agent/AGENT.md.mixdog-tmp-facc401aca20343a",
+      "sha256": "30064f28c57ac08b33c441c20bd3ce48a3a3b6b1b3e8a594552bf98f8ae7b384"
+    },
+    {
+      "bytes": 32,
+      "path": ".mixdog/data/agents/helper/AGENT.md",
+      "sha256": "d25303288ddbc4eaa49348f21134a957dbbc1abc8213ddd117bb8fa320d61782"
+    },
+    {
+      "bytes": 23,
+      "path": ".mixdog/data/agents/helper/agent.json",
+      "sha256": "380fe17bff24c7b720c158bc16519b955b0c733db44ac29f43fca7240bd71cfb"
+    },
+    {
+      "bytes": 85,
+      "path": ".mixdog/data/agents/triage/AGENT.md",
+      "sha256": "c9501cd1123bfdc42dcdb675c07c2b664cfc28f0a2b399bd23928ba239b76cb5"
+    },
+    {
+      "bytes": 56,
+      "path": ".mixdog/data/agents/triage/agent.json",
+      "sha256": "9d1885befd3173c7f7ebe3d6f6ec2916d5390a1be97ab6dff7635c809ee82d4b"
+    },
+    {
+      "bytes": 227,
+      "path": ".mixdog/data/anthropic-oauth-credentials.json",
+      "sha256": "195d0fbe1c64e2f71112a502d074fd4cbc6fc64564a9ef376650846529fadc17"
+    },
+    {
+      "bytes": 206,
+      "path": ".mixdog/data/antigravity-oauth.json",
+      "sha256": "ace444b9876d817d2fc3ff74de1a8a55738502ddab6a6b9bd3b8d9124b62825c"
+    },
+    {
+      "bytes": 75,
+      "path": ".mixdog/data/bots/concierge/AGENT.md",
+      "sha256": "56a3df8f0e29e7a86f64a01f2d865db34d855cb64c8d5e7cd76585687319b483"
+    },
+    {
+      "bytes": 128,
+      "path": ".mixdog/data/bots/concierge/agent.json",
+      "sha256": "8debb4c8263c694dc1a8b710572203caf0607e08522469a092dff7d26a77857d"
+    },
+    {
+      "bytes": 60,
+      "path": ".mixdog/data/bots/concierge/agent.json.bak",
+      "sha256": "70dcf4c17cf17d0a5a9966e94699d99b83be7b86ea7cabfd78cd5ba3269f5048"
+    },
+    {
+      "bytes": 54,
+      "path": ".mixdog/data/bots/cut-bot/AGENT.md.mixdog-tmp-7b1ca437952f35b5",
+      "sha256": "27ef7333218af87f313dd9c93ed2f89de07bc24d28c0826cd285a18a55525f8f"
+    },
+    {
+      "bytes": 299,
+      "path": ".mixdog/data/bots/migration.json",
+      "sha256": "cf3bef0b842cebc777817aad9459eb3e00e2b8ec71242dbd66eb52dc0e6d40c8"
+    },
+    {
+      "bytes": 78,
+      "path": ".mixdog/data/command-code-oauth.json",
+      "sha256": "d801f066902d19857d4a2a55ff3e4748eccc3c38a322a455be47d825b2c8e6b9"
+    },
+    {
+      "bytes": 184,
+      "path": ".mixdog/data/core-memory.json",
+      "sha256": "b37ef1b2d248bd221aed6ffb375af76b8c32ec999207ca65de3edca1079cc66e"
+    },
+    {
+      "bytes": 69,
+      "path": ".mixdog/data/daemon-owner.json.29364.1794138466546.tmp",
+      "sha256": "a5518db1dd735472c94a80041b5f5dbc96b0fe3c4ef3cd0f65e6def12b67b03a"
+    },
+    {
+      "bytes": 2479,
+      "path": ".mixdog/data/gateway-usage.local.jsonl",
+      "sha256": "9c1fe016511653eac4e9a1289c1588e6da6a318c511621cbcfa7551cc9057b11"
+    },
+    {
+      "bytes": 46,
+      "path": ".mixdog/data/goals/lookalike.json.mixdog-tmp-0123456789ABCDEF",
+      "sha256": "211ca11eeda5343b9de2db501d2d804fc17e7df1e631af2beacc80c02b6d969f"
+    },
+    {
+      "bytes": 699,
+      "path": ".mixdog/data/goals/sess_26048_1794138436483_1794138437579_6b1c2dcca07a02a77b47379d2617d228.json",
+      "sha256": "2494a29001565767ade8c42ee0d6a53d85e64fe5ce0d7b0aff2736872937884f"
+    },
+    {
+      "bytes": 695,
+      "path": ".mixdog/data/goals/sess_26048_1794138436486_1794138441761_2b6fc6dad223910c953e83ee70d29ea8.json.mixdog-tmp-fb66560e32f97d75",
+      "sha256": "f2270dd32d35141099ec1b5df3ea29b3429b1242eb65d899e97eb339ea87f51d"
+    },
+    {
+      "bytes": 203,
+      "path": ".mixdog/data/grok-oauth.json",
+      "sha256": "19239fa0188624c503626ef0976e1c5131983f01bcf27784cc9d15ca18831a4c"
+    },
+    {
+      "bytes": 88,
+      "path": ".mixdog/data/hooks/hooks.json.mixdog-tmp-3ebe6b62f553265c",
+      "sha256": "d623ddbd67cc6edbd02a0abc5670c3c372755d4722daf259c277a85658d7fd6a"
+    },
+    {
+      "bytes": 138,
+      "path": ".mixdog/data/human-gate/audit.jsonl",
+      "sha256": "14afd32dce84cb43551f07d26267f81036e32a75b9d359f759ff0022341a8c67"
+    },
+    {
+      "bytes": 384,
+      "path": ".mixdog/data/human-gate/grants.json",
+      "sha256": "e514192ca99ceba76c4d1e1c9acb91b99470156ddc67b0a401f1ac5539e70a41"
+    },
+    {
+      "bytes": 568,
+      "path": ".mixdog/data/human-gate/grants.json.mixdog-tmp-f57c307f554844f8",
+      "sha256": "ba981ea40f9817a6feb2fcff89a4452e71ca7d4a0b44d046a5725bf126a4cfce"
+    },
+    {
+      "bytes": 46,
+      "path": ".mixdog/data/human-gate/lookalike.json.mixdog-tmp-0123abcd",
+      "sha256": "211ca11eeda5343b9de2db501d2d804fc17e7df1e631af2beacc80c02b6d969f"
+    },
+    {
+      "bytes": 70,
+      "path": ".mixdog/data/media/assets/images/image/stub-image/2026-11-08/359f8f27-1d40-4426-880d-ca2dcad30aae.png",
+      "sha256": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581"
+    },
+    {
+      "bytes": 430,
+      "path": ".mixdog/data/media/index.json",
+      "sha256": "9952d317e77613a473e574a03a4f7f624741de0e89996f4e921b516f3fc65a73"
+    },
+    {
+      "bytes": 92,
+      "path": ".mixdog/data/media/renditions/thumb/359f8f27-1d40-4426-880d-ca2dcad30aae.webp",
+      "sha256": "a5e009dfd59b52922a625b6528ff22129afd76b1997352f9edf47cebb971f5b0"
+    },
+    {
+      "bytes": 96,
+      "path": ".mixdog/data/mimo-oauth.json",
+      "sha256": "d953ce0c85d678b5843cb98d06b7b258e4253db43095dca1657ff9142d92221f"
+    },
+    {
+      "bytes": 2036,
+      "path": ".mixdog/data/mixdog-config.json",
+      "sha256": "8973d9ef14c8ae66f7785c50a91f45f6b7611ef5276f8f64b9b96a726c5b8b72"
+    },
+    {
+      "bytes": 2037,
+      "path": ".mixdog/data/mixdog-config.json.mixdog-tmp-d3c2872f17a10f7d",
+      "sha256": "112e6906561719176030f9834a75060307d8283580d4cf902ec4374352baa595"
+    },
+    {
+      "bytes": 98,
+      "path": ".mixdog/data/muse-code-oauth.json",
+      "sha256": "132f3296d23ebc445db0726f06154414ef0f6940a4a419dd8748202cdac651a9"
+    },
+    {
+      "bytes": 146,
+      "path": ".mixdog/data/openai-oauth.json",
+      "sha256": "fcbfa8082eba55ceb011adbf6fa3195c61c31639d402ec9d441611f4d096a83c"
+    },
+    {
+      "bytes": 0,
+      "path": ".mixdog/data/prompt-attachments/gc-last-run",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 2170,
+      "path": ".mixdog/data/prompt-attachments/gc-reference-cache.json",
+      "sha256": "d3f66b1d1b6d41ba4f432ca61c753e5504cce5385986cc06d8046b4874bdb2a3"
+    },
+    {
+      "bytes": 70,
+      "path": ".mixdog/data/prompt-attachments/sha256/49/497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581",
+      "sha256": "497790947d4666760ce38f3c00e852c71fdb66cae849bae8e9ede352719e1581"
+    },
+    {
+      "bytes": 38,
+      "path": ".mixdog/data/prompt-attachments/sha256/61/6147f481b6bb8ae6a3dc642ad0828c1585bb7396f5c3147b268b7b0267895903",
+      "sha256": "6147f481b6bb8ae6a3dc642ad0828c1585bb7396f5c3147b268b7b0267895903"
+    },
+    {
+      "bytes": 26,
+      "path": ".mixdog/data/prompt-attachments/sha256/c0/c030723e7cf6c5e1eda7ff4b1dbe8a863c165425a8c5e014082a16e12387ffe2.mixdog-tmp-5cad54a132c97868",
+      "sha256": "c030723e7cf6c5e1eda7ff4b1dbe8a863c165425a8c5e014082a16e12387ffe2"
+    },
+    {
+      "bytes": 348,
+      "path": ".mixdog/data/prompt-cache-idle-gaps.json",
+      "sha256": "378dc9abbcb173b70b6dee948a9ddb3e3950bb0a067521b64455c5f4d49bf6b4"
+    },
+    {
+      "bytes": 0,
+      "path": ".mixdog/data/prompt-cache-idle-gaps.json.mixdog-tmp-405d38e44d48e981",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "bytes": 46,
+      "path": ".mixdog/data/prompt-cache-touches.json.mixdog-tmp-0123456789abcdef0",
+      "sha256": "211ca11eeda5343b9de2db501d2d804fc17e7df1e631af2beacc80c02b6d969f"
+    },
+    {
+      "bytes": 2120,
+      "path": ".mixdog/data/provider-accounts.json",
+      "sha256": "7572cdb0afd0966283ba5f0c3f326eac3f974bfa4318e9f90be6e64acc3bf6db"
+    },
+    {
+      "bytes": 2064,
+      "path": ".mixdog/data/provider-accounts.json.bak",
+      "sha256": "a4539aad758b172cab6261fe23b618cf1140bdda81906f37eb0ccb1d5e9fa4cf"
+    },
+    {
+      "bytes": 206,
+      "path": ".mixdog/data/provider-accounts/antigravity-oauth/00000000-0000-4000-8000-000000000002.json",
+      "sha256": "9c7493397f3311db872db5131f8996500b49b0ebbe0b4f7c3c2f710053bfc533"
+    },
+    {
+      "bytes": 78,
+      "path": ".mixdog/data/provider-accounts/command-code-oauth/00000000-0000-4000-8000-000000000003.json",
+      "sha256": "dc8101df6de99a0f6fec360ba9e9fc2653a791cbafa22624a33acb7f753dd98c"
+    },
+    {
+      "bytes": 203,
+      "path": ".mixdog/data/provider-accounts/grok-oauth/00000000-0000-4000-8000-000000000001.json",
+      "sha256": "1d8e8bcab9d079c5a6f45dc684649dea3b942c54fa36ac285f95dfc22774a162"
+    },
+    {
+      "bytes": 96,
+      "path": ".mixdog/data/provider-accounts/mimo-oauth/00000000-0000-4000-8000-000000000004.json",
+      "sha256": "5ec2b982ad5cfee0a0f8985f3389928dd03a95d4af8c7dd29a035b3ea5269a1f"
+    },
+    {
+      "bytes": 98,
+      "path": ".mixdog/data/provider-accounts/muse-code-oauth/00000000-0000-4000-8000-000000000005.json",
+      "sha256": "af2c36c176500a8f37f49db850fda588376c454156c5ebee6417cc01ba393d95"
+    },
+    {
+      "bytes": 146,
+      "path": ".mixdog/data/provider-accounts/openai-oauth/00000000-0000-4000-8000-000000000000.json",
+      "sha256": "6d1fda79fcb03f0d0e15023524de3363ee5ff8cb4c425c4e6d0b01077ff93102"
+    },
+    {
+      "bytes": 407,
+      "path": ".mixdog/data/quota-resume.json",
+      "sha256": "b5e6e54cfee4ddfbace0259f2ada68a6c3560c5c5d963a3a80e51dbd3bedc651"
+    },
+    {
+      "bytes": 45,
+      "path": ".mixdog/data/quota-resume.json.lock.34228.1a0d48f6907d7561.tmp",
+      "sha256": "7c204de8d8a3c138778c75483fafbab02eb484a49fc1b86a60e399fa702a7bcc"
+    },
+    {
+      "bytes": 436,
+      "path": ".mixdog/data/read-snapshots/sess_26048_1794138436483_1794138437579_6b1c2dcca07a02a77b47379d2617d228.json",
+      "sha256": "2f3037aa2eba0dd2dac0ced74e96c301dc32a460d8e8cb862195daf0c772dbdc"
+    },
+    {
+      "bytes": 46,
+      "path": ".mixdog/data/schedules/lookalike.json.mixdog-tmp-0123456789abcdef",
+      "sha256": "211ca11eeda5343b9de2db501d2d804fc17e7df1e631af2beacc80c02b6d969f"
+    },
+    {
+      "bytes": 329,
+      "path": ".mixdog/data/session-pending/sess_26048_1794138436483_1794138437579_6b1c2dcca07a02a77b47379d2617d228.json",
+      "sha256": "8a956f670b612008a6a0ecab73c5bf5153514f6b7d81a3abc4304477f10f013e"
+    },
+    {
+      "bytes": 15301,
+      "path": ".mixdog/data/session-summaries.log",
+      "sha256": "c08525f60de1541e9385cfa47bf59158c45f36a3b8d22defec36253c73e8f0f9"
+    },
+    {
+      "bytes": 46,
+      "path": ".mixdog/data/sessions/lookalike.compaction-archive.jsonl.mixdog-tmp-0123456789abcdef",
+      "sha256": "211ca11eeda5343b9de2db501d2d804fc17e7df1e631af2beacc80c02b6d969f"
+    },
+    {
+      "bytes": 46,
+      "path": ".mixdog/data/sessions/lookalike.json.0123456789abcdef01234567.tmp",
+      "sha256": "211ca11eeda5343b9de2db501d2d804fc17e7df1e631af2beacc80c02b6d969f"
+    },
+    {
+      "bytes": 46,
+      "path": ".mixdog/data/sessions/lookalike.json.mixdog-tmp-0123456789abcdef",
+      "sha256": "211ca11eeda5343b9de2db501d2d804fc17e7df1e631af2beacc80c02b6d969f"
+    },
+    {
+      "bytes": 49668,
+      "path": ".mixdog/data/sessions/sess_25652_1794138442307_1794138442352_235666878a69d04e82041be34928e8df.json",
+      "sha256": "f27fdef180926cb0b9ecdd391cb008a49555854393c3f9785879fa0b9c595f4a"
+    },
+    {
+      "bytes": 51663,
+      "path": ".mixdog/data/sessions/sess_26048_1794138436483_1794138437579_6b1c2dcca07a02a77b47379d2617d228.json",
+      "sha256": "90afcf7ae8d179b2bca8693690daf1f4b5d4f37352eb04e3ca22da499c135ed0"
+    },
+    {
+      "bytes": 56589,
+      "path": ".mixdog/data/sessions/sess_26048_1794138436484_1794138440629_31486a47ef683f58f67caf92b48fbb5e.json",
+      "sha256": "42a695a95ddf0a9087f79bb11bbf29ba6ddd2186f80897630505cec62790dc2d"
+    },
+    {
+      "bytes": 49747,
+      "path": ".mixdog/data/sessions/sess_26048_1794138436485_1794138441622_a2997e2b9340f1245f9e78cc660b4be9.json",
+      "sha256": "32ee10e6cd5e36fb990f858c25f4961ce0256d9fed81fa03ca9e2c16771911c9"
+    },
+    {
+      "bytes": 485,
+      "path": ".mixdog/data/sessions/sess_26048_1794138436486_1794138441761_2b6fc6dad223910c953e83ee70d29ea8.compaction-archive.jsonl.mixdog-tmp-140cf19b",
+      "sha256": "ebb07cee4461408387373fb0db651c6f85d6105ea72a97f8f3763a355343bc8d"
+    },
+    {
+      "bytes": 378,
+      "path": ".mixdog/data/sessions/sess_26048_1794138436486_1794138441761_2b6fc6dad223910c953e83ee70d29ea8.compaction-archive.pending.mixdog-tmp-3428ec04",
+      "sha256": "8751c48af36ab986ff4229b298cb174efcd6bdfffb6a8521296ce2aae4981fa8"
+    },
+    {
+      "bytes": 47114,
+      "path": ".mixdog/data/sessions/sess_26048_1794138436486_1794138441761_2b6fc6dad223910c953e83ee70d29ea8.json",
+      "sha256": "0fa0dc48fc2b6085ed2abad543387a3a2ec90a4ceb693c60cd3aedc6d10353ad"
+    },
+    {
+      "bytes": 47114,
+      "path": ".mixdog/data/sessions/sess_26048_1794138436486_1794138441761_2b6fc6dad223910c953e83ee70d29ea8.json.1e6b0a20dab5.tmp",
+      "sha256": "8f81ee858f370c5b3339dadc8a2b936053931304466c9bee6c7811100615cc8d"
+    },
+    {
+      "bytes": 512,
+      "path": ".mixdog/data/sessions/sess_45216_1794138467033_1794138467076_af8c4d65ce85e2d6ee07038a6abd0c50.json.corrupt-1794138467591",
+      "sha256": "076a27c79e5ace2a3d47f9dd2e83e4ff6ea8872b3c2218f66c92b89b55f36560"
+    },
+    {
+      "bytes": 90,
+      "path": ".mixdog/data/skills/cut-skill/SKILL.md.mixdog-tmp-bed199203164acb9",
+      "sha256": "6b519a0941783e6700fb9f9bb017ae6e1b8a54ffcc6dd3859febe425c2f9b7bd"
+    },
+    {
+      "bytes": 67,
+      "path": ".mixdog/data/skills/example/SKILL.md",
+      "sha256": "8d9199c2f12af90ecd804d43e8a548082beaa79f6e6eb5d9c99096b2f4fd3d2c"
+    },
+    {
+      "bytes": 45,
+      "path": ".mixdog/data/skills/example/guide.mixdog-tmp-not-a-temp.md",
+      "sha256": "f6a0dfa91fcd9dd3b4b044987846e6a45e3a78a044de33dbca4cd3607baabcb3"
+    },
+    {
+      "bytes": 165,
+      "path": ".mixdog/data/tool-events.log",
+      "sha256": "77bdcbec7472883c71b7bf248f971d5742a1106ac9442453fa6c51847d083a12"
+    },
+    {
+      "bytes": 74,
+      "path": ".mixdog/data/tui-prompt-history/1cf8dae7e34ac01a3bb5221327abdc61.json.mixdog-tmp-51e8c36700d6ec5b",
+      "sha256": "d18a4eb430818707a9fc509ffe5a811887cf7ef32087c43bc7c57b97f98ee1e4"
+    },
+    {
+      "bytes": 88,
+      "path": ".mixdog/data/tui-prompt-history/22a9c8291c7fc479087d26ff7dfef0e6.json",
+      "sha256": "9d7fc695f7b0cd9a8724111cd556ef617f5af70f78326c6e223a9eec4ad054b8"
+    },
+    {
+      "bytes": 660,
+      "path": ".mixdog/data/turn-checkpoints/sess_25652_1794138442307_1794138442352_235666878a69d04e82041be34928e8df.json",
+      "sha256": "5a35aeb7906050e39ccf4fe9df6a1167c5d40141bd8a298f41f4d8ab9cf7585b"
+    },
+    {
+      "bytes": 787,
+      "path": ".mixdog/data/turn-checkpoints/sess_25652_1794138442307_1794138442352_235666878a69d04e82041be34928e8df.jsonl",
+      "sha256": "bd55cb2147a4975f3b81a68b65c23cd3d51c86d588fe2ef0aafd4bbfa1c76abd"
+    },
+    {
+      "bytes": 122880,
+      "path": ".mixdog/data/usage/ledger.sqlite",
+      "sha256": "427b6e01efdaa91b8ccee06525f349d3fe9fdb6480f8abd519f76515471bd6e2"
+    },
+    {
+      "bytes": 58,
+      "path": ".mixdog/data/workflows/cut-flow/WORKFLOW.md.mixdog-tmp-90af9ac34485cf3c",
+      "sha256": "a0fb094f4c2cc33f23cbdf0f9c8d21bbcd4ad3bdc6c6d588fa8f376bfeb83678"
+    },
+    {
+      "bytes": 95,
+      "path": ".mixdog/data/workflows/release-train/WORKFLOW.md",
+      "sha256": "876d6ea9e2057df8c8c28125374864961f9eb452cf17f2f18334499cf5608275"
+    },
+    {
+      "bytes": 862,
+      "path": ".mixdog/data/worktrees-v1/registry.json",
+      "sha256": "12da5c77dd760446687b68a35d7c590c61b2ac7d16ef1f28c4536dff53bb86c1"
+    },
+    {
+      "bytes": 197,
+      "path": ".mixdog/projects.json",
+      "sha256": "cfec03c2d1d7cca6e642b405c68dc16fdb68b9b9a7d6e85186de78307f750bdd"
+    },
+    {
+      "bytes": 544370,
+      "path": "answers.json",
+      "sha256": "f3311af449d024865617feafb25ebd2d5321efc0d99bdd9dbb76fd1740b9dd1b"
+    }
+  ],
+  "product": {
+    "commit": "69fe41b056d3407d7fc7da10ed71e3960b497166",
+    "comparedAgainst": "v1.4.5",
+    "exact": true,
+    "refComparison": {
+      "closestCommit": "69fe41b056d3407d7fc7da10ed71e3960b497166",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "tag": "v1.4.5",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-migration-145.mjs",
+  "set": "migration-145",
+  "totalBytes": 1010503
+}
