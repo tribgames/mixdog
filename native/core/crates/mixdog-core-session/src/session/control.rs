@@ -360,8 +360,9 @@ impl ControlCell {
     }
 
     /// `turn/interrupt` → `{cancelRequested: true, turnId}` (R12): the user's stop
-    /// (`abortRuntime`, `cli-abort`). The run stops at its next poll; its `run{interrupted}`
-    /// record follows through the control reserve.
+    /// (`abortRuntime`, `cli-abort`). The cancel is fired before this returns and a full control lane cannot
+    /// refuse it; the run stops at its next poll and its `run{interrupted}` record follows through the control
+    /// reserve.
     pub fn interrupt(&self, turn: &TurnId, restore_prompt: Option<bool>) -> Result<Value, CoreError> {
         // `abort.mjs`: a Stop that hands the prompt back is `user-cancel` (the runtime rewinds a turn that produced
         // nothing); one that does not names `user-cancel-keep-prompt`, so the prompt stays in the stored transcript.
@@ -379,14 +380,17 @@ impl ControlCell {
     }
 
     /// Aborts the running `turn` with `reason`, Node's abort text (`closeSession`,
-    /// `abortSessionTurn`, `abortRuntime`).
+    /// `abortSessionTurn`, `abortRuntime`). The only error is a `turn` that is not the running one.
     pub fn abort(&self, turn: &TurnId, abort: &mixdog_agent::cancel::Abort) -> Result<Value, CoreError> {
         let run = self.run.load_full();
         let Some(run) = run.filter(|run| &run.turn == turn) else {
             return Err(self.not_active(Some(turn)));
         };
-        self.send(Ctl::Abort { turn: turn.clone() })?;
+        // `abortRuntime` aborts synchronously, so the cancel fires first and cannot be refused. The actor's
+        // `Ctl::Abort` only settles the turn's pending approvals early; a full lane drops it, and `run_ended`
+        // settles whatever is left when the turn ends.
         run.cancel.abort_with(abort);
+        let _ = self.ctl_tx.try_send(Ctl::Abort { turn: turn.clone() });
         Ok(json!({ "cancelRequested": true, "turnId": turn }))
     }
 

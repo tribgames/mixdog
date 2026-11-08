@@ -497,6 +497,41 @@ async fn interrupt_is_answered_on_the_control_path_and_ends_the_run() {
     assert_eq!(reason.lock().unwrap().as_deref(), Some(expected.as_str()));
 }
 
+/// `abortRuntime` aborts synchronously: a control lane that is full (the actor has not drained it) cannot
+/// refuse the user's stop.
+#[tokio::test(start_paused = true)]
+async fn interrupt_cancels_the_run_while_the_control_lane_is_full() {
+    let rig = Rig::new();
+    let (seen_tx, seen_rx) = tokio::sync::oneshot::channel::<String>();
+    let seen_tx = Mutex::new(Some(seen_tx));
+    let seen_tx = Arc::new(seen_tx);
+    rig.set_script(Arc::new(move |run| {
+        let seen_tx = seen_tx.clone();
+        Box::pin(async move {
+            run.cancel.cancelled().await;
+            if let Some(tx) = seen_tx.lock().unwrap().take() {
+                let _ = tx.send(run.signal.reason());
+            }
+            RunOutcome::Interrupted
+        })
+    }));
+    let directory = SessionDirectory::new(rig.deps());
+    let handle = start_thread(&directory).await;
+    let started = turn(&handle, "long job", "op-1").await;
+    let turn_id = TurnId::from(started["turnId"].as_str().expect("turn id"));
+
+    // No await between the fill and the interrupt: the actor drains nothing.
+    let mut filled = 0;
+    while handle.cell.ctl_tx.try_send(crate::session::control::Ctl::RefreshSurface).is_ok() {
+        filled += 1;
+    }
+    assert_eq!(filled, 32, "the control lane holds 32");
+    handle.interrupt(&turn_id, None).expect("interrupt");
+
+    let expected = format!("Session \"{}\" closed: runtime abort (reason=cli-abort)", handle.id.as_str());
+    assert_eq!(seen_rx.await.expect("the script observed the cancel"), expected);
+}
+
 /// The turn's review (`snapshot-tracker.mjs`): the run begins it once its workspace is final, a
 /// tool waits for the baseline, and the turn settles only after the seal, so its edit is the
 /// sealed turn's change record under the input row's checkpoint.
