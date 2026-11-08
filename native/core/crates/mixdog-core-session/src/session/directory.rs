@@ -594,6 +594,20 @@ impl SessionDirectory {
         self.inner.creating.load(std::sync::atomic::Ordering::SeqCst) > 0
     }
 
+    /// `createCurrentSession` for a thread that has none yet (a control session started before any model was chosen): the
+    /// route the config now resolves to is readied and seated on its record, as a started task's is. A thread that has its
+    /// session, or is not there, is left alone; a config that still names no model leaves it without one.
+    async fn seat_session(&self, id: &ThreadId) -> Result<(), CoreError> {
+        let Some(header) = self.try_stored_header(id).await? else { return Ok(()) };
+        if mixdog_core_ports::ports::route::has_session(&header, &self.rows_of(id.as_str()).await?) {
+            return Ok(());
+        }
+        let refused = |message: String| mixdog_core_base::support::failed("route", message);
+        let routes = &self.inner.deps.new_route;
+        routes.adopt_control(id).await.map_err(&refused)?;
+        routes.seat(id).await.map_err(&refused)
+    }
+
     /// Creates the thread under a fixed `id` (agent homes and room sessions are derived keys, not
     /// minted ids) with `header` as its first durable write.
     pub async fn create_with_id(&self, id: ThreadId, header: Header, params: Value) -> Result<(), CoreError> {
@@ -1563,6 +1577,25 @@ impl ThreadDirectory for SessionDirectory {
                 }))
             }
             "thread/delete" => super::delete::serve(&self.inner, &req.params).await,
+            "thread/fork" => {
+                // `inheritFrom` (`lifecycle/inheritance.mjs`): "a daemon-created heir is still only RESERVED when the desktop calls
+                // this": the session is created first (`createCurrentSession('inherit')`), and only then is the source looked up,
+                // so a source that is not there refuses with the heir already created.
+                // The source is named first (`if (!id) throw TypeError('inheritFrom: source session id is required')`): a request
+                // that names none leaves the reservation as it is.
+                let source = req
+                    .params
+                    .get("threadId")
+                    .and_then(Value::as_str)
+                    .map(mixdog_js::js_trim)
+                    .filter(|id| !id.is_empty())
+                    .map(|id| ThreadId::from(id.to_owned()))
+                    .ok_or_else(|| CoreError::InvalidParams { path: "threadId".into(), expected: "a thread id".into() })?;
+                if let Some(heir) = req.params.get("intoThreadId").and_then(Value::as_str) {
+                    self.seat_session(&ThreadId::from(heir)).await?;
+                }
+                self.inner.open(&source, &req.ctx).await?.request(req).await
+            }
             method if super::reads::serves(method) => self.inner.serve_read(&req).await,
             "thread/inheritancePreflight" => self.inheritance_preflight(&req.params).await.map(Reply::Value),
             _ => Err(CoreError::InvalidParams {

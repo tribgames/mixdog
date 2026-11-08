@@ -1,0 +1,1282 @@
+{
+  "domain": "context-status-route",
+  "recorder": "benchmarks/rust-core/recorders/context-status-route/record.mjs",
+  "nodeCommit": "b6f10295a2f698afc85332467192de28500bd146",
+  "route": {
+    "provider": "custom-harness",
+    "model": "harness-model"
+  },
+  "seedPrompt": "Seed the transcript. HARNESS-CAP-SEED",
+  "config": {
+    "agent": {
+      "providers": {
+        "custom-harness": {
+          "type": "custom",
+          "schemaVersion": 2,
+          "name": "harness",
+          "protocol": "openai-chat",
+          "baseURL": "http://127.0.0.1:9/v1",
+          "auth": "none",
+          "enabled": true,
+          "modelOverrides": {
+            "harness-model": {
+              "manual": true
+            }
+          }
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "session": "control",
+      "lane": "session.create",
+      "action": "createSession",
+      "args": [
+        {
+          "cwd": "$taskWorkspace",
+          "desktopSession": null
+        }
+      ],
+      "ok": true,
+      "value": null
+    },
+    {
+      "session": "control",
+      "lane": "session.read",
+      "action": "contextStatus",
+      "args": [
+        {}
+      ],
+      "ok": true,
+      "value": {
+        "sessionId": null,
+        "provider": "anthropic-oauth",
+        "model": "",
+        "cwd": "$taskWorkspace",
+        "toolMode": "full",
+        "contextWindow": null,
+        "effectiveContextWindow": null,
+        "rawContextWindow": null,
+        "effectiveContextWindowPercent": null,
+        "usedTokens": 0,
+        "usedSource": "empty",
+        "measurement": {
+          "tokens": null,
+          "source": "pending",
+          "updatedAt": null
+        },
+        "currentEstimatedTokens": 0,
+        "lastApiRequestTokens": 0,
+        "lastApiRequestStale": false,
+        "freeTokens": 0,
+        "compaction": {
+          "boundaryTokens": null,
+          "triggerTokens": null,
+          "bufferTokens": null,
+          "bufferRatio": null,
+          "currentEstimatedTokens": 0,
+          "lastApiRequestTokens": 0,
+          "lastApiRequestStale": false
+        },
+        "messages": {
+          "count": 0,
+          "estimatedTokens": 0,
+          "roles": {
+            "system": {
+              "count": 0,
+              "tokens": 0
+            },
+            "user": {
+              "count": 0,
+              "tokens": 0
+            },
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "tool": {
+              "count": 0,
+              "tokens": 0
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            }
+          },
+          "semantic": {
+            "system": {
+              "count": 0,
+              "tokens": 0
+            },
+            "chat": {
+              "count": 0,
+              "tokens": 0
+            },
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "toolResults": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 0,
+              "tokens": 0,
+              "otherTokens": 0
+            },
+            "workflow": {
+              "tokens": 0
+            },
+            "memory": {
+              "tokens": 0
+            },
+            "workspace": {
+              "tokens": 0
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "other": {
+              "tokens": 0
+            }
+          },
+          "toolCallCount": 0,
+          "toolCallTokens": 0,
+          "toolResultCount": 0,
+          "toolResultTokens": 0
+        },
+        "request": {
+          "toolSchemaTokens": 0,
+          "toolSchemaBreakdown": {},
+          "requestOverheadTokens": 0,
+          "reserveTokens": 0
+        },
+        "usage": {
+          "reasoningUsage": null,
+          "lastInputTokens": 0,
+          "lastUncachedInputTokens": 0,
+          "lastOutputTokens": 0,
+          "lastCachedReadTokens": 0,
+          "lastCacheWriteTokens": 0,
+          "lastContextTokens": 0,
+          "totalInputTokens": 0,
+          "totalUncachedInputTokens": 0,
+          "totalOutputTokens": 0,
+          "totalCachedReadTokens": 0,
+          "totalCacheWriteTokens": 0,
+          "usageReadout": null
+        }
+      }
+    },
+    {
+      "session": "control",
+      "lane": "session.read",
+      "action": "getSessionUsage",
+      "args": [
+        {}
+      ],
+      "ok": true,
+      "value": null
+    },
+    {
+      "session": "second",
+      "lane": "session.create",
+      "action": "createSession",
+      "args": [
+        {
+          "cwd": "$workspace",
+          "desktopSession": {
+            "classification": "project",
+            "projectPath": "$workspace"
+          }
+        }
+      ],
+      "ok": true,
+      "value": null
+    },
+    {
+      "session": "second",
+      "lane": "session.configure",
+      "action": "setRoute",
+      "args": [
+        {
+          "provider": "custom-harness",
+          "model": "harness-model",
+          "applyToCurrentSession": true,
+          "keepMainModel": false
+        }
+      ],
+      "ok": true,
+      "value": null
+    },
+    {
+      "session": "second",
+      "lane": "session.submit",
+      "action": "submit",
+      "args": [
+        "Seed the transcript. HARNESS-CAP-SEED"
+      ],
+      "ok": true,
+      "value": null
+    },
+    {
+      "session": "control",
+      "lane": "session.read",
+      "action": "contextStatus",
+      "args": [
+        {}
+      ],
+      "ok": true,
+      "value": {
+        "sessionId": null,
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "cwd": "$taskWorkspace",
+        "toolMode": "full",
+        "contextWindow": null,
+        "effectiveContextWindow": null,
+        "rawContextWindow": null,
+        "effectiveContextWindowPercent": null,
+        "usedTokens": 0,
+        "usedSource": "empty",
+        "measurement": {
+          "tokens": null,
+          "source": "pending",
+          "updatedAt": null
+        },
+        "currentEstimatedTokens": 0,
+        "lastApiRequestTokens": 0,
+        "lastApiRequestStale": false,
+        "freeTokens": 0,
+        "compaction": {
+          "boundaryTokens": null,
+          "triggerTokens": null,
+          "bufferTokens": null,
+          "bufferRatio": null,
+          "currentEstimatedTokens": 0,
+          "lastApiRequestTokens": 0,
+          "lastApiRequestStale": false
+        },
+        "messages": {
+          "count": 0,
+          "estimatedTokens": 0,
+          "roles": {
+            "system": {
+              "count": 0,
+              "tokens": 0
+            },
+            "user": {
+              "count": 0,
+              "tokens": 0
+            },
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "tool": {
+              "count": 0,
+              "tokens": 0
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            }
+          },
+          "semantic": {
+            "system": {
+              "count": 0,
+              "tokens": 0
+            },
+            "chat": {
+              "count": 0,
+              "tokens": 0
+            },
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "toolResults": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 0,
+              "tokens": 0,
+              "otherTokens": 0
+            },
+            "workflow": {
+              "tokens": 0
+            },
+            "memory": {
+              "tokens": 0
+            },
+            "workspace": {
+              "tokens": 0
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "other": {
+              "tokens": 0
+            }
+          },
+          "toolCallCount": 0,
+          "toolCallTokens": 0,
+          "toolResultCount": 0,
+          "toolResultTokens": 0
+        },
+        "request": {
+          "toolSchemaTokens": 0,
+          "toolSchemaBreakdown": {},
+          "requestOverheadTokens": 0,
+          "reserveTokens": 0
+        },
+        "usage": {
+          "reasoningUsage": null,
+          "lastInputTokens": 0,
+          "lastUncachedInputTokens": 0,
+          "lastOutputTokens": 0,
+          "lastCachedReadTokens": 0,
+          "lastCacheWriteTokens": 0,
+          "lastContextTokens": 0,
+          "totalInputTokens": 0,
+          "totalUncachedInputTokens": 0,
+          "totalOutputTokens": 0,
+          "totalCachedReadTokens": 0,
+          "totalCacheWriteTokens": 0,
+          "usageReadout": null
+        }
+      }
+    },
+    {
+      "session": "control",
+      "lane": "session.read",
+      "action": "getSessionUsage",
+      "args": [
+        {}
+      ],
+      "ok": true,
+      "value": null
+    },
+    {
+      "session": "control",
+      "lane": "session.configure",
+      "action": "inheritFrom",
+      "args": [
+        "harness-no-such-session",
+        {
+          "compact": false
+        }
+      ],
+      "ok": false,
+      "error": "inheritFrom: session harness-no-such-session was not found"
+    },
+    {
+      "session": "control",
+      "lane": "session.read",
+      "action": "contextStatus",
+      "args": [
+        {}
+      ],
+      "ok": true,
+      "value": {
+        "sessionId": "$control",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "cwd": "$taskWorkspace",
+        "toolMode": "full",
+        "contextWindow": 128000,
+        "effectiveContextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": null,
+        "usedTokens": 0,
+        "usedSource": "empty",
+        "measurement": {
+          "tokens": null,
+          "source": "pending",
+          "updatedAt": null
+        },
+        "currentEstimatedTokens": 0,
+        "lastApiRequestTokens": 0,
+        "lastApiRequestStale": false,
+        "freeTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "triggerTokens": 128000,
+          "bufferTokens": 0,
+          "bufferRatio": 0,
+          "currentEstimatedTokens": 0,
+          "lastApiRequestTokens": 0,
+          "lastApiRequestStale": false
+        },
+        "messages": {
+          "count": 0,
+          "estimatedTokens": 0,
+          "roles": {
+            "system": {
+              "count": 0,
+              "tokens": 0
+            },
+            "user": {
+              "count": 0,
+              "tokens": 0
+            },
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "tool": {
+              "count": 0,
+              "tokens": 0
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            }
+          },
+          "semantic": {
+            "system": {
+              "count": 0,
+              "tokens": 0
+            },
+            "chat": {
+              "count": 0,
+              "tokens": 0
+            },
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "toolResults": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 0,
+              "tokens": 0,
+              "otherTokens": 0
+            },
+            "workflow": {
+              "tokens": 0
+            },
+            "memory": {
+              "tokens": 0
+            },
+            "workspace": {
+              "tokens": 0
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "other": {
+              "tokens": 0
+            }
+          },
+          "toolCallCount": 0,
+          "toolCallTokens": 0,
+          "toolResultCount": 0,
+          "toolResultTokens": 0
+        },
+        "request": {
+          "toolSchemaTokens": 0,
+          "toolSchemaBreakdown": {},
+          "requestOverheadTokens": 0,
+          "reserveTokens": 0
+        },
+        "usage": {
+          "reasoningUsage": null,
+          "lastInputTokens": 0,
+          "lastUncachedInputTokens": 0,
+          "lastOutputTokens": 0,
+          "lastCachedReadTokens": 0,
+          "lastCacheWriteTokens": 0,
+          "lastContextTokens": 0,
+          "totalInputTokens": 0,
+          "totalUncachedInputTokens": 0,
+          "totalOutputTokens": 0,
+          "totalCachedReadTokens": 0,
+          "totalCacheWriteTokens": 0,
+          "usageReadout": null
+        }
+      }
+    },
+    {
+      "session": "control",
+      "lane": "session.read",
+      "action": "getSessionUsage",
+      "args": [
+        {}
+      ],
+      "ok": true,
+      "value": {
+        "sessionId": "$control",
+        "outputTokensPerSecond": null,
+        "turns": 0,
+        "input": 0,
+        "output": 0,
+        "cacheRead": 0,
+        "cacheWrite": 0,
+        "tokens": 0,
+        "unmeasuredTurns": 0,
+        "costUsd": 0,
+        "costKnownTurns": 0,
+        "costUnpricedTurns": 0,
+        "cacheHitRate": 0
+      }
+    },
+    {
+      "session": "control",
+      "lane": "session.configure",
+      "action": "setFast",
+      "args": [
+        true
+      ],
+      "ok": false,
+      "error": "fast mode is not available for custom-harness/harness-model"
+    },
+    {
+      "session": "control",
+      "lane": "session.read",
+      "action": "contextStatus",
+      "args": [
+        {}
+      ],
+      "ok": true,
+      "value": {
+        "sessionId": "$control",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "cwd": "$taskWorkspace",
+        "toolMode": "full",
+        "contextWindow": 128000,
+        "effectiveContextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": null,
+        "usedTokens": 0,
+        "usedSource": "empty",
+        "measurement": {
+          "tokens": null,
+          "source": "pending",
+          "updatedAt": null
+        },
+        "currentEstimatedTokens": 0,
+        "lastApiRequestTokens": 0,
+        "lastApiRequestStale": false,
+        "freeTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "triggerTokens": 128000,
+          "bufferTokens": 0,
+          "bufferRatio": 0,
+          "currentEstimatedTokens": 0,
+          "lastApiRequestTokens": 0,
+          "lastApiRequestStale": false
+        },
+        "messages": {
+          "count": 0,
+          "estimatedTokens": 0,
+          "roles": {
+            "system": {
+              "count": 0,
+              "tokens": 0
+            },
+            "user": {
+              "count": 0,
+              "tokens": 0
+            },
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "tool": {
+              "count": 0,
+              "tokens": 0
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            }
+          },
+          "semantic": {
+            "system": {
+              "count": 0,
+              "tokens": 0
+            },
+            "chat": {
+              "count": 0,
+              "tokens": 0
+            },
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "toolResults": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 0,
+              "tokens": 0,
+              "otherTokens": 0
+            },
+            "workflow": {
+              "tokens": 0
+            },
+            "memory": {
+              "tokens": 0
+            },
+            "workspace": {
+              "tokens": 0
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "other": {
+              "tokens": 0
+            }
+          },
+          "toolCallCount": 0,
+          "toolCallTokens": 0,
+          "toolResultCount": 0,
+          "toolResultTokens": 0
+        },
+        "request": {
+          "toolSchemaTokens": 0,
+          "toolSchemaBreakdown": {},
+          "requestOverheadTokens": 0,
+          "reserveTokens": 0
+        },
+        "usage": {
+          "reasoningUsage": null,
+          "lastInputTokens": 0,
+          "lastUncachedInputTokens": 0,
+          "lastOutputTokens": 0,
+          "lastCachedReadTokens": 0,
+          "lastCacheWriteTokens": 0,
+          "lastContextTokens": 0,
+          "totalInputTokens": 0,
+          "totalUncachedInputTokens": 0,
+          "totalOutputTokens": 0,
+          "totalCachedReadTokens": 0,
+          "totalCacheWriteTokens": 0,
+          "usageReadout": null
+        }
+      }
+    },
+    {
+      "session": "control",
+      "lane": "session.configure",
+      "action": "setFast",
+      "args": [
+        false
+      ],
+      "ok": true,
+      "value": false
+    },
+    {
+      "session": "control",
+      "lane": "session.configure",
+      "action": "setRoute",
+      "args": [
+        {
+          "provider": "custom-harness",
+          "model": "harness-model"
+        }
+      ],
+      "ok": true,
+      "value": {
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "preset": null,
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {},
+        "fastCapable": false,
+        "effectiveEffort": null,
+        "effortOptions": [],
+        "modelDisplay": "harness-model"
+      }
+    },
+    {
+      "session": "control",
+      "lane": "session.read",
+      "action": "contextStatus",
+      "args": [
+        {}
+      ],
+      "ok": true,
+      "value": {
+        "sessionId": "$control",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "cwd": "$taskWorkspace",
+        "toolMode": "full",
+        "contextWindow": 128000,
+        "effectiveContextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": null,
+        "usedTokens": 0,
+        "usedSource": "empty",
+        "measurement": {
+          "tokens": null,
+          "source": "pending",
+          "updatedAt": null
+        },
+        "currentEstimatedTokens": 0,
+        "lastApiRequestTokens": 0,
+        "lastApiRequestStale": false,
+        "freeTokens": 128000,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "triggerTokens": 128000,
+          "bufferTokens": 0,
+          "bufferRatio": 0,
+          "currentEstimatedTokens": 0,
+          "lastApiRequestTokens": 0,
+          "lastApiRequestStale": false
+        },
+        "messages": {
+          "count": 0,
+          "estimatedTokens": 0,
+          "roles": {
+            "system": {
+              "count": 0,
+              "tokens": 0
+            },
+            "user": {
+              "count": 0,
+              "tokens": 0
+            },
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "tool": {
+              "count": 0,
+              "tokens": 0
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            }
+          },
+          "semantic": {
+            "system": {
+              "count": 0,
+              "tokens": 0
+            },
+            "chat": {
+              "count": 0,
+              "tokens": 0
+            },
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "toolResults": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 0,
+              "tokens": 0,
+              "otherTokens": 0
+            },
+            "workflow": {
+              "tokens": 0
+            },
+            "memory": {
+              "tokens": 0
+            },
+            "workspace": {
+              "tokens": 0
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "other": {
+              "tokens": 0
+            }
+          },
+          "toolCallCount": 0,
+          "toolCallTokens": 0,
+          "toolResultCount": 0,
+          "toolResultTokens": 0
+        },
+        "request": {
+          "toolSchemaTokens": 0,
+          "toolSchemaBreakdown": {},
+          "requestOverheadTokens": 0,
+          "reserveTokens": 0
+        },
+        "usage": {
+          "reasoningUsage": null,
+          "lastInputTokens": 0,
+          "lastUncachedInputTokens": 0,
+          "lastOutputTokens": 0,
+          "lastCachedReadTokens": 0,
+          "lastCacheWriteTokens": 0,
+          "lastContextTokens": 0,
+          "totalInputTokens": 0,
+          "totalUncachedInputTokens": 0,
+          "totalOutputTokens": 0,
+          "totalCachedReadTokens": 0,
+          "totalCacheWriteTokens": 0,
+          "usageReadout": null
+        }
+      }
+    },
+    {
+      "session": "second",
+      "lane": "session.read",
+      "action": "contextStatus",
+      "args": [
+        {}
+      ],
+      "ok": true,
+      "value": {
+        "sessionId": "$second",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "cwd": "$workspace",
+        "toolMode": "full",
+        "contextWindow": 128000,
+        "effectiveContextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "usedTokens": 11647,
+        "usedSource": "estimated",
+        "measurement": {
+          "tokens": null,
+          "source": "pending",
+          "updatedAt": null
+        },
+        "currentEstimatedTokens": 11647,
+        "lastApiRequestTokens": 0,
+        "lastApiRequestStale": false,
+        "freeTokens": 116353,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "onModelChange": true,
+          "summaryMode": "smart",
+          "bufferTokens": 0,
+          "contextWindow": 128000,
+          "rawContextWindow": 128000,
+          "effectiveContextWindowPercent": 100,
+          "autoCompactTokenLimit": null,
+          "requestReserveTokens": 6866,
+          "reserveTokens": 0,
+          "triggerTokens": 128000,
+          "bufferRatio": 0,
+          "handoffTimeoutMs": 300000,
+          "lastCheckedAt": 1794138432391,
+          "lastBeforeTokens": 11647,
+          "lastAfterTokens": 11647,
+          "lastPressureTokens": 11647,
+          "currentEstimatedTokens": 11647,
+          "lastApiRequestTokens": 0,
+          "lastStage": "pre_send_check",
+          "lastChanged": false,
+          "lastTrigger": null,
+          "lastFreshContext": false,
+          "lastFreshContextError": null,
+          "lastHandoffSource": null,
+          "lastError": null,
+          "lastDurationMs": null,
+          "compactCount": 0,
+          "singleShotConsumed": false,
+          "recentChecks": [
+            {
+              "at": 1794138432391,
+              "stage": "pre_send_check",
+              "pressure": 11647,
+              "est": 4781,
+              "trigger": 128000,
+              "baseline": null,
+              "baselineAt": null
+            }
+          ],
+          "pressureTokens": 11647,
+          "lastApiRequestStale": false
+        },
+        "messages": {
+          "count": 5,
+          "estimatedTokens": 4781,
+          "roles": {
+            "system": {
+              "count": 4,
+              "tokens": 4767
+            },
+            "user": {
+              "count": 1,
+              "tokens": 14
+            },
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "tool": {
+              "count": 0,
+              "tokens": 0
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            }
+          },
+          "semantic": {
+            "system": {
+              "count": 4,
+              "tokens": 4025
+            },
+            "chat": {
+              "count": 1,
+              "tokens": 14
+            },
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "toolResults": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 0,
+              "tokens": 0,
+              "otherTokens": 0
+            },
+            "workflow": {
+              "tokens": 742
+            },
+            "memory": {
+              "tokens": 0
+            },
+            "workspace": {
+              "tokens": 0
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "other": {
+              "tokens": 0
+            }
+          },
+          "toolCallCount": 0,
+          "toolCallTokens": 0,
+          "toolResultCount": 0,
+          "toolResultTokens": 0
+        },
+        "request": {
+          "toolSchemaTokens": 6866,
+          "toolSchemaBreakdown": {
+            "code": {
+              "count": 6,
+              "tokens": 2464
+            },
+            "mutation": {
+              "count": 2,
+              "tokens": 757
+            },
+            "other": {
+              "count": 3,
+              "tokens": 1703
+            },
+            "agents": {
+              "count": 1,
+              "tokens": 638
+            },
+            "web": {
+              "count": 1,
+              "tokens": 322
+            },
+            "skills": {
+              "count": 1,
+              "tokens": 130
+            },
+            "control": {
+              "count": 2,
+              "tokens": 732
+            },
+            "setup": {
+              "count": 1,
+              "tokens": 175
+            }
+          },
+          "requestOverheadTokens": 0,
+          "reserveTokens": 6866
+        },
+        "usage": {
+          "reasoningUsage": null,
+          "lastInputTokens": 0,
+          "lastUncachedInputTokens": 0,
+          "lastOutputTokens": 0,
+          "lastCachedReadTokens": 0,
+          "lastCacheWriteTokens": 0,
+          "lastContextTokens": 0,
+          "totalInputTokens": 0,
+          "totalUncachedInputTokens": 0,
+          "totalOutputTokens": 0,
+          "totalCachedReadTokens": 0,
+          "totalCacheWriteTokens": 0,
+          "usageReadout": null
+        }
+      }
+    },
+    {
+      "session": "second",
+      "lane": "session.configure",
+      "action": "setRoute",
+      "args": [
+        {
+          "provider": "custom-harness",
+          "model": "harness-model"
+        }
+      ],
+      "ok": true,
+      "value": {
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "preset": null,
+        "effort": null,
+        "fast": false,
+        "autoEffort": true,
+        "modelParameters": {},
+        "fastCapable": false,
+        "effectiveEffort": null,
+        "effortOptions": [],
+        "modelDisplay": "harness-model"
+      }
+    },
+    {
+      "session": "second",
+      "lane": "session.read",
+      "action": "contextStatus",
+      "args": [
+        {}
+      ],
+      "ok": true,
+      "value": {
+        "sessionId": "$second",
+        "provider": "custom-harness",
+        "model": "harness-model",
+        "cwd": "$workspace",
+        "toolMode": "full",
+        "contextWindow": 128000,
+        "effectiveContextWindow": 128000,
+        "rawContextWindow": 128000,
+        "effectiveContextWindowPercent": 100,
+        "usedTokens": 11647,
+        "usedSource": "estimated",
+        "measurement": {
+          "tokens": null,
+          "source": "pending",
+          "updatedAt": null
+        },
+        "currentEstimatedTokens": 11647,
+        "lastApiRequestTokens": 0,
+        "lastApiRequestStale": false,
+        "freeTokens": 116353,
+        "compaction": {
+          "boundaryTokens": 128000,
+          "auto": true,
+          "onModelChange": true,
+          "summaryMode": "smart",
+          "bufferTokens": 0,
+          "contextWindow": 128000,
+          "rawContextWindow": 128000,
+          "effectiveContextWindowPercent": 100,
+          "autoCompactTokenLimit": null,
+          "requestReserveTokens": 6866,
+          "reserveTokens": 0,
+          "triggerTokens": 128000,
+          "bufferRatio": 0,
+          "handoffTimeoutMs": 300000,
+          "lastCheckedAt": 1794138432391,
+          "lastBeforeTokens": 11647,
+          "lastAfterTokens": 11647,
+          "lastPressureTokens": 11647,
+          "currentEstimatedTokens": 11647,
+          "lastApiRequestTokens": 0,
+          "lastStage": "pre_send_check",
+          "lastChanged": false,
+          "lastTrigger": null,
+          "lastFreshContext": false,
+          "lastFreshContextError": null,
+          "lastHandoffSource": null,
+          "lastError": null,
+          "lastDurationMs": null,
+          "compactCount": 0,
+          "singleShotConsumed": false,
+          "recentChecks": [
+            {
+              "at": 1794138432391,
+              "stage": "pre_send_check",
+              "pressure": 11647,
+              "est": 4781,
+              "trigger": 128000,
+              "baseline": null,
+              "baselineAt": null
+            }
+          ],
+          "pressureTokens": 11647,
+          "lastApiRequestStale": false
+        },
+        "messages": {
+          "count": 5,
+          "estimatedTokens": 4781,
+          "roles": {
+            "system": {
+              "count": 4,
+              "tokens": 4767
+            },
+            "user": {
+              "count": 1,
+              "tokens": 14
+            },
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "tool": {
+              "count": 0,
+              "tokens": 0
+            },
+            "other": {
+              "count": 0,
+              "tokens": 0
+            }
+          },
+          "semantic": {
+            "system": {
+              "count": 4,
+              "tokens": 4025
+            },
+            "chat": {
+              "count": 1,
+              "tokens": 14
+            },
+            "assistant": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reasoning": {
+              "count": 0,
+              "tokens": 0
+            },
+            "toolResults": {
+              "count": 0,
+              "tokens": 0
+            },
+            "reminders": {
+              "count": 0,
+              "tokens": 0,
+              "otherTokens": 0
+            },
+            "workflow": {
+              "tokens": 742
+            },
+            "memory": {
+              "tokens": 0
+            },
+            "workspace": {
+              "tokens": 0
+            },
+            "environment": {
+              "tokens": 0
+            },
+            "other": {
+              "tokens": 0
+            }
+          },
+          "toolCallCount": 0,
+          "toolCallTokens": 0,
+          "toolResultCount": 0,
+          "toolResultTokens": 0
+        },
+        "request": {
+          "toolSchemaTokens": 6866,
+          "toolSchemaBreakdown": {
+            "code": {
+              "count": 6,
+              "tokens": 2464
+            },
+            "mutation": {
+              "count": 2,
+              "tokens": 757
+            },
+            "other": {
+              "count": 3,
+              "tokens": 1703
+            },
+            "agents": {
+              "count": 1,
+              "tokens": 638
+            },
+            "web": {
+              "count": 1,
+              "tokens": 322
+            },
+            "skills": {
+              "count": 1,
+              "tokens": 130
+            },
+            "control": {
+              "count": 2,
+              "tokens": 732
+            },
+            "setup": {
+              "count": 1,
+              "tokens": 175
+            }
+          },
+          "requestOverheadTokens": 0,
+          "reserveTokens": 6866
+        },
+        "usage": {
+          "reasoningUsage": null,
+          "lastInputTokens": 0,
+          "lastUncachedInputTokens": 0,
+          "lastOutputTokens": 0,
+          "lastCachedReadTokens": 0,
+          "lastCacheWriteTokens": 0,
+          "lastContextTokens": 0,
+          "totalInputTokens": 0,
+          "totalUncachedInputTokens": 0,
+          "totalOutputTokens": 0,
+          "totalCachedReadTokens": 0,
+          "totalCacheWriteTokens": 0,
+          "usageReadout": null
+        }
+      }
+    }
+  ]
+}

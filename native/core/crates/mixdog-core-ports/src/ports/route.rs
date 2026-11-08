@@ -122,6 +122,16 @@ fn text<'a>(map: &'a Map<String, Value>, key: &str) -> &'a str {
     map.get(key).and_then(Value::as_str).unwrap_or_default()
 }
 
+/// Whether the thread has a materialized session: the one query the directory, `contextStatus`, `getSessionUsage` and the
+/// inheritance preflight ask. Node's `rt.session` is set when `createCurrentSession` builds a session on a route with a model
+/// and holds its system prompt and route; until then the runtime has only a reserved id (`reserveSessionId`) and
+/// `getSession()` is null. The Rust thread record exists from `thread/start`; the session is made on it when its route is
+/// seated (a model on the header) and a conversation only ever exists on a seated route (rows). A record with neither is the
+/// reservation. Nothing is stored for it, so it never reaches a transcript, a listing or a migration.
+pub fn has_session(header: &Header, rows: &[Value]) -> bool {
+    !text(header, "model").is_empty() || !rows.is_empty()
+}
+
 pub fn is_summary_anchor(message: &Value) -> bool {
     message.get("role").and_then(Value::as_str) == Some("user")
         && message.get("content").and_then(Value::as_str).is_some_and(|c| c.starts_with(SUMMARY_PREFIX))
@@ -733,6 +743,17 @@ mod tests {
         assert_eq!(switched["modelId"], "claude-x");
         assert!(!routes.threads.header(&thread()).await.unwrap().contains_key("pendingRoute"));
         assert_eq!(routes.apply_pending(&thread()).await.unwrap(), None);
+    }
+
+    /// "Has a session" is read from the stored record alone (a model on it, or a conversation), so a record loaded after a
+    /// restart answers as it did before, and a 1.4.5 record, which always names its model, is a session.
+    #[test]
+    fn a_record_has_its_session_when_it_names_a_model_or_holds_a_conversation() {
+        let row = [json!({"role": "user", "content": "hi"})];
+        assert!(!has_session(&obj(json!({"id": "s", "cwd": "/w"})), &[]));
+        assert!(!has_session(&obj(json!({"id": "s", "provider": "openai", "model": ""})), &[]));
+        assert!(has_session(&obj(json!({"id": "s", "provider": "openai", "model": "gpt"})), &[]));
+        assert!(has_session(&obj(json!({"id": "s"})), &row));
     }
 
     #[test]

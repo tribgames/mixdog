@@ -2690,7 +2690,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     )))?;
     // thread/getSessionUsage; route/set and fast/set; thread/continueInModel and thread/quotaResume/*. The op scopes are `account` and `thread`
     // (Node gates the model routes with the provider accounts, the thread routes with the thread ops).
-    builder.register(mixdog_core_domains::domains::ai_account::usage::session_usage::SessionUsageService::new(ledger_source.clone(), account_store.clone()))?;
+    builder.register(mixdog_core_domains::domains::ai_account::usage::session_usage::SessionUsageService::new(ledger_source.clone(), account_store.clone(), threads.clone(), threads.clone()))?;
     builder.register(Arc::new(mixdog_core_domains::domains::ai_admin::route_set_service::RouteSetService {
         routes: route_service.clone(),
         agents: route_setter.clone(),

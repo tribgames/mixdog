@@ -20,6 +20,7 @@ use mixdog_core_base::support::failed;
 use mixdog_core_ports::ports::memory_source::ThreadMessages;
 use mixdog_core_ports::ports::route::LiveRoute;
 use mixdog_core_ports::ports::route::RouteSession;
+use mixdog_core_ports::ports::route::has_session;
 use mixdog_core_ports::ports::route::is_summary_anchor;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_ports::ports::tools_status::SurfaceHost;
@@ -181,6 +182,31 @@ impl ContextWorld for LiveContextWorld {
         } else {
             live
         };
+        if !has_session(&header, &rows) {
+            // No session yet: Node's `contextStatus` is `emptyContextStatus(null, getRoute(), env)` - the live route and the
+            // folder, nothing of the record - until a model route has created the session.
+            let provider = text(&route, "provider");
+            let (media, images) = (self.lowering)(thread, &provider);
+            return Ok(Some(ContextSnapshot {
+                header: Default::default(),
+                model: text(&route, "model"),
+                context_window: route.get("contextWindow").cloned().unwrap_or(Value::Null),
+                cwd: Value::String(text(&header, "cwd")),
+                mode: Value::String(self.host.mode(Some(&header))),
+                messages: Vec::new(),
+                active: false,
+                request_native: Vec::new(),
+                request_defined: Vec::new(),
+                session_defined: Vec::new(),
+                agent_mode: false,
+                annotations: HashMap::new(),
+                media,
+                images,
+                rows: Arc::new(StoredBodies),
+                replay_owner: ProviderId::from(provider.as_str()),
+                provider,
+            }));
+        }
         let active = self.session.has_user_conversation(&rows) || rows.iter().any(is_summary_anchor);
         let messages = rows.iter().map(|row| message_of(row).map_err(|e| failed(DOMAIN, e))).collect::<Result<Vec<_>, _>>()?;
         let provider = Some(text(&header, "provider")).filter(|p| !p.is_empty()).unwrap_or_else(|| text(&route, "provider"));
@@ -378,6 +404,495 @@ mod tests {
         assert_eq!(compared, 15);
         let host = LiveContextStatus::new(Arc::new(world(&golden["cases"][1])));
         assert_eq!(host.context_status(Some(ThreadId::from("absent".to_owned())), None).await.expect("status"), Value::Null);
+    }
+
+    /// The route facts of a route change over the window rule alone (no catalog row): the model's window as
+    /// `resolveSessionContextMeta` states it.
+    struct WindowFacts;
+    #[async_trait]
+    impl crate::run_host::route_change::RouteFacts for WindowFacts {
+        fn context_meta(&self, provider: &str, model: &str, seed: &Value) -> Option<mixdog_core_run::run_host::session_context_meta::ContextMeta> {
+            Some(mixdog_core_run::run_host::session_context_meta::resolve_context_meta(None, None, provider, model, seed, false))
+        }
+        fn cache_opts(&self, _: &str, _: &str, _: Option<&str>, _: &Header) -> Option<Value> {
+            None
+        }
+    }
+
+    struct Fixed;
+    impl mixdog_agent::env::Clock for Fixed {
+        fn now_ms(&self) -> i64 {
+            0
+        }
+    }
+
+    /// The route cell of the replay: a thread's live route, set by the adoptions the recorded actions make.
+    #[derive(Default)]
+    struct Cells(std::sync::Mutex<HashMap<ThreadId, Route>>);
+
+    impl Cells {
+        fn set(&self, thread: &ThreadId, route: Route) {
+            self.0.lock().expect("the cells").insert(thread.clone(), route);
+        }
+    }
+
+    impl LiveRoute for Cells {
+        fn route(&self, thread: &ThreadId) -> Route {
+            self.0.lock().expect("the cells").get(thread).cloned().expect("a thread's route is set when it is created")
+        }
+        fn adopt_held(&self, _: &ThreadId, _: &Route) {}
+    }
+
+    /// The route half of a thread's start, as `RouteService` does it (`adopt_control`: the live route as it is; `seat`: a route
+    /// with a model is put on the created thread by the follow of an `applyToCurrentSession` selection, one without writes
+    /// nothing).
+    struct Seat {
+        cells: Arc<Cells>,
+        follow: std::sync::OnceLock<Arc<mixdog_core_ports::ports::route::SessionRoutes>>,
+    }
+
+    #[async_trait]
+    impl mixdog_core_session::session::NewThreadRoute for Seat {
+        async fn adopt(&self, _: &ThreadId, _: Option<&Map<String, Value>>) -> Result<Map<String, Value>, String> {
+            Err("the replay starts no task through the route service".to_owned())
+        }
+        async fn adopt_control(&self, thread: &ThreadId) -> Result<Map<String, Value>, String> {
+            Ok(self.cells.route(thread))
+        }
+        async fn seat(&self, thread: &ThreadId) -> Result<(), String> {
+            use mixdog_core_ports::ports::route::FollowOptions;
+            if text(&self.cells.route(thread), "model").is_empty() {
+                return Ok(());
+            }
+            let follow = self.follow.get().expect("the follow is bound");
+            let options = FollowOptions { apply_to_current_session: true, lease: Some(follow.open_lease(thread, None)), ..FollowOptions::default() };
+            follow.follow(thread, &options).await.map(|_| ()).map_err(|e| format!("{e:?}"))
+        }
+    }
+
+    struct Quiet;
+    impl mixdog_core_session::session::route_session::RouteStatusline for Quiet {
+        fn write(&self, _: &str, _: &Route, _: Option<u64>) {}
+    }
+    impl mixdog_core_session::session::route_session::ContextStatusCache for Quiet {
+        fn invalidate(&self, _: &ThreadId) {}
+    }
+    struct NoBots;
+    #[async_trait]
+    impl mixdog_core_run::run_host::route_chain::BotRoutes for NoBots {
+        async fn bot_route(&self, _: &str) -> Result<Option<Option<Value>>, mixdog_core_run::run_host::route_chain::RouteReadUnavailable> {
+            Ok(None)
+        }
+        async fn stored_bot_route(&self, _: &str) -> Result<Option<Value>, mixdog_core_run::run_host::route_chain::RouteReadUnavailable> {
+            Ok(None)
+        }
+    }
+    impl mixdog_core_session::session::route_session::RouteConfig for Quiet {
+        fn agent_config(&self) -> mixdog_core_ports::ports::domain_sessions::Obj {
+            mixdog_core_ports::ports::domain_sessions::Obj::new()
+        }
+        fn bots(&self) -> &(dyn mixdog_core_run::run_host::route_chain::BotRoutes + Send + Sync) {
+            &NoBots
+        }
+    }
+
+    /// The tool mode the surface host answers: the recording's own.
+    struct Mode(String);
+    #[async_trait]
+    impl SurfaceHost for Mode {
+        fn mode(&self, _: Option<&serde_json::Map<String, Value>>) -> String {
+            self.0.clone()
+        }
+        async fn preview(&self) -> Result<StatusSurface, CoreError> {
+            Ok(StatusSurface::default())
+        }
+        async fn reconcile_empty(&self, _: &ThreadId) -> Result<(), CoreError> {
+            Ok(())
+        }
+    }
+
+    /// Reads never price anything.
+    struct NoPrices;
+    impl mixdog_ledger::refresh::Pricer for NoPrices {
+        fn revision(&self) -> String {
+            String::new()
+        }
+        fn price(&self, _: &mixdog_ledger::repair::PriceRequest) -> mixdog_ledger::Result<mixdog_ledger::repair::Priced> {
+            Ok(mixdog_ledger::repair::Priced { cost_usd: None, rates: None })
+        }
+    }
+
+    /// `thread/getSessionUsage` over a copy of the ledger of `fixtures/session-usage` (it holds nothing of the replay's threads).
+    async fn usage_service(
+        dir: &std::path::Path,
+        threads: Arc<mixdog_core_session::session::thread_state::SessionThreads>,
+    ) -> Arc<mixdog_core_domains::domains::ai_account::usage::session_usage::SessionUsageService> {
+        let path = dir.join("ledger.sqlite");
+        tokio::fs::copy(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/session-usage/ledger.sqlite"), &path).await.expect("the ledger");
+        let tokens = mixdog_rt::testing::tokens();
+        let writer = mixdog_ledger::writer::UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).expect("the writer");
+        writer.sums_built().await.expect("the sums");
+        let reader = mixdog_ledger::reader::UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
+        let refresher = mixdog_ledger::refresh::UsageRefresher::new(Arc::new(NoPrices), tokens.cpu_bulk);
+        let ledger = mixdog_ledger::ledger::UsageLedger { writer, reader, refresher };
+        let accounts_dir = dir.join("accounts");
+        tokio::fs::create_dir_all(&accounts_dir).await.expect("the accounts folder");
+        let accounts = mixdog_ai::accounts::AccountStore::new(accounts_dir, mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
+        mixdog_core_domains::domains::ai_account::usage::session_usage::SessionUsageService::new(Arc::new(Arc::new(ledger)), accounts, threads.clone(), threads)
+    }
+
+    /// No model list is ever fetched: the catalog reads the config's own rows.
+    struct Offline;
+    #[async_trait]
+    impl mixdog_ai::transport::http::HttpSend for Offline {
+        async fn send(
+            &self,
+            _: mixdog_core_api::domain::provider::WireRequest,
+            _: mixdog_ai::transport::Exchange,
+        ) -> Result<mixdog_ai::transport::http::HttpResponse, mixdog_core_api::domain::provider::ProviderError> {
+            Err(mixdog_core_api::domain::provider::ProviderError::new(
+                mixdog_core_api::domain::provider::ErrorKind::Transient,
+                mixdog_core_api::domain::provider::DeliveryState::NotSent,
+            ))
+        }
+    }
+
+    /// The provider registry the readiness holds builds nothing: no replayed call prepares a provider.
+    struct NoBuilds;
+    #[async_trait]
+    impl mixdog_ai::registry::providers::ProviderBuilder for NoBuilds {
+        async fn build(&self, name: &str, _: &Value) -> Result<Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, String> {
+            Err(format!("the replay builds no provider ({name})"))
+        }
+        async fn custom_key_ids(&self, _: &str) -> Result<Vec<String>, String> {
+            Ok(Vec::new())
+        }
+        fn available(&self, _: &str) -> bool {
+            false
+        }
+        async fn oauth_credentials_usable(&self, _: &str) -> Result<bool, String> {
+            Ok(false)
+        }
+    }
+
+    /// `LiveRouteWriter` over the replay's route cell, without the provider preparation (the replay has no provider to
+    /// prepare): the same `refresh_route_fields` over the same config and catalog row.
+    struct Writer {
+        cells: Arc<Cells>,
+        session: Arc<dyn RouteSession>,
+        config: mixdog_core_config::config::Config,
+        catalog: Arc<mixdog_ai::catalog::CatalogService>,
+    }
+
+    #[async_trait]
+    impl mixdog_core_ports::ports::route_write::RouteWriter for Writer {
+        fn route(&self, thread: &ThreadId) -> Route {
+            self.cells.route(thread)
+        }
+        fn set_route_state(&self, thread: &ThreadId, route: Route) {
+            self.cells.set(thread, route);
+        }
+        fn generation(&self, thread: &ThreadId) -> u64 {
+            self.session.generation(thread)
+        }
+        async fn refresh_route_effort(&self, thread: &ThreadId, meta: Option<Value>, _: bool, _: Option<u64>) -> Result<Option<Route>, PortError> {
+            let target = self.cells.route(thread);
+            let config = self.config.agent();
+            let (provider, model) = (text(&target, "provider"), text(&target, "model"));
+            let meta = meta.unwrap_or_else(|| self.catalog.model_meta_in(&provider, &model, config.get("providers").and_then(|providers| providers.get(provider.as_str()))));
+            let fast = |provider: &str, meta: &Value, effort: Option<&str>, params: &Value| self.catalog.fast_capable(provider, meta, effort, params);
+            let route = mixdog_ai::service::admin_route::refresh_route_fields(&config, &target, Some(&meta), &provider, &fast);
+            self.cells.set(thread, route.clone());
+            Ok(Some(route))
+        }
+        fn refresh_statusline_usage(&self, _: &ThreadId, _: &Route) {}
+    }
+
+    /// What Node's answer for the task session holds because its seed turn ran: the turn's own conversation (system prompt, tool
+    /// schemas, user prompt) and the compaction record its pre-send check wrote. This replay has no turn machinery, no prompt
+    /// assembly and no tool pool, so these cannot be reproduced here; a difference anywhere else fails the test.
+    const TURN_WRITTEN: &[&str] = &[
+        "$.usedTokens",
+        "$.usedSource",
+        "$.currentEstimatedTokens",
+        "$.freeTokens",
+        "$.compaction.currentEstimatedTokens",
+        "$.compaction.requestReserveTokens",
+        // The status spreads the stored record; this key sits in the pre-send check's write (`send_check.rs`), after `bufferRatio`.
+        "$.compaction.handoffTimeoutMs",
+        "$.compaction.lastCheckedAt",
+        "$.compaction.lastBeforeTokens",
+        "$.compaction.lastAfterTokens",
+        "$.compaction.lastPressureTokens",
+        "$.compaction.lastStage",
+        "$.compaction.lastTrigger",
+        "$.compaction.lastFreshContextError",
+        "$.compaction.lastHandoffSource",
+        "$.compaction.lastError",
+        "$.compaction.lastDurationMs",
+        "$.compaction.lastChanged",
+        "$.compaction.lastFreshContext",
+        "$.compaction.compactCount",
+        "$.compaction.singleShotConsumed",
+        "$.compaction.recentChecks",
+        "$.compaction.pressureTokens",
+        "$.messages.count",
+        "$.messages.estimatedTokens",
+        "$.messages.roles.system.count",
+        "$.messages.roles.system.tokens",
+        "$.messages.roles.user.count",
+        "$.messages.roles.user.tokens",
+        "$.messages.semantic.system.count",
+        "$.messages.semantic.system.tokens",
+        "$.messages.semantic.chat.count",
+        "$.messages.semantic.chat.tokens",
+        "$.messages.semantic.workflow.tokens",
+        "$.request.toolSchemaTokens",
+        "$.request.toolSchemaBreakdown.code",
+        "$.request.toolSchemaBreakdown.mutation",
+        "$.request.toolSchemaBreakdown.other",
+        "$.request.toolSchemaBreakdown.agents",
+        "$.request.toolSchemaBreakdown.web",
+        "$.request.toolSchemaBreakdown.skills",
+        "$.request.toolSchemaBreakdown.control",
+        "$.request.toolSchemaBreakdown.setup",
+        "$.request.reserveTokens",
+    ];
+
+    /// The paths at which two answers differ, in document order.
+    fn differences(got: &Value, want: &Value, path: &str, out: &mut Vec<String>) {
+        match (got, want) {
+            (Value::Object(g), Value::Object(w)) => {
+                for key in g.keys().chain(w.keys().filter(|key| !g.contains_key(*key))) {
+                    let at = format!("{path}.{key}");
+                    match (g.get(key), w.get(key)) {
+                        (Some(g), Some(w)) => differences(g, w, &at, out),
+                        (Some(g), None) => out.push(format!("{at}: rust {g} node (absent)")),
+                        (None, Some(w)) => out.push(format!("{at}: rust (absent) node {w}")),
+                        (None, None) => unreachable!("a key of either object"),
+                    }
+                }
+            }
+            _ if got == want => {}
+            _ => out.push(format!("{path}: rust {got} node {want}")),
+        }
+    }
+
+    #[test]
+    fn a_missing_key_differs_from_a_null_one() {
+        let mut out = Vec::new();
+        differences(&json!({}), &json!({ "k": null }), "$", &mut out);
+        differences(&json!({ "k": null }), &json!({}), "$", &mut out);
+        assert_eq!(out, ["$.k: rust (absent) node null", "$.k: rust null node (absent)"]);
+    }
+
+    /// The recorded sequence over the real thread directory and store,
+    /// route follow (`SessionRoutes`), route change
+    /// (`RunHostRouteChange`), installed-compaction sync (`sync_change`), context status and session usage service. What stands in
+    /// for the config is the Main route it resolves to: its provider before any model was chosen is the recording's first answer,
+    /// and a `keepMainModel: false` pick writes the picked route to it, which the control session's runtime adopts
+    /// (`syncEmptyMainRoute`).
+    struct Replay {
+        _rig: mixdog_core_session::session::testing::Rig,
+        _dir: tempfile::TempDir,
+        directory: Arc<mixdog_core_session::session::SessionDirectory>,
+        threads: Arc<mixdog_core_session::session::thread_state::SessionThreads>,
+        cells: Arc<Cells>,
+        follow: Arc<mixdog_core_ports::ports::route::SessionRoutes>,
+        status: LiveContextStatus,
+        usage: Arc<mixdog_core_domains::domains::ai_account::usage::session_usage::SessionUsageService>,
+        main: Route,
+        ids: HashMap<String, ThreadId>,
+        /// The real route service over the recording's config and the catalog it states: `setFast` goes through it.
+        service: mixdog_core_domains::domains::ai_admin::route_service::RouteService,
+        _config_dir: tempfile::TempDir,
+    }
+
+    impl Replay {
+        async fn new(mode: &str, provider: &Value, config_file: &Value) -> Self {
+            use mixdog_core_session::session::route_session::SessionRouteAdapter;
+            let rig = mixdog_core_session::session::testing::Rig::new();
+            let cells = Arc::new(Cells::default());
+            let seat = Arc::new(Seat { cells: cells.clone(), follow: std::sync::OnceLock::new() });
+            let mut deps = rig.deps_parts(rig.store.clone());
+            deps.new_route = seat.clone();
+            let directory = Arc::new(mixdog_core_session::session::SessionDirectory::new(Arc::new(deps)));
+            let threads = Arc::new(mixdog_core_session::session::thread_state::SessionThreads::new(directory.clone()));
+            let change = Arc::new(crate::run_host::route_change::RunHostRouteChange::new(Arc::new(WindowFacts), Arc::new(Fixed)));
+            let adapter = Arc::new(SessionRouteAdapter::new(directory.clone(), threads.clone(), change, Arc::new(Quiet), Arc::new(Quiet), Arc::new(Quiet), rig.clock.clone()));
+            let follow = Arc::new(mixdog_core_ports::ports::route::SessionRoutes::new(threads.clone(), threads.clone(), adapter.clone(), cells.clone()));
+            seat.follow.set(follow.clone()).ok().expect("one follow");
+            let world = LiveContextWorld {
+                threads: threads.clone(),
+                messages: threads.clone(),
+                routes: cells.clone(),
+                session: adapter.clone(),
+                host: Arc::new(Mode(mode.to_owned())),
+                lowering: Arc::new(|_, _| (Arc::new(TextOnly), Arc::new(TextOnly))),
+            };
+            let session_port: Arc<dyn RouteSession> = adapter;
+            let dir = tempfile::tempdir().expect("a folder");
+            let usage = usage_service(dir.path(), threads.clone()).await;
+            let main: Route = [("provider".to_owned(), provider.clone()), ("model".to_owned(), json!(""))].into_iter().collect();
+            let config_dir = tempfile::tempdir().expect("a folder");
+            let path = config_dir.path().join("mixdog-config.json");
+            tokio::fs::write(&path, serde_json::to_vec(config_file).expect("config")).await.expect("the config file");
+            let tokens = mixdog_rt::testing::tokens();
+            let lanes = mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
+            let (config, _) = mixdog_core_config::config::Config::open(&path, Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("the config");
+            let io = mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+            let metadata = mixdog_ai::catalog::ModelsDevSource::new(Arc::new(Offline), config_dir.path().to_path_buf(), io);
+            let catalog = Arc::new(mixdog_ai::catalog::CatalogService::cold_start(mixdog_ai::catalog::CatalogSnapshot::default(), Vec::new(), metadata).await);
+            let registry = Arc::new(mixdog_ai::registry::providers::ProviderRegistry::new(Arc::new(NoBuilds)));
+            let readiness = mixdog_ai::catalog::ProviderReadiness::new(registry, catalog.clone());
+            let facts = Arc::new(mixdog_core_domains::domains::ai_admin::chain::CatalogFacts { catalog: catalog.clone(), readiness, config: config.clone() });
+            let models = Arc::new(mixdog_core_domains::domains::ai_admin::model_list::ModelListService {
+                catalog: catalog.clone(),
+                config: config.clone(),
+                primary_provider: Arc::new(String::new),
+                unsupported: Arc::new(mixdog_ai::service::effort_configuration::UnsupportedEfforts::default()),
+                host: None,
+            });
+            let writer = Arc::new(Writer { cells: cells.clone(), session: session_port, config: config.clone(), catalog });
+            let service = mixdog_core_domains::domains::ai_admin::route_service::RouteService { config, facts, writer, session: follow.clone(), models, controls: directory.clone() };
+            Self { _rig: rig, _dir: dir, directory, threads, cells, follow, status: LiveContextStatus::new(Arc::new(world)), usage, main, ids: HashMap::new(), service, _config_dir: config_dir }
+        }
+
+        fn id(&self, name: &str) -> ThreadId {
+            self.ids.get(name).cloned().expect("the session was created")
+        }
+
+        /// The ids the recording keeps as `$control` and `$second`.
+        fn tokenized(&self, value: Value) -> Value {
+            let mut text = value.to_string();
+            for (name, id) in &self.ids {
+                text = text.replace(&format!("\"{}\"", id.as_str()), &format!("\"${name}\""));
+            }
+            serde_json::from_str(&text).expect("json")
+        }
+
+        /// `session.create`: the thread, with the folder the call opened, on the route the config resolves to, and the
+        /// installed session following the saved compaction settings (the config has none).
+        async fn create(&mut self, name: &str, open: &Value) {
+            use mixdog_core_ports::ports::threads::HeaderUpdates;
+            let id = ThreadId::from(format!("sess_{name}"));
+            let header = json!({ "cwd": open["cwd"] }).as_object().cloned().expect("header");
+            self.directory.create_with_id(id.clone(), header, json!({})).await.expect("create");
+            self.cells.set(&id, self.main.clone());
+            let saved = json!({});
+            self.threads.update_header(&id, Box::new(move |header| crate::run_host::compaction_follow::sync_change(header, &saved))).await.expect("install");
+            self.ids.insert(name.to_owned(), id);
+        }
+
+        /// `setRoute(pick)`: the pick adopted as the thread's route (and the Main route, unless `keepMainModel` is true), then its
+        /// follow on the session.
+        async fn set_route(&mut self, name: &str, pick: &Value) {
+            use mixdog_core_ports::ports::route::FollowOptions;
+            let id = self.id(name);
+            let pick = pick.as_object().expect("a pick");
+            let route: Route = pick.iter().filter(|(key, _)| !["applyToCurrentSession", "keepMainModel"].contains(&key.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
+            let apply = pick.get("applyToCurrentSession") == Some(&json!(true));
+            if pick.get("keepMainModel") == Some(&json!(false)) {
+                self.main = route.clone();
+                if let Some(control) = self.ids.get("control").filter(|control| text(&self.cells.route(control), "model").is_empty()) {
+                    self.cells.set(control, route.clone());
+                }
+            }
+            self.cells.set(&id, route);
+            let options = FollowOptions { apply_to_current_session: apply, lease: apply.then(|| self.follow.open_lease(&id, None)), ..FollowOptions::default() };
+            self.follow.follow(&id, &options).await.expect("follow");
+        }
+
+        /// The user prompt a submit stores on the session.
+        async fn seed(&self, name: &str, prompt: &str) {
+            use mixdog_core_session::session::room_log::RoomLog;
+            let row = json!({ "role": "user", "content": prompt, "meta": { "transcript": { "messageId": "seed" } } });
+            let log = mixdog_core_session::session::room_log::SessionRoomLog::new(self.directory.clone());
+            assert_eq!(log.append_rows(self.id(name).as_str(), vec![row]).await.expect("store the prompt"), 1);
+        }
+
+        async fn context_status(&self, name: &str) -> Value {
+            let answer = self.status.context_status(Some(self.id(name)), None).await.expect("status");
+            self.tokenized(answer)
+        }
+
+        async fn session_usage(&self, name: &str) -> Value {
+            use mixdog_core_api::DomainService;
+            let request = mixdog_core_api::CoreRequest {
+                method: mixdog_core_api::ids::Method("thread/getSessionUsage"),
+                params: json!({ "threadId": self.id(name) }),
+                op: None,
+                ctx: mixdog_core_api::call::CallContext::internal("replay"),
+            };
+            let Ok(mixdog_core_api::Reply::Value(got)) = self.usage.call(request).await else { panic!("a value reply") };
+            self.tokenized(got)
+        }
+    }
+
+    /// The desktop's control session and a task session as Node answered the harness's calls (`fixtures/context-status-route`,
+    /// recorded from the Node daemon of b6f10295a), replayed action by action over the real directory: every `contextStatus` and
+    /// `getSessionUsage` of the control session equals Node's answer in full, with no session before `inheritFrom`'s create, with
+    /// the Main route that follows the second session's pick, and with the session the create made, before and after
+    /// `setFast`/`setRoute`. The task session is the one the recording read addressed to it, so its `auto` comes from its own
+    /// installed compaction record, not from the control session's.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_recorded_sequence_is_answered_as_nodes_answered_it() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/context-status-route/golden.json")).expect("golden");
+        let steps = golden["steps"].as_array().expect("steps");
+        let first = steps.iter().find(|step| step["session"] == "control" && step["action"] == "contextStatus").expect("a first control status");
+        let mut replay = Replay::new(first["value"]["toolMode"].as_str().expect("toolMode"), &first["value"]["provider"], &golden["config"]).await;
+        let (mut control_reads, mut task_reads) = (0, 0);
+        for (n, step) in steps.iter().enumerate() {
+            let (name, action, args) = (step["session"].as_str().expect("session"), step["action"].as_str().expect("action"), step["args"].as_array().expect("args"));
+            let at = format!("step {n}: {name}.{action}");
+            match action {
+                "createSession" => replay.create(name, &args[0]).await,
+                "setRoute" => replay.set_route(name, &args[0]).await,
+                // The seed turn: its prompt is stored as the turn stores it, which makes the session an active conversation; the
+                // system prompt, tool surface and pre-send check are the turn machinery's, which this replay has none of.
+                "submit" => replay.seed(name, args[0].as_str().expect("the prompt")).await,
+                "contextStatus" if name == "control" => {
+                    assert_eq!(replay.context_status(name).await, step["value"], "{at}");
+                    control_reads += 1;
+                }
+                "contextStatus" => {
+                    let (got, want) = (replay.context_status(name).await, &step["value"]);
+                    let mut differing = Vec::new();
+                    differences(&got, want, "$", &mut differing);
+                    differing.retain(|line| !TURN_WRITTEN.iter().any(|path| line.starts_with(&format!("{path}: "))));
+                    assert!(differing.is_empty(), "{at}: {differing:#?}");
+                    task_reads += 1;
+                }
+                "getSessionUsage" => assert_eq!(replay.session_usage(name).await, step["value"], "{at}"),
+                "inheritFrom" => {
+                    assert!(step["ok"] == false, "{at}: the recording refuses it");
+                    let params = json!({ "threadId": args[0], "intoThreadId": replay.id(name), "opId": "op-inherit" });
+                    let request = mixdog_core_api::CoreRequest {
+                        method: mixdog_core_api::ids::Method("thread/fork"),
+                        params,
+                        op: Some(mixdog_core_api::ids::OpId::from("op-inherit".to_owned())),
+                        ctx: mixdog_core_api::call::CallContext::internal("replay"),
+                    };
+                    use mixdog_core_api::ThreadDirectory;
+                    let refused = replay.directory.request(request).await;
+                    assert!(matches!(refused, Err(CoreError::ThreadNotFound { .. })), "{at}: {refused:?}");
+                }
+                // Through the real route service: what it refuses, it refuses with Node's text, and what it accepts leaves the
+                // route (and the session that follows it) as the recording's later reads show.
+                "setFast" => {
+                    use mixdog_core_domains::domains::ai_admin::route_service::FastValue;
+                    let value = if args[0] == json!(true) { FastValue::On } else { FastValue::Off };
+                    let answered = replay.service.set_fast(&replay.id(name), value).await;
+                    match (step["ok"].as_bool().expect("ok"), answered) {
+                        (true, Ok(_)) => {}
+                        (false, Err(message)) => assert_eq!(Value::String(message), step["error"], "{at}"),
+                        (recorded, answered) => panic!("{at}: the recording's ok is {recorded}, the service answered {answered:?}"),
+                    }
+                }
+                other => panic!("{at}: an action the replay does not know: {other}"),
+            }
+        }
+        assert_eq!((control_reads, task_reads), (5, 2), "every recorded status was compared");
     }
 
     /// `snapshotProviderRequestTools` as Node recorded it (`fixtures/request-tools`): the session's tools as its

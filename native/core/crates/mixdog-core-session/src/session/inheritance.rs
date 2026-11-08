@@ -11,6 +11,7 @@ use mixdog_core_api::call::CallContext;
 use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_core_ports::ports::route::has_session;
 use mixdog_app_protocol::v2::params::ThreadInheritancePreflightParams;
 use serde_json::Map;
 use serde_json::Value;
@@ -76,6 +77,15 @@ impl SessionDirectory {
         }
     }
 
+    /// The rows of a session; a session that is not there has none.
+    pub(super) async fn rows_of(&self, id: &str) -> Result<Vec<Value>, CoreError> {
+        match self.read_of(&ThreadId::from(id.to_owned()), "thread/messages/read").await {
+            Ok(value) => Ok(value.get("messages").and_then(Value::as_array).cloned().unwrap_or_default()),
+            Err(CoreError::ThreadNotFound { .. }) => Ok(Vec::new()),
+            Err(error) => Err(error),
+        }
+    }
+
     pub(super) async fn inheritance_preflight(&self, params: &Value) -> Result<Value, CoreError> {
         let params: ThreadInheritancePreflightParams = serde_json::from_value(params.clone())
             .map_err(|_| CoreError::InvalidParams { path: "params".into(), expected: "ThreadInheritancePreflightParams".into() })?;
@@ -90,14 +100,20 @@ impl SessionDirectory {
         let provider = Some(route("provider")).filter(|name| !name.is_empty()).unwrap_or_else(|| own_provider.clone());
         let model = Some(route("model")).filter(|name| !name.is_empty()).unwrap_or_else(|| own_model.clone());
         let id = params.source_thread_id.as_ref().map(|id| mixdog_js::js_trim(id.as_str()).to_owned()).filter(|id| !id.is_empty());
-        let id = id.or_else(|| current.map(|thread| mixdog_js::js_trim(thread.as_str()).to_owned()).filter(|id| !id.is_empty()));
-        let messages = match &id {
-            Some(id) => match self.read_of(&ThreadId::from(id.clone()), "thread/messages/read").await {
-                Ok(value) => value.get("messages").and_then(Value::as_array).cloned().unwrap_or_default(),
-                Err(CoreError::ThreadNotFound { .. }) => Vec::new(),
-                Err(error) => return Err(error),
+        let (id, messages) = match id {
+            Some(id) => {
+                let rows = self.rows_of(&id).await?;
+                (Some(id), rows)
+            }
+            // With no source the current session is the one measured (`getSessionId()`), when it has a session: a thread
+            // that has none yet names no source.
+            None => match current.map(|thread| mixdog_js::js_trim(thread.as_str()).to_owned()).filter(|id| !id.is_empty()) {
+                Some(id) => {
+                    let rows = self.rows_of(&id).await?;
+                    if has_session(&header, &rows) { (Some(id), rows) } else { (None, Vec::new()) }
+                }
+                None => (None, Vec::new()),
             },
-            None => Vec::new(),
         };
         let carried = inheritable(messages);
         // A picked window belongs to the route that picked it; another provider/model pair falls
