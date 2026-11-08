@@ -594,7 +594,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     let gauge = mixdog_core::run_host::live_gauge::LiveGauge::new(); // wu-context-status-13 (FILED)
 
     // ---- 5. the agents, the hosts and the domain seams ------------------------------------------------------------------
-    let facts = Arc::new(mixdog_core_domains::domains::ai_admin::chain::CatalogFacts { catalog: b.catalog.clone(), readiness: readiness.clone() });
+    let facts = Arc::new(mixdog_core_domains::domains::ai_admin::chain::CatalogFacts { catalog: b.catalog.clone(), readiness: readiness.clone(), config: config.clone() });
     let routes = compose_parts::live_routes(config.clone(), facts.clone());
     // wp-ai-admin-19/-22: the Main route of thread-less reads (`MainRoute`: the live config route at every call), the model list both `model/list` and the web-search rows call, and the
     // web-search route (`webSearchRouteOrDefault` over the stored config route). `cells` is the route cell of every conversation (the one `routes`).
@@ -2251,6 +2251,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     })
     .map_err(ComposeError::Workspace)?;
     workspace.spawn_idle_sweeper(); // abandoned uploads go at their idle deadline, as Node's per-upload timer
+    workspace.set_user_markdown_view({
+        let config = config.clone();
+        Arc::new(move || config.get(mixdog_protocol::config::keys::DESKTOP_MARKDOWN_DEFAULT_VIEW).and_then(|view| view.as_str().map(str::to_owned)))
+    });
     // A paired phone's one-file grants (SPEC.md R44, DS 4.7): held per paired credential, and a conversation that left the
     // catalog ends its grants (Node's `sessionRemoved`).
     let phone_grants = Arc::new(mixdog_workspace::grants::GrantStore::new(
