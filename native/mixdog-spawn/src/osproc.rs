@@ -9,6 +9,7 @@ use std::time::Duration;
 use crate::tree::Clock;
 use crate::tree::Identity;
 use crate::tree::Reader;
+use crate::tree::Row;
 use crate::tree::Signal;
 use crate::tree::Signals;
 use crate::tree::Table;
@@ -55,16 +56,34 @@ impl Signals for OsSignals {
 
 pub(crate) struct OsReader;
 
+/// What a read of one pid shows: a process the kernel will not let us inspect is there, which is not
+/// the same as no process.
+fn row_of(pid: u32) -> io::Result<Row> {
+    match sys::proc_of(pid) {
+        Ok(Some(proc)) => Ok(Row::Readable(proc)),
+        Ok(None) => Ok(Row::Absent),
+        Err(error) if error.kind() == io::ErrorKind::PermissionDenied => Ok(Row::Unreadable),
+        Err(error) => Err(error),
+    }
+}
+
 impl OsReader {
-    /// The start token of `pid`, `None` when no live process has it.
-    pub(crate) fn identity(pid: u32) -> io::Result<Option<String>> {
-        sys::identity(pid)
+    /// The start token of `pid`, `None` unless a live process with a readable row has it.
+    pub(crate) fn identity(pid: u32) -> Option<String> {
+        match row_of(pid) {
+            Ok(Row::Readable(proc)) => Some(proc.token),
+            _ => None,
+        }
     }
 }
 
 impl Reader for OsReader {
     fn table(&self) -> io::Result<Table> {
         sys::table()
+    }
+
+    fn row(&self, pid: u32) -> io::Result<Row> {
+        row_of(pid)
     }
 }
 
@@ -79,6 +98,7 @@ mod sys {
 
     use crate::tree::Identity;
     use crate::tree::Proc;
+    use crate::tree::Row;
     use crate::tree::Table;
 
     /// `/proc/<pid>/stat` of a live (not zombie) process; `None` once there is no such process.
@@ -142,10 +162,6 @@ mod sys {
 
     /// Completes with `true` when one of `watched` has ended; `false` at once when it cannot wait
     /// (no pidfd, no thread, no descriptor): never "ended" for a wait that did not happen.
-    pub(super) fn identity(pid: u32) -> io::Result<Option<String>> {
-        Ok(proc_of(pid)?.map(|proc| proc.token))
-    }
-
     pub(super) async fn exited(watched: &[Identity]) -> bool {
         if !pidfd_supported() {
             return false;
@@ -178,11 +194,12 @@ mod sys {
                 Err(libc::ESRCH) => return true,
                 Err(_) => return false,
             };
-            // Opened by pid, so it must still be the process that was seen.
-            match proc_of(identity.pid) {
-                Ok(Some(proc)) if proc.token == identity.token => {}
-                Ok(_) => return true,
-                Err(_) => return false,
+            // Opened by pid, so it must still be the process that was seen. A row that cannot be read says
+            // nothing: no wait, the caller looks again.
+            match super::row_of(identity.pid) {
+                Ok(Row::Readable(proc)) if proc.token == identity.token => {}
+                Ok(Row::Readable(_) | Row::Absent) => return true,
+                Ok(Row::Unreadable) | Err(_) => return false,
             }
             fds.push(libc::pollfd { fd: fd.as_raw_fd(), events: libc::POLLIN, revents: 0 });
             open.push(fd);
@@ -207,10 +224,6 @@ mod sys {
 
     /// `SZOMB` of `sys/proc.h`: a process that ended and awaits its reaper.
     const SZOMB: u32 = 5;
-
-    pub(super) fn identity(pid: u32) -> io::Result<Option<String>> {
-        Ok(proc_of(pid)?.map(|proc| proc.token))
-    }
 
     /// There is no pidfd: an exit is found by looking again.
     pub(super) async fn exited(_watched: &[Identity]) -> bool {
@@ -278,10 +291,11 @@ mod sys {
     use std::io;
 
     use crate::tree::Identity;
+    use crate::tree::Proc;
     use crate::tree::Table;
 
-    pub(super) fn identity(_pid: u32) -> io::Result<Option<String>> {
-        Ok(None)
+    pub(super) fn proc_of(_pid: u32) -> io::Result<Option<Proc>> {
+        Err(io::Error::new(io::ErrorKind::Unsupported, "no process table adapter on this platform"))
     }
 
     pub(super) fn table() -> io::Result<Table> {

@@ -8,8 +8,16 @@
 //! recorded running (`fixtures/shell-tracker-trace`).
 //!
 //! Processes are followed by identity (pid plus start token of the same table read), never by pid:
-//! a recycled pid is a different process, neither keeps a survivor alive nor becomes a target. A
-//! table that could not be read is unknown, never an empty one.
+//! a recycled pid is a different process, neither keeps a survivor alive nor becomes a target.
+//!
+//! What a read cannot show is unknown, never absent and never empty:
+//! * a pid's row is [`Row::Absent`] (authoritatively not there), [`Row::Readable`] or
+//!   [`Row::Unreadable`] (there, or perhaps, but not inspectable); against a followed identity that
+//!   is a [`Relation`]: `Same`, `Different` (the pid is someone else now), `Absent` or `Unknown`;
+//! * the verified survivors, the unresolved candidates and the completeness of the listing are kept
+//!   apart: any verified survivor is `Running`; none verified but a candidate or an incomplete
+//!   listing is `Unknown`; `Gone` needs neither. `Unknown` is never a signal target, and signals
+//!   carry identities that are revalidated just before they are sent.
 
 use std::collections::HashSet;
 use std::collections::HashMap;
@@ -47,13 +55,44 @@ pub(crate) struct Proc {
     pub(crate) token: String,
 }
 
-/// A complete read of the process table, in the reader's order.
+/// What a read shows of one pid.
+#[derive(Clone, Debug)]
+pub(crate) enum Row {
+    /// Nothing has this pid (or only a process that ended).
+    Absent,
+    Readable(Proc),
+    /// Something has this pid and the kernel will not show it to us (it may have changed credentials).
+    Unreadable,
+}
+
+/// How a row stands to an identity that was followed. `Unknown` never equals `Same`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Relation {
+    Same,
+    /// The pid belongs to another process now: the identity ended.
+    Different,
+    Absent,
+    Unknown,
+}
+
+impl Row {
+    pub(crate) fn relation(&self, identity: &Identity) -> Relation {
+        match self {
+            Self::Absent => Relation::Absent,
+            Self::Unreadable => Relation::Unknown,
+            Self::Readable(proc) if proc.token == identity.token => Relation::Same,
+            Self::Readable(_) => Relation::Different,
+        }
+    }
+}
+
+/// A read of the process table, in the reader's order.
 pub(crate) struct Table {
     procs: Vec<Proc>,
     at: HashMap<u32, usize>,
     children: HashMap<u32, Vec<u32>>,
-    /// Pids the listing named whose rows the kernel would not show us: they exist, and nothing more
-    /// is known of them, so they are never read as absent.
+    /// Pids the listing named whose rows the kernel would not show us: they are there, and nothing
+    /// more is known of them. A listing with any is incomplete: they may belong to the tree.
     unreadable: HashSet<u32>,
 }
 
@@ -72,6 +111,19 @@ impl Table {
         Self { procs, at, children, unreadable: unreadable.into_iter().collect() }
     }
 
+    pub(crate) fn row(&self, pid: u32) -> Row {
+        match self.at.get(&pid) {
+            Some(&index) => Row::Readable(self.procs[index].clone()),
+            None if self.unreadable.contains(&pid) => Row::Unreadable,
+            None => Row::Absent,
+        }
+    }
+
+    /// Whether every process the listing named could be read.
+    fn complete(&self) -> bool {
+        self.unreadable.is_empty()
+    }
+
     fn token(&self, pid: u32) -> Option<&str> {
         self.at.get(&pid).map(|&index| self.procs[index].token.as_str())
     }
@@ -86,6 +138,9 @@ pub(crate) trait Reader: Send + Sync {
     /// The whole table. An error means it is unknown: never an empty table, never one with
     /// entries dropped.
     fn table(&self) -> io::Result<Table>;
+    /// One pid, read now: how a signal's target is revalidated just before it is sent. An error
+    /// means it is unknown.
+    fn row(&self, pid: u32) -> io::Result<Row>;
 }
 
 /// What is sent to a process or group. `Probe` is signal 0: it asks whether anything is there.
@@ -116,43 +171,60 @@ pub(crate) trait Clock: Send + Sync {
 /// What one observation found.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Observation {
-    /// These identities are alive.
+    /// These verified identities are alive.
     Running(Vec<Identity>),
-    /// Nothing of the tree is left.
+    /// Nothing of the tree is left, and nothing is unaccounted for.
     Gone,
-    /// The table could not be read: nothing is known.
+    /// No survivor is verified, but the table could not be read, or it could not show every process,
+    /// or a candidate is unresolved: nothing is known.
     Unknown,
 }
 
+/// Whether the root's pid and group still name our root's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Ownership {
+    /// Its child links and its group are ours.
+    Ours,
+    /// A different process holds the pid: none of what hangs off it is ours.
+    NotOurs,
+    /// The pid is held by something we cannot inspect: no grant.
+    Unknown,
+}
+
+/// A process that might belong to the tree and has not been shown to: never an owned descendant,
+/// never a signal target.
+struct Candidate {
+    pid: u32,
+    /// The token it had when it was met under a parent of unknown identity; `None` for a pid that was
+    /// only ever unreadable, which has no token to end with.
+    token: Option<String>,
+}
+
 /// `createProcessTreeTracker`, POSIX form, for a root whose exit we saw ourselves (it is our own
-/// child, reaped by us): the identities it has met, in the order they were met.
+/// child, reaped by us): the identities it has verified, in the order they were met, and the
+/// candidates still unresolved.
 struct Tracker {
     root: u32,
     /// The root's start token, taken while it was known ours.
     root_token: Option<String>,
     tracked: Vec<Identity>,
+    candidates: Vec<Candidate>,
 }
 
 impl Tracker {
-    fn present(table: &Table, identity: &Identity) -> bool {
-        table.token(identity.pid) == Some(identity.token.as_str()) || table.unreadable.contains(&identity.pid)
-    }
-
-    fn root_alive(&self, table: &Table, root_exited: bool) -> bool {
-        if root_exited {
-            return false;
+    /// An unreaped child keeps its pid, so then it is ours whatever the table shows. Once reaped the
+    /// pid may be anyone's: the same token or a confirmed absence keep it ours, another token does
+    /// not, and a row we cannot read grants nothing.
+    fn ownership(&self, root: &Row, reaped: bool) -> Ownership {
+        if !reaped {
+            return Ownership::Ours;
         }
-        match table.token(self.root) {
-            None => table.unreadable.contains(&self.root),
-            Some(token) => self.root_token.as_deref().is_none_or(|known| known == token),
+        match root {
+            Row::Absent => Ownership::Ours,
+            Row::Unreadable => Ownership::Unknown,
+            Row::Readable(proc) if self.root_token.as_deref() == Some(proc.token.as_str()) => Ownership::Ours,
+            Row::Readable(_) => Ownership::NotOurs,
         }
-    }
-
-    /// The root's pid still names our root, or nothing: its child links and its group are ours. A
-    /// different process under that pid is a reuse, and none of what hangs off it is ours.
-    fn root_is_ours(&self, table: &Table, root_alive: bool) -> bool {
-        let held = table.token(self.root);
-        root_alive || held.is_none() || (self.root_token.is_some() && self.root_token.as_deref() == held)
     }
 
     fn track(&mut self, table: &Table, pid: u32) {
@@ -164,15 +236,29 @@ impl Tracker {
         }
     }
 
-    /// Admits what this read shows: descendants of the root (while it is ours) and of every tracked
-    /// identity still present, and the members of the root's group (while it is ours).
-    fn absorb(&mut self, table: &Table, root_alive: bool) {
-        let ours = self.root_is_ours(table, root_alive);
+    fn is_tracked(&self, pid: u32, token: &str) -> bool {
+        self.tracked.iter().any(|identity| identity.pid == pid && identity.token == token)
+    }
+
+    fn suspect(&mut self, pid: u32, token: Option<&str>) {
+        if !self.candidates.iter().any(|c| c.pid == pid && c.token.as_deref() == token) {
+            self.candidates.push(Candidate { pid, token: token.map(str::to_owned) });
+        }
+    }
+
+    /// Admits what this read shows. Only verified ownership seeds adoption: the root's descendants
+    /// and group members (while the root is ours) and the descendants of every tracked identity that
+    /// is verifiably the same process. What hangs off a pid we cannot inspect is a candidate, and so
+    /// is a pid that was only ever unreadable.
+    fn absorb(&mut self, table: &Table, ownership: Ownership) {
+        let ours = ownership == Ownership::Ours;
         let mut from: Vec<u32> = Vec::new();
         if ours {
             from.push(self.root);
         }
-        from.extend(self.tracked.iter().filter(|identity| Self::present(table, identity)).map(|identity| identity.pid));
+        from.extend(
+            self.tracked.iter().filter(|identity| table.row(identity.pid).relation(identity) == Relation::Same).map(|i| i.pid),
+        );
         let mut seen: HashSet<u32> = from.iter().copied().collect();
         while let Some(current) = from.pop() {
             for &child in table.children(current) {
@@ -189,20 +275,68 @@ impl Tracker {
                 }
             }
         }
-        if root_alive && self.root_token.is_none() {
-            self.root_token = table.token(self.root).map(str::to_owned);
+        let mut unknown_parents: Vec<u32> = self
+            .tracked
+            .iter()
+            .filter(|identity| table.row(identity.pid).relation(identity) == Relation::Unknown)
+            .map(|identity| identity.pid)
+            .collect();
+        if ownership == Ownership::Unknown {
+            unknown_parents.push(self.root);
         }
+        for &parent in &unknown_parents {
+            for &child in table.children(parent) {
+                if let Some(token) = table.token(child).filter(|token| !self.is_tracked(child, token)) {
+                    self.suspect(child, Some(token));
+                }
+            }
+        }
+        let bare: Vec<u32> = table.unreadable.iter().copied().filter(|&pid| pid != self.root && !unknown_parents.contains(&pid)).collect();
+        for pid in bare {
+            self.suspect(pid, None);
+        }
+        // A candidate ends only on evidence: promoted by the walk above, or its own identity ended. A pid
+        // that was only ever unreadable has no identity to end, and its coverage gap stays open until a
+        // readable process shows nothing ties it to the tree.
+        let tracked = &self.tracked;
+        self.candidates.retain(|candidate| match table.row(candidate.pid) {
+            Row::Unreadable => true,
+            Row::Absent => candidate.token.is_none(),
+            Row::Readable(proc) => {
+                let promoted = tracked.iter().any(|identity| identity.pid == proc.pid && identity.token == proc.token);
+                !promoted && candidate.token.as_deref() == Some(proc.token.as_str())
+            }
+        });
     }
 
-    fn observe(&mut self, table: &Table, root_exited: bool) -> Observation {
-        let alive = self.root_alive(table, root_exited);
-        self.absorb(table, alive);
-        if alive {
-            let token = table.token(self.root).map(str::to_owned).unwrap_or_default();
-            return Observation::Running(vec![Identity { pid: self.root, token }]);
+    /// The root while it has not been reaped, if the table shows it as the process it was.
+    fn live_root(&mut self, root: &Row, reaped: bool) -> Option<Identity> {
+        let Row::Readable(proc) = root else {
+            return None;
+        };
+        if reaped {
+            return None;
         }
-        let live: Vec<Identity> = self.tracked.iter().filter(|identity| Self::present(table, identity)).cloned().collect();
-        if live.is_empty() { Observation::Gone } else { Observation::Running(live) }
+        let known = self.root_token.get_or_insert_with(|| proc.token.clone());
+        (*known == proc.token).then(|| Identity { pid: self.root, token: proc.token.clone() })
+    }
+
+    fn observe(&mut self, table: &Table, reaped: bool) -> Observation {
+        let root = table.row(self.root);
+        let ownership = self.ownership(&root, reaped);
+        self.absorb(table, ownership);
+        if let Some(root) = self.live_root(&root, reaped) {
+            return Observation::Running(vec![root]);
+        }
+        let live: Vec<Identity> =
+            self.tracked.iter().filter(|identity| table.row(identity.pid).relation(identity) == Relation::Same).cloned().collect();
+        if !live.is_empty() {
+            Observation::Running(live)
+        } else if !self.candidates.is_empty() || !table.complete() {
+            Observation::Unknown
+        } else {
+            Observation::Gone
+        }
     }
 }
 
@@ -215,7 +349,8 @@ pub(crate) struct Tree<R, S, C> {
     tracker: Mutex<Tracker>,
     /// The root has been reaped: from then on its pid and its group id may belong to someone else.
     reaped: AtomicBool,
-    /// The identities the last observation found alive: what a cancel signals.
+    /// The verified identities the last observation found alive: what a cancel signals, each revalidated
+    /// first. Empty after any look that was not a verified `Running`.
     live: Mutex<Vec<Identity>>,
 }
 
@@ -227,7 +362,7 @@ impl<R: Reader, S: Signals, C: Clock> Tree<R, S, C> {
             signals,
             clock,
             root,
-            tracker: Mutex::new(Tracker { root, root_token, tracked: Vec::new() }),
+            tracker: Mutex::new(Tracker { root, root_token, tracked: Vec::new(), candidates: Vec::new() }),
             reaped: AtomicBool::new(false),
             live: Mutex::new(Vec::new()),
         }
@@ -243,15 +378,28 @@ impl<R: Reader, S: Signals, C: Clock> Tree<R, S, C> {
 
     /// One look at the tree.
     pub(crate) fn observe(&self) -> Observation {
-        let Ok(table) = self.reader.table() else {
-            return Observation::Unknown;
+        let observation = match self.reader.table() {
+            Ok(table) => self.tracker().observe(&table, self.reaped.load(Ordering::Acquire)),
+            Err(_) => Observation::Unknown,
         };
-        let observation = self.tracker().observe(&table, self.reaped.load(Ordering::Acquire));
         *self.live.lock().unwrap_or_else(|e| e.into_inner()) = match &observation {
             Observation::Running(live) => live.clone(),
             _ => Vec::new(),
         };
         observation
+    }
+
+    /// Whether the root's pid and group id still name our root's, read now.
+    fn group_is_ours(&self) -> bool {
+        if !self.reaped.load(Ordering::Acquire) {
+            return true;
+        }
+        matches!(self.reader.row(self.root), Ok(root) if self.tracker().ownership(&root, true) == Ownership::Ours)
+    }
+
+    /// Whether `identity` is still the process that was seen, read now.
+    fn is_same(&self, identity: &Identity) -> bool {
+        matches!(self.reader.row(identity.pid), Ok(row) if row.relation(identity) == Relation::Same)
     }
 
     /// Whether anything of the group might still be there, for deciding how long to keep a record:
@@ -271,7 +419,7 @@ impl<R: Reader, S: Signals, C: Clock> Tree<R, S, C> {
         let Ok(table) = self.reader.table() else {
             return;
         };
-        if self.tracker().root_is_ours(&table, false) {
+        if self.tracker().ownership(&table.row(self.root), true) == Ownership::Ours {
             self.signals.group(self.root, signal);
         }
     }
@@ -292,39 +440,43 @@ impl<R: Reader, S: Signals, C: Clock> Tree<R, S, C> {
         }
     }
 
-    /// `killProcessTrees` on POSIX: SIGTERM to each, a grace, then SIGKILL to those still alive.
-    async fn kill_trees(&self, pids: &[u32]) {
-        if pids.is_empty() {
+    /// `killProcessTrees` on POSIX: SIGTERM to each, a grace, then SIGKILL to those still alive. A
+    /// pid is only a name, so each identity is read again before each signal and a target that is no
+    /// longer verifiably the process that was seen (reused, gone, or unreadable) is left alone; the
+    /// existence probe that Node escalates on says something is there, not that it is this process.
+    async fn kill_trees(&self, targets: &[Identity]) {
+        let sent: Vec<&Identity> = targets
+            .iter()
+            .filter(|identity| self.is_same(identity))
+            .inspect(|identity| {
+                self.signals.process(identity.pid, Signal::Term);
+            })
+            .collect();
+        if sent.is_empty() {
             return;
         }
-        for &pid in pids {
-            self.signals.process(pid, Signal::Term);
-        }
         self.clock.sleep(TARGET_GRACE).await;
-        for &pid in pids {
-            if self.signals.process(pid, Signal::Probe) {
-                self.signals.process(pid, Signal::Kill);
+        for identity in sent {
+            if self.signals.process(identity.pid, Signal::Probe) && self.is_same(identity) {
+                self.signals.process(identity.pid, Signal::Kill);
             }
         }
     }
 
-    /// `killShellDescendants`: ends the group if it is still ours, then the observed identities that
-    /// are still the processes that were seen, then looks again; what the kill missed is killed in
-    /// the next of up to [`KILL_ROUNDS`] rounds. `true` when a look finds nothing left.
+    /// `killShellDescendants`: ends the group while it is still ours, then the verified identities
+    /// that are still the processes that were seen, then looks again; what the kill missed is killed in
+    /// the next of up to [`KILL_ROUNDS`] rounds. `true` only when a look finds nothing left: a look that
+    /// cannot tell, or survivors after the last round, are an unconfirmed termination.
     pub(crate) async fn cancel(&self) -> bool {
         let Ok(table) = self.reader.table() else {
             return false;
         };
-        let (ours, targets) = {
-            let live = self.live.lock().unwrap_or_else(|e| e.into_inner());
-            let targets: Vec<u32> =
-                live.iter().filter(|identity| Tracker::present(&table, identity)).map(|identity| identity.pid).collect();
-            (self.tracker().root_is_ours(&table, false), targets)
-        };
-        if ours {
+        let targets = self.live.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if self.tracker().ownership(&table.row(self.root), self.reaped.load(Ordering::Acquire)) == Ownership::Ours {
             self.signals.group(self.root, Signal::Term);
             self.clock.sleep(GROUP_GRACE).await;
-            if self.signals.group(self.root, Signal::Probe) {
+            // Ownership is read again after the grace: the id may have been freed and taken meanwhile.
+            if self.group_is_ours() && self.signals.group(self.root, Signal::Probe) {
                 self.signals.group(self.root, Signal::Kill);
                 self.clock.sleep(GROUP_FORCED_WAIT).await;
             }
@@ -335,8 +487,7 @@ impl<R: Reader, S: Signals, C: Clock> Tree<R, S, C> {
             let Observation::Running(live) = &observed else {
                 break;
             };
-            let pids: Vec<u32> = live.iter().map(|identity| identity.pid).collect();
-            self.kill_trees(&pids).await;
+            self.kill_trees(live).await;
             observed = self.observe();
         }
         observed == Observation::Gone
@@ -345,6 +496,7 @@ impl<R: Reader, S: Signals, C: Clock> Tree<R, S, C> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::VecDeque;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
 
@@ -404,6 +556,14 @@ mod tests {
             push(&self.log, json!({"op": "read"}));
             let at = self.reads.fetch_add(1, Ordering::SeqCst).min(self.tables.len() - 1);
             table_of(&self.tables[at])
+        }
+
+        /// A single-pid read shows the table as last served and does not advance the script: Node's tracker has no
+        /// such read, so the recording's tables stay in step with the reads it made.
+        fn row(&self, pid: u32) -> io::Result<Row> {
+            push(&self.log, json!({"op": "row"}));
+            let at = self.reads.load(Ordering::SeqCst).saturating_sub(1).min(self.tables.len() - 1);
+            table_of(&self.tables[at]).map(|table| table.row(pid))
         }
     }
 
@@ -557,7 +717,9 @@ mod tests {
                 }
             })
             .await;
-            assert_eq!(Value::Array(log.lock().unwrap().clone()), scenario["events"], "{}", scenario["name"]);
+            // Node's events are the reads and signals; the single-pid revalidations are Rust's own and are no event of its.
+            let events: Vec<Value> = log.lock().unwrap().iter().filter(|e| e["op"] != "row").cloned().collect();
+            assert_eq!(Value::Array(events), scenario["events"], "{}", scenario["name"]);
             assert_eq!(terminated, scenario["result"]["terminated"], "{}", scenario["name"]);
         }
     }
@@ -624,26 +786,145 @@ mod tests {
         assert_eq!(signalled(true, json!([{"error": "denied"}])), [json!({"op": "read"})], "unknown ownership signals nothing");
     }
 
-    /// A survivor whose row the kernel will not show (it changed credentials) still exists: the look that
-    /// cannot read it must not report the tree gone.
-    #[tokio::test]
-    async fn a_tracked_survivor_the_table_cannot_read_is_not_gone() {
-        struct Reads(Mutex<Vec<(Vec<Proc>, Vec<u32>)>>);
-        impl Reader for Reads {
-            fn table(&self) -> io::Result<Table> {
-                let (procs, unreadable) = self.0.lock().unwrap().remove(0);
-                Ok(Table::with_unreadable(procs, unreadable))
-            }
+    fn proc(pid: u32, ppid: u32, pgid: u32, token: &str) -> Proc {
+        Proc { pid, ppid, pgid, token: token.to_owned() }
+    }
+
+    /// One read of the table: the rows it could read and the pids it could not.
+    type Listing = (Vec<Proc>, Vec<u32>);
+
+    /// A reader whose full reads and single-pid reads are scripted apart (each script repeats its last answer; a pid with
+    /// no script is absent).
+    struct Split {
+        tables: Mutex<VecDeque<Listing>>,
+        rows: Mutex<HashMap<u32, VecDeque<Row>>>,
+    }
+
+    impl Split {
+        fn new(tables: Vec<Listing>) -> Self {
+            Self { tables: Mutex::new(tables.into()), rows: Mutex::new(HashMap::new()) }
         }
-        let survivor = Proc { pid: 7000, ppid: 1, pgid: ROOT, token: "s1".to_owned() };
-        let reads = Reads(Mutex::new(vec![(vec![survivor.clone()], vec![]), (vec![], vec![7000]), (vec![], vec![])]));
+
+        fn rows(self, pid: u32, rows: Vec<Row>) -> Self {
+            self.rows.lock().unwrap().insert(pid, rows.into());
+            self
+        }
+    }
+
+    impl Reader for Split {
+        fn table(&self) -> io::Result<Table> {
+            let mut tables = self.tables.lock().unwrap();
+            let (procs, unreadable) = if tables.len() > 1 { tables.pop_front().unwrap() } else { tables[0].clone() };
+            Ok(Table::with_unreadable(procs, unreadable))
+        }
+
+        fn row(&self, pid: u32) -> io::Result<Row> {
+            let mut rows = self.rows.lock().unwrap();
+            let Some(script) = rows.get_mut(&pid) else {
+                return Ok(Row::Absent);
+            };
+            Ok(if script.len() > 1 { script.pop_front().unwrap() } else { script[0].clone() })
+        }
+    }
+
+    /// Runs a cancel over `reader` after an observation that found the survivor `s1` at 7000; returns what it reported and
+    /// the signals it sent to processes (not the group).
+    async fn cancelled(reader: Split, pid_probes: &[bool]) -> (bool, Vec<Value>) {
+        let log = Log::default();
+        let clock = ScriptedClock::new(&log);
+        let mut signals = ScriptedSignals::new(&log);
+        signals.pid_probes = pid_probes.to_vec();
+        let tree = Arc::new(Tree::new(reader, signals, clock.clone(), ROOT, None));
+        tree.root_reaped();
+        assert_eq!(tree.observe(), Observation::Running(vec![Identity { pid: 7000, token: "s1".to_owned() }]));
+        log.lock().unwrap().clear();
+        let task = tokio::spawn({
+            let tree = tree.clone();
+            async move { tree.cancel().await }
+        });
+        let terminated = run_gated(task, &clock, &log, |_| {}).await;
+        let sent = log.lock().unwrap().iter().filter(|e| e["target"] == "pid").cloned().collect();
+        (terminated, sent)
+    }
+
+    fn kill_of(pid: u32, signal: Value) -> Value {
+        json!({"op": "kill", "target": "pid", "id": pid, "signal": signal})
+    }
+
+    /// A survivor whose row the kernel will not show (it changed credentials) is there, not gone, and not verified: the
+    /// look that cannot read it is `Unknown`, and the look after it ended is `Gone`.
+    #[tokio::test]
+    async fn a_tracked_survivor_the_table_cannot_read_is_unknown_then_gone() {
+        let survivor = proc(7000, 1, ROOT, "s1");
+        let reads = Split::new(vec![(vec![survivor], vec![]), (vec![], vec![7000]), (vec![], vec![])]);
         let log = Log::default();
         let tree = Tree::new(reads, ScriptedSignals::new(&log), ScriptedClock::new(&log), ROOT, None);
         tree.root_reaped();
-        let identity = Identity { pid: 7000, token: "s1".to_owned() };
-        assert_eq!(tree.observe(), Observation::Running(vec![identity.clone()]));
-        assert_eq!(tree.observe(), Observation::Running(vec![identity]), "present but unreadable");
-        assert_eq!(tree.observe(), Observation::Gone, "absent from the listing too");
+        assert_eq!(tree.observe(), Observation::Running(vec![Identity { pid: 7000, token: "s1".to_owned() }]));
+        assert_eq!(tree.observe(), Observation::Unknown, "there, and not verified");
+        assert_eq!(tree.observe(), Observation::Gone, "its identity ended and nothing else is unaccounted for");
+        assert!(tree.live.lock().unwrap().is_empty(), "no stale target is left to be signalled");
+    }
+
+    /// A pid whose process cannot be read is never a signal target: whatever holds it now is not shown to be the
+    /// survivor that was seen there.
+    #[tokio::test]
+    async fn a_pid_taken_over_by_an_unreadable_process_is_never_signalled() {
+        let survivor = proc(7000, 1, ROOT, "s1");
+        let reader = Split::new(vec![(vec![survivor.clone()], vec![]), (vec![survivor], vec![]), (vec![], vec![7000])])
+            .rows(7000, vec![Row::Unreadable]);
+        let (terminated, sent) = cancelled(reader, &[true]).await;
+        assert_eq!(sent, Vec::<Value>::new());
+        assert!(!terminated, "an unreadable process is not a confirmed termination");
+    }
+
+    /// The existence probe says something is at the pid after the grace; the identity read decides whether it is the
+    /// survivor, and only the same process is killed.
+    #[tokio::test]
+    async fn the_kill_is_revalidated_after_the_grace() {
+        let survivor = proc(7000, 1, ROOT, "s1");
+        let listing = || (vec![survivor.clone()], vec![]);
+        let term = kill_of(7000, json!("SIGTERM"));
+        let probe = kill_of(7000, json!(0));
+        let kill = kill_of(7000, json!("SIGKILL"));
+        let taken = (vec![proc(7000, 1, 1, "someone-else")], vec![]);
+        for (after_grace, then) in [(Row::Readable(proc(7000, 1, 1, "someone-else")), taken), (Row::Unreadable, (vec![], vec![7000]))] {
+            let same = Row::Readable(survivor.clone());
+            let reader = Split::new(vec![listing(), listing(), then]).rows(7000, vec![same, after_grace]);
+            let (_, sent) = cancelled(reader, &[true]).await;
+            assert_eq!(sent, [term.clone(), probe.clone()], "no SIGKILL for a pid that is not verifiably the survivor");
+        }
+        let same = Row::Readable(survivor.clone());
+        let (_, sent) = cancelled(Split::new(vec![listing(), listing(), (vec![], vec![])]).rows(7000, vec![same]), &[true]).await;
+        assert_eq!(sent, [term, probe, kill], "the same process is killed");
+    }
+
+    /// A root pid that cannot be read grants no ownership of its group or its links, and what hangs off it is a
+    /// candidate, not a descendant.
+    #[tokio::test]
+    async fn an_unreadable_root_grants_no_ownership() {
+        let member = proc(7001, ROOT, ROOT, "m");
+        let log = Log::default();
+        let reader = Split::new(vec![(vec![member], vec![ROOT])]);
+        let tree = Tree::new(reader, ScriptedSignals::new(&log), ScriptedClock::new(&log), ROOT, Some("rt".to_owned()));
+        tree.root_reaped();
+        assert_eq!(tree.observe(), Observation::Unknown, "its child is not adopted, and nothing is known");
+        tree.signal_group(Signal::Kill);
+        assert_eq!(*log.lock().unwrap(), Vec::<Value>::new(), "the group is not signalled");
+    }
+
+    /// The first look finds a pid it cannot read and nothing else: that is not an empty tree, and the gap does not
+    /// close because the pid is gone from the next listing.
+    #[tokio::test]
+    async fn a_first_look_that_cannot_read_a_pid_is_not_gone() {
+        let log = Log::default();
+        let tree = Tree::new(Split::new(vec![(vec![], vec![9000]), (vec![], vec![])]), ScriptedSignals::new(&log), ScriptedClock::new(&log), ROOT, None);
+        tree.root_reaped();
+        assert_eq!(tree.observe(), Observation::Unknown);
+        assert_eq!(tree.observe(), Observation::Unknown, "what it was is still not known");
+        let control = Tree::new(Split::new(vec![(vec![], vec![])]), ScriptedSignals::new(&log), ScriptedClock::new(&log), ROOT, None);
+        control.root_reaped();
+        assert_eq!(control.observe(), Observation::Gone, "a complete listing with nothing in it is gone");
     }
 
     #[tokio::test]

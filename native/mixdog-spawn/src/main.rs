@@ -3,7 +3,9 @@ use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::fs::{metadata, File, OpenOptions};
 use std::io::{BufRead, Read, Seek, SeekFrom, Write};
-use std::process::{Child, Command, ExitStatus, Stdio};
+#[cfg(windows)]
+use std::process::Child;
+use std::process::{Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
