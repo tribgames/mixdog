@@ -258,6 +258,8 @@ impl Proc {
         life.killed.get_or_insert(reason);
         self.containment.kill();
         drop(life);
+        #[cfg(feature = "core-test")]
+        crate::testing::kill_window();
         // A stalled consumer must not keep a killed process's reader from reaching the end.
         self.feed.release_reader();
         Ok(())
@@ -374,6 +376,26 @@ impl Drop for Inner {
         }
         if let Some(deadlines) = self.deadlines.get() {
             deadlines.close();
+        }
+    }
+}
+
+/// What a spawn holds while its caller awaits the answer. Dropped before the answer (the caller's
+/// future was dropped), it tells the launch job the requester is gone and kills a child that is
+/// already committed; the job kills one that commits later. Either way the child that nobody was
+/// told about does not run on.
+struct Abandon {
+    inner: Arc<Inner>,
+    handle: ProcessHandle,
+    gone: CancellationToken,
+    answered: bool,
+}
+
+impl Drop for Abandon {
+    fn drop(&mut self) {
+        self.gone.cancel();
+        if !self.answered {
+            let _ = self.inner.lookup(&self.handle).and_then(|proc| proc.kill(KillReason::Requested));
         }
     }
 }
@@ -836,21 +858,38 @@ impl LocalProcessManager {
         options: SpawnOptions,
     ) -> Result<SpawnedProcess, ProcessError> {
         let admission = self.inner.admit(&request.handle)?;
-        let cancel = CancellationToken::new();
-        // Dropping this future abandons the wait: a job still queued is dropped unrun.
-        let _abandon = cancel.clone().drop_guard();
-        let inner = Arc::clone(&self.inner);
+        // Dropping this future abandons the wait: a job still queued is dropped unrun, and a child
+        // the job commits meanwhile is killed (see `Abandon`), so a cancelled spawn leaves no child
+        // that nobody owns.
+        let mut abandon = Abandon {
+            inner: Arc::clone(&self.inner),
+            handle: request.handle.clone(),
+            gone: CancellationToken::new(),
+            answered: false,
+        };
+        let (inner, gone) = (Arc::clone(&self.inner), abandon.gone.clone());
         let job = self
             .inner
             .spawn_io
-            .submit(&cancel, move |_lane| {
-                launch_process(&inner, admission, request, options)
+            .submit(&abandon.gone, move |_lane| {
+                #[cfg(feature = "core-test")]
+                crate::testing::launch_window();
+                let spawned = launch_process(&inner, admission, request, options)?;
+                // Checked after the commit: a requester that left before it is found here, one that
+                // leaves after it finds the child in the table (`Abandon::drop`).
+                if gone.is_cancelled() {
+                    let _ = inner.lookup(&spawned.handle).and_then(|proc| proc.kill(KillReason::Requested));
+                }
+                #[cfg(feature = "core-test")]
+                crate::testing::answer_window();
+                Ok(spawned)
             })
             .map_err(|_| ProcessError::Overloaded {
                 queue: ProcessQueue::Spawn,
             })?;
-        job.await
-            .map_err(|_| ProcessError::Io { os_code: None })?
+        let answer = job.await;
+        abandon.answered = true;
+        answer.map_err(|_| ProcessError::Io { os_code: None })?
     }
 
     /// Pauses or resumes the reader of a PTY (terminal flow control): while paused, its output
