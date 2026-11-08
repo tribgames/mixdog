@@ -147,15 +147,6 @@ impl ListHost {
         cache.seq
     }
 
-    /// After the preparation (`catalog-load.mjs`, `ownsLoad`): the revision it moved is carried forward for a load that is
-    /// still current, never for a superseded one. Returns the sequence the load goes on under.
-    fn carry(&self, seq: u64) -> u64 {
-        let mut cache = self.cache();
-        let owns = cache.seq == seq;
-        cache.sync(self.readiness.catalog_revision());
-        if owns { cache.seq } else { seq }
-    }
-
     /// `adoptProviderModelCache`: the revision is synced before the sequence is checked
     /// (`provider-models.mjs`), so a revision change during the load supersedes it; a load that is
     /// still current fills the cache, all under the one lock an invalidation takes.
@@ -335,7 +326,6 @@ impl ModelListService {
         if let Some(host) = &self.host {
             let snapshot = self.catalog.snapshot();
             if quick && !force && !self.cache_loaded() {
-                let seq = host.begin();
                 // A quick read before any load answers from the profile and seeds the full load in
                 // the background (`warmProviderModelCache`); a failed warm is logged and leaves the
                 // cache empty, as its `onFailed` does (`provider-models.mjs`).
@@ -343,7 +333,10 @@ impl ModelListService {
                 let started = mixdog_rt::spawn("model-list-warm", mixdog_rt::TaskClass::Work, async move {
                     match warm.prepare().await {
                         Ok(Some(_)) => {
-                            let seq = warm.carry(seq);
+                            // The sequence is taken once the preparation (which registers providers and so moves the
+                            // revision) is done, as the full read does: a revision change after this point is somebody
+                            // else's, and `adopt` refuses the load for it. No ownership is inferred from before it.
+                            let seq = warm.begin();
                             catalog.refresh_due().await;
                             warm.adopt(seq);
                         }

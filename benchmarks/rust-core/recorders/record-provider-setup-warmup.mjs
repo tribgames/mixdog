@@ -11,16 +11,19 @@
 // Output: native/core/fixtures/provider-setup-warmup/golden.json. No network, no credential.
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 
 process.env.MIXDOG_SKIP_USER_DATA_BACKUP = '1';
 process.env.MIXDOG_DATA_DIR = mkdtempSync(join(tmpdir(), 'provider-setup-warmup-'));
 process.env.MIXDOG_HOME = mkdtempSync(join(tmpdir(), 'provider-setup-warmup-home-'));
-const { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
+const { FIXTURES_ROOT, REPO_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } = await import('./lib/common.mjs');
 
 const tree = resolveTree(parseArgs());
 const finalDir = join(FIXTURES_ROOT, 'provider-setup-warmup');
 const stage = stageSet(finalDir);
+// The Node commit the recording is exact for; the manifest compares the loaded tree against it.
+const NODE_COMMIT = execFileSync('git', ['rev-parse', 'b6f10295a^{commit}'], { cwd: REPO_ROOT, encoding: 'utf8' }).trim();
 const recorder = 'benchmarks/rust-core/recorders/record-provider-setup-warmup.mjs';
 const { createSetupApi } = await importFrom(tree, 'src/session-runtime/provider-auth/setup.mjs');
 const { createProviderUsage } = await importFrom(tree, 'src/session-runtime/provider-usage.mjs');
@@ -83,5 +86,5 @@ prewarm.resolve();
 await warmup;
 reads.push({ when: 'after the warm-up', value: await api.getProviderSetup({}) });
 writeJson(join(stage, 'golden.json'), { built: BUILT, builds, reads });
-writeSetManifest(stage, { set: 'provider-setup-warmup', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree });
+writeSetManifest(stage, { set: 'provider-setup-warmup', recorder, command: 'node ' + recorder + ' --tree <tree>', identityTree: tree, identityRef: NODE_COMMIT });
 commitStage(stage, finalDir);
