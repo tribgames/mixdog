@@ -53,6 +53,8 @@ export interface SectionStore {
   status(): DesktopProtocolStatus;
   /** Called after each change of `section` (every section for `'*'`, plus status changes). */
   subscribe(section: string, listener: () => void): () => void;
+  /** A scoped feed main could not restore after a reconnect for a reason other than the core not holding it. */
+  onFeedError(listener: (feedId: string, message: string) => void): () => void;
   /** Resolves once the first snapshot is folded. */
   ready(): Promise<void>;
   dispose(): void;
@@ -62,6 +64,7 @@ export function createSectionStore(source: SectionsSource): SectionStore {
   const sections = new Map<string, Map<string, DesktopSectionEntry>>();
   const lists = new Map<string, readonly DesktopSectionEntry[]>();
   const listeners = new Map<string, Set<() => void>>();
+  const feedErrorListeners = new Set<(feedId: string, message: string) => void>();
   let status: DesktopProtocolStatus = 'reconnecting';
   let disposed = false;
   // What pushes said before the first snapshot was folded. The snapshot was read at one instant and every change
@@ -98,6 +101,10 @@ export function createSectionStore(source: SectionsSource): SectionStore {
       status = push.status;
       if (!loaded) pushedStatus = true;
       notify(new Set());
+      return;
+    }
+    if (push.kind === 'feedError') {
+      for (const listener of [...feedErrorListeners]) listener(push.feedId, push.message);
       return;
     }
     if (push.kind === 'replace') {
@@ -157,6 +164,10 @@ export function createSectionStore(source: SectionsSource): SectionStore {
       set.add(listener);
       return () => void set.delete(listener);
     },
+    onFeedError(listener) {
+      feedErrorListeners.add(listener);
+      return () => void feedErrorListeners.delete(listener);
+    },
     ready: () => ready,
     dispose() {
       disposed = true;
@@ -202,6 +213,7 @@ const NO_STORE: SectionStore = {
   list: () => EMPTY,
   status: () => 'reconnecting',
   subscribe: () => () => undefined,
+  onFeedError: () => () => undefined,
   ready: () => Promise.resolve(),
   dispose: () => undefined,
 };

@@ -63,6 +63,7 @@ libc = { workspace = true }
 windows-sys = { workspace = true, features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Threading"] }
 
 [dev-dependencies]
+mixdog-core-api = { workspace = true, features = ["mock"] }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 tempfile = { workspace = true }
 # The relay fixture of the webhook tunnel tests: a WebSocket server that sees the leg's request.

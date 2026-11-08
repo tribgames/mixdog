@@ -19,6 +19,8 @@ import {
 const ASSET_PAGE_SIZE = 60;
 /** Pages an external-change sync reads looking for the loaded set. */
 const SYNC_PAGE_LIMIT = 5;
+/** Node's job-status cadence: the gap between a first null read and the second that marks a job lost. */
+const MEDIA_RECHECK_MS = 1_500;
 const MEDIA_KIND_LIST: readonly MediaKind[] = ['image', 'video'];
 
 interface MediaAssetPage {
@@ -464,6 +466,8 @@ export function useStudioMediaJobs({
   const [jobs, setJobs] = useState<StudioMediaJob[]>([]);
   const jobsRef = useRef<StudioMediaJob[]>([]);
   jobsRef.current = jobs;
+  // What the window has seen of each job across the effect's re-runs: announced ones, and the first null read of the rest.
+  const trackRef = useRef({ announced: new Set<string>(), misses: new Map<string, 'absent' | 'removed'>() });
   const runningKey = jobs
     .filter((entry) => entry.status === 'running')
     .map((entry) => entry.id)
@@ -472,24 +476,27 @@ export function useStudioMediaJobs({
   useEffect(() => {
     if (!active || !runningKey) return undefined;
     const ids = runningKey.split(',');
-    // Jobs are pushed (section `mediaJobs`, key = job id; desktop-services.md §15 P9). A job the core announced
-    // and then removed without a result is lost; one it has not announced yet is simply not there yet.
+    // Jobs are pushed (section `mediaJobs`, key = job id) on their scoped feed `media:<jobId>`, which main folds into the
+    // mirror while this window watches it (SPEC R14). Node read a job's status every 1.5 s, kept it running with the
+    // progress it had through the first null read and marked it lost on the second. A push has no poll to count, so the
+    // first observation of nothing (the core answering that the job's feed is not there, or the removal of a job it
+    // announced without a result) starts one re-check timer at that same cadence, and only the observation that still
+    // finds nothing then is the second null read. An entry in between resets the count. A request that fails is a
+    // status error: the job stays as it was.
     const sections = sectionStoreFor(api);
     if (!sections) return undefined;
     let stopped = false;
-    const announced = new Set<string>();
-    const follow = () => {
+    const { announced, misses } = trackRef.current;
+    // One re-check per job, armed by its own first null read: another job's timer is never reused for it.
+    const timers = new Map<string, ReturnType<typeof setTimeout>>();
+    const clearMiss = (id: string) => {
+      misses.delete(id);
+      clearTimeout(timers.get(id));
+      timers.delete(id);
+    };
+    const settle = (landed: MediaJob[], lost: string[]) => {
       void (async () => {
         try {
-          const landed: MediaJob[] = [];
-          const lost: string[] = [];
-          for (const id of ids) {
-            const entry = sections.get('mediaJobs', id);
-            if (entry) {
-              announced.add(id);
-              landed.push(entry.value as MediaJob);
-            } else if (announced.has(id)) lost.push(id);
-          }
           if (stopped) return;
           if (!landed.length && !lost.length) return;
           const completed = landed.filter((entry) => entry.status === 'done');
@@ -521,11 +528,66 @@ export function useStudioMediaJobs({
         }
       })();
     };
+    const lose = (id: string) => {
+      clearMiss(id);
+      announced.delete(id);
+      settle([], [id]);
+    };
+    const subscribeFeed = (id: string, second: boolean) => {
+      void Promise.resolve(api.sections?.call('feed/subscribe', { feedId: `media:${id}` })).then(
+        (answer) => {
+          if (stopped) return;
+          if (!(answer as { absent?: boolean } | undefined)?.absent) clearMiss(id);
+          else if (second) lose(id);
+          else miss(id, 'absent');
+        },
+        (reason: unknown) => {
+          if (!stopped) setError(errorText(reason));
+        }
+      );
+    };
+    const recheck = (id: string) => {
+      timers.delete(id);
+      const how = misses.get(id);
+      if (how === undefined) return;
+      if (sections.get('mediaJobs', id)) clearMiss(id);
+      else if (how === 'absent') subscribeFeed(id, true);
+      else lose(id);
+    };
+    const arm = (id: string) => void timers.set(id, setTimeout(() => recheck(id), MEDIA_RECHECK_MS));
+    const miss = (id: string, how: 'absent' | 'removed') => {
+      if (misses.has(id)) return;
+      misses.set(id, how);
+      arm(id);
+    };
+    const follow = () => {
+      const landed: MediaJob[] = [];
+      for (const id of ids) {
+        const entry = sections.get('mediaJobs', id);
+        if (entry) {
+          announced.add(id);
+          clearMiss(id);
+          landed.push(entry.value as MediaJob);
+        } else if (announced.has(id)) miss(id, 'removed');
+      }
+      settle(landed, []);
+    };
+    for (const id of ids) subscribeFeed(id, false);
+    for (const id of ids) if (misses.has(id)) arm(id);
     const unsubscribe = sections.subscribe('mediaJobs', follow);
-    void sections.ready().then(follow);
+    const unsubscribeFeedErrors = sections.onFeedError((feedId, message) => {
+      if (!stopped && ids.some((id) => `media:${id}` === feedId)) setError(message);
+    });
+    void sections.ready().then(follow, (reason: unknown) => {
+      if (!stopped) setError(errorText(reason));
+    });
     return () => {
       stopped = true;
+      for (const timeout of timers.values()) clearTimeout(timeout);
       unsubscribe();
+      unsubscribeFeedErrors();
+      // Leaving the feed removes its sections from this window's mirror: a job that has ended is not kept there.
+      for (const id of ids) void Promise.resolve(api.sections?.call('feed/unsubscribe', { feedId: `media:${id}` })).catch(() => undefined);
     };
   }, [active, api, referenceStore, refreshAssetKind, runningKey, setError]);
 

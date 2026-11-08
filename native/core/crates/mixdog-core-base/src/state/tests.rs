@@ -268,3 +268,63 @@ fn hub_sends_app_sections_to_the_app_feed_and_drops_unrouted_scoped_ones() {
     hub.publish(SectionName::Core, None, change_of(&json!({ "state": "ready" })));
     assert_eq!(rig.feed.position().seq, 1);
 }
+
+/// Drains `conn` until a frame satisfies `want`; the snapshot is encoded off-thread.
+fn frame_where(conn: &MockConnection, want: impl Fn(&Value) -> bool) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        assert!(Instant::now() < deadline, "the awaited frame never arrived");
+        for text in conn.drain_text() {
+            if let Some((_, frame)) = text.split_once(':') {
+                if let Ok(frame) = serde_json::from_str::<Value>(frame) {
+                    if want(&frame) {
+                        return frame;
+                    }
+                }
+            }
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn a_scoped_section_is_routed_to_its_feed_only_while_it_is_open() {
+    use mixdog_core_api::mock::MockScopedFeeds;
+    let limits = MockLimits::default();
+    let app = Rig::new(limits);
+    let routes = Arc::new(ScopedRouteTable::default());
+    let hub = StateHub::new(app.state.clone(), routes.clone());
+    let scoped = ScopedSections::new(Arc::new(MockScopedFeeds::new(limits)), routes);
+    let publish = |value: SectionChange| hub.publish(SectionName::MediaJobs, Some("j1".into()), value);
+
+    // Nobody owns the key yet: the publication has no route and goes nowhere, the app feed included.
+    publish(change_of(&json!({ "id": "j1", "progress": 0 })));
+    assert!(app.state.current(SectionName::MediaJobs, Some("j1")).is_none());
+
+    let section = scoped.open(FeedId::from("media:j1"), SectionName::MediaJobs, "j1");
+    publish(change_of(&json!({ "id": "j1", "progress": 10 })));
+    assert!(app.state.current(SectionName::MediaJobs, Some("j1")).is_none(), "the app snapshot never holds a scoped section");
+
+    // A subscriber that comes late is given the section's current value as the feed's snapshot.
+    let conn = MockConnection::new(ConnectionId(1), limits);
+    let attached = subscribe(&section.source(), SubscriptionId::from("sub"), Window::Fixed, None, &conn).unwrap();
+    conn.send_control_release(Bytes::from_static(b"{}"), attached.release).unwrap();
+    let snapshot = frame_where(&conn, |frame| frame["method"] == "feed/snapshot");
+    assert_eq!(snapshot["params"]["feedId"], "media:j1");
+    assert_eq!(snapshot["params"]["state"]["sections"][0]["section"], "mediaJobs");
+    assert_eq!(snapshot["params"]["state"]["sections"][0]["key"], "j1");
+    assert_eq!(snapshot["params"]["state"]["sections"][0]["value"], json!({ "id": "j1", "progress": 10 }));
+
+    // Later publications follow it as the section's own notification, then the removal.
+    publish(change_of(&json!({ "id": "j1", "progress": 100 })));
+    let live = frame_where(&conn, |frame| frame["method"] == "media/job/updated");
+    assert_eq!(live["params"]["value"], json!({ "id": "j1", "progress": 100 }));
+    publish(SectionChange::Removed);
+    let removed = frame_where(&conn, |frame| frame["params"]["removed"] == true);
+    assert_eq!(removed["params"]["key"], "j1");
+
+    // Dropping the section ends the route: later publications reach no feed.
+    drop(section);
+    publish(change_of(&json!({ "id": "j1", "progress": 5 })));
+    assert!(app.state.current(SectionName::MediaJobs, Some("j1")).is_none());
+}

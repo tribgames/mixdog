@@ -4,6 +4,7 @@
 // polls: state arrives as sections, liveness is the connection's own ticker (protocol.md §4.7).
 import type {
   DesktopProtocolStatus,
+  DesktopSectionChange,
   DesktopSectionEntry,
   DesktopSectionsPush,
   DesktopSectionsSnapshot,
@@ -11,6 +12,7 @@ import type {
 import { SECTION_NAMES } from '../../shared/contract-sections';
 import { createSectionRelay, type RelayedStore, type SectionRelay } from './section-relay';
 import { loginFeedId, loginUpdateOf, LOGIN_CANCEL_METHODS, LOGIN_START_METHODS } from './login-feed';
+import { scopedSectionChanges, type ScopedFeedRoute } from './scoped-sections';
 
 export { SECTION_NAMES };
 
@@ -48,7 +50,10 @@ export type ServerRequestAnswer =
 
 export type ConnectionClientEvent =
   | { readonly type: 'status'; readonly status: { readonly state: string } }
-  | { readonly type: 'notification'; readonly notification: { readonly method: string; readonly params?: unknown } }
+  | {
+      readonly type: 'notification';
+      readonly notification: { readonly method: string; readonly params?: unknown; readonly feed?: { readonly id: string } };
+    }
   | { readonly type: 'serverRequest'; readonly request: { readonly id: string | number; readonly method: string; readonly params: unknown } }
   | { readonly type: 'serverRequestResolved'; readonly params: { readonly requestId?: string | number } }
   | { readonly type: string };
@@ -95,6 +100,14 @@ export interface ProtocolConnection {
    *  connection. A failed request forgets the watch. */
   watchFiles(window: ProtocolWindow, params: { watchId: string } & Record<string, unknown>): Promise<unknown>;
   unwatchFiles(watchId: string): Promise<unknown>;
+  /** `feed/subscribe` of a scoped feed that carries sections (`media:<jobId>`) for `window`. What the feed delivers reaches
+   *  every window watching it as ordinary section changes, so the window's mirror holds it like an app section; a window
+   *  that starts watching a feed another one already holds is given what the feed holds now. The first watcher subscribes
+   *  and the last one leaving unsubscribes; the feeds are sent again after a reconnect. `absent`: the core has no such feed
+   *  (a job it no longer holds). Any other failure of the request rejects. */
+  watchFeed(window: ProtocolWindow, feedId: string): Promise<{ absent: boolean }>;
+  /** The window stops watching: the sections the feed held are removed from its mirror. */
+  unwatchFeed(window: ProtocolWindow, feedId: string): Promise<void>;
   /** The feed of a sign-in flow this connection started (`call` of a login start subscribes `login:<flowId>`): what it
    *  last delivered, and whether it was lost. A window reads it when it starts to listen, so a frame or a loss that
    *  came before its listener is not missed. A flow this connection does not follow has no feed: lost. */
@@ -112,7 +125,13 @@ export interface ProtocolConnection {
   close(): Promise<void>;
 }
 
-const toStatus = (state: string): DesktopProtocolStatus =>
+/** The core answers `invalidParams` for a feed it does not hold; every other failure is the request's own. */
+const isAbsentFeed = (error: unknown): boolean => {
+  const detail = (error as { detail?: { kind?: unknown; data?: { reason?: unknown } } } | null)?.detail;
+  return detail?.kind === 'rpc' && detail.data?.reason === 'invalidParams';
+};
+
+const toStatus =(state: string): DesktopProtocolStatus =>
   state === 'ready' ? 'ready' : state === 'closed' ? 'closed' : 'reconnecting';
 
 export function createProtocolConnection({ open, defer }: ProtocolConnectionOptions): ProtocolConnection {
@@ -121,6 +140,8 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
   const eventListeners = new Set<(event: ConnectionClientEvent) => void>();
   const sectionWatchers = new Map<string, Set<(entry: DesktopSectionEntry | undefined) => void>>();
   const fsWatches = new Map<string, { window: ProtocolWindow; params: { watchId: string } & Record<string, unknown> }>();
+  // Scoped feeds that carry sections, by feed id: who watches them and the sections each holds.
+  const feedWatches = new Map<string, ScopedFeedRoute>();
   // Set when the link came back: the windows' whole store is replaced once the restored app subscription's snapshot
   // has been folded and swapped in (`appSnapshot` comes last; the section changes before it announce the removed
   // sections too).
@@ -158,6 +179,63 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
       void restored.call('fs/watch', params).catch(() => void fsWatches.delete(watchId));
     }
     if (portViewers.size > 0) void restored.call('system/ports/subscribe', {}).catch(() => undefined);
+    for (const feedId of [...feedWatches.keys()]) {
+      void restored.call('feed/subscribe', { feedId }).catch((error: unknown) => {
+        // Only a feed the core does not hold is gone; any other failure keeps what the windows hold and tells them.
+        if (isAbsentFeed(error)) return dropFeed(feedId);
+        const message = error instanceof Error ? error.message : String(error);
+        for (const window of [...(feedWatches.get(feedId)?.windows ?? [])]) window.push({ kind: 'feedError', feedId, message });
+      });
+    }
+  };
+  /** The one place scoped state meets a replace: the windows' store is swapped for the app's, which holds no scoped
+   *  section, so the held ones go into the replace itself, just before its commit, and the swap keeps them. */
+  const sendWithScoped = (push: DesktopSectionsPush): void => {
+    if (push.kind !== 'replace' || push.stage !== 'commit') return broadcast(push);
+    for (const window of [...windows]) {
+      const entries: DesktopSectionEntry[] = [];
+      for (const route of feedWatches.values()) if (route.windows.has(window)) entries.push(...route.held.values());
+      if (entries.length) window.push({ kind: 'replace', stage: 'chunk', entries });
+      window.push(push);
+    }
+  };
+  const removalsOf = (route: ScopedFeedRoute): DesktopSectionChange[] =>
+    [...route.held.values()].map(({ section, key }) => ({ section, key, entry: null }));
+  /** Forgets a feed the core no longer has and removes the sections it held from its watchers. */
+  const dropFeed = (feedId: string): void => {
+    const route = feedWatches.get(feedId);
+    feedWatches.delete(feedId);
+    if (!route) return;
+    const changes = removalsOf(route);
+    if (changes.length) for (const window of [...route.windows]) window.push({ kind: 'sections', changes });
+  };
+  const watchFeed = async (window: ProtocolWindow, feedId: string): Promise<{ absent: boolean }> => {
+    const live = connected();
+    const known = feedWatches.get(feedId);
+    if (known) {
+      known.windows.add(window);
+      const changes = [...known.held.values()].map((entry) => ({ section: entry.section, key: entry.key, entry }));
+      if (changes.length) window.push({ kind: 'sections', changes });
+      return { absent: false };
+    }
+    feedWatches.set(feedId, { windows: new Set([window]), held: new Map() });
+    try {
+      await live.call('feed/subscribe', { feedId });
+      return { absent: false };
+    } catch (error) {
+      feedWatches.delete(feedId);
+      if (isAbsentFeed(error)) return { absent: true };
+      throw error;
+    }
+  };
+  const leaveFeed = (window: ProtocolWindow, feedId: string): ScopedFeedRoute | undefined => {
+    const route = feedWatches.get(feedId);
+    if (!route || !route.windows.delete(window)) return undefined;
+    if (route.windows.size === 0) {
+      feedWatches.delete(feedId);
+      if (client) void client.call('feed/unsubscribe', { feedId }).catch(() => undefined);
+    }
+    return route;
   };
   // The sign-in flows this connection follows. A scoped feed reaches only its subscriber and does not survive the
   // socket, so a followed feed whose subscription failed, or whose link went down, is lost for good: the flow goes on in
@@ -202,7 +280,7 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
     relay = createSectionRelay({
       store: opened.store,
       sectionNames: SECTION_NAMES,
-      send: broadcast,
+      send: sendWithScoped,
       ...(defer ? { defer } : {}),
     });
     unsubscribeStore = opened.store.subscribe((change) => {
@@ -239,6 +317,12 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
         const followed = login ? loginFeeds.get(login.flowId) : undefined;
         if (login && followed) followed.state = login.state;
         for (const window of [...windows]) window.notification(method, params);
+        const feedId = (event as { notification: { feed?: { id: string } } }).notification.feed?.id;
+        const route = feedId === undefined ? undefined : feedWatches.get(feedId);
+        if (route) {
+          const changes = scopedSectionChanges(route, method, params);
+          if (changes.length) for (const window of [...route.windows]) window.push({ kind: 'sections', changes });
+        }
       }
     });
     await opened.subscribeApp();
@@ -265,6 +349,7 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
       return () => {
         windows.delete(window);
         for (const [watchId, owner] of [...fsWatches]) if (owner.window === window) unwatchQuietly(watchId);
+        for (const feedId of [...feedWatches.keys()]) leaveFeed(window, feedId);
         if (portViewers.has(window)) void viewPorts(window, false).catch(() => undefined);
       };
     },
@@ -277,6 +362,12 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
         fsWatches.delete(params.watchId);
         throw error;
       }
+    },
+    watchFeed,
+    async unwatchFeed(window, feedId) {
+      const route = leaveFeed(window, feedId);
+      const changes = route ? removalsOf(route) : [];
+      if (changes.length) window.push({ kind: 'sections', changes });
     },
     async unwatchFiles(watchId) {
       fsWatches.delete(watchId);
@@ -326,6 +417,7 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
       relay?.dispose();
       windows.clear();
       loginFeeds.clear();
+      feedWatches.clear();
       const closing = client;
       client = null;
       relay = null;

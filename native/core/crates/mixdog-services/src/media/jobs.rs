@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::ledger::{MediaUsageCall, MediaUsageLedger};
 use super::renditions::StillRenditions;
-use super::store::{MediaStore, now_ms};
+use super::store::MediaStore;
 use super::variants;
 
 /// Finished jobs stay readable so a slow poller still sees the terminal state.
@@ -105,11 +105,20 @@ struct Job {
     cancel: CancellationToken,
 }
 
+/// What the `mediaJobs` section follows: a job's snapshot changed, or the job left the table (its
+/// terminal TTL passed and a start or a list swept it, as in Node), after which `getMediaJob`
+/// answers null for it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum JobEvent {
+    Changed(Value),
+    Swept(String),
+}
+
 pub struct MediaJobs {
     store: Arc<MediaStore>,
     generator: Arc<dyn MediaGenerator>,
     jobs: Mutex<HashMap<String, Job>>,
-    updates: broadcast::Sender<Value>,
+    updates: broadcast::Sender<JobEvent>,
     max_active: usize,
     /// When set, each saved asset's tile rendition is built in the background.
     renditions: Option<StillRenditions>,
@@ -144,8 +153,8 @@ impl MediaJobs {
         })
     }
 
-    /// Every snapshot change, for the `mediaJobs` section feed.
-    pub fn subscribe(&self) -> broadcast::Receiver<Value> {
+    /// Every snapshot change and every job that left the table, for the `mediaJobs` section.
+    pub fn subscribe(&self) -> broadcast::Receiver<JobEvent> {
         self.updates.subscribe()
     }
 
@@ -156,12 +165,17 @@ impl MediaJobs {
             change(job.snapshot.as_object_mut().expect("snapshot is an object"));
             job.snapshot.clone()
         };
-        let _ = self.updates.send(snapshot);
+        let _ = self.updates.send(JobEvent::Changed(snapshot));
     }
 
-    fn sweep(jobs: &mut HashMap<String, Job>) {
-        let now = now_ms();
-        jobs.retain(|_, j| j.snapshot["endedAt"].as_i64().is_none_or(|ended| now - ended <= TERMINAL_TTL_MS));
+    /// Drops the finished jobs past their TTL and tells the section; the table is the caller's guard.
+    fn sweep(&self, jobs: &mut HashMap<String, Job>) {
+        let now = (self.store.marks().now)();
+        let gone: Vec<String> = jobs.iter().filter(|(_, j)| j.snapshot["endedAt"].as_i64().is_some_and(|ended| now - ended > TERMINAL_TTL_MS)).map(|(id, _)| id.clone()).collect();
+        for id in gone {
+            jobs.remove(&id);
+            let _ = self.updates.send(JobEvent::Swept(id));
+        }
     }
 
     /// Validates and starts one generation; returns the initial snapshot at once.
@@ -190,17 +204,17 @@ impl MediaJobs {
             .collect();
         let options = input.get("options").filter(|o| o.is_object()).cloned().unwrap_or_else(|| json!({}));
         let board_id = mixdog_js::slice_utf16(text("boardId"), 64);
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = (self.store.marks().id)();
         let cancel = CancellationToken::new();
         let snapshot = json!({
             "id": id, "status": "running", "kind": resolved.kind, "lane": resolved.lane, "model": resolved.model,
             "prompt": prompt, "options": options, "boardId": board_id, "progress": 0,
-            "assetId": null, "error": null, "errorCode": null, "startedAt": now_ms(), "endedAt": null,
+            "assetId": null, "error": null, "errorCode": null, "startedAt": (self.store.marks().now)(), "endedAt": null,
         });
         {
             // The ceiling check and the insert are one step, so concurrent starts cannot overshoot.
             let mut jobs = self.jobs.lock().unwrap();
-            Self::sweep(&mut jobs);
+            self.sweep(&mut jobs);
             let active = jobs.values().filter(|j| j.snapshot["status"] == "running").count();
             if active >= self.max_active {
                 return Err(MediaFailure::new(
@@ -213,7 +227,7 @@ impl MediaJobs {
         // Remembering the selection is a convenience: a full disk never blocks the generation.
         let selection = json!({"kind": resolved.kind, "lane": resolved.lane, "model": resolved.model});
         let _ = self.store.run(move |store| store.set_default(&selection)).await;
-        let _ = self.updates.send(snapshot.clone());
+        let _ = self.updates.send(JobEvent::Changed(snapshot.clone()));
         let this = self.clone();
         let who = Who { account, session_id, source_type };
         tokio::spawn(async move { this.run(id, resolved, prompt, options, references, board_id, who, cancel).await });
@@ -279,7 +293,7 @@ impl MediaJobs {
             }
         };
         self.update(&id, |s| {
-            s.insert("endedAt".into(), json!(now_ms()));
+            s.insert("endedAt".into(), json!((self.store.marks().now)()));
             match outcome {
                 Ok(asset) => {
                     s.insert("assetId".into(), asset["id"].clone());
@@ -319,7 +333,7 @@ impl MediaJobs {
 
     pub fn list(&self) -> Vec<Value> {
         let mut jobs = self.jobs.lock().unwrap();
-        Self::sweep(&mut jobs);
+        self.sweep(&mut jobs);
         let mut all: Vec<Value> = jobs.values().map(|j| j.snapshot.clone()).collect();
         all.sort_by_key(|s| std::cmp::Reverse(s["startedAt"].as_i64().unwrap_or(0)));
         all

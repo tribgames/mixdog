@@ -74,6 +74,12 @@ pub struct StateRuntime {
 }
 
 impl StateRuntime {
+    /// The factory of scoped sections: their feeds come from `feeds`, their routes live in this
+    /// runtime's table.
+    pub fn scoped_sections(&self, feeds: Arc<dyn mixdog_core_api::feed::ScopedFeeds>) -> super::ScopedSections {
+        super::ScopedSections::new(feeds, self.routes.clone())
+    }
+
     /// `app_feed` is the app feed; nothing else may publish to it.
     pub fn new(app_feed: Arc<dyn Feed>) -> Self {
         let app = Arc::new(SectionFeedState::new(app_feed));

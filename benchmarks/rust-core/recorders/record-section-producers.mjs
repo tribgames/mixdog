@@ -1,25 +1,139 @@
 #!/usr/bin/env node
-// Golden twin of the read the desktop renderer used to poll and now takes from a pushed section
+// Golden twins of the two reads the desktop renderer used to poll and now takes from pushed sections
 // (`native/core/fixtures/section-producers/`), from the real Node code at the commit the manifest names:
 // - `agent-pool.json`: `agentPool`. Per step the worker files Node read (`agent-workers.json`,
 //   `lead-workers.json`, the session records) and the rows its `listStoredAgentWorkersAsync` + progress chain
 //   answered, exactly as `daemon-desktop-runtime.mjs` chains them (`listAgentPool`). Same step shape as
 //   `agent-pool/pool-twin.json`, so the Rust pool rig replays it.
+// - `media-jobs.json`: `mediaJobs`. Per scenario the request, what the lane adapter did (progress reports,
+//   then a result, an error or a cancel), every `getMediaJob(id)` answer Node gave on the way, and the answer
+//   after the terminal TTL passed and `listMediaJobs()` swept the job (null). Node's clock and the ids it draws
+//   (the job's, the asset's) are pinned, and recorded with the scenario, so every field of every answer is
+//   reproducible: nothing is stripped. The module mocks replace only the node:crypto id, the lane catalog, the
+//   asset store, the defaults file, the adapters and the usage ledger (the same seams `src/runtime/media/jobs.test.mjs`
+//   mocks); `jobs.mjs` itself is Node's.
 //
-//   node benchmarks/rust-core/recorders/record-section-producers.mjs --tree <git clone at IDENTITY_REF with node_modules>
+//   node --experimental-test-module-mocks benchmarks/rust-core/recorders/record-section-producers.mjs --tree <git clone at IDENTITY_REF with node_modules>
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { mock } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
 
 // The Node commit these twins are recorded from; the manifest must show the loaded tree equals it.
 const IDENTITY_REF = 'b6f10295a2f698afc85332467192de28500bd146';
 
 const tree = resolveTree(parseArgs());
+const url = (rel) => pathToFileURL(join(tree, rel)).href;
 const BASE = 1_800_000_000_000;
 const HOUR = 3_600_000;
 const iso = (ms) => new Date(ms).toISOString();
 
+// ---- media jobs ----------------------------------------------------------------------------------
+
+const MEDIA = 'src/runtime/media';
+let adapter = null;
+// What Node drew in the scenario being recorded, in order: the job id (`randomUUID` in `jobs.mjs`) and the asset id
+// (the store). Both are pinned to the scenario's name, so a Rust run draws the same values.
+let scenarioName = null;
+let drawn = [];
+const realCrypto = await import('node:crypto');
+const drawId = (kind) => {
+  const id = `${kind}-${scenarioName}`;
+  drawn.push(id);
+  return id;
+};
+mock.module('node:crypto', { namedExports: { ...realCrypto, randomUUID: () => drawId('job') }, defaultExport: { ...realCrypto, randomUUID: () => drawId('job') } });
+mock.module(url(`${MEDIA}/lanes.mjs`), {
+  namedExports: {
+    mediaError: (message, code, status) => Object.assign(new Error(message), { code, status }),
+    mediaLaneAccountProvider: () => '',
+    resolveMediaRequest: async ({ kind, model }) => ({ kind, lane: { id: 'gemini' }, model, spec: { models: [{ id: model, controls: { maxReferences: 1 } }] } }),
+  },
+});
+mock.module(url(`${MEDIA}/store.mjs`), { namedExports: { saveMediaAsset: () => ({ id: drawId('asset') }) } });
+mock.module(url(`${MEDIA}/defaults.mjs`), { namedExports: { setMediaDefault: () => {} } });
+mock.module(url(`${MEDIA}/media-usage.mjs`), { namedExports: { recordMediaUsage: async () => {} } });
+mock.module(url(`${MEDIA}/adapters/gemini-video.mjs`), { namedExports: { generateVideo: (request) => adapter(request) } });
+mock.module(url(`${MEDIA}/adapters/gemini-image.mjs`), { namedExports: { generateImage: (request) => adapter(request) } });
+const jobs = await importFrom(tree, `${MEDIA}/jobs.mjs`);
+
+let now = BASE;
+Date.now = () => now;
+const yieldToLoop = () => new Promise((resolve) => setImmediate(resolve));
+const settled = async (id) => {
+  while (jobs.getMediaJob(id).status === 'running') await yieldToLoop();
+  return jobs.getMediaJob(id);
+};
+
+// What each scenario's adapter does, in order: report progress, then end.
+const MEDIA_SCENARIOS = [
+  {
+    name: 'video-done',
+    request: { lane: 'gemini', kind: 'video', model: 'veo', prompt: ' a cat ', options: { aspectRatio: '16:9' }, boardId: 'board-1' },
+    progress: [0.25, 0.5, 50, 30, 80],
+    ends: { result: { mime: 'video/mp4', durationSeconds: 8 } },
+  },
+  {
+    name: 'image-failed',
+    request: { lane: 'gemini', kind: 'image', model: 'img', prompt: 'a dog', options: {} },
+    progress: [],
+    ends: { throws: { message: 'upstream refused', code: 'MEDIA_UPSTREAM' } },
+  },
+  {
+    name: 'image-canceled',
+    request: { lane: 'gemini', kind: 'image', model: 'img', prompt: 'a bird', options: {} },
+    progress: [],
+    ends: { waitsForCancel: true },
+  },
+];
+
+const mediaJobs = [];
+const quiet = console.error;
+console.error = () => {};
+for (const scenario of MEDIA_SCENARIOS) {
+  const reads = [];
+  let id = null;
+  scenarioName = scenario.name;
+  drawn = [];
+  const read = () => reads.push(JSON.parse(JSON.stringify(jobs.getMediaJob(id))));
+  adapter = async ({ onProgress, signal }) => {
+    // The adapter runs only after `startMediaJob` has returned the id.
+    await yieldToLoop();
+    for (const value of scenario.progress) {
+      onProgress(value);
+      read();
+    }
+    if (scenario.ends.waitsForCancel) {
+      await new Promise((_, reject) => {
+        const abort = () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+        if (signal.aborted) abort();
+        else signal.addEventListener('abort', abort);
+      });
+    }
+    if (scenario.ends.throws) throw Object.assign(new Error(scenario.ends.throws.message), { code: scenario.ends.throws.code });
+    return { bytes: Buffer.from('bytes'), ...scenario.ends.result };
+  };
+  now += 1000;
+  const startAt = now;
+  const started = await jobs.startMediaJob(scenario.request);
+  id = started.id;
+  reads.unshift(JSON.parse(JSON.stringify(started)));
+  if (scenario.ends.waitsForCancel) jobs.cancelMediaJob(id);
+  now += 1000;
+  const terminal = await settled(id);
+  reads.push(JSON.parse(JSON.stringify(terminal)));
+  // Past the terminal TTL Node's table still answers until a start or a list sweeps it.
+  now = terminal.endedAt + 10 * 60_000 + 1;
+  const beforeSweep = jobs.getMediaJob(id) !== null;
+  jobs.listMediaJobs();
+  const afterSweep = jobs.getMediaJob(id);
+  // The clock the reads were taken under: the Rust run sets its own to these instants.
+  const clock = { startAt, endAt: terminal.endedAt, sweepAt: now };
+  mediaJobs.push({ name: scenario.name, request: scenario.request, progress: scenario.progress, ends: scenario.ends, ids: drawn, clock, reads, answeredBeforeSweep: beforeSweep, afterSweep });
+}
+console.error = quiet;
 // ---- agent pool ----------------------------------------------------------------------------------
 
 const SRC = 'src/runtime/agent/orchestrator/session';
@@ -119,12 +233,13 @@ writeJson(join(setDir, 'agent-pool.json'), {
   stallWarnMs: Object.fromEntries([...new Set(poolCases.flatMap((c) => c.steps.flatMap((s) => s.listed.map((row) => row.agent))))].map((agent) => [String(agent), stall.resolveAgentStallThresholds(agent).warn * 1000])),
   cases: poolCases,
 });
+writeJson(join(setDir, 'media-jobs.json'), { domain: 'media-jobs-section-twin', recorder, base: BASE, terminalTtlMs: 10 * 60_000, scenarios: mediaJobs });
 writeSetManifest(setDir, {
   set: 'section-producers',
   recorder,
-  command: `node ${recorder} --tree <git clone of the Node repo at ${IDENTITY_REF}, with node_modules>`,
+  command: `node --experimental-test-module-mocks ${recorder} --tree <git clone of the Node repo at ${IDENTITY_REF}, with node_modules>`,
   identityTree: tree,
   identityRef: IDENTITY_REF,
 });
-console.log(`section producers: ${poolCases.reduce((s, c) => s + c.steps.length, 0)} pool steps`);
+console.log(`section producers: ${poolCases.reduce((s, c) => s + c.steps.length, 0)} pool steps, ${mediaJobs.length} media scenarios`);
 process.exit(0);

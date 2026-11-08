@@ -210,6 +210,8 @@ pub(super) async fn build(inputs: &DomainInputs, config: &Config) -> Result<Loca
     let renditions = StillRenditions::new(Arc::new(ExtImageCodec::new(inputs.ext_host.clone())), tokens.durability_io, store.renditions_dir());
     let jobs = MediaJobs::with_ledger(store.clone(), seams.media_generator.clone(), media_max_active(&inputs.env), Some(renditions.clone()), seams.media_ledger.clone());
     services.push(Arc::new(MediaService::new(store.clone(), jobs.clone(), processes.clone(), renditions)));
+    // The `mediaJobs` section, keyed by job id, on the scoped feed `media:<jobId>` (SPEC R14).
+    mixdog_services::media::section::spawn_media_section(&jobs, inputs.state.publisher.clone(), inputs.state.scoped_sections(inputs.scoped_feeds.clone()), inputs.cancel.clone());
     let media_status = Arc::new(MediaStatus::new(store.clone()));
     transfer_sources.push(Arc::new(MediaAssetSource::new(store.clone())));
 

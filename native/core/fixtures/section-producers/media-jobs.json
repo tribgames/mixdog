@@ -1,0 +1,292 @@
+{
+  "domain": "media-jobs-section-twin",
+  "recorder": "benchmarks/rust-core/recorders/record-section-producers.mjs",
+  "base": 1800000000000,
+  "terminalTtlMs": 600000,
+  "scenarios": [
+    {
+      "name": "video-done",
+      "request": {
+        "lane": "gemini",
+        "kind": "video",
+        "model": "veo",
+        "prompt": " a cat ",
+        "options": {
+          "aspectRatio": "16:9"
+        },
+        "boardId": "board-1"
+      },
+      "progress": [
+        0.25,
+        0.5,
+        50,
+        30,
+        80
+      ],
+      "ends": {
+        "result": {
+          "mime": "video/mp4",
+          "durationSeconds": 8
+        }
+      },
+      "ids": [
+        "job-video-done",
+        "asset-video-done"
+      ],
+      "clock": {
+        "startAt": 1800000001000,
+        "endAt": 1800000002000,
+        "sweepAt": 1800000602001
+      },
+      "reads": [
+        {
+          "id": "job-video-done",
+          "status": "running",
+          "kind": "video",
+          "lane": "gemini",
+          "model": "veo",
+          "prompt": "a cat",
+          "options": {
+            "aspectRatio": "16:9"
+          },
+          "boardId": "board-1",
+          "progress": 0,
+          "assetId": null,
+          "error": null,
+          "errorCode": null,
+          "startedAt": 1800000001000,
+          "endedAt": null
+        },
+        {
+          "id": "job-video-done",
+          "status": "running",
+          "kind": "video",
+          "lane": "gemini",
+          "model": "veo",
+          "prompt": "a cat",
+          "options": {
+            "aspectRatio": "16:9"
+          },
+          "boardId": "board-1",
+          "progress": 25,
+          "assetId": null,
+          "error": null,
+          "errorCode": null,
+          "startedAt": 1800000001000,
+          "endedAt": null
+        },
+        {
+          "id": "job-video-done",
+          "status": "running",
+          "kind": "video",
+          "lane": "gemini",
+          "model": "veo",
+          "prompt": "a cat",
+          "options": {
+            "aspectRatio": "16:9"
+          },
+          "boardId": "board-1",
+          "progress": 50,
+          "assetId": null,
+          "error": null,
+          "errorCode": null,
+          "startedAt": 1800000001000,
+          "endedAt": null
+        },
+        {
+          "id": "job-video-done",
+          "status": "running",
+          "kind": "video",
+          "lane": "gemini",
+          "model": "veo",
+          "prompt": "a cat",
+          "options": {
+            "aspectRatio": "16:9"
+          },
+          "boardId": "board-1",
+          "progress": 50,
+          "assetId": null,
+          "error": null,
+          "errorCode": null,
+          "startedAt": 1800000001000,
+          "endedAt": null
+        },
+        {
+          "id": "job-video-done",
+          "status": "running",
+          "kind": "video",
+          "lane": "gemini",
+          "model": "veo",
+          "prompt": "a cat",
+          "options": {
+            "aspectRatio": "16:9"
+          },
+          "boardId": "board-1",
+          "progress": 50,
+          "assetId": null,
+          "error": null,
+          "errorCode": null,
+          "startedAt": 1800000001000,
+          "endedAt": null
+        },
+        {
+          "id": "job-video-done",
+          "status": "running",
+          "kind": "video",
+          "lane": "gemini",
+          "model": "veo",
+          "prompt": "a cat",
+          "options": {
+            "aspectRatio": "16:9"
+          },
+          "boardId": "board-1",
+          "progress": 80,
+          "assetId": null,
+          "error": null,
+          "errorCode": null,
+          "startedAt": 1800000001000,
+          "endedAt": null
+        },
+        {
+          "id": "job-video-done",
+          "status": "done",
+          "kind": "video",
+          "lane": "gemini",
+          "model": "veo",
+          "prompt": "a cat",
+          "options": {
+            "aspectRatio": "16:9"
+          },
+          "boardId": "board-1",
+          "progress": 100,
+          "assetId": "asset-video-done",
+          "error": null,
+          "errorCode": null,
+          "startedAt": 1800000001000,
+          "endedAt": 1800000002000
+        }
+      ],
+      "answeredBeforeSweep": true,
+      "afterSweep": null
+    },
+    {
+      "name": "image-failed",
+      "request": {
+        "lane": "gemini",
+        "kind": "image",
+        "model": "img",
+        "prompt": "a dog",
+        "options": {}
+      },
+      "progress": [],
+      "ends": {
+        "throws": {
+          "message": "upstream refused",
+          "code": "MEDIA_UPSTREAM"
+        }
+      },
+      "ids": [
+        "job-image-failed"
+      ],
+      "clock": {
+        "startAt": 1800000603001,
+        "endAt": 1800000604001,
+        "sweepAt": 1800001204002
+      },
+      "reads": [
+        {
+          "id": "job-image-failed",
+          "status": "running",
+          "kind": "image",
+          "lane": "gemini",
+          "model": "img",
+          "prompt": "a dog",
+          "options": {},
+          "boardId": "",
+          "progress": 0,
+          "assetId": null,
+          "error": null,
+          "errorCode": null,
+          "startedAt": 1800000603001,
+          "endedAt": null
+        },
+        {
+          "id": "job-image-failed",
+          "status": "failed",
+          "kind": "image",
+          "lane": "gemini",
+          "model": "img",
+          "prompt": "a dog",
+          "options": {},
+          "boardId": "",
+          "progress": 0,
+          "assetId": null,
+          "error": "upstream refused",
+          "errorCode": "MEDIA_UPSTREAM",
+          "startedAt": 1800000603001,
+          "endedAt": 1800000604001
+        }
+      ],
+      "answeredBeforeSweep": true,
+      "afterSweep": null
+    },
+    {
+      "name": "image-canceled",
+      "request": {
+        "lane": "gemini",
+        "kind": "image",
+        "model": "img",
+        "prompt": "a bird",
+        "options": {}
+      },
+      "progress": [],
+      "ends": {
+        "waitsForCancel": true
+      },
+      "ids": [
+        "job-image-canceled"
+      ],
+      "clock": {
+        "startAt": 1800001205002,
+        "endAt": 1800001206002,
+        "sweepAt": 1800001806003
+      },
+      "reads": [
+        {
+          "id": "job-image-canceled",
+          "status": "running",
+          "kind": "image",
+          "lane": "gemini",
+          "model": "img",
+          "prompt": "a bird",
+          "options": {},
+          "boardId": "",
+          "progress": 0,
+          "assetId": null,
+          "error": null,
+          "errorCode": null,
+          "startedAt": 1800001205002,
+          "endedAt": null
+        },
+        {
+          "id": "job-image-canceled",
+          "status": "canceled",
+          "kind": "image",
+          "lane": "gemini",
+          "model": "img",
+          "prompt": "a bird",
+          "options": {},
+          "boardId": "",
+          "progress": 0,
+          "assetId": null,
+          "error": "canceled",
+          "errorCode": null,
+          "startedAt": 1800001205002,
+          "endedAt": 1800001206002
+        }
+      ],
+      "answeredBeforeSweep": true,
+      "afterSweep": null
+    }
+  ]
+}
