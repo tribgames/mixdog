@@ -40,6 +40,7 @@ pub use self::core::MockServerRequests;
 pub use self::core::MockStatePublisher;
 pub use self::core::MockThread;
 pub use self::core::ServerRequestEvent;
+pub use self::feed::FeedTap;
 pub use self::feed::MockFeed;
 pub use self::feed::MockScopedFeeds;
 pub use self::transport::MockConnection;

@@ -13,6 +13,7 @@ mock = ["mixdog-rt/test-support"]
 
 [dependencies]
 mixdog-protocol = { workspace = true }
+mixdog-app-protocol = { workspace = true }
 mixdog-rt = { workspace = true }
 mixdog-js = { workspace = true }
 async-trait = { workspace = true }

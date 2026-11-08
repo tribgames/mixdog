@@ -595,7 +595,6 @@ export function OAuthControl({
   } = useOAuthLoginFlow({
     run,
     keyId: providerId,
-    statusCapability: 'getOAuthProviderLoginStatus',
     cancelCapability: 'cancelOAuthProviderLogin',
     statusError:
       providerId === 'cursor-oauth'

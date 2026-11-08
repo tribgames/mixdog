@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::login::LoginError;
+use mixdog_core_api::feed_publisher::LoginFeeds;
 use mixdog_core_api::domain::login::LoginFailure;
 use mixdog_core_api::domain::login::LoginInput;
 use mixdog_core_api::domain::login::LoginSession;
@@ -95,6 +96,10 @@ struct Flow {
     view: Mutex<View>,
     /// Bumped on every change: wakes the status reads waiting on the flow.
     changed: watch::Sender<u64>,
+    /// The flow's `login:<flowId>` feed: every change is published as the status a read answers.
+    feeds: Arc<LoginFeeds>,
+    /// A status is read and published as one step, so the feed never ends on an older one.
+    publishing: Mutex<()>,
     session: Mutex<Option<Arc<dyn LoginSession>>>,
     cancelled: AtomicBool,
     timed_out: AtomicBool,
@@ -134,6 +139,8 @@ impl Flow {
 
     fn touch(&self) {
         self.changed.send_modify(|n| *n += 1);
+        let _one_publisher = lock(&self.publishing);
+        self.feeds.publish(&self.id, self.view());
     }
 
     fn set_step(&self, step: &'static str) {
@@ -208,15 +215,16 @@ pub struct McpLogins {
     /// atomic and exactly one can be pending.
     lanes: Arc<mixdog_rt::KeyedChains>,
     login_deadline: Duration,
+    feeds: Arc<LoginFeeds>,
 }
 
 impl McpLogins {
-    pub fn new(backend: Arc<dyn LoginBackend>) -> Self {
-        Self::with_deadline(backend, LOGIN_DEADLINE)
+    pub fn new(backend: Arc<dyn LoginBackend>, feeds: Arc<LoginFeeds>) -> Self {
+        Self::with_deadline(backend, LOGIN_DEADLINE, feeds)
     }
 
-    pub fn with_deadline(backend: Arc<dyn LoginBackend>, login_deadline: Duration) -> Self {
-        Self { backend, flows: Arc::default(), lanes: mixdog_rt::KeyedChains::new(), login_deadline }
+    pub fn with_deadline(backend: Arc<dyn LoginBackend>, login_deadline: Duration, feeds: Arc<LoginFeeds>) -> Self {
+        Self { backend, flows: Arc::default(), lanes: mixdog_rt::KeyedChains::new(), login_deadline, feeds }
     }
 
     fn flow_of(&self, flow_id: &str) -> Result<Arc<Flow>, String> {
@@ -255,14 +263,18 @@ impl McpLogins {
                 name: name.to_owned(),
                 view: Mutex::new(View { state: State::Pending, step: "starting", url: None, error: None, reason: None, awaiting_callback: false }),
                 changed,
+                feeds: Arc::clone(&self.feeds),
+                publishing: Mutex::new(()),
                 session: Mutex::new(None),
                 cancelled: AtomicBool::new(false),
                 timed_out: AtomicBool::new(false),
             });
+            self.feeds.open(&flow.id, flow.view());
             lock(&self.flows).insert(flow.id.clone(), Arc::clone(&flow));
             let driver = Driver {
                 backend: Arc::clone(&self.backend),
                 flows: Arc::clone(&self.flows),
+                feeds: Arc::clone(&self.feeds),
                 flow: Arc::clone(&flow),
                 mode: options.mode,
                 beside: options.beside,
@@ -361,6 +373,7 @@ impl McpLogins {
 struct Driver {
     backend: Arc<dyn LoginBackend>,
     flows: Arc<Mutex<HashMap<String, Arc<Flow>>>>,
+    feeds: Arc<LoginFeeds>,
     flow: Arc<Flow>,
     mode: AccountMode,
     beside: bool,
@@ -372,10 +385,11 @@ impl Driver {
     async fn run(self, url_tx: oneshot::Sender<String>) {
         let flow = Arc::clone(&self.flow);
         self.drive(url_tx).await;
-        let (flows, id) = (Arc::clone(&self.flows), flow.id.clone());
+        let (flows, feeds, id) = (Arc::clone(&self.flows), Arc::clone(&self.feeds), flow.id.clone());
         mixdog_rt::spawn("mcp.login.expire", mixdog_rt::TaskClass::Work, async move {
             tokio::time::sleep(SETTLED_FLOW_TTL).await;
             lock(&flows).remove(&id);
+            feeds.close(&id);
         });
     }
 

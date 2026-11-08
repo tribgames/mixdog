@@ -285,6 +285,7 @@ impl ScopedFeed for MockFeed {
 pub struct MockScopedFeeds {
     limits: MockLimits,
     next_epoch: AtomicU64,
+    made: Mutex<HashMap<FeedId, Arc<dyn ScopedFeed>>>,
 }
 
 impl MockScopedFeeds {
@@ -292,13 +293,87 @@ impl MockScopedFeeds {
         Self {
             limits,
             next_epoch: AtomicU64::new(1),
+            made: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// The feed last created under `id`, the lookup a subscribing request makes.
+    pub fn find(&self, id: &FeedId) -> Option<Arc<dyn ScopedFeed>> {
+        self.made
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(id)
+            .cloned()
+    }
+
+    /// The ids of the feeds created so far, sorted.
+    pub fn ids(&self) -> Vec<FeedId> {
+        let mut ids: Vec<FeedId> = self
+            .made
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .keys()
+            .cloned()
+            .collect();
+        ids.sort();
+        ids
     }
 }
 
 impl ScopedFeeds for MockScopedFeeds {
     fn create(&self, id: FeedId, view: Arc<dyn FeedView>) -> Arc<dyn ScopedFeed> {
         let epoch = super::epoch(u128::from(self.next_epoch.fetch_add(1, Ordering::Relaxed)));
-        Arc::new(MockFeed::new(id, epoch, view, self.limits))
+        let feed: Arc<dyn ScopedFeed> = Arc::new(MockFeed::new(id.clone(), epoch, view, self.limits));
+        self.made
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(id, feed.clone());
+        feed
+    }
+}
+
+/// A subscriber of one feed over a mock connection: what a client sees after `feed/subscribe`.
+pub struct FeedTap {
+    conn: super::MockConnection,
+    /// Every notification already returned: the connection hands each frame out once.
+    kept: std::sync::Mutex<Vec<serde_json::Value>>,
+}
+
+impl FeedTap {
+    /// Subscribes to `feed`: the response is written first, then the snapshot and later frames.
+    pub fn attach(feed: &Arc<dyn ScopedFeed>) -> Self {
+        use crate::ids::ConnectionId;
+        use crate::sink::ConnectionSink;
+
+        let conn = super::MockConnection::new(ConnectionId(1), MockLimits::default());
+        let source: Arc<dyn FeedSource> = feed.clone();
+        let attached = crate::feed::subscribe(&source, SubscriptionId::from("tap"), Window::Fixed, None, &conn)
+            .expect("attach to an open connection");
+        conn.send_control_release(bytes::Bytes::from_static(b"{}"), attached.release)
+            .expect("connection open");
+        Self { conn, kept: std::sync::Mutex::new(Vec::new()) }
+    }
+
+    /// The notifications written to the subscriber, parsed, in order, until `done` holds of them.
+    /// Woken by each frame that arrives, never by the clock.
+    pub async fn notifications_until(
+        &self,
+        mut done: impl FnMut(&[serde_json::Value]) -> bool,
+    ) -> Vec<serde_json::Value> {
+        let before = self.kept.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let mut seen = before.clone();
+        self.conn
+            .drain_text_until(|text| {
+                seen = before.clone();
+                seen.extend(
+                    text.iter()
+                        .filter_map(|frame| frame.strip_prefix("tap:"))
+                        .map(|frame| serde_json::from_str::<serde_json::Value>(frame).expect("a feed frame is JSON")),
+                );
+                done(&seen)
+            })
+            .await;
+        *self.kept.lock().unwrap_or_else(|e| e.into_inner()) = seen.clone();
+        seen
     }
 }

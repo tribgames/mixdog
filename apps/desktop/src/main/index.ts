@@ -117,6 +117,7 @@ import { registerDesktopIpc } from './ipc';
 import { HOST_CAPABILITIES } from './host/connection';
 import { notifyHostListsChanged } from './host-lists-changed';
 import { createProtocolConnection } from './protocol/connection';
+import { loginUpdateOf } from './protocol/login-feed';
 import { readOrCreateHostId, createLocalHostRole } from './protocol/desktop-host-wiring';
 import { readLocalDiscovery, resolveTunnelEndpoint } from './protocol/discovery';
 import { openCore } from './protocol/open-core';
@@ -3045,7 +3046,8 @@ function registerLocalSshHostIpc(): void {
                     if (event.type !== 'notification') return;
                     const { method, params } = (event as { notification: { method: string; params?: unknown } })
                       .notification;
-                    if (method === 'login/updated') listener(params as { flowId: string; state: unknown });
+                    const update = loginUpdateOf(method, params);
+                    if (update) listener(update);
                   }),
               }
             : {}),

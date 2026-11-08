@@ -1680,6 +1680,86 @@ impl LoginSession for MockLoginSession {
     }
 }
 
+struct LiveLoginInner {
+    state: Mutex<LoginInner>,
+    wake: tokio::sync::Notify,
+}
+
+/// A login session the test drives: [`Self::emit`] queues the next state, and `next` waits for it, so a
+/// flow follows the test step by step. Clones are the same session.
+#[derive(Clone)]
+pub struct LiveLoginSession {
+    inner: Arc<LiveLoginInner>,
+}
+
+impl LiveLoginSession {
+    /// A session whose current state is `initial`.
+    pub fn new(initial: LoginState) -> Self {
+        Self {
+            inner: Arc::new(LiveLoginInner {
+                state: Mutex::new(LoginInner { queue: VecDeque::new(), current: initial, finished: false }),
+                wake: tokio::sync::Notify::new(),
+            }),
+        }
+    }
+
+    /// Queues the state the next `next` answers.
+    pub fn emit(&self, state: LoginState) {
+        lock(&self.inner.state).queue.push_back(state);
+        self.inner.wake.notify_one();
+    }
+}
+
+#[async_trait]
+impl LoginSession for LiveLoginSession {
+    fn state(&self) -> LoginState {
+        lock(&self.inner.state).current.clone()
+    }
+
+    async fn next(&self) -> Option<LoginState> {
+        loop {
+            {
+                let mut inner = lock(&self.inner.state);
+                if inner.finished {
+                    return None;
+                }
+                if let Some(state) = inner.queue.pop_front() {
+                    inner.finished = state.is_terminal();
+                    inner.current = state.clone();
+                    return Some(state);
+                }
+            }
+            self.inner.wake.notified().await;
+        }
+    }
+
+    async fn provide(&self, input: LoginInput) -> Result<(), LoginError> {
+        let accepted = {
+            let inner = lock(&self.inner.state);
+            if inner.finished {
+                return Err(LoginError::Finished);
+            }
+            matches!((&inner.current, &input), (LoginState::Authorize { .. }, LoginInput::AuthorizationCode(_)))
+        };
+        if !accepted {
+            return Err(LoginError::InputNotExpected);
+        }
+        self.emit(LoginState::Done { account: None });
+        Ok(())
+    }
+
+    fn cancel(&self) {
+        {
+            let mut inner = lock(&self.inner.state);
+            if inner.finished {
+                return;
+            }
+            inner.queue = VecDeque::from([LoginState::Cancelled]);
+        }
+        self.inner.wake.notify_one();
+    }
+}
+
 /// Plays a scripted state sequence after `Starting`.
 pub struct MockLoginFlow {
     target: LoginTarget,

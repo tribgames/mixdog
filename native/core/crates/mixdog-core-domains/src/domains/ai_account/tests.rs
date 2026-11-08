@@ -10,7 +10,11 @@ use super::admin::acct;
 use super::admin::parse_account_change;
 
 fn fixture(name: &str) -> Value {
-    let path = format!("{}/../../fixtures/ai-account/{name}", env!("CARGO_MANIFEST_DIR"));
+    fixture_at(&format!("ai-account/{name}"))
+}
+
+fn fixture_at(relative: &str) -> Value {
+    let path = format!("{}/../../fixtures/{relative}", env!("CARGO_MANIFEST_DIR"));
     serde_json::from_str(&std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path}: {e}"))).unwrap()
 }
 
@@ -50,7 +54,12 @@ async fn account_admin_refusals_match_node() {
             (got, _) => panic!("{case}: got {got:?}"),
         }
     }
-    let flows = super::flows::OAuthFlows::default();
+    let flows = super::flows::OAuthFlows::new(
+        std::time::Duration::from_millis(super::flows::DEFAULT_FLOW_TTL_MS),
+        std::sync::Arc::new(mixdog_core_api::feed_publisher::LoginFeeds::new(std::sync::Arc::new(
+            mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default()),
+        ))),
+    );
     for case in fx["flowCases"].as_array().unwrap() {
         let id = case["id"].as_str().unwrap();
         let got = match case["op"].as_str().unwrap() {
@@ -115,5 +124,83 @@ async fn account_roster_changes_match_node() {
             (Err(e), None) => assert_eq!(entry["error"]["message"], e.message(), "{step}"),
             (got, _) => panic!("{step}: got {got:?}, want {entry}"),
         }
+    }
+}
+
+/// The login:<flowId> feed of a provider sign-in publishes, after each step, the status Node's registry answered
+/// (`benchmarks/rust-core/recorders/record-login-status.mjs`), and a subscriber that attaches late sees the
+/// status the flow ended with.
+#[tokio::test(flavor = "multi_thread")]
+async fn provider_sign_in_feeds_publish_the_statuses_node_answered() {
+    use mixdog_core_api::domain::login::LoginState;
+    use mixdog_core_api::domain::mock::LiveLoginSession;
+    use mixdog_core_api::feed_publisher::LoginFeeds;
+    use mixdog_core_api::mock::FeedTap;
+    use mixdog_core_api::mock::MockLimits;
+    use mixdog_core_api::mock::MockScopedFeeds;
+
+    let golden = fixture_at("login-status/golden.json");
+    for case in golden["provider"].as_array().unwrap() {
+        let name = case["name"].as_str().unwrap();
+        let start = &case["start"];
+        let shown = if let Some(code) = start["userCode"].as_str() {
+            LoginState::DeviceCode { user_code: code.to_owned(), verification_uri: start["url"].as_str().unwrap().to_owned(), expires_at: None }
+        } else {
+            LoginState::Authorize {
+                url: start["url"].as_str().unwrap().to_owned(),
+                manual_url: start["manualUrl"].as_str().map(str::to_owned),
+            }
+        };
+        let steps = case["steps"].as_array().unwrap();
+        let settled: Result<bool, String> = match (steps[0]["do"].as_str().unwrap(), &steps[0]["result"], steps[0]["message"].as_str()) {
+            ("reject", _, Some(message)) => Err(message.to_owned()),
+            ("callback", result, _) => Ok(result == &Value::Bool(true)),
+            _ => Ok(true),
+        };
+        let settle = |outcome: Result<bool, String>| -> super::flows::Settle { Box::new(move |_| Box::pin(async move { outcome })) };
+        let ttl = if name == "expired" {
+            std::time::Duration::from_millis(1)
+        } else {
+            std::time::Duration::from_millis(super::flows::DEFAULT_FLOW_TTL_MS)
+        };
+        let scoped = std::sync::Arc::new(MockScopedFeeds::new(MockLimits::default()));
+        let flows = super::flows::OAuthFlows::new(ttl, std::sync::Arc::new(LoginFeeds::new(scoped.clone())));
+        let session = LiveLoginSession::new(shown);
+        let started = flows.register("openai-oauth", Box::new(session.clone()), settle(settled.clone())).unwrap();
+        let flow_id = started["flowId"].as_str().unwrap().to_owned();
+        let masked = |value: &Value| -> Value { serde_json::from_str(&value.to_string().replace(&flow_id, "<flow>")).unwrap() };
+        assert_eq!(masked(&started), case["started"], "{name}: the register answer");
+
+        let feed_id = scoped.ids().into_iter().find(|id| id.0 == format!("login:{flow_id}")).unwrap();
+        let tap = FeedTap::attach(&scoped.find(&feed_id).unwrap());
+        for (index, step) in steps.iter().enumerate() {
+            match step["do"].as_str().unwrap() {
+                "callback" | "reject" => session.emit(LoginState::Done { account: None }),
+                "cancel" => {
+                    flows.cancel(&flow_id).await.unwrap();
+                }
+                "supersede" => {
+                    flows
+                        .register("openai-oauth", Box::new(LiveLoginSession::new(LoginState::Starting)), settle(Ok(true)))
+                        .unwrap();
+                }
+                "code" => {
+                    flows.complete(&flow_id, step["code"].as_str().unwrap()).await.unwrap();
+                }
+                // The flow's lifetime runs out by itself.
+                "expire" => {}
+                other => panic!("{name}: unknown step {other}"),
+            }
+            let seen = tap.notifications_until(|frames| frames.len() > index + 1).await;
+            assert_eq!(seen[0]["method"], "feed/snapshot", "{name}");
+            assert_eq!(masked(&seen[0]["params"]["state"]), case["started"], "{name}: the snapshot is the status the flow started with");
+            assert_eq!(seen[index + 1]["method"], "login/updated", "{name} step {index}");
+            assert_eq!(seen[index + 1]["params"]["flowId"], flow_id.as_str(), "{name}");
+            assert_eq!(masked(&seen[index + 1]["params"]["state"]), case["statuses"][index], "{name} step {index}");
+        }
+        let late = FeedTap::attach(&scoped.find(&feed_id).unwrap());
+        let seen = late.notifications_until(|frames| !frames.is_empty()).await;
+        assert_eq!(masked(&seen[0]["params"]["state"]), *case["statuses"].as_array().unwrap().last().unwrap(), "{name}: a late subscriber");
+        flows.cancel_all();
     }
 }

@@ -723,6 +723,8 @@ const api: DesktopApi = {
     call: (method, params) => invokeIpc(SECTIONS_IPC.call, method, params),
     subscribeFsChanged: (listener) => subscribeIpc(SECTIONS_IPC.fsChanged, listener),
     subscribeLoginUpdated: (listener) => subscribeIpc(SECTIONS_IPC.loginUpdated, listener),
+    subscribeLoginFeedLost: (listener) => subscribeIpc(SECTIONS_IPC.loginFeedLost, listener),
+    loginFeed: (flowId) => invokeIpc(SECTIONS_IPC.loginFeed, flowId),
   },
   subscribeOrchestrationModeChanged: (listener) => subscribeIpc(DESKTOP_IPC.orchestrationModeChanged, listener),
   readActivityRailPins: () => invokeIpc(DESKTOP_IPC.readActivityRailPins),

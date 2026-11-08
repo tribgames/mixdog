@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { SECTIONS_IPC } from '../../shared/contract-sections.ts';
-import { createProtocolConnection, SECTION_NAMES } from './connection.ts';
+import { createProtocolConnection, MAX_FOLLOWED_LOGINS, SECTION_NAMES } from './connection.ts';
 import { parseDiscovery, resolveTunnelEndpoint } from './discovery.ts';
 import { createHostConnection } from './host-connection.ts';
 import { createSectionRelay, REPLACE_CHUNK_ENTRIES } from './section-relay.ts';
@@ -207,6 +207,101 @@ test('a window gets the snapshot and pushes; only listed methods are callable; a
   dispose();
   assert.equal(client.calls.at(-1).method, 'fs/unwatch', 'closing the window releases its watch');
   assert.equal(handlers.size, 0);
+});
+
+/** A connected window whose client answers `answers[method]` (default `{}`); `sent` is what the window received. */
+async function loginWindow(answers) {
+  const client = fakeClient();
+  client.call = async (method, params) => {
+    client.calls.push({ method, params });
+    const answer = answers[method] ?? {};
+    if (answer instanceof Error) throw answer;
+    return answer;
+  };
+  const connection = createProtocolConnection({ open: async () => client, defer: (f) => f() });
+  await connection.start();
+  const sent = [];
+  const handlers = new Map();
+  registerProtocolWindowIpc({
+    connection,
+    handle: (channel, listener) => handlers.set(channel, listener),
+    send: (channel, value) => (sent.push({ channel, value }), true),
+    removeHandler: (channel) => handlers.delete(channel),
+  });
+  const on = (channel) => sent.filter((entry) => entry.channel === channel).map((entry) => entry.value);
+  return { client, connection, handlers, on };
+}
+
+const note = (method, params) => ({ type: 'notification', notification: { method, params } });
+
+test('a started sign-in is followed on its scoped feed: its frames reach the window, and the held state is readable', async () => {
+  for (const [start, flowId] of [
+    ['mcp/beginMcpOAuthLogin', 'mcp_oauth_1'],
+    ['account/beginOAuthProviderLogin', 'oauth_1'],
+    ['github/login/start', 'ghlogin_1'],
+  ]) {
+    const { client, connection, handlers, on } = await loginWindow({ [start]: { flowId, state: 'pending' } });
+    assert.deepEqual(await connection.call(start, {}), { flowId, state: 'pending' });
+    assert.deepEqual(client.calls.at(-1), { method: 'feed/subscribe', params: { feedId: `login:${flowId}` } });
+    const pending = { flowId, state: 'pending', step: 'browser' };
+    const complete = { flowId, state: 'complete' };
+    // The subscription's first frame is the feed snapshot; the later ones are the flow's updates.
+    client.emit(note('feed/snapshot', { feedId: `login:${flowId}`, state: pending }));
+    client.emit(note('login/updated', { flowId, state: complete }));
+    assert.deepEqual(on(SECTIONS_IPC.loginUpdated), [
+      { flowId, state: pending },
+      { flowId, state: complete },
+    ]);
+    assert.deepEqual(await handlers.get(SECTIONS_IPC.loginFeed)({}, flowId), { state: complete, lost: false });
+    assert.deepEqual(on(SECTIONS_IPC.loginFeedLost), []);
+  }
+});
+
+test('a sign-in feed that cannot be followed is lost: a failed subscription, a dropped link, a flow nobody follows', async () => {
+  const refused = new Error('invalid params: the id of a live scoped feed');
+  const failed = await loginWindow({ 'mcp/beginMcpOAuthLogin': { flowId: 'f1' }, 'feed/subscribe': refused });
+  await failed.connection.call('mcp/beginMcpOAuthLogin', {});
+  assert.deepEqual(failed.on(SECTIONS_IPC.loginFeedLost), [{ flowId: 'f1' }]);
+  assert.deepEqual(await failed.handlers.get(SECTIONS_IPC.loginFeed)({}, 'f1'), { state: null, lost: true });
+
+  const live = await loginWindow({ 'account/beginOAuthProviderLogin': { flowId: 'f2' } });
+  await live.connection.call('account/beginOAuthProviderLogin', {});
+  assert.deepEqual(live.on(SECTIONS_IPC.loginFeedLost), []);
+  live.client.emit({ type: 'status', status: { state: 'reconnecting' } });
+  assert.deepEqual(live.on(SECTIONS_IPC.loginFeedLost), [{ flowId: 'f2' }]);
+  live.client.emit({ type: 'status', status: { state: 'closed' } });
+  assert.equal(live.on(SECTIONS_IPC.loginFeedLost).length, 1, 'a feed is lost once');
+  assert.deepEqual(await live.handlers.get(SECTIONS_IPC.loginFeed)({}, 'f2'), { state: null, lost: true });
+  assert.deepEqual(await live.handlers.get(SECTIONS_IPC.loginFeed)({}, 'never-started'), { state: null, lost: true });
+});
+
+test('past the follow cap only ended sign-ins are let go: a pending one keeps its feed and is never silently dropped', async () => {
+  const flowIds = Array.from({ length: MAX_FOLLOWED_LOGINS + 3 }, (_, index) => `f${index}`);
+  let next = 0;
+  const { client, connection, handlers, on } = await loginWindow({});
+  const answer = client.call;
+  client.call = async (method, params) => (method === 'mcp/beginMcpOAuthLogin' ? (client.calls.push({ method, params }), { flowId: flowIds[next++] }) : answer(method, params));
+  // The first flow ends before the cap is passed; every other stays pending.
+  await connection.call('mcp/beginMcpOAuthLogin', {});
+  client.emit(note('feed/snapshot', { feedId: 'login:f0', state: { flowId: 'f0', state: 'complete' } }));
+  for (let index = 1; index < flowIds.length; index += 1) {
+    await connection.call('mcp/beginMcpOAuthLogin', {});
+    client.emit(note('feed/snapshot', { feedId: `login:${flowIds[index]}`, state: { flowId: flowIds[index], state: 'pending' } }));
+  }
+  const unsubscribed = client.calls.filter((call) => call.method === 'feed/unsubscribe').map((call) => call.params.feedId);
+  assert.deepEqual(unsubscribed, ['login:f0'], 'only the ended flow is let go');
+  for (const flowId of flowIds.slice(1)) {
+    assert.equal((await handlers.get(SECTIONS_IPC.loginFeed)({}, flowId)).lost, false, `${flowId} is still followed`);
+  }
+  assert.deepEqual(on(SECTIONS_IPC.loginFeedLost), []);
+});
+
+test('cancelling a sign-in ends the subscription to its feed', async () => {
+  const { client, connection, handlers } = await loginWindow({ 'mcp/beginMcpOAuthLogin': { flowId: 'f3' } });
+  await connection.call('mcp/beginMcpOAuthLogin', {});
+  await connection.call('mcp/cancelMcpOAuthLogin', { flowId: 'f3' });
+  assert.ok(client.calls.some((call) => call.method === 'feed/unsubscribe' && call.params.feedId === 'login:f3'));
+  assert.equal((await handlers.get(SECTIONS_IPC.loginFeed)({}, 'f3')).lost, true);
 });
 
 const isReplace = (p) => p.kind === 'replace';

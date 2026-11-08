@@ -63,6 +63,7 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 mixdog-mcp = { path = ".", features = ["test-support"] }
+mixdog-core-api = { workspace = true, features = ["mock"] }
 # A throwaway certificate for the fake Gmail servers.
 rcgen = { workspace = true }
 tempfile = { workspace = true }

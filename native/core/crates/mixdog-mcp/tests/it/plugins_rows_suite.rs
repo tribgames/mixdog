@@ -296,6 +296,9 @@ fn stack(dir: &Path) -> Stack {
         env: std::env::vars().collect::<Env>(),
         surface: surface.clone(),
         health: Arc::new(AccountHealth::default()),
+        login_feeds: Arc::new(mixdog_core_api::feed_publisher::LoginFeeds::new(Arc::new(
+            mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default()),
+        ))),
     });
     let catalog = SkillCatalog::new(
         data,

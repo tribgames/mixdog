@@ -28,6 +28,8 @@ use mixdog_core_agents::setup::SetupVoice;
 use mixdog_core_agents::setup::StatusReader;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::DomainService;
+use mixdog_core_api::ScopedFeeds;
+use mixdog_core_api::feed_publisher::LoginFeeds;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_core_base::rooms::ids::agent_id_of_home_session;
 use mixdog_core_base::rooms::ids::room_member_of_session;
@@ -538,6 +540,8 @@ pub struct McpInputs {
     pub secret_store: Arc<dyn SecretStore>,
     pub verifier: Arc<dyn GmailVerifier>,
     pub surface: Arc<dyn McpSurface>,
+    /// The core's scoped feeds: the MCP sign-in flows publish `login:<flowId>` on them.
+    pub scoped_feeds: Arc<dyn ScopedFeeds>,
     pub bridges: Arc<dyn BridgeFeatures>,
     /// `rt.hooksStatus()`: the one `HookStatus` the doctor reads (`DoctorInputs.hooks`).
     pub hooks: Arc<dyn HooksStatus>,
@@ -591,6 +595,7 @@ pub fn mcp_services(inputs: McpInputs) -> McpComposed {
         env: process_env.clone(),
         surface: inputs.surface.clone(),
         health: Arc::new(AccountHealth::default()),
+        login_feeds: Arc::new(LoginFeeds::new(inputs.scoped_feeds.clone())),
     });
     let glue_host = Arc::new(GlueHost::new(glue.clone(), catalog.clone()));
     let secret_ops = Arc::new(GlueSecretOps::new(inputs.secret_store.clone(), inputs.verifier.clone(), glue.clone()));
@@ -917,6 +922,8 @@ mod tests {
         extensions: Arc<crate::compose_domains::ConfigExtensions>,
         dir: tempfile::TempDir,
         data: PathBuf,
+        /// The scoped feeds the composition's sign-in flows publish on.
+        feeds: Arc<mixdog_core_api::mock::MockScopedFeeds>,
     }
 
     async fn compose_over(surface: Arc<dyn McpSurface>) -> Composed {
@@ -960,6 +967,7 @@ mod tests {
             },
         );
         let extensions = Arc::new(crate::compose_domains::ConfigExtensions::new(config.clone()));
+        let feeds = Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default()));
         let composed = mcp_services(McpInputs {
             tokens,
             data_dir: data.clone(),
@@ -978,6 +986,7 @@ mod tests {
             secret_store: Arc::new(Memory(Default::default())),
             verifier: quiet.clone(),
             surface,
+            scoped_feeds: feeds.clone(),
             bridges: quiet.clone(),
             hooks: quiet.clone(),
             hook_observer: quiet.clone(),
@@ -998,7 +1007,7 @@ mod tests {
                 other_status: Vec::new(),
             },
         });
-        Composed { composed, extensions, dir, data }
+        Composed { composed, extensions, dir, data, feeds }
     }
 
     /// The composition over a temp data dir: every `mcp/*`, `connector/*` and `skills/*` method
@@ -1024,6 +1033,34 @@ mod tests {
         assert!(mcp.is_object(), "{mcp}");
         let tools = call(&owner("connector/listConnectorTools"), "connector/listConnectorTools", serde_json::json!({"connectorId": "nope"})).await;
         assert!(tools.is_array() || tools.is_object(), "{tools}");
+    }
+
+    /// The composed MCP service publishes its sign-in flows on the core's scoped feeds: a sign-in begun
+    /// through `mcp/beginMcpOAuthLogin` opens `login:<flowId>`, whose snapshot is what the flow's status read
+    /// answers (a server that is not configured fails the flow at once, so the feed holds its final state).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_sign_in_begun_through_the_composition_publishes_its_login_feed() {
+        let Composed { composed, feeds, .. } = compose_over(Arc::new(Quiet)).await;
+        let owner = composed.mcp_domain.clone();
+        let request = |method: &'static str, params: Value| mixdog_core_api::CoreRequest {
+            method: mixdog_core_api::ids::Method(method),
+            params,
+            op: None,
+            ctx: mixdog_core_api::CallContext::internal("compose_mcp test"),
+        };
+        assert!(owner.call(request("mcp/beginMcpOAuthLogin", serde_json::json!({"name": "unconfigured"}))).await.is_err());
+        let ids = feeds.ids();
+        let [feed_id] = ids.as_slice() else { panic!("one sign-in opened {ids:?}") };
+        let flow_id = feed_id.0.strip_prefix("login:").expect("a login feed");
+        let read = match owner.call(request("mcp/getMcpOAuthLoginStatus", serde_json::json!({"flowId": flow_id}))).await.unwrap() {
+            mixdog_core_api::Reply::Value(value) => value,
+            mixdog_core_api::Reply::Subscribe(_) => panic!("a status read subscribed"),
+        };
+        let tap = mixdog_core_api::mock::FeedTap::attach(&feeds.find(feed_id).expect("the feed is live"));
+        let seen = tap.notifications_until(|frames| !frames.is_empty()).await;
+        assert_eq!(seen[0]["method"], "feed/snapshot");
+        assert_eq!(seen[0]["params"]["feedId"], feed_id.0.as_str());
+        assert_eq!(seen[0]["params"]["state"], read);
     }
 
     /// A session layer that knows which scope each thread's stored header names.

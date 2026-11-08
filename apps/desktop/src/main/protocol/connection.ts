@@ -10,11 +10,23 @@ import type {
 } from '../../shared/contract-sections';
 import { SECTION_NAMES } from '../../shared/contract-sections';
 import { createSectionRelay, type RelayedStore, type SectionRelay } from './section-relay';
+import { loginFeedId, loginUpdateOf, LOGIN_CANCEL_METHODS, LOGIN_START_METHODS } from './login-feed';
 
 export { SECTION_NAMES };
 
 /** `client/activity` is sent at most once per this long (desktop-services.md §12.3: rate limit is client-side). */
 export const CLIENT_ACTIVITY_MIN_GAP_MS = 60_000;
+
+/** The most sign-in flow feeds one connection keeps once flows have ended; the oldest ended one is let go first. A
+ *  flow still pending (or whose first frame has not arrived) is never let go: Node's status read answered for any
+ *  live flow, and a dialog waiting on it would never be told. */
+export const MAX_FOLLOWED_LOGINS = 32;
+
+/** A held login state that has left `pending` (complete, failed, cancelled, expired): nothing more will arrive. */
+const isFinalLoginState = (state: unknown): boolean => {
+  const name = (state as { state?: unknown } | null)?.state;
+  return typeof name === 'string' && name !== 'pending';
+};
 
 /** What the connection needs from the client library's `ProtocolClient`. */
 export interface ConnectionClient {
@@ -52,6 +64,16 @@ export interface ProtocolWindow {
   push(push: DesktopSectionsPush): void;
   /** A scoped-feed notification of this connection (`fs/changed`, `system/ports/updated`). */
   notification(method: string, params: unknown): void;
+  /** The feed of a sign-in flow this connection followed can no longer deliver (it could not be subscribed, or the
+   *  link went down): the flow's progress will not arrive. */
+  loginFeedLost(flowId: string): void;
+}
+
+/** What the connection holds of a followed sign-in flow's feed. */
+export interface LoginFeedState {
+  /** The last state the feed delivered; null before the first frame. */
+  state: unknown;
+  lost: boolean;
 }
 
 export interface ProtocolConnection {
@@ -73,6 +95,10 @@ export interface ProtocolConnection {
    *  connection. A failed request forgets the watch. */
   watchFiles(window: ProtocolWindow, params: { watchId: string } & Record<string, unknown>): Promise<unknown>;
   unwatchFiles(watchId: string): Promise<unknown>;
+  /** The feed of a sign-in flow this connection started (`call` of a login start subscribes `login:<flowId>`): what it
+   *  last delivered, and whether it was lost. A window reads it when it starts to listen, so a frame or a loss that
+   *  came before its listener is not missed. A flow this connection does not follow has no feed: lost. */
+  loginFeed(flowId: string): LoginFeedState;
   /** Main's own read of a section (the computer pill, nothing in a window): called with the current entry after each
    *  change of `section`, `undefined` once removed. Valid before and after `start`. */
   watchSection(section: string, listener: (entry: DesktopSectionEntry | undefined) => void): () => void;
@@ -133,6 +159,33 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
     }
     if (portViewers.size > 0) void restored.call('system/ports/subscribe', {}).catch(() => undefined);
   };
+  // The sign-in flows this connection follows. A scoped feed reaches only its subscriber and does not survive the
+  // socket, so a followed feed whose subscription failed, or whose link went down, is lost for good: the flow goes on in
+  // the core, but its progress will not arrive, and the windows are told.
+  const loginFeeds = new Map<string, LoginFeedState>();
+  const loseLoginFeed = (flowId: string, feed: LoginFeedState): void => {
+    if (feed.lost) return;
+    feed.lost = true;
+    for (const window of [...windows]) window.loginFeedLost(flowId);
+  };
+  const unfollowLogin = (flowId: string): void => {
+    if (!loginFeeds.delete(flowId)) return;
+    // Best effort: a link that is down ends its subscriptions by itself.
+    if (client) void client.call('feed/unsubscribe', { feedId: loginFeedId(flowId) }).catch(() => undefined);
+  };
+  const followLogin = async (live: ConnectionClient, flowId: string): Promise<void> => {
+    const feed: LoginFeedState = { state: null, lost: false };
+    loginFeeds.set(flowId, feed);
+    for (const [oldest, held] of [...loginFeeds]) {
+      if (loginFeeds.size <= MAX_FOLLOWED_LOGINS) break;
+      if (isFinalLoginState(held.state)) unfollowLogin(oldest);
+    }
+    try {
+      await live.call('feed/subscribe', { feedId: loginFeedId(flowId) });
+    } catch {
+      loseLoginFeed(flowId, feed);
+    }
+  };
   const viewPorts = async (window: ProtocolWindow, viewing: boolean): Promise<void> => {
     const wasViewed = portViewers.size > 0;
     if (viewing) portViewers.add(window);
@@ -178,9 +231,13 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
           awaitingAppSnapshot = true;
           restoreScopedFeeds(opened);
         }
+        if (next !== 'ready') for (const [flowId, feed] of loginFeeds) loseLoginFeed(flowId, feed);
         relay?.status(next);
       } else if (event.type === 'notification') {
         const { method, params } = (event as { notification: { method: string; params?: unknown } }).notification;
+        const login = loginUpdateOf(method, params);
+        const followed = login ? loginFeeds.get(login.flowId) : undefined;
+        if (login && followed) followed.state = login.state;
         for (const window of [...windows]) window.notification(method, params);
       }
     });
@@ -225,7 +282,20 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
       fsWatches.delete(watchId);
       return connected().call('fs/unwatch', { watchId });
     },
-    call: (method, params) => connected().call(method, params),
+    async call(method, params) {
+      const live = connected();
+      const reply = await live.call(method, params);
+      const flowId = (LOGIN_START_METHODS.has(method) ? reply : params) as { flowId?: unknown } | null;
+      if (typeof flowId?.flowId === 'string' && flowId.flowId) {
+        if (LOGIN_START_METHODS.has(method)) await followLogin(live, flowId.flowId);
+        else if (LOGIN_CANCEL_METHODS.has(method)) unfollowLogin(flowId.flowId);
+      }
+      return reply;
+    },
+    loginFeed: (flowId) => {
+      const feed = loginFeeds.get(flowId);
+      return feed ? { ...feed } : { state: null, lost: true };
+    },
     watchSection(section, listener) {
       const set = sectionWatchers.get(section) ?? new Set();
       sectionWatchers.set(section, set);
@@ -255,6 +325,7 @@ export function createProtocolConnection({ open, defer }: ProtocolConnectionOpti
       unsubscribeStore?.();
       relay?.dispose();
       windows.clear();
+      loginFeeds.clear();
       const closing = client;
       client = null;
       relay = null;

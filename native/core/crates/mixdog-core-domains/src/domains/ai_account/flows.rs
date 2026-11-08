@@ -12,6 +12,7 @@ use mixdog_core_api::domain::login::LoginFailure;
 use mixdog_core_api::domain::login::LoginInput;
 use mixdog_core_api::domain::login::LoginSession;
 use mixdog_core_api::domain::login::LoginState;
+use mixdog_core_api::feed_publisher::LoginFeeds;
 use serde_json::Value;
 use serde_json::json;
 use tokio::sync::Notify;
@@ -59,6 +60,8 @@ struct Flow {
     id: String,
     provider: String,
     session: Arc<dyn LoginSession>,
+    /// What the sign-in showed last: the page or device code stays in the status after the login ends.
+    shown: Shown,
     state: State,
     error: Option<String>,
     ending: Ending,
@@ -67,13 +70,30 @@ struct Flow {
     settled: Arc<Notify>,
 }
 
+/// The page and codes a sign-in presented.
+#[derive(Clone, Default)]
+struct Shown {
+    url: Option<String>,
+    manual_url: Option<String>,
+    user_code: Option<String>,
+}
+
+impl Shown {
+    /// The state's page or device code; any other state shows nothing new.
+    fn of(state: &LoginState) -> Option<Self> {
+        match state {
+            LoginState::Authorize { url, manual_url } => Some(Self { url: Some(url.clone()), manual_url: manual_url.clone(), user_code: None }),
+            LoginState::DeviceCode { user_code, verification_uri, .. } => {
+                Some(Self { url: Some(verification_uri.clone()), manual_url: None, user_code: Some(user_code.clone()) })
+            }
+            _ => None,
+        }
+    }
+}
+
 impl Flow {
     fn status(&self) -> Value {
-        let (url, manual_url, user_code) = match self.session.state() {
-            LoginState::Authorize { url, manual_url } => (Some(url), manual_url, None),
-            LoginState::DeviceCode { user_code, verification_uri, .. } => (Some(verification_uri), None, Some(user_code)),
-            _ => (None, None, None),
-        };
+        let Shown { url, manual_url, user_code } = self.shown.clone();
         json!({
             "flowId": self.id,
             "provider": self.provider,
@@ -88,14 +108,22 @@ impl Flow {
     }
 }
 
-#[derive(Default)]
 struct Registry {
     flows: HashMap<String, Flow>,
     active_by_provider: HashMap<String, String>,
     sequence: u64,
+    /// The login:<flowId> feed of every flow: a flow stays readable, and so subscribable, as long as the registry keeps it.
+    feeds: Arc<LoginFeeds>,
 }
 
 impl Registry {
+    /// Publishes the flow's status as its feed's next update.
+    fn publish(&self, id: &str) {
+        if let Some(flow) = self.flows.get(id) {
+            self.feeds.publish(id, flow.status());
+        }
+    }
+
     /// `finishFlow`: only a pending flow settles.
     fn finish(&mut self, id: &str, state: State, error: Option<String>, ending: Ending) -> bool {
         let Some(flow) = self.flows.get_mut(id) else { return false };
@@ -112,6 +140,7 @@ impl Registry {
         if self.active_by_provider.get(&flow.provider).map(String::as_str) == Some(id) {
             self.active_by_provider.remove(&flow.provider);
         }
+        self.publish(id);
         true
     }
 }
@@ -154,15 +183,10 @@ pub struct OAuthFlows {
     ttl: Duration,
 }
 
-impl Default for OAuthFlows {
-    fn default() -> Self {
-        Self::new(Duration::from_millis(DEFAULT_FLOW_TTL_MS))
-    }
-}
-
 impl OAuthFlows {
-    pub fn new(ttl: Duration) -> Self {
-        Self { inner: Arc::default(), ttl: ttl.max(Duration::from_millis(1)) }
+    pub fn new(ttl: Duration, feeds: Arc<LoginFeeds>) -> Self {
+        let registry = Registry { flows: HashMap::new(), active_by_provider: HashMap::new(), sequence: 0, feeds };
+        Self { inner: Arc::new(Mutex::new(registry)), ttl: ttl.max(Duration::from_millis(1)) }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Registry> {
@@ -191,6 +215,7 @@ impl OAuthFlows {
                 id: id.clone(),
                 provider: provider.clone(),
                 session: session.clone(),
+                shown: Shown::of(&session.state()).unwrap_or_default(),
                 state: State::Pending,
                 error: None,
                 ending: Ending::None,
@@ -199,6 +224,7 @@ impl OAuthFlows {
                 settled: Arc::new(Notify::new()),
             };
             let status = flow.status();
+            reg.feeds.open(&id, status.clone());
             reg.flows.insert(id.clone(), flow);
             reg.active_by_provider.insert(provider, id.clone());
             (id, status)
@@ -254,7 +280,14 @@ impl OAuthFlows {
                     self.lock().finish(&id, State::Cancelled, None, Ending::None);
                     return;
                 }
-                _ => {}
+                // The sign-in page or device code arrived: the flow's status carries it.
+                LoginState::Starting | LoginState::DeviceCode { .. } | LoginState::Authorize { .. } | LoginState::Waiting => {
+                    let mut reg = self.lock();
+                    if let (Some(shown), Some(flow)) = (Shown::of(&state), reg.flows.get_mut(&id)) {
+                        flow.shown = shown;
+                    }
+                    reg.publish(&id);
+                }
             }
         }
     }
@@ -350,6 +383,9 @@ impl OAuthFlows {
             }
         }
         reg.active_by_provider.clear();
+        for id in reg.flows.keys() {
+            reg.feeds.close(id);
+        }
         reg.flows.clear();
     }
 }

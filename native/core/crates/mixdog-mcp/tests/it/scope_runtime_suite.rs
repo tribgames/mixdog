@@ -385,7 +385,10 @@ async fn a_sign_in_and_its_completion_follow_up_keep_the_request_scope() {
     }
     let _ = io();
     let probe = Arc::new(Probe { started: Mutex::default(), completed: Mutex::default(), done: tokio::sync::Notify::new() });
-    let logins = McpLogins::new(probe.clone());
+    let feeds = Arc::new(mixdog_core_api::feed_publisher::LoginFeeds::new(Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(
+        mixdog_core_api::mock::MockLimits::default(),
+    ))));
+    let logins = McpLogins::new(probe.clone(), feeds);
     with_request_scope(Some("s1".to_owned()), logins.begin("srv", &json!({}))).await.unwrap();
     probe.done.notified().await;
     assert_eq!(*lock(&probe.started), [Some("s1".to_owned())], "the flow's task addresses the scope that began it");

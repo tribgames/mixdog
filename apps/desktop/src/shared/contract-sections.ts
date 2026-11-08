@@ -72,6 +72,10 @@ export const SECTIONS_IPC = {
   fsChanged: 'mixdog:protocol:fs-changed',
   /** `login/updated`: progress of a GitHub CLI or provider sign-in (scoped feed `login:<flowId>`). */
   loginUpdated: 'mixdog:protocol:login-updated',
+  /** A sign-in flow's feed was lost (it could not be subscribed, or the link to the core went down). */
+  loginFeedLost: 'mixdog:protocol:login-feed-lost',
+  /** What the connection holds of a sign-in flow's feed: its last state and whether it was lost. */
+  loginFeed: 'mixdog:protocol:login-feed',
 } as const;
 
 export interface DesktopSectionsApi {
@@ -84,6 +88,11 @@ export interface DesktopSectionsApi {
   subscribeFsChanged(listener: (change: { watchId: string; changedPaths: string[]; kind?: string }) => void): () => void;
   /** Progress of a sign-in flow (`login/updated`); the caller filters by `flowId`. Returns the unsubscribe. */
   subscribeLoginUpdated(listener: (update: { flowId: string; state: unknown }) => void): () => void;
+  /** The flow's feed can no longer deliver (`flowId`); its progress will not arrive. Returns the unsubscribe. */
+  subscribeLoginFeedLost(listener: (update: { flowId: string }) => void): () => void;
+  /** The last state a sign-in flow's feed delivered and whether it was lost: read once after listening, so what came
+   *  before the listener is not missed. A flow the connection does not follow is lost. */
+  loginFeed(flowId: string): Promise<{ state: unknown; lost: boolean }>;
 }
 
 export function isRendererProtocolMethod(method: unknown): method is RendererProtocolMethod {
