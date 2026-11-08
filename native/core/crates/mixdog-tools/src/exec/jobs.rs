@@ -885,6 +885,9 @@ impl Job {
         }
         if let Some(error) = facts.as_ref().and_then(|f| f.error.as_ref()) {
             lines.push(format!("error: {error}"));
+        } else if self.survivors && self.state().cancelled {
+            // A survivors task has no exit of its own; Node's `cancelBackgroundTask(taskId, 'cancelled by task control')` is its error.
+            lines.push("error: cancelled by task control".into());
         }
         if let Some(silence) = silence {
             lines.push(format!("output_silence: {silence}"));
@@ -892,7 +895,8 @@ impl Job {
         if !self.survivors {
             lines.push(self.logs_line());
         }
-        if let Some(body) = body {
+        // A survivors task owns no output (its command's output was delivered with the call): Node's read ends at the status lines.
+        if let Some(body) = body.filter(|_| !self.survivors) {
             if !body.is_empty() {
                 lines.push(String::new());
                 lines.push(body.to_owned());

@@ -257,6 +257,10 @@ mod imp {
     use std::sync::atomic::AtomicBool;
     use std::sync::atomic::AtomicI32;
     use std::sync::atomic::Ordering;
+    use std::time::Duration;
+
+    /// `TERMINATION_RECHECK_MS` of `lib/shell-descendants.mjs`.
+    const RECHECK: Duration = Duration::from_millis(5_000);
 
     /// The group of a child started as its own group leader (`setsid` or `process_group(0)`).
     pub(crate) struct Containment {
@@ -328,26 +332,27 @@ mod imp {
             self.probe()
         }
 
-        /// Whether the end of the group can be waited for by event (Linux: one pidfd per member).
+        /// Every group can be watched: `lib/shell-descendants.mjs` probes the process group on all
+        /// POSIX platforms. How its end is waited for differs ([`Self::wait_empty`]).
         pub(crate) fn watchable(&self) -> bool {
-            #[cfg(target_os = "linux")]
-            {
-                linux::pidfd_supported()
-            }
-            #[cfg(not(target_os = "linux"))]
-            {
-                false
-            }
+            true
         }
 
-        /// Completes when no live process is left in the group, woken by the members' exits.
+        /// Completes when no live process is left in the group. Linux with pidfd is woken by the
+        /// members' exits; elsewhere the group is re-probed at Node's termination cadence
+        /// (`TERMINATION_RECHECK_MS`), since these processes are no longer our children and have
+        /// no exit event to subscribe to.
         pub(crate) async fn wait_empty(&self) {
             #[cfg(target_os = "linux")]
-            {
+            if linux::pidfd_supported() {
                 let group = self.group.load(Ordering::Acquire);
                 if group > 0 {
                     linux::wait_group_empty(group).await;
                 }
+                return;
+            }
+            while self.remaining().is_some() {
+                tokio::time::sleep(RECHECK).await;
             }
         }
     }

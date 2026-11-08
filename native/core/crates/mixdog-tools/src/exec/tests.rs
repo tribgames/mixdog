@@ -613,7 +613,7 @@ async fn surviving_descendants_become_a_tracked_task_that_cancels_and_completes(
     let cancelled = body(task.call(&c, serde_json::json!({"action": "cancel", "task_id": "task-s1"})).await);
     assert_eq!(cancelled, "status: completed\ntask_id: task-s1\ncancelled: shell/shell");
     let read = body(task.call(&c, serde_json::json!({"action": "read", "task_id": "task-s1"})).await);
-    assert!(read.contains("status: cancelled") && read.ends_with("(no new output)"), "{read}");
+    assert!(read.contains("status: cancelled") && read.ends_with("error: cancelled by task control"), "{read}");
 }
 
 #[tokio::test]

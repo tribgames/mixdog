@@ -231,7 +231,8 @@ pub fn build_exec(
     (Exec { runtime, wakes, configured_shell }, ExecEvents { finished, thread_strips, host_strip })
 }
 
-#[cfg(test)]
+// The recorded Node fixture is the Windows form of the command.
+#[cfg(all(test, windows))]
 mod tests {
     use super::*;
     use mixdog_core_api::domain::common::AbsPath;
@@ -246,13 +247,38 @@ mod tests {
     use mixdog_tools::exec::TaskTool;
     use tokio_util::sync::CancellationToken;
 
-    /// A command whose shell exits at once and leaves a long sleeper running that holds no output.
-    const LEAVES_A_SLEEPER: &str = if cfg!(windows) {
-        "Start-Process ping -ArgumentList '-n','90','127.0.0.1' -WindowStyle Hidden"
-    } else {
-        "sleep 90 >/dev/null 2>&1 &"
-    };
+    /// What Node's agent sees when a finished command leaves a descendant running, and after `task cancel`
+    /// (`fixtures/shell-survivors/golden.json`, recorded from Node b6f10295a by `record-shell-survivors.mjs`;
+    /// the Windows form of the command).
+    fn golden() -> serde_json::Value {
+        serde_json::from_str(include_str!("../../../fixtures/shell-survivors/golden.json")).unwrap()
+    }
 
+    /// The recorder's placeholders for the task id and the timestamps.
+    fn scrub(text: &str, id: &str) -> String {
+        let timed = stamps_unset(text);
+        timed.replace(id, "<TASK>")
+    }
+
+    fn stamps_unset(text: &str) -> String {
+        text.lines()
+            .map(|line| match line.split_once(": ") {
+                Some((key @ ("started" | "finished"), _)) => format!("{key}: <TIME>"),
+                _ => line.to_owned(),
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// The hidden `ping` descendants of the golden command that are running, asked of the operating system
+    /// through a command of its own (the survivor mechanism under test is not consulted).
+    async fn running_pings(shell: &ShellTool, dir: &Path, call: &str, processes: &LocalProcessManager) -> usize {
+        let query = "(Get-CimInstance Win32_Process -Filter \"Name='ping.exe'\" | Where-Object { $_.CommandLine -like '*127.0.0.1*' } | Measure-Object).Count";
+        text(shell.call(&ctx(dir, call, processes.clone()), serde_json::json!({"command": query})).await)
+            .lines()
+            .find_map(|line| line.trim().parse().ok())
+            .expect("a count")
+    }
     fn ctx(dir: &Path, call: &str, processes: LocalProcessManager) -> ToolContext {
         let tokens = mixdog_rt::testing::tokens();
         ToolContext {
@@ -284,12 +310,12 @@ mod tests {
         }
     }
 
-    /// The runtime the daemon builds tracks what a finished command left running (Node's
-    /// `probeShellDescendants` at the shell settle): the call leaves with the survivors as a task,
-    /// and `task cancel` ends them. The expected texts are the ones Node's tool answers with
-    /// (`mixdog-tools` `surviving_descendants_become_a_tracked_task_that_cancels_and_completes`).
+    /// The runtime the daemon builds tracks what a finished command left running (Node's `probeShellDescendants`
+    /// at the shell settle): the call leaves with the survivors as a task, and `task cancel` ends them. Both
+    /// texts equal Node's recording, and the descendant is gone from the operating system afterwards.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn a_finished_commands_survivors_are_tracked_and_cancel_ends_them() {
+        let want = golden();
         let tokens = mixdog_rt::testing::tokens();
         let dir = tempfile::tempdir().unwrap();
         let processes = LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default());
@@ -304,12 +330,14 @@ mod tests {
             ExecHosts { ext_pool: Arc::new(MockExtPool::new(1)), processes: processes.clone() },
         );
         let (shell, task) = (ShellTool::new(exec.runtime.clone()), TaskTool::new(exec.runtime));
-        let ran = text(shell.call(&ctx(dir.path(), "s1", processes.clone()), serde_json::json!({"command": LEAVES_A_SLEEPER})).await);
-        assert!(
-            ran.contains("⚠️ the command finished but left descendants running: they are tracked as the task below, and `task cancel` terminates them.\nbackground task\ntask_id: task-s1\n"),
-            "{ran}"
-        );
-        let cancelled = text(task.call(&ctx(dir.path(), "s2", processes), serde_json::json!({"action": "cancel", "task_id": "task-s1"})).await);
-        assert_eq!(cancelled, "status: completed\ntask_id: task-s1\ncancelled: shell/shell");
+        assert_eq!(running_pings(&shell, dir.path(), "q0", &processes).await, 0);
+        let ran = text(shell.call(&ctx(dir.path(), "s1", processes.clone()), serde_json::json!({"command": want["command"]})).await);
+        assert_eq!(scrub(&ran, "task-s1"), want["shell"].as_str().unwrap());
+        assert_eq!(running_pings(&shell, dir.path(), "q1", &processes).await, 1, "the descendant runs while tracked");
+        let cancelled = text(task.call(&ctx(dir.path(), "s2", processes.clone()), serde_json::json!({"action": "cancel", "task_id": "task-s1"})).await);
+        assert_eq!(scrub(&cancelled, "task-s1"), want["cancel"].as_str().unwrap());
+        assert_eq!(running_pings(&shell, dir.path(), "q2", &processes).await, 0, "the descendant is gone after the cancel");
+        let read = text(task.call(&ctx(dir.path(), "s3", processes), serde_json::json!({"action": "read", "task_id": "task-s1"})).await);
+        assert_eq!(scrub(&read, "task-s1"), want["read"].as_str().unwrap());
     }
 }

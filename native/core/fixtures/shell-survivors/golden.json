@@ -1,0 +1,9 @@
+{
+  "recorder": "benchmarks/rust-core/recorders/record-shell-survivors.mjs",
+  "nodeCommit": "b6f10295a",
+  "platform": "win32",
+  "command": "Start-Process ping -ArgumentList '-n','90','127.0.0.1' -WindowStyle Hidden",
+  "shell": "[exit code: 0]\n⚠️ the command finished but left descendants running: they are tracked as the task below, and `task cancel` terminates them.\nbackground task\ntask_id: <TASK>\nlabel: Start-Process ping -ArgumentList '-n','90','127.0.0.1' -WindowStyle Hidden\nstatus: running\nstarted: <TIME>\n\n(no output)",
+  "cancel": "status: completed\ntask_id: <TASK>\ncancelled: shell/shell",
+  "read": "background task\ntask_id: <TASK>\nsurface: shell\nstatus: cancelled\nstarted: <TIME>\nfinished: <TIME>\nerror: cancelled by task control"
+}

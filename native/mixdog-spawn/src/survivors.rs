@@ -17,6 +17,9 @@ use crate::manager::LocalProcessManager;
 /// How long a kill waits for the operating system to finish ending the processes.
 const KILL_SETTLE: Duration = Duration::from_secs(5);
 
+/// How long the survivors get to leave after SIGTERM before SIGKILL (`delay(200)` of Node).
+const TERM_GRACE: Duration = Duration::from_millis(200);
+
 /// What a finished command left running.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct SurvivorReport {
@@ -57,7 +60,12 @@ impl ProcessSurvivors {
         let Ok(proc) = self.manager.proc(handle) else {
             return true;
         };
-        proc.containment().kill();
+        // `killShellDescendants`: SIGTERM to the group, 200 ms, then SIGKILL if anything is left.
+        // (A job object has no gentle stop: `terminate` is the forced kill there.)
+        proc.containment().terminate();
+        if tokio::time::timeout(TERM_GRACE, proc.containment().wait_empty()).await.is_err() {
+            proc.containment().kill();
+        }
         let _ = tokio::time::timeout(KILL_SETTLE, proc.containment().wait_empty()).await;
         proc.containment().remaining().is_none()
     }
