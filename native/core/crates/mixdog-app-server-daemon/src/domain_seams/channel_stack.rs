@@ -219,9 +219,13 @@ impl ServerListener {
 
 #[async_trait]
 impl mixdog_services::channels::WebhookListener for ServerListener {
-    async fn start(&self, settings: &WebhookSettings) -> Result<(), String> {
+    async fn prepare(&self, cancel: &CancellationToken) -> Result<(), String> {
+        self.tunnels.prepare(cancel).await
+    }
+
+    async fn start(&self, settings: &WebhookSettings, cancel: &CancellationToken) -> Result<(), String> {
         let mut server = WebhookServer::new(self.service.clone(), self.tunnels.clone(), listen_port(&settings.port)?);
-        server.start().await?;
+        server.start(cancel).await?;
         // `WebhookAutomation` stops a running listener before it starts another; a server left in
         // the slot would keep its port, so it is stopped here too.
         let replaced = self.slot().replace(server);

@@ -128,7 +128,11 @@ pub trait AgentRuntime: Send + Sync {
 /// The webhook listener the transport binds.
 #[async_trait]
 pub trait WebhookListener: Send + Sync {
-    async fn start(&self, settings: &WebhookSettings) -> Result<(), String>;
+    /// The local, bounded writes a start needs first (the relay's hook identity).
+    async fn prepare(&self, _cancel: &tokio_util::sync::CancellationToken) -> Result<(), String> {
+        Ok(())
+    }
+    async fn start(&self, settings: &WebhookSettings, cancel: &tokio_util::sync::CancellationToken) -> Result<(), String>;
     async fn stop(&self) -> Result<(), String>;
 }
 
@@ -136,6 +140,12 @@ pub trait WebhookListener: Send + Sync {
 /// when each one runs.
 #[async_trait]
 pub trait AutomationServices: Send + Sync {
+    /// The first step of a start, before any provider or listener work: what the receiver
+    /// persists locally (the hook identity), so the public URL is readable once the start is
+    /// asked for. Does nothing while the receiver is switched off.
+    async fn prepare(&self, _cancel: &tokio_util::sync::CancellationToken) -> Result<(), String> {
+        Ok(())
+    }
     /// Starts what the settings call for and stops what they no longer do; `reload` re-listens
     /// on changed settings.
     async fn sync(&self, reload: bool) -> Result<(), String>;
@@ -187,7 +197,7 @@ impl WebhookAutomation {
             // The old listener closes before the new one binds the same port.
             self.listener.stop().await?;
         }
-        self.listener.start(&settings).await?;
+        self.listener.start(&settings, &self.epoch()).await?;
         *self.listening.lock().unwrap() = Some(self.service.listening());
         Ok(())
     }
@@ -202,6 +212,13 @@ impl WebhookAutomation {
 
 #[async_trait]
 impl AutomationServices for WebhookAutomation {
+    async fn prepare(&self, cancel: &tokio_util::sync::CancellationToken) -> Result<(), String> {
+        if !self.settings.webhook().await?.enabled {
+            return Ok(());
+        }
+        self.listener.prepare(cancel).await
+    }
+
     async fn sync(&self, reload: bool) -> Result<(), String> {
         // A sync a stop cut short has nothing left to do: the stop closed the listener.
         self.gate.run(&self.epoch(), self.sync_turn(reload)).await.unwrap_or(Ok(()))
