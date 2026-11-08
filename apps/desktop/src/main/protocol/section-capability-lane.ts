@@ -55,6 +55,7 @@ export function withSectionCapabilities({
   snapshot(): SessionSnapshot;
 }): CapabilityLane {
   return {
+    ...lane,
     async invoke<T>(capability: DesktopCapability, args: unknown[] | undefined, sessionId: string | undefined) {
       if (!isSectionCapability(capability)) return lane.invoke<T>(capability, args, sessionId);
       const value = (await readHeld(protocol, capability, args ?? [])) as T;
