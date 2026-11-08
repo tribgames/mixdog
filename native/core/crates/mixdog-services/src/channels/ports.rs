@@ -211,8 +211,8 @@ impl AutomationServices for WebhookAutomation {
 
     async fn stop(&self) {
         let epoch = self.supersede();
-        // Cancelled only by a later stop, which does this teardown.
-        drop(self.gate.run(&epoch, self.stop_turn()).await);
+        // Cancelled only by a later stop, which does this teardown, so there is nothing to act on.
+        let _ = self.gate.run(&epoch, self.stop_turn()).await;
     }
 }
 
