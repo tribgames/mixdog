@@ -256,6 +256,15 @@ async fn tree(dir: &Path) -> Vec<String> {
     .await
 }
 
+/// The golden's text with `<home>` put back. Every file that names the home is JSON and the
+/// recorder only ever replaced the home inside its strings, so it goes back as string content: a
+/// Windows path's backslashes unescaped would make the file invalid JSON (`\U`, `\.`), and the
+/// folder's untouched state would not even parse while the hooks are still running.
+fn with_home(text: &str, home: &Path) -> String {
+    let quoted = serde_json::to_string(&home.to_string_lossy()).expect("a path is text");
+    text.replace("<home>", &quoted[1..quoted.len() - 1])
+}
+
 /// A state file the hooks edit: compared as JSON, without the clock fields Node stamps.
 fn without_clocks(text: &str) -> Value {
     let mut value: Value = serde_json::from_str(text).expect("JSON");
@@ -274,9 +283,8 @@ async fn differences(golden: &Value, home: &Path) -> Vec<String> {
     for (path, entry) in files.iter().filter(|(path, _)| !store_owned(path)) {
         let file = home.join(path);
         let on_disk = on_maintenance(move |_| mixdog_statefile::read_content(&file)).await.expect("readable").map(|bytes| String::from_utf8(bytes).expect("UTF-8"));
-        let home_text = home.to_string_lossy();
-        let after = entry["after"].as_str().map(|text| text.replace("<home>", &home_text));
-        let before = entry["before"].as_str().map(|text| text.replace("<home>", &home_text));
+        let after = entry["after"].as_str().map(|text| with_home(text, home));
+        let before = entry["before"].as_str().map(|text| with_home(text, home));
         match (&after, &on_disk) {
             (None, None) => {}
             (None, Some(_)) => out.push(format!("not removed: {path}")),
@@ -312,10 +320,9 @@ async fn the_purge_hooks_leave_the_files_a_real_node_delete_leaves() {
     let root = tempfile::tempdir().expect("home");
     let home = root.path();
     let data = home.join("data");
-    let home_text = home.to_string_lossy().into_owned();
     for (path, entry) in golden["files"].as_object().expect("files").iter().filter(|(path, _)| !store_owned(path)) {
         if let Some(before) = entry["before"].as_str() {
-            write(&home.join(path), &before.replace("<home>", &home_text)).await;
+            write(&home.join(path), &with_home(before, home)).await;
         }
     }
     let tokens = mixdog_rt::testing::tokens();
