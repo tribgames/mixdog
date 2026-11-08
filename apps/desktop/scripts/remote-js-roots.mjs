@@ -45,7 +45,8 @@ const packageName = (specifier) => (specifier.startsWith('@') ? specifier.split(
 const resolveFile = (base) =>
   [base, `${base}.mjs`, join(base, 'index.mjs')].find((file) => existsSync(file) && statSync(file).isFile()) ?? null;
 
-/** `{ roots: Map<package, files that import it>, files }` for the entries under `packageRootDir`. */
+/** `{ roots: Map<package, files that import it>, files, reached }` for the entries under `packageRootDir`:
+ *  `files` counts the files the walk reached and `reached` lists them (relative, sorted). */
 export function deriveRemoteRoots({ packageRootDir, entries = remoteJsEntries(packageRootDir) }) {
   const relative = (file) => file.slice(packageRootDir.length + 1).replaceAll('\\', '/');
   const roots = new Map();
@@ -79,7 +80,7 @@ export function deriveRemoteRoots({ packageRootDir, entries = remoteJsEntries(pa
       }
     }
   }
-  return { roots, files: visited.size };
+  return { roots, files: visited.size, reached: [...visited].map(relative).sort() };
 }
 
 /**

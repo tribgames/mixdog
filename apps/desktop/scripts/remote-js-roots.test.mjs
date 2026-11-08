@@ -28,6 +28,26 @@ test('roots are the packages the entry points reach: static, dynamic, createRequ
   assert.deepEqual([...roots.keys()].sort(), ['@scope/beta', 'alpha', 'delta', 'epsilon', 'gamma']);
 });
 
+test('the files an entry reaches are listed: its imports and helpers, not what nothing imports', () => {
+  const root = makeTempDirSync('roots-reached');
+  write(root, 'src/ext-host/worker.mjs', `import './methods.mjs';\n`);
+  write(root, 'src/ext-host/methods.mjs', `import { h } from '../runtime/shared/helper.mjs';\nconst w = new URL('../runtime/office/w.mjs', import.meta.url);\n`);
+  write(root, 'src/runtime/office/w.mjs', `export {};\n`);
+  write(root, 'src/runtime/shared/helper.mjs', `import './barrel.mjs';\n`);
+  write(root, 'src/runtime/shared/barrel.mjs', `export {};\n`);
+  write(root, 'src/ext-host/unused.mjs', `export {};\n`);
+  write(root, 'src/ext-host/x.e2e.test.mjs', `export {};\n`);
+  const { reached, files } = deriveRemoteRoots({ packageRootDir: root, entries: ['src/ext-host/worker.mjs'] });
+  // The helper is outside the extension host's directories: reached, but its own imports are not followed.
+  assert.deepEqual(reached, [
+    'src/ext-host/methods.mjs',
+    'src/ext-host/worker.mjs',
+    'src/runtime/office/w.mjs',
+    'src/runtime/shared/helper.mjs',
+  ]);
+  assert.equal(files, reached.length);
+});
+
 test('the real package: the 13 roots, nothing that only the agent runtime or the desktop loads', () => {
   const repo = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
   const names = [...deriveRemoteRoots({ packageRootDir: repo }).roots.keys()].sort();
