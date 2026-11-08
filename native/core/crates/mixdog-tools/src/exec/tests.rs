@@ -595,8 +595,9 @@ impl SurvivorWatch for FakeSurvivors {
     fn survivors(&self, _: &ProcessHandle) -> Option<Survivors> {
         Some(Survivors { reachable: true })
     }
-    async fn wait_gone(&self, _: &ProcessHandle) {
+    async fn wait_gone(&self, _: &ProcessHandle, _: &CancellationToken) -> bool {
         self.gone.notified().await;
+        true
     }
     async fn kill(&self, _: &ProcessHandle) -> bool {
         use std::sync::atomic::Ordering::SeqCst;

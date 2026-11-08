@@ -3,6 +3,15 @@
 
 use mixdog_core_api::domain::process::ExitStatus;
 
+/// How a wait for a tree to end finished.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Waited {
+    /// A look found nothing of the tree left.
+    Gone,
+    /// The caller's abort was raised first: the tree is neither confirmed gone nor known to run.
+    Aborted,
+}
+
 /// What one look at a command's tree found.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Seen {
@@ -26,6 +35,7 @@ mod imp {
     use std::sync::atomic::Ordering;
 
     use tokio::sync::Notify;
+    use tokio_util::sync::CancellationToken;
     use windows_sys::Win32::Foundation::CloseHandle;
     use windows_sys::Win32::Foundation::HANDLE;
     use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
@@ -45,6 +55,8 @@ mod imp {
     use windows_sys::Win32::System::JobObjects::SetInformationJobObject;
     use windows_sys::Win32::System::JobObjects::TerminateJobObject;
     use windows_sys::Win32::System::Threading::INFINITE;
+
+    use super::Waited;
 
     /// `JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO` (winnt.h), which windows-sys does not export: the
     /// last process of a job ended.
@@ -224,10 +236,23 @@ mod imp {
             self.signal().is_some()
         }
 
+        /// `waitForShellDescendants`: [`Waited::Gone`] when the job is seen empty, [`Waited::Aborted`] when `abort`
+        /// is raised first (already raised: answered before the job is asked).
+        pub(crate) async fn wait_gone(&self, abort: &CancellationToken) -> Waited {
+            if abort.is_cancelled() {
+                return Waited::Aborted;
+            }
+            tokio::select! {
+                biased;
+                () = abort.cancelled() => Waited::Aborted,
+                () = self.until_gone() => Waited::Gone,
+            }
+        }
+
         /// Completes when the job is seen empty; wakes on the port's message. A job that cannot be asked, or that
         /// cannot be watched, is not empty: no message will announce its end, so it is asked again every
         /// `RECHECK`, as Node does where it has no exit event (`TERMINATION_RECHECK_MS`).
-        pub(crate) async fn wait_gone(&self) {
+        async fn until_gone(&self) {
             let Some(notify) = self.signal() else {
                 while self.observe() != super::Seen::Gone {
                     tokio::time::sleep(RECHECK).await;
@@ -274,7 +299,7 @@ mod imp {
         pub(crate) async fn cancel(&self) -> bool {
             for _ in 0..KILL_ROUNDS {
                 self.kill();
-                let _ = tokio::time::timeout(KILL_WAIT, self.wait_gone()).await;
+                let _ = tokio::time::timeout(KILL_WAIT, self.until_gone()).await;
                 if !self.occupied() {
                     return true;
                 }
@@ -310,6 +335,9 @@ mod imp {
     use crate::tree::Observation;
     use crate::tree::Signal;
     use crate::tree::Tree;
+    use tokio_util::sync::CancellationToken;
+
+    use super::Waited;
 
     /// The tree of a child started as its own group leader (`setsid` or `process_group(0)`): one
     /// [`Tree`] follows it by identity, whether the group still has members or not.
@@ -368,10 +396,12 @@ mod imp {
             TRACKING
         }
 
-        /// Completes when the tree is gone ([`Tree::wait_gone`]).
-        pub(crate) async fn wait_gone(&self) {
-            if let Some(tree) = self.tree.get() {
-                tree.wait_gone().await;
+        /// Completes when the tree is gone, or aborted ([`Tree::wait_gone`]). A containment that never
+        /// adopted a root has no tree to wait for.
+        pub(crate) async fn wait_gone(&self, abort: &CancellationToken) -> Waited {
+            match self.tree.get() {
+                Some(tree) => tree.wait_gone(abort).await,
+                None => Waited::Gone,
             }
         }
 

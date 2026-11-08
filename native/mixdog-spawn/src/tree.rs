@@ -27,6 +27,10 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use tokio_util::sync::CancellationToken;
+
+use crate::contain::Waited;
+
 /// `TERMINATION_RECHECK_MS`: how often an observation with no exit event to wake it looks again.
 pub(crate) const RECHECK: Duration = Duration::from_millis(5_000);
 /// The group gets its SIGTERM and this long to end before the SIGKILL (`delay(200)`).
@@ -212,9 +216,12 @@ struct Tracker {
 }
 
 impl Tracker {
-    /// An unreaped child keeps its pid, so then it is ours whatever the table shows. Once reaped the
-    /// pid may be anyone's: the same token or a confirmed absence keep it ours, another token does
-    /// not, and a row we cannot read grants nothing.
+    /// While the root is unreaped, the lifecycle evidence is the ownership proof and its row is not
+    /// consulted: a child that has not been waited for keeps its pid (a zombie holds it), so the pid
+    /// cannot have been reused and cannot name anyone but our root, whether its row reads, is absent
+    /// or is unreadable. Once reaped the pid may be anyone's and only the row decides: the same
+    /// token or a confirmed absence keep it ours, another token does not, and a row we cannot read
+    /// grants nothing. `group_is_ours` and `signal_group` rest on the same proof.
     fn ownership(&self, root: &Row, reaped: bool) -> Ownership {
         if !reaped {
             return Ownership::Ours;
@@ -389,7 +396,8 @@ impl<R: Reader, S: Signals, C: Clock> Tree<R, S, C> {
         observation
     }
 
-    /// Whether the root's pid and group id still name our root's, read now.
+    /// Whether the root's pid and group id still name our root's, read now. An unreaped root is owned
+    /// by its lifecycle ([`Tracker::ownership`]), so then nothing is read.
     fn group_is_ours(&self) -> bool {
         if !self.reaped.load(Ordering::Acquire) {
             return true;
@@ -410,7 +418,9 @@ impl<R: Reader, S: Signals, C: Clock> Tree<R, S, C> {
 
     /// A tree kill of the group while the command still runs, or while the group is still ours. The
     /// root's pid and group id are free for reuse once the root is reaped, so then the table decides
-    /// whether they still name our group; a table that cannot be read signals nothing.
+    /// whether they still name our group; a table that cannot be read signals nothing. While the
+    /// root is unreaped its lifecycle is the proof of ownership ([`Tracker::ownership`]) and its row
+    /// is not read.
     pub(crate) fn signal_group(&self, signal: Signal) {
         if !self.reaped.load(Ordering::Acquire) {
             self.signals.group(self.root, signal);
@@ -424,9 +434,24 @@ impl<R: Reader, S: Signals, C: Clock> Tree<R, S, C> {
         }
     }
 
+    /// `waitForShellDescendants`: completes [`Waited::Gone`] when the tree is gone, or
+    /// [`Waited::Aborted`] when `abort` is raised first, which is Node's `false`: an `abort` already
+    /// raised answers before anything is read, and one raised during the wait ends it without
+    /// another look, whatever that look would have found.
+    pub(crate) async fn wait_gone(&self, abort: &CancellationToken) -> Waited {
+        if abort.is_cancelled() {
+            return Waited::Aborted;
+        }
+        tokio::select! {
+            biased;
+            () = abort.cancelled() => Waited::Aborted,
+            () = self.until_gone() => Waited::Gone,
+        }
+    }
+
     /// Completes when the tree is gone. An exit event wakes it where there is one; otherwise, and
     /// whenever the table cannot be read, it looks again every [`RECHECK`]. Unknown is never gone.
-    pub(crate) async fn wait_gone(&self) {
+    async fn until_gone(&self) {
         loop {
             match self.observe() {
                 Observation::Gone => return,
@@ -538,16 +563,30 @@ mod tests {
         Ok(Table::new(procs.collect()))
     }
 
-    /// Answers every read from the script, the last answer again once it runs out (as Node's script did).
+    /// Answers every table read from the script, the last answer again once it runs out (as Node's script did).
+    ///
+    /// Node's tracker has no single-pid read, so the recording has none. Rust's identity reads (`group_is_ours`, `is_same`)
+    /// are answered from the same recording but on a script of their own: the n-th read of a pid shows that pid in the
+    /// recording's n-th readable table, whatever the table reads have reached. They are Rust's own events, kept in
+    /// `identity_reads` apart from the Node trace's `log`; the complete interleaved sequence of them with the signals is
+    /// asserted by `the_safety_reads_are_made_where_the_contract_says`.
     struct ScriptedReader {
         tables: Vec<Value>,
         reads: AtomicUsize,
+        rows: Mutex<HashMap<u32, usize>>,
+        identity_reads: Log,
         log: Log,
     }
 
     impl ScriptedReader {
         fn new(tables: &Value, log: &Log) -> Self {
-            Self { tables: tables.as_array().unwrap().clone(), reads: AtomicUsize::new(0), log: log.clone() }
+            Self {
+                tables: tables.as_array().unwrap().clone(),
+                reads: AtomicUsize::new(0),
+                rows: Mutex::new(HashMap::new()),
+                identity_reads: Log::default(),
+                log: log.clone(),
+            }
         }
     }
 
@@ -558,12 +597,14 @@ mod tests {
             table_of(&self.tables[at])
         }
 
-        /// A single-pid read shows the table as last served and does not advance the script: Node's tracker has no
-        /// such read, so the recording's tables stay in step with the reads it made.
         fn row(&self, pid: u32) -> io::Result<Row> {
-            push(&self.log, json!({"op": "row"}));
-            let at = self.reads.load(Ordering::SeqCst).saturating_sub(1).min(self.tables.len() - 1);
-            table_of(&self.tables[at]).map(|table| table.row(pid))
+            push(&self.identity_reads, json!({"op": "row", "pid": pid}));
+            let readable: Vec<Table> = self.tables.iter().filter_map(|rows| table_of(rows).ok()).collect();
+            let mut asked = self.rows.lock().unwrap();
+            let nth = asked.entry(pid).or_insert(0);
+            let at = (*nth).min(readable.len() - 1);
+            *nth += 1;
+            Ok(readable[at].row(pid))
         }
     }
 
@@ -717,9 +758,9 @@ mod tests {
                 }
             })
             .await;
-            // Node's events are the reads and signals; the single-pid revalidations are Rust's own and are no event of its.
-            let events: Vec<Value> = log.lock().unwrap().iter().filter(|e| e["op"] != "row").cloned().collect();
-            assert_eq!(Value::Array(events), scenario["events"], "{}", scenario["name"]);
+            // Node's whole trace: its table reads, signals and timers, each in its recorded place.
+            let events = Value::Array(log.lock().unwrap().clone());
+            assert_eq!(events, scenario["events"], "{}", scenario["name"]);
             assert_eq!(terminated, scenario["result"]["terminated"], "{}", scenario["name"]);
         }
     }
@@ -730,15 +771,16 @@ mod tests {
             let (tree, clock, log) = probed(&scenario, ScriptedSignals::new);
             let task = tokio::spawn({
                 let tree = tree.clone();
-                async move { tree.wait_gone().await }
+                async move { tree.wait_gone(&CancellationToken::new()).await }
             });
             let recheck = scenario["result"]["recheckMs"].as_u64().unwrap();
             let mut sleeps = 0;
-            run_gated(task, &clock, &log, |so_far| {
+            let waited = run_gated(task, &clock, &log, |so_far| {
                 assert_eq!(so_far.last().unwrap()["ms"], recheck);
                 sleeps += 1;
             })
             .await;
+            assert_eq!(waited, Waited::Gone, "{}", scenario["name"]);
             let reads = log.lock().unwrap().iter().filter(|e| e["op"] == "read").count() as u64;
             assert_eq!(reads, scenario["result"]["reads"].as_u64().unwrap(), "{}", scenario["name"]);
             assert_eq!(sleeps + 1, reads, "one recheck between looks");
@@ -754,8 +796,33 @@ mod tests {
         let readable: Vec<Value> = scenario["tables"].as_array().unwrap().iter().filter(|t| t.is_array()).cloned().collect();
         scenario["tables"] = Value::Array(readable);
         let (tree, _clock, log) = probed(&scenario, |log| ScriptedSignals { exits: true, ..ScriptedSignals::new(log) });
-        tree.wait_gone().await;
+        assert_eq!(tree.wait_gone(&CancellationToken::new()).await, Waited::Gone);
         assert!(log.lock().unwrap().iter().all(|event| event["op"] == "read"), "no sleep was needed");
+    }
+
+    /// `waitForShellDescendants` with a `signal` (`shell-descendants.mjs`): an abort already raised answers `false`
+    /// before the tree is looked at; one raised while the wait sleeps ends it at once with `false`, even though the
+    /// next look would have found the tree gone, and nothing is read or signalled after it.
+    #[tokio::test]
+    async fn an_abort_ends_the_wait_unconfirmed_and_looks_at_nothing_more() {
+        let scenario = scenarios("wait").remove(0);
+        let (tree, clock, log) = probed(&scenario, ScriptedSignals::new);
+        let raised = CancellationToken::new();
+        raised.cancel();
+        assert_eq!(tree.wait_gone(&raised).await, Waited::Aborted);
+        assert!(log.lock().unwrap().is_empty(), "an abort already raised reads and sleeps nothing");
+
+        let abort = CancellationToken::new();
+        let task = tokio::spawn({
+            let (tree, abort) = (tree.clone(), abort.clone());
+            async move { tree.wait_gone(&abort).await }
+        });
+        clock.entered.notified().await;
+        let parked = log.lock().unwrap().clone();
+        assert_eq!(parked.last().unwrap()["op"], "sleep", "the wait is parked in a recheck");
+        abort.cancel();
+        assert_eq!(task.await.unwrap(), Waited::Aborted);
+        assert_eq!(*log.lock().unwrap(), parked, "nothing is read or signalled once aborted");
     }
 
     /// The group id is the root's pid, free for reuse once the root is reaped: then the table decides.
@@ -798,11 +865,18 @@ mod tests {
     struct Split {
         tables: Mutex<VecDeque<Listing>>,
         rows: Mutex<HashMap<u32, VecDeque<Row>>>,
+        /// Where every read is recorded, in order with the signals, when a test asserts the whole sequence.
+        log: Option<Log>,
     }
 
     impl Split {
         fn new(tables: Vec<Listing>) -> Self {
-            Self { tables: Mutex::new(tables.into()), rows: Mutex::new(HashMap::new()) }
+            Self { tables: Mutex::new(tables.into()), rows: Mutex::new(HashMap::new()), log: None }
+        }
+
+        fn logged(mut self, log: &Log) -> Self {
+            self.log = Some(log.clone());
+            self
         }
 
         fn rows(self, pid: u32, rows: Vec<Row>) -> Self {
@@ -813,12 +887,18 @@ mod tests {
 
     impl Reader for Split {
         fn table(&self) -> io::Result<Table> {
+            if let Some(log) = &self.log {
+                push(log, json!({"op": "read"}));
+            }
             let mut tables = self.tables.lock().unwrap();
             let (procs, unreadable) = if tables.len() > 1 { tables.pop_front().unwrap() } else { tables[0].clone() };
             Ok(Table::with_unreadable(procs, unreadable))
         }
 
         fn row(&self, pid: u32) -> io::Result<Row> {
+            if let Some(log) = &self.log {
+                push(log, json!({"op": "row", "pid": pid}));
+            }
             let mut rows = self.rows.lock().unwrap();
             let Some(script) = rows.get_mut(&pid) else {
                 return Ok(Row::Absent);
@@ -849,6 +929,74 @@ mod tests {
 
     fn kill_of(pid: u32, signal: Value) -> Value {
         json!({"op": "kill", "target": "pid", "id": pid, "signal": signal})
+    }
+
+    /// The Rust safety contract of a cancel, which Node's `killShellDescendants` does not have: the complete sequence of
+    /// table reads, single-pid identity reads, signals and waits for a reaped root whose group and one survivor are
+    /// still ours. Beyond Node's trace it reads the root's row after the group grace (before the group SIGKILL) and the
+    /// survivor's row before the SIGTERM and again after the grace, before the SIGKILL (decisions.md D-SV2).
+    #[tokio::test]
+    async fn the_safety_reads_are_made_where_the_contract_says() {
+        let survivor = proc(7000, 1, ROOT, "s1");
+        let listing = || (vec![survivor.clone()], vec![]);
+        let log = Log::default();
+        let clock = ScriptedClock::new(&log);
+        let reader = Split::new(vec![listing(), listing(), (vec![], vec![])]).rows(7000, vec![Row::Readable(survivor.clone())]).logged(&log);
+        let tree = Arc::new(Tree::new(reader, ScriptedSignals::new(&log), clock.clone(), ROOT, None));
+        tree.root_reaped();
+        assert_eq!(tree.observe(), Observation::Running(vec![Identity { pid: 7000, token: "s1".to_owned() }]));
+        log.lock().unwrap().clear();
+        let task = tokio::spawn({
+            let tree = tree.clone();
+            async move { tree.cancel().await }
+        });
+        assert!(run_gated(task, &clock, &log, |_| {}).await);
+        let group = |signal: Value| json!({"op": "kill", "target": "group", "id": ROOT, "signal": signal});
+        let row = |pid: u32| json!({"op": "row", "pid": pid});
+        let sleep = |ms: u64| json!({"op": "sleep", "ms": ms});
+        let expected = [
+            json!({"op": "read"}),
+            group(json!("SIGTERM")),
+            sleep(200),
+            row(ROOT),
+            group(json!(0)),
+            group(json!("SIGKILL")),
+            sleep(100),
+            row(7000),
+            kill_of(7000, json!("SIGTERM")),
+            sleep(300),
+            kill_of(7000, json!(0)),
+            row(7000),
+            kill_of(7000, json!("SIGKILL")),
+            json!({"op": "read"}),
+        ];
+        assert_eq!(*log.lock().unwrap(), expected);
+    }
+
+    /// An unreaped root is owned by its lifecycle, not by its row: a child that has not been waited for holds its pid, so
+    /// even a row the kernel will not show grants the group. The same row after the reap grants nothing.
+    #[tokio::test]
+    async fn an_unreaped_root_is_owned_by_its_lifecycle_whatever_its_row_reads() {
+        let member = proc(7001, ROOT, ROOT, "m");
+        let observed = |reaped: bool| {
+            let log = Log::default();
+            let reader = Split::new(vec![(vec![member.clone()], vec![ROOT])]);
+            let tree = Tree::new(reader, ScriptedSignals::new(&log), ScriptedClock::new(&log), ROOT, Some("rt".to_owned()));
+            if reaped {
+                tree.root_reaped();
+            }
+            let seen = tree.observe();
+            tree.signal_group(Signal::Kill);
+            let events = log.lock().unwrap().clone();
+            (seen, events)
+        };
+        let kill = json!({"op": "kill", "target": "group", "id": ROOT, "signal": "SIGKILL"});
+        let (seen, events) = observed(false);
+        assert_eq!(seen, Observation::Running(vec![Identity { pid: 7001, token: "m".to_owned() }]), "its group member is adopted");
+        assert_eq!(events, [kill], "the group is signalled without reading the root's row");
+        let (seen, events) = observed(true);
+        assert_eq!(seen, Observation::Unknown, "after the reap an unreadable root adopts nothing");
+        assert_eq!(events, Vec::<Value>::new(), "and the group is not signalled");
     }
 
     /// A survivor whose row the kernel will not show (it changed credentials) is there, not gone, and not verified: the
