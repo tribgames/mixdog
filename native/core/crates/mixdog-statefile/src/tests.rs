@@ -266,7 +266,7 @@ fn concurrent_updates_through_the_lock_lose_nothing() {
                 for _ in 0..10 {
                     let file = file.clone();
                     on_lane(move |lane| {
-                        let opts = Opts { lock_timeout: Some(Duration::from_secs(30)), ..Opts::default() };
+                        let opts = Opts::default();
                         update_json::<_, ()>(
                             lane,
                             &file,
@@ -311,6 +311,47 @@ fn threads_that_release_and_ask_again_cannot_starve_the_others() {
     for thread in threads {
         thread.join().unwrap();
     }
+}
+
+/// A wait in the line of this process spends none of the request's budget: the budget is for the
+/// file (Node's `lockQueue` waits without a deadline and `acquireLock` starts its clock at the
+/// front), so a request that queues behind a live holder takes the free lock when its turn comes,
+/// however long the holder kept it. A budget of one nanosecond is spent before the request is
+/// queued, which is every budget once the holder has held long enough.
+#[test]
+fn waiting_in_line_behind_a_live_holder_spends_none_of_the_budget() {
+    use std::sync::mpsc::channel;
+
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("f.json");
+    let (held_tx, held_rx) = channel();
+    let (release_tx, release_rx) = channel::<()>();
+    let holder = std::thread::spawn({
+        let file = file.clone();
+        move || {
+            on_lane(move |lane| {
+                with_lock(lane, &file, &LockOpts::default(), || {
+                    held_tx.send(()).unwrap();
+                    release_rx.recv().unwrap();
+                })
+                .unwrap();
+            })
+        }
+    });
+    held_rx.recv().unwrap();
+
+    let (queued_tx, queued_rx) = channel();
+    let waiter = std::thread::spawn({
+        let file = file.clone();
+        move || {
+            crate::trace::on_queued(move || queued_tx.send(()).unwrap());
+            on_lane(move |lane| with_lock(lane, &file, &within(Duration::from_nanos(1)), || 7))
+        }
+    });
+    queued_rx.recv().unwrap();
+    release_tx.send(()).unwrap();
+    holder.join().unwrap();
+    assert_eq!(waiter.join().unwrap().unwrap(), 7);
 }
 
 #[test]
