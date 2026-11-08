@@ -367,9 +367,12 @@ impl RouteService {
     }
 
     /// The route of the desktop's control session, which is created before any model is chosen (`ensureControlSession`; only a
-    /// turn needs one, `resolveMissingRouteModelForFirstTurn`): a live route with a model is readied as a task's is, one without
-    /// is left as it is.
+    /// turn needs one, `resolveMissingRouteModelForFirstTurn`). Its runtime's route is the one the config resolves to
+    /// (`resolveRoute(config, {})`; a route with no model takes it at every config adoption, `syncEmptyMainRoute`), so its
+    /// sessionless actions (`setFast`, `setRoute`) act on the Main model. That route is readied as a task's is; a config
+    /// that resolves to no model leaves the route as it is.
     pub async fn ready_control(&self, thread: &ThreadId) -> Result<(), String> {
+        self.sync_empty_main_route(thread)?;
         if self.route_lacks_model(thread) {
             return Ok(());
         }

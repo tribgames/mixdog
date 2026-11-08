@@ -21,6 +21,9 @@ use super::record::Thinking;
 use super::lookup::Obj;
 use super::rosters::CachedWindows;
 use super::service::CatalogService;
+use super::sources::catalog_record;
+use crate::providers::custom::listing::manual_rows;
+use crate::providers::custom::reasoning::is_custom_provider_name;
 use crate::service::admin_route::clean;
 use crate::service::admin_route::truthy;
 
@@ -153,7 +156,21 @@ impl CatalogService {
     /// model, enriched from the catalog layers (`enrichModels`), or the bare
     /// `{id, provider}` placeholder when the provider lists no such model.
     pub fn model_meta(&self, provider: &str, model: &str) -> Value {
-        match self.record_of(provider, model, row_of) {
+        self.model_meta_in(provider, model, None)
+    }
+
+    /// [`Self::model_meta`] for a provider whose config entry is `entry`. A custom provider holds the rows its config
+    /// states from the moment it is built (`_applyCustomRows(_customRows())`, which `getCachedModelInfo` answers, so
+    /// `lookupModelMeta` finds a manual model before any listing); the catalog row, once listed, stands for them.
+    pub fn model_meta_in(&self, provider: &str, model: &str, entry: Option<&Value>) -> Value {
+        let stated = || {
+            if !is_custom_provider_name(provider) {
+                return None;
+            }
+            let stated = manual_rows(entry?).into_iter().find(|record| record.id == model)?;
+            Some(row_of(&catalog_record(&ProviderId::from(provider), stated)))
+        };
+        match self.record_of(provider, model, row_of).or_else(stated) {
             Some(listed) => self.with_lookup(|lookup| enrich_model(lookup, &listed)),
             None => json!({"id": model, "provider": provider}),
         }
@@ -449,6 +466,29 @@ pub(super) mod tests {
         assert!(s.catalog_knows("gpt-5.5", "openai"));
         assert!(!s.catalog_knows("gpt-5.5", "anthropic") && !s.catalog_knows("", "openai"));
         assert_eq!(s.cached_windows("openai-oauth", "gpt-5.5").unwrap().max_context_window, 1_000_000.0);
+    }
+
+    /// A custom provider's manual models are rows from the config alone (`getCachedModelInfo` before any listing): the
+    /// meta of every manual row Node's `effectiveCustomModelRows` recorded for a failed discovery is resolved and
+    /// carries Node's label, where any other model, provider or missing entry stays the bare placeholder.
+    #[tokio::test]
+    async fn a_custom_providers_manual_models_have_meta_before_any_listing() {
+        let golden = crate::providers::listing_row::testing::fixture("oracles/custom-listing.json");
+        let case = golden["cases"].as_array().unwrap().iter().find(|case| case["scenario"] == "failed-with-manual").unwrap();
+        let (config, rows) = (&case["config"], case["rows"].as_array().unwrap());
+        let s = golden_service(Vec::new()).await;
+        let bare = |provider: &str, id: &str| json!({"id": id, "provider": provider});
+        assert!(!rows.is_empty());
+        for node in rows {
+            let id = node["id"].as_str().unwrap();
+            let meta = s.model_meta_in("custom-fixture", id, Some(config));
+            assert!(crate::service::admin_route::model_meta_looks_resolved(Some(&meta)), "{id}");
+            assert_eq!(meta["displayName"], node["name"], "{id} label");
+            assert_eq!(meta["provider"], "custom-fixture");
+            assert_eq!(s.model_meta_in("custom-fixture", id, None), bare("custom-fixture", id), "{id}: no entry");
+            assert_eq!(s.model_meta_in("openai", id, Some(config)), bare("openai", id), "{id}: not a custom provider");
+        }
+        assert_eq!(s.model_meta_in("custom-fixture", "unstated-model", Some(config)), bare("custom-fixture", "unstated-model"));
     }
 
     /// A row's own listed prices are the row's: the picker's meta for a known

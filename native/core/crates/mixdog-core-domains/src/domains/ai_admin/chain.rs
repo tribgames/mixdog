@@ -47,6 +47,8 @@ pub trait RouteFacts: Send + Sync {
 pub struct CatalogFacts {
     pub catalog: Arc<CatalogService>,
     pub readiness: Arc<ProviderReadiness>,
+    /// The provider entries a custom provider's own model rows come from.
+    pub config: Config,
 }
 
 #[async_trait]
@@ -63,7 +65,7 @@ impl RouteFacts for CatalogFacts {
     }
 
     fn model_meta(&self, provider: &str, model: &str) -> Value {
-        self.catalog.model_meta(provider, model)
+        self.catalog.model_meta_in(provider, model, self.config.agent().get("providers").and_then(|providers| providers.get(provider)))
     }
 
     fn window_meta(&self, provider: &str, model: &str, meta: &Value) -> Option<Value> {

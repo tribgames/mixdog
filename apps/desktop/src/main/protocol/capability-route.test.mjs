@@ -8,6 +8,7 @@ import test from 'node:test';
 
 import { ACTION_OVERRIDES } from '../../../../../src/standalone/protocol-session/action-overrides.mjs';
 import { METHOD_ARGS } from '../../../../../src/standalone/protocol-session/method-args.generated.mjs';
+import { createInheritance } from '../../../../../src/session-runtime/lifecycle/inheritance.mjs';
 import { DESKTOP_CAPABILITIES } from '../../shared/contract-capabilities.ts';
 import { createDesktopConnection } from '../connections/desktop-connection.ts';
 import { DesktopServiceClient } from '../desktop-service-client.ts';
@@ -625,5 +626,54 @@ test('the project-branch capabilities Node resolved through the registry send th
   for (const [capability, method] of Object.entries(projectScoped)) {
     const input = { projectPath: 'C:\\work\\app', branch: 'feature' };
     assert.deepEqual(routeCapability(capability, [input]), { method, params: { input } }, capability);
+  }
+});
+
+// `inheritFrom` of a source session the core does not have: the core answers `threadNotFound`, the window shows what Node's own
+// `inheritFrom` throws (run here, over an empty heir and a manager that holds no session).
+test('inheritFrom of a missing session is refused with the text Node throws', async () => {
+  const node = createInheritance(
+    {
+      getSession: () => ({ id: 'heir-1', messages: [] }),
+      getRoute: () => ({}),
+      mgr: { getSession: () => null },
+      createCurrentSession: async () => {},
+      invalidateContextStatusCache: () => {},
+      getReservedSessionId: () => '',
+    },
+    { compactConversation: async () => null, saveSession: () => {} }
+  );
+  const thrown = await node.inheritFrom('src-1', { compact: false }).then(
+    () => assert.fail('Node inherits from a session that is not there'),
+    (error) => error.message
+  );
+  const missing = Object.assign(new Error('rpc'), {
+    detail: { kind: 'rpc', code: -32600, data: { reason: 'threadNotFound', threadId: 'src-1' } },
+  });
+  const { lane } = recordingLane(async () => {
+    throw missing;
+  });
+  await assert.rejects(lane.invoke('inheritFrom', ['src-1', { compact: false }], 'heir-1'), { message: thrown });
+  const other = new Error('core busy');
+  await assert.rejects(recordingLane(async () => { throw other; }).lane.invoke('inheritFrom', ['src-1'], 'heir-1'), other);
+});
+
+// The quota auto-resume switch is a published `config` subtree of its own (one section entry per subtree, keyed by the subtree's
+// name), holding the boolean. Node's recorded `quotaAutoResumeEnabled()` over each stored config (`fixtures/quota-auto-resume`,
+// where the switch is `quotaResume.autoResume`; the 1.4.5 migration moves it to `quotaAutoResume`) is what the lane reads, whatever
+// other subtree the section lists first.
+test('getQuotaAutoResume reads the quotaAutoResume subtree and answers what Node recorded for each stored switch', async () => {
+  const golden = JSON.parse(
+    readFileSync(new URL('../../../../../native/core/fixtures/quota-auto-resume/golden.json', import.meta.url), 'utf8')
+  );
+  assert.ok(golden.reads.length > 0);
+  for (const read of golden.reads) {
+    const { world, lane } = recordingLane();
+    world.shell.push({ section: 'config', key: 'desktop', value: { editor: {} } });
+    const section = read.config?.quotaResume;
+    if (section && Object.hasOwn(section, 'autoResume')) {
+      world.shell.push({ section: 'config', key: 'quotaAutoResume', value: section.autoResume });
+    }
+    assert.equal(await lane.getQuotaAutoResume(), read.enabled, read.name);
   }
 });

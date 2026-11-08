@@ -244,7 +244,7 @@ fn tri(value: Option<bool>) -> Capability {
 
 /// An adapter's listed record as a catalog record: what the provider states,
 /// before metadata enrichment.
-fn catalog_record(provider: &ProviderId, listed: mixdog_core_api::domain::provider::ModelRecord) -> ModelRecord {
+pub(super) fn catalog_record(provider: &ProviderId, listed: mixdog_core_api::domain::provider::ModelRecord) -> ModelRecord {
     let mut record = ModelRecord::new(provider.clone(), listed.id);
     // `display || name` is every Node reader's label.
     record.display_name = listed.display_name.or_else(|| listed.name.clone());
