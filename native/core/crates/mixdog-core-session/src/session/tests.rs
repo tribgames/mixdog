@@ -1211,6 +1211,47 @@ async fn a_turn_creates_the_session_of_a_thread_that_has_none() {
     assert_eq!(*lock(&steps), [json!(["adopt", "sess_control"]), json!(["seat", "sess_control"])]);
 }
 
+/// `inheritFrom` into a session that exists (`lifecycle/inheritance.mjs`): the checks run in Node's order and carry its texts
+/// (the heir is not the source, it holds no conversation, the source has one), and the conversation lands in the heir, which
+/// keeps its own record, route and title and names the source (`inheritedFromSessionId`).
+#[tokio::test(start_paused = true)]
+async fn an_inherit_into_an_existing_heir_carries_the_conversation_as_node_does() {
+    let rig = Rig::new();
+    let directory = SessionDirectory::new(rig.deps());
+    let header = |value: Value| value.as_object().cloned().expect("header");
+    let route = json!({ "cwd": "/ws", "provider": "custom-harness", "model": "harness-model" });
+    for id in ["sess_source", "sess_empty", "sess_heir"] {
+        directory.create_with_id(ThreadId::from(id), header(route.clone()), json!({})).await.expect("create");
+    }
+    let ctx = CallContext::internal("test");
+    let append = |id: &'static str, messages: Value| {
+        let directory = &directory;
+        let ctx = ctx.clone();
+        async move {
+            let handle = directory.open_handle(&ThreadId::from(id), &ctx).await.expect("open");
+            let request = CoreRequest { method: mixdog_core_api::ids::Method("thread/roomRows/append"), params: json!({ "messages": messages }), op: None, ctx };
+            handle.request(request).await.expect("append");
+        }
+    };
+    let message = |role: &str, text: &str, id: &str| json!({ "role": role, "content": text, "meta": { "transcript": { "messageId": id, "at": 1 } } });
+    append("sess_source", json!([message("user", "hello", "m1"), message("assistant", "hi", "m2")])).await;
+    let inherit = |source: &'static str, heir: &'static str| {
+        let params = json!({ "threadId": source, "intoThreadId": heir, "opId": "op-inherit" });
+        directory.request(request("thread/fork", params, "op-inherit"))
+    };
+    let refusal = |result: Result<Reply, CoreError>| format!("{:?}", result.err().expect("refused"));
+    assert!(refusal(inherit("sess_source", "sess_source").await).contains("inheritFrom: a session cannot inherit from itself"));
+    assert!(refusal(inherit("sess_empty", "sess_heir").await).contains("inheritFrom: the source session has no conversation to carry"));
+    let Reply::Value(done) = inherit("sess_source", "sess_heir").await.expect("inherit") else { panic!("a value") };
+    assert_eq!((done["messages"].clone(), done["thread"]["id"].clone(), done["provider"].clone(), done["model"].clone()),
+        (json!(2), json!("sess_heir"), json!("custom-harness"), json!("harness-model")));
+    let heir = directory.open_handle(&ThreadId::from("sess_heir"), &ctx).await.expect("open");
+    assert_eq!(heir.cell.header.load().get("inheritedFromSessionId"), Some(&json!("sess_source")));
+    let carried: Vec<String> = directory.rows_of("sess_heir").await.expect("rows").iter().map(|m| m["content"].as_str().unwrap_or_default().to_owned()).collect();
+    assert_eq!(carried, ["hello", "hi"]);
+    assert!(refusal(inherit("sess_source", "sess_heir").await).contains("inheritFrom: this session already holds a conversation"));
+}
+
 /// A route the adoption refuses (a default with no model, as Node's `prepareRoute` throws) fails
 /// `thread/start` with that text and no code before anything else runs: no tools are composed and
 /// no thread exists.
