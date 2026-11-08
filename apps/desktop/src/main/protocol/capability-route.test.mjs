@@ -6,15 +6,15 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { ACTION_OVERRIDES } from '../../../../../src/standalone/protocol-session/action-overrides.mjs';
+import { ACTION_OVERRIDES, OVERRIDE_THREAD_SOURCE } from '../../../../../src/standalone/protocol-session/action-overrides.mjs';
 import { METHOD_ARGS } from '../../../../../src/standalone/protocol-session/method-args.generated.mjs';
 import { createInheritance } from '../../../../../src/session-runtime/lifecycle/inheritance.mjs';
 import { DESKTOP_CAPABILITIES } from '../../shared/contract-capabilities.ts';
 import { createDesktopConnection } from '../connections/desktop-connection.ts';
 import { DesktopServiceClient } from '../desktop-service-client.ts';
 import {
-  MCP_CAPABILITIES,
-  THREAD_REQUIRED_CAPABILITIES,
+  DESKTOP_OVERRIDES,
+  DESKTOP_OVERRIDE_THREAD_SOURCE,
   createCapabilityLane,
   routeCapability,
 } from './capability-route.ts';
@@ -167,36 +167,54 @@ test('a reply carries the state of the addressed thread, read from the core at t
   );
 });
 
-test('an MCP action without a session names the control thread; the set is the mcp and connector ops', async () => {
-  const routed = DESKTOP_CAPABILITIES.filter(
-    (capability) => MCP_CAPABILITIES.has(capability) && !NOT_ROUTED.includes(capability)
-  );
-  assert.deepEqual(
-    [...routed].sort(),
-    DESKTOP_CAPABILITIES.filter((capability) => {
-      if (NOT_ROUTED.includes(capability)) return false;
-      const { method } = routeCapability(capability, [], 'pane-1');
-      return method.startsWith('mcp/') || method.startsWith('connector/');
-    }).sort()
-  );
-  for (const capability of routed) {
+// The capabilities whose op takes the session as `threadId`, derived from the ops themselves: routed for a session, `threadId`
+// is the session and the Rust schema declares it. An op that names its target in an argument (`deleteSession`) is not one.
+const SESSION_CALLS = DESKTOP_CAPABILITIES.filter((capability) => {
+  if (NOT_ROUTED.includes(capability)) return false;
+  const { method, params } = routeCapability(capability, [], 'pane-1');
+  return params.threadId === 'pane-1' && 'threadId' in paramsSchema(method).properties;
+});
+
+test('a call that takes a session, without one, names the control thread; a call whose op has none names no thread', async () => {
+  assert.ok(SESSION_CALLS.length > 100);
+  // retryFailedTurn is the one whose thread is an argument that falls back to the call's session when left out.
+  for (const capability of [...SESSION_CALLS, 'retryFailedTurn']) {
     const { calls, lane } = recordingLane();
     await lane.invoke(capability, [], undefined);
     await lane.invoke(capability, [], 'pane-1');
+    assert.equal(calls.length, 2, capability);
     assert.deepEqual(
       calls.map((call) => call.params.threadId),
       ['control-1', 'pane-1'],
       capability
     );
+    assert.equal(calls[0].method, calls[1].method, capability);
+  }
+  const others = DESKTOP_CAPABILITIES.filter(
+    (capability) => !NOT_ROUTED.includes(capability) && !SESSION_CALLS.includes(capability) && capability !== 'retryFailedTurn'
+  );
+  for (const capability of others) {
+    const { calls, lane } = recordingLane();
+    await lane.invoke(capability, [], undefined);
+    assert.ok(!('threadId' in (calls[0]?.params ?? {})), capability);
   }
 });
 
-test('a call that is not an MCP action and has no session names no thread', async () => {
-  const { calls, lane } = recordingLane();
-  await lane.invoke('getAutoClear', [], undefined);
-  assert.deepEqual(calls, [{ method: 'config/getAutoClear', params: {} }]);
+// These were outside the lane's hand lists (`THREAD_REQUIRED_CAPABILITIES`, `MCP_CAPABILITIES`), so the core got no `threadId`
+// and answered from the user cwd or its own folder. Node serves every one from the control session.
+test('the capabilities no list named reach the control thread without a session', async () => {
+  for (const capability of ['toolsStatus', 'listInstructionFiles', 'getInstructionFile', 'saveInstructionFile', 'resetInstructionFile', 'setInstructionFiles', 'memoryControl', 'recall', 'skillsStatus', 'reloadSkills']) {
+    const { calls, lane } = recordingLane();
+    await lane.invoke(capability, [], undefined);
+    assert.equal(calls[0].params.threadId, 'control-1', capability);
+  }
 });
 
+test('a call whose op has no threadId names no thread', async () => {
+  const { calls, lane } = recordingLane();
+  await lane.invoke('listProviderModels', [{ quick: false }], undefined);
+  assert.deepEqual(calls, [{ method: 'model/list', params: { quick: false } }]);
+});
 test('a reply shows the approvals the core is waiting on for its thread, as the library projects them', async () => {
   const { emit, lane } = recordingLane();
   const ask = (id, thread, order, method = 'item/tool/requestApproval') => ({
@@ -236,10 +254,60 @@ test('retryFailedTurn keeps the session it names, and takes the addressed thread
   const { calls, lane } = recordingLane();
   await lane.invoke('retryFailedTurn', ['pane-9', 'turn-1'], undefined);
   await lane.invoke('retryFailedTurn', [undefined, 'turn-2'], undefined);
+  await lane.invoke('retryFailedTurn', [undefined, 'turn-3'], 'pane-2');
+  await lane.invoke('retryFailedTurn', ['pane-9', 'turn-4'], 'pane-2');
   assert.deepEqual(calls, [
     { method: 'turn/retryFailed', params: { threadId: 'pane-9', turnKey: 'turn-1' } },
     { method: 'turn/retryFailed', params: { threadId: 'control-1', turnKey: 'turn-2' } },
+    { method: 'turn/retryFailed', params: { threadId: 'pane-2', turnKey: 'turn-3' } },
+    { method: 'turn/retryFailed', params: { threadId: 'pane-9', turnKey: 'turn-4' } },
   ]);
+});
+
+// Every override declares where its thread comes from (`OVERRIDE_THREAD_SOURCE`, `DESKTOP_OVERRIDE_THREAD_SOURCE`); the
+// declaration is checked against what the override builds, and the lane routes on the declaration alone.
+test('every override declares its thread source, and the declaration is what the override does', () => {
+  assert.deepEqual(Object.keys(OVERRIDE_THREAD_SOURCE).sort(), Object.keys(ACTION_OVERRIDES).sort());
+  assert.deepEqual(Object.keys(DESKTOP_OVERRIDE_THREAD_SOURCE).sort(), Object.keys(DESKTOP_OVERRIDES).sort());
+  const declared = { ...OVERRIDE_THREAD_SOURCE, ...DESKTOP_OVERRIDE_THREAD_SOURCE };
+  for (const [capability, source] of Object.entries(declared)) {
+    assert.ok(['session', 'argument', 'argument-else-session', 'none'].includes(source), `${capability}: ${source}`);
+    const withSession = routeCapability(capability, [], 'pane-1');
+    const without = routeCapability(capability, [], undefined);
+    if (source === 'session') assert.equal(withSession.params.threadId, 'pane-1', capability);
+    else if (source === 'none') assert.deepEqual(withSession, without, capability);
+    // `inheritFrom` also binds the call's session as the heir (`intoThreadId`); its `threadId` is the argument's.
+    else if (source === 'argument') assert.equal(withSession.params.threadId, without.params.threadId, `${capability}: the call's session is not its thread`);
+  }
+  assert.equal(routeCapability('retryFailedTurn', [undefined, 't'], 'pane-1').params.threadId, undefined);
+});
+
+// An explicit target is whatever id the caller names, a valid session id included, `control-1` the control thread's and the
+// ids a routing helper might pick for itself too: it is never taken for the call's session and the request is as routed.
+test('an explicit target is never rerouted, whatever valid id it holds', async () => {
+  const targets = ['session-probe', 'control-1', 'pane-1', 'sess_0123456789abcdef'];
+  const withTarget = {
+    inheritFrom: (id) => [id, { compact: false }],
+    deleteSession: (id) => [id],
+    deleteSessionIfIdle: (id) => [id, 'turn-1'],
+    renameSessionTitle: (id) => [id, 'title'],
+    scheduleQuotaResume: (id) => [id],
+    cancelQuotaResume: (id) => [id],
+    continueSessionInModel: (id) => [id, { provider: 'openai', model: 'gpt-5' }],
+    retryFailedTurn: (id) => [id, 'turn-1'],
+  };
+  const arguments_ = Object.entries(OVERRIDE_THREAD_SOURCE).filter(([, source]) => source.startsWith('argument')).map(([name]) => name);
+  assert.deepEqual(Object.keys(withTarget).sort(), arguments_.sort());
+  for (const [capability, build] of Object.entries(withTarget)) {
+    for (const id of targets) {
+      const { calls, lane } = recordingLane(async (method) => (method === 'thread/fork' ? { thread: { id: 'heir' } } : { ok: true }));
+      await lane.invoke(capability, build(id), undefined);
+      assert.deepEqual(calls, [routeCapability(capability, build(id), undefined)], `${capability}(${id})`);
+    }
+  }
+  const { calls, lane } = recordingLane(async () => ({ thread: { id: 'heir-1' } }));
+  await lane.invoke('inheritFrom', ['session-probe', { compact: false }], 'heir-1');
+  assert.deepEqual(calls, [{ method: 'thread/fork', params: { threadId: 'session-probe', intoThreadId: 'heir-1', compact: false } }]);
 });
 
 test('the control thread is a control-kind thread started once and kept', async () => {
@@ -261,18 +329,6 @@ test('a failed start of the control thread is tried again by the next call', asy
   assert.deepEqual(value, { ok: true });
   assert.equal(world.starts, 1);
 });
-
-for (const capability of THREAD_REQUIRED_CAPABILITIES) {
-  test(`${capability} with no session runs on the control thread, and on its own thread with one`, async () => {
-    const { calls, lane } = recordingLane();
-    await lane.invoke(capability, [], undefined);
-    await lane.invoke(capability, [], 'pane-1');
-    assert.equal(calls.length, 2);
-    assert.equal(calls[0].params.threadId, 'control-1');
-    assert.equal(calls[1].params.threadId, 'pane-1');
-    assert.equal(calls[0].method, calls[1].method);
-  });
-}
 
 test('clear asks for the prompt rebuild only with rebuildPrompt, and inheritFrom answers as Node does', async () => {
   const { calls, lane } = recordingLane(async (method) =>
@@ -332,7 +388,6 @@ test('every capability the desktop declares is in the spec map', () => {
 test('every routed capability sends the op the spec map names, with params the Rust schema declares', () => {
   const routed = DESKTOP_CAPABILITIES.filter((capability) => !NOT_ROUTED.includes(capability));
   assert.equal(routed.length + NOT_ROUTED.length, DESKTOP_CAPABILITIES.length);
-  const requiresThread = [];
   for (const capability of routed) {
     const target = specActions.get(capability);
     const wanted = target.kind === 'method' ? [target.target] : target.kind === 'methods' ? target.target : [];
@@ -348,19 +403,16 @@ test('every routed capability sends the op the spec map names, with params the R
       assert.ok(name in schema.properties, `${capability}: ${name} is a param of ${method}`);
     }
     assert.equal('threadId' in params, 'threadId' in schema.properties, `${capability}: threadId follows the schema`);
-    if ((schema.required ?? []).includes('threadId')) requiresThread.push(capability);
     if (verbatim) {
       for (const name of (schema.required ?? []).filter((required) => required !== 'opId')) {
         assert.ok(name in params, `${capability}: ${method} requires ${name}`);
       }
     }
   }
-  // The ops that cannot run without a thread are exactly the ones the lane addresses to the control thread: the ones whose
+  // The ops that cannot run without a thread are session calls, which the lane addresses to the control thread: the ones whose
   // schema requires it, and the eight whose optional `threadId` the Rust handler needs (`thread_of`, or `null` without one).
-  assert.deepEqual(
-    [...requiresThread, ...HANDLER_REQUIRES_THREAD].sort(),
-    [...THREAD_REQUIRED_CAPABILITIES].sort()
-  );
+  const requiresThread = routed.filter((capability) => (paramsSchema(routeCapability(capability, [], 'pane-1').method).required ?? []).includes('threadId'));
+  for (const capability of [...requiresThread, ...HANDLER_REQUIRES_THREAD.filter((name) => DESKTOP_CAPABILITIES.includes(name))]) assert.ok(SESSION_CALLS.includes(capability) || capability === 'retryFailedTurn', capability);
   for (const capability of HANDLER_REQUIRES_THREAD) {
     const { method } = routeCapability(capability, [], 'pane-1');
     assert.ok(!(paramsSchema(method).required ?? []).includes('threadId'), `${capability}: the schema leaves threadId optional`);
@@ -402,9 +454,9 @@ test('reads are answered together, in order, from the control session whatever s
   assert.deepEqual(
     [...calls].sort(byMethod),
     [
-      { method: 'config/getAutoClear', params: {} },
+      { method: 'config/getAutoClear', params: { threadId: 'control-1' } },
       { method: 'mcp/mcpStatus', params: { threadId: 'control-1' } },
-      { method: 'skills/skillsStatus', params: { options: { cwd: '/w' } } },
+      { method: 'skills/skillsStatus', params: { threadId: 'control-1', options: { cwd: '/w' } } },
     ].sort(byMethod)
   );
   // Node's readCapabilities never reads a request's sessionId, and a read reads no state; only the MCP read is addressed
@@ -608,13 +660,47 @@ test('a draft skillsStatus names its Project in options, never a folder, and a s
   await lane.read([{ capability: 'skillsStatus', args: [{ projectPath: 'C:\\work\\app' }] }, { capability: 'skillsStatus', args: [] }]);
   await lane.invoke('skillsStatus', [{ projectPath: '' }], 'pane-1');
   assert.deepEqual(calls, [
-    { method: 'skills/skillsStatus', params: { options: { projectPath: 'C:\\work\\app' } } },
-    { method: 'skills/skillsStatus', params: { options: { projectPath: 'C:\\work\\app' } } },
-    { method: 'skills/skillsStatus', params: {} },
+    { method: 'skills/skillsStatus', params: { threadId: 'control-1', options: { projectPath: 'C:\\work\\app' } } },
+    { method: 'skills/skillsStatus', params: { threadId: 'control-1', options: { projectPath: 'C:\\work\\app' } } },
+    { method: 'skills/skillsStatus', params: { threadId: 'control-1' } },
     { method: 'skills/skillsStatus', params: { threadId: 'pane-1', options: { projectPath: '' } } },
   ]);
 });
 
+// `fixtures/skills-control-cwd/golden.json`: what Node's five skills actions answered on the control session, whole
+// (record-skills-control-cwd.mjs, Node b6f10295a); `cwdAt` is where the session folder is in each answer (`cwd` for the
+// reads, `status.cwd` for the three mutations). The core answers a skills request from its `threadId`'s folder and one without
+// from the folder it was started in. The fake core answers Node's recorded response with the folder put at `cwdAt`.
+test('the skills actions without a session answer the control session folder at the place Node answers it', async () => {
+  const golden = JSON.parse(
+    readFileSync(new URL('../../../../../native/core/fixtures/skills-control-cwd/golden.json', import.meta.url), 'utf8')
+  );
+  const sessionFolder = golden.sessionFolder.replaceAll('/', '\\');
+  const folders = { 'control-1': sessionFolder };
+  const walk = (value, path) => path.split('.').reduce((at, key) => at[key], value);
+  const inputs = {
+    skillsStatus: [],
+    addSkill: [{ name: 'control-skill', description: 'Use when recording the control folder.' }],
+    saveSkill: [{ originalName: 'control-skill', name: 'control-skill', description: 'Use when saved.', instructions: '# Saved' }],
+    removeSkill: [{ name: 'control-skill' }],
+    reloadSkills: [],
+  };
+  assert.deepEqual(Object.keys(golden.answered), Object.keys(inputs));
+  for (const [capability, args] of Object.entries(inputs)) {
+    const { cwdAt, response } = golden.answered[capability];
+    const { lane } = recordingLane(async (method, params) => {
+      assert.equal(method, `skills/${capability}`);
+      const answer = structuredClone(response);
+      const parentPath = cwdAt.split('.').slice(0, -1).join('.');
+      const parent = parentPath ? walk(answer, parentPath) : answer;
+      parent[cwdAt.split('.').at(-1)] = folders[params.threadId] ?? '<daemon process folder>';
+      return answer;
+    });
+    const { value } = await lane.invoke(capability, args);
+    assert.equal(walk(value, cwdAt), sessionFolder, capability);
+    assert.deepEqual(Object.keys(value), Object.keys(response), `${capability}: the shape Node answers`);
+  }
+});
 test('the project-branch capabilities Node resolved through the registry send their projectPath for the core to resolve', () => {
   const projectScoped = {
     getProjectBranchMenu: 'project/getProjectBranchMenu',

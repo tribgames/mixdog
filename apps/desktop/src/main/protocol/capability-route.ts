@@ -1,16 +1,16 @@
 // The renderer's session capabilities over the one protocol connection (protocol.md §12.3-12.4): `invokeCapability`
 // and `readCapabilities` become `<namespace>/<action>` with the positional arguments as the method's named params, and
-// the session the call is addressed to as `threadId`. A call without a session is the control session's: no
-// `threadId` (a thread-scoped request is `thread_id`, a control one `global(<domain>)`, protocol.md §12 preamble).
+// the session the call is addressed to as `threadId`. A call without a session is the control session's (Node's
+// `invokeCapability`/`readCapabilities`): the control thread is named as `threadId` for every op that takes one.
 // The routing table is the TUI's (`src/standalone/protocol-session`); only actions the TUI does not route are added.
-// The control session is a real thread of the core, started on first need and addressed by the ops that require one and by
-// the MCP actions (Node sends the control session's id with every MCP action, session and control path alike).
+// The control session is a real thread of the core, started on first need.
 import {
   desktopSessionState,
   sessionReducer,
 } from '../../../../../packages/protocol-client/src/index.ts';
-import { ACTION_NAMESPACES } from '../../../../../src/standalone/protocol-session/action-namespaces.mjs';
+import { ACTION_OVERRIDES, OVERRIDE_THREAD_SOURCE } from '../../../../../src/standalone/protocol-session/action-overrides.mjs';
 import { resolveAction } from '../../../../../src/standalone/protocol-session/action-route.mjs';
+import { METHOD_ARGS } from '../../../../../src/standalone/protocol-session/method-args.generated.mjs';
 import type {
   DesktopCapability,
   DesktopCapabilityReadRequest,
@@ -44,7 +44,7 @@ const defined = (params: Record<string, unknown>, threadId: string | undefined):
 // Actions whose Rust op exists under another namespace or name than `<namespace>/<action>` (operations_map.json:
 // `getBotOrder`/`setBotOrder` → `config/*`, `setAgentRoute` → `route/set{agentId, route}`) and that the TUI lacks, plus the
 // seven the gap analysis closed (desktop-gaps-1: queue edits, review reads, `setModel`).
-const DESKTOP_OVERRIDES: Readonly<Record<string, Override>> = {
+export const DESKTOP_OVERRIDES: Readonly<Record<string, Override>> = {
   getBotOrder: (_args, { threadId }) => ({ method: 'config/getBotOrder', params: defined({}, threadId) }),
   setBotOrder: ([order], { threadId }) => ({ method: 'config/setBotOrder', params: defined({ order }, threadId) }),
   setAgentRoute: ([agentId, route], { threadId }) => ({
@@ -95,6 +95,21 @@ const DESKTOP_OVERRIDES: Readonly<Record<string, Override>> = {
   }),
 };
 
+/** Where each desktop override's thread comes from (see `OVERRIDE_THREAD_SOURCE`): every one addresses the call's session. */
+export const DESKTOP_OVERRIDE_THREAD_SOURCE: Readonly<Record<string, string>> = {
+  getBotOrder: 'session',
+  setBotOrder: 'session',
+  setAgentRoute: 'session',
+  prioritizeQueued: 'session',
+  restoreQueued: 'session',
+  getSessionReviewDiff: 'session',
+  getSessionReviewFilePatch: 'session',
+  getTurnReviewDiff: 'session',
+  getTurnReviewFilePatch: 'session',
+  getTurnChanges: 'session',
+  setModel: 'session',
+  clear: 'session',
+};
 /** The core request for `capability(...args)` issued by the surface that paints `sessionId` (none = control session).
  *  An action with no Rust op is refused here, before anything is sent: `unknownMethod`. */
 export function routeCapability(capability: string, args: readonly unknown[], sessionId?: string): CapabilityRoute {
@@ -137,31 +152,6 @@ export interface ShellJobResult {
   error?: string;
 }
 
-/** The converted capabilities whose op needs a `threadId`. Node serves them from its control session when the call has
- *  no session, so a call without one is addressed to the control thread. Most have a schema-required `threadId`; eight have
- *  an optional one that their handler refuses to go without (`getBranchMenu`, `setOutputStyle`, `setOrchestrationMode`,
- *  `setRoute`, `setFast`, `selectBranch`, `requestWorktree`: `thread_of`), or answers `null` without (`contextStatus`: the daemon has no
- *  ambient current session, while Node's control session answers its own, empty, status record). */
-export const THREAD_REQUIRED_CAPABILITIES: ReadonlySet<string> = new Set([
-  'rewindToItem',
-  'retryFailedTurn',
-  'stopShellJobs',
-  'releaseShellJob',
-  'goalControl',
-  'compact',
-  'clear',
-  'prioritizeQueued',
-  'restoreQueued',
-  'getBranchMenu',
-  'setOutputStyle',
-  'setOrchestrationMode',
-  'contextStatus',
-  'setRoute',
-  'setFast',
-  'selectBranch',
-  'requestWorktree',
-]);
-
 /** The capabilities that name their session as an argument and that Node answers, for a session that is not there, with
  *  `session is not the active session` (`session-api/lifecycle.mjs`, `quota-resume.mjs` `requireAddressed`); the core
  *  answers `threadNotFound`. */
@@ -176,14 +166,22 @@ const isThreadNotFound = (error: unknown): boolean => {
   return detail?.kind === 'rpc' && detail.data?.reason === 'threadNotFound';
 };
 
-/** The capabilities served by the core's `mcp/*` and `connector/*` ops: the same set as Node's `MCP_ACTIONS`
- *  (`session-host-transport.ts`). A call of one without a session is addressed to the control thread, whose scope is the
- *  draft scope a request with no `threadId` would have named. */
-export const MCP_CAPABILITIES: ReadonlySet<string> = new Set([
-  ...ACTION_NAMESPACES.mcp,
-  ...ACTION_NAMESPACES.connector,
-]);
-
+/** Whether `capability(...args)` addresses the call's own session, from declared metadata only: the generated method table's
+ *  `thread` flag (`METHOD_ARGS`) for an ordinary mapping, and for an override its declared source
+ *  (`OVERRIDE_THREAD_SOURCE`, `DESKTOP_OVERRIDE_THREAD_SOURCE`). Node sends every call that names no session to the control
+ *  session (`session-host-lifecycle.ts` `invokeCapability`/`readCapabilities`), so such a call without a session is addressed to
+ *  the control thread; the core would otherwise answer from the user cwd or its own process folder. An op that has no thread, and an
+ *  op whose thread is an argument (`deleteSession(sessionId)`, `inheritFrom(sourceId)`), is left as it is, whatever id the argument
+ *  holds; `retryFailedTurn` takes the session only when its argument is left out. An action with no op throws. */
+const usesCallSession = (capability: string, args: readonly unknown[]): boolean => {
+  const { method } = routeCapability(capability, args);
+  let source: string | undefined;
+  if (Object.hasOwn(DESKTOP_OVERRIDES, capability)) source = DESKTOP_OVERRIDE_THREAD_SOURCE[capability];
+  else if (Object.hasOwn(ACTION_OVERRIDES, capability)) source = OVERRIDE_THREAD_SOURCE[capability];
+  else source = METHOD_ARGS[method]?.thread ? 'session' : 'none';
+  if (source === undefined) throw new Error(`capability ${capability} declares no thread source`);
+  return source === 'session' || (source === 'argument-else-session' && !args[0]);
+};
 const failureMessage = (error: unknown): string => {
   const shown = coreErrorForWindow(error);
   return shown instanceof Error ? shown.message : String(shown);
@@ -241,11 +239,8 @@ export function createCapabilityLane({
       return undefined;
     }
     let thread = sessionId;
-    if (!thread && (THREAD_REQUIRED_CAPABILITIES.has(capability) || MCP_CAPABILITIES.has(capability))) {
-      // An action with no op fails here, before a thread is started for it.
-      routeCapability(capability, args);
-      thread = await controlThread();
-    }
+    // An action with no op fails in `usesCallSession`, before a thread is started for it.
+    if (!thread && usesCallSession(capability, args)) thread = await controlThread();
     // `retryFailedTurn(sessionId, turnKey)` names its thread as its first argument; left out, it is the one addressed.
     const named = capability === 'retryFailedTurn' && !args[0] ? [thread, ...args.slice(1)] : args;
     const { method, params } = routeCapability(capability, named, thread);
@@ -352,8 +347,8 @@ export function createCapabilityLane({
       if (!normalized) throw new TypeError('Session title is invalid.');
       await send('renameSessionTitle', [id, normalized], id);
     },
-    // Node answers every read from the control session and ignores the request's `sessionId`; so does this (an MCP read is
-    // addressed to the control thread, as Node's carrier does). Reads are
+    // Node answers every read from the control session and ignores the request's `sessionId`; so does this (a read that takes a
+    // `threadId` is addressed to the control thread). Reads are
     // independent getters, answered together; the result order stays positional.
     read: (requests) =>
       Promise.all(

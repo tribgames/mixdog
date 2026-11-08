@@ -69,3 +69,32 @@ export const ACTION_OVERRIDES = Object.freeze({
   setFast: ([on], { threadId }) => ({ method: 'fast/set', params: { threadId, on } }),
   setRoute: ([route], { threadId }) => ({ method: 'route/set', params: { threadId, route } }),
 });
+
+/**
+ * Where each override's thread comes from, declared per override (every key of `ACTION_OVERRIDES` has one):
+ * - `session`: the call's session (`ctx.threadId`) is the thread the request addresses.
+ * - `argument`: the thread is an argument (`sessionId`); the call's session plays no part in it. `inheritFrom` is one: its
+ *   `threadId` is the source argument, and `intoThreadId` is the session the call is already bound to.
+ * - `argument-else-session`: an argument, and when it is left out the call's session (`retryFailedTurn`).
+ * - `none`: the request carries no thread.
+ */
+export const OVERRIDE_THREAD_SOURCE = Object.freeze({
+  clear: 'session',
+  compact: 'session',
+  rewindToItem: 'session',
+  renameSessionTitle: 'argument',
+  deleteSession: 'argument',
+  deleteSessionIfIdle: 'argument',
+  stopShellJob: 'session',
+  releaseShellJob: 'session',
+  stopShellJobs: 'session',
+  scheduleQuotaResume: 'argument',
+  cancelQuotaResume: 'argument',
+  retryFailedTurn: 'argument-else-session',
+  continueSessionInModel: 'argument',
+  inheritFrom: 'argument',
+  goalControl: 'session',
+  listProviderModels: 'none',
+  setFast: 'session',
+  setRoute: 'session',
+});
