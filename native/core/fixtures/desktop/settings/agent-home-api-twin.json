@@ -14777,6 +14777,1210 @@
      ]
     }
    ]
+  },
+  {
+   "name": "an open made the moment an awaited reset returns joins that reset",
+   "world": {
+    "agents": [
+     "ada"
+    ],
+    "mixyRoute": null,
+    "mixyCreated": false,
+    "sessions": {
+     "sess_home_ada": {
+      "route": {
+       "provider": "openai",
+       "model": "gpt-x",
+       "effort": "high"
+      },
+      "turns": true
+     }
+    },
+    "archived": [],
+    "retired": [],
+    "running": [],
+    "setRouteFails": false,
+    "clearFails": false,
+    "catalogFailures": 0
+   },
+   "ops": [
+    {
+     "op": "hold"
+    },
+    {
+     "op": "start",
+     "call": "reset",
+     "kind": "reset",
+     "agent": "ada",
+     "then": {
+      "call": "now",
+      "kind": "open",
+      "agent": "ada"
+     }
+    },
+    {
+     "op": "release"
+    },
+    {
+     "op": "settle",
+     "calls": [
+      {
+       "call": "reset",
+       "result": {
+        "sessionId": "sess_home_ada",
+        "archivedSessionId": "sess_archive_1"
+       }
+      },
+      {
+       "call": "now",
+       "result": {
+        "sessionId": "sess_home_ada"
+       }
+      }
+     ],
+     "log": [
+      [
+       "listAgents"
+      ],
+      [
+       "setRetired",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "setArchived",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "readSession",
+       "sess_home_ada"
+      ],
+      [
+       "setArchived",
+       "sess_archive_1",
+       true
+      ],
+      [
+       "clearSession",
+       "sess_home_ada",
+       "sess_archive_1"
+      ],
+      [
+       "readSession",
+       "sess_archive_1"
+      ]
+     ]
+    },
+    {
+     "op": "start",
+     "call": "later",
+     "kind": "open",
+     "agent": "ada"
+    },
+    {
+     "op": "settle",
+     "calls": [
+      {
+       "call": "later",
+       "result": {
+        "sessionId": "sess_home_ada"
+       }
+      }
+     ],
+     "log": [
+      [
+       "listAgents"
+      ],
+      [
+       "setRetired",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "setArchived",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "readSession",
+       "sess_home_ada"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "an open made the moment a failed reset rejects joins its failure",
+   "world": {
+    "agents": [
+     "ada"
+    ],
+    "mixyRoute": null,
+    "mixyCreated": false,
+    "sessions": {
+     "sess_home_ada": {
+      "route": {
+       "provider": "openai",
+       "model": "gpt-x",
+       "effort": "high"
+      },
+      "turns": true
+     }
+    },
+    "archived": [],
+    "retired": [],
+    "running": [],
+    "setRouteFails": false,
+    "clearFails": true,
+    "catalogFailures": 0
+   },
+   "ops": [
+    {
+     "op": "hold"
+    },
+    {
+     "op": "start",
+     "call": "reset",
+     "kind": "reset",
+     "agent": "ada",
+     "then": {
+      "call": "now",
+      "kind": "open",
+      "agent": "ada"
+     }
+    },
+    {
+     "op": "release"
+    },
+    {
+     "op": "settle",
+     "calls": [
+      {
+       "call": "reset",
+       "error": "The session is running a turn."
+      },
+      {
+       "call": "now",
+       "error": "The session is running a turn."
+      }
+     ],
+     "log": [
+      [
+       "listAgents"
+      ],
+      [
+       "setRetired",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "setArchived",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "readSession",
+       "sess_home_ada"
+      ],
+      [
+       "setArchived",
+       "sess_archive_1",
+       true
+      ],
+      [
+       "clearSession",
+       "sess_home_ada",
+       "sess_archive_1"
+      ],
+      [
+       "setArchived",
+       "sess_archive_1",
+       false
+      ]
+     ]
+    },
+    {
+     "op": "world",
+     "patch": {
+      "clearFails": false
+     }
+    },
+    {
+     "op": "start",
+     "call": "later",
+     "kind": "open",
+     "agent": "ada"
+    },
+    {
+     "op": "settle",
+     "calls": [
+      {
+       "call": "later",
+       "result": {
+        "sessionId": "sess_home_ada"
+       }
+      }
+     ],
+     "log": [
+      [
+       "listAgents"
+      ],
+      [
+       "setRetired",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "setArchived",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "readSession",
+       "sess_home_ada"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "an open that joined a reset and opens again at once joins it again",
+   "world": {
+    "agents": [
+     "ada"
+    ],
+    "mixyRoute": null,
+    "mixyCreated": false,
+    "sessions": {
+     "sess_home_ada": {
+      "route": {
+       "provider": "openai",
+       "model": "gpt-x",
+       "effort": "high"
+      },
+      "turns": true
+     }
+    },
+    "archived": [],
+    "retired": [],
+    "running": [],
+    "setRouteFails": false,
+    "clearFails": false,
+    "catalogFailures": 0
+   },
+   "ops": [
+    {
+     "op": "hold"
+    },
+    {
+     "op": "start",
+     "call": "reset",
+     "kind": "reset",
+     "agent": "ada"
+    },
+    {
+     "op": "start",
+     "call": "open",
+     "kind": "open",
+     "agent": "ada",
+     "then": {
+      "call": "again",
+      "kind": "open",
+      "agent": "ada"
+     }
+    },
+    {
+     "op": "release"
+    },
+    {
+     "op": "settle",
+     "calls": [
+      {
+       "call": "reset",
+       "result": {
+        "sessionId": "sess_home_ada",
+        "archivedSessionId": "sess_archive_1"
+       }
+      },
+      {
+       "call": "open",
+       "result": {
+        "sessionId": "sess_home_ada"
+       }
+      },
+      {
+       "call": "again",
+       "result": {
+        "sessionId": "sess_home_ada"
+       }
+      }
+     ],
+     "log": [
+      [
+       "listAgents"
+      ],
+      [
+       "setRetired",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "setArchived",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "readSession",
+       "sess_home_ada"
+      ],
+      [
+       "setArchived",
+       "sess_archive_1",
+       true
+      ],
+      [
+       "clearSession",
+       "sess_home_ada",
+       "sess_archive_1"
+      ],
+      [
+       "readSession",
+       "sess_archive_1"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "a call made the moment an awaited open returns starts its own flight",
+   "world": {
+    "agents": [
+     "ada"
+    ],
+    "mixyRoute": null,
+    "mixyCreated": false,
+    "sessions": {},
+    "archived": [],
+    "retired": [],
+    "running": [],
+    "setRouteFails": false,
+    "clearFails": false,
+    "catalogFailures": 0
+   },
+   "ops": [
+    {
+     "op": "hold"
+    },
+    {
+     "op": "start",
+     "call": "first",
+     "kind": "open",
+     "agent": "ada",
+     "then": {
+      "call": "second",
+      "kind": "open",
+      "agent": "ada"
+     }
+    },
+    {
+     "op": "release"
+    },
+    {
+     "op": "settle",
+     "calls": [
+      {
+       "call": "first",
+       "result": {
+        "sessionId": "sess_home_ada"
+       }
+      },
+      {
+       "call": "second",
+       "result": {
+        "sessionId": "sess_home_ada"
+       }
+      }
+     ],
+     "log": [
+      [
+       "listAgents"
+      ],
+      [
+       "setRetired",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "setArchived",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "readSession",
+       "sess_home_ada"
+      ],
+      [
+       "taskWorkspace"
+      ],
+      [
+       "createSession",
+       "sess_home_ada",
+       {
+        "provider": "openai",
+        "model": "gpt-x",
+        "effort": "high",
+        "sessionProfile": {
+         "homeAgent": "ada"
+        },
+        "cwd": "/work",
+        "desktopSession": {
+         "classification": "task",
+         "projectPath": null
+        }
+       }
+      ],
+      [
+       "listAgents"
+      ],
+      [
+       "setRetired",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "setArchived",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "readSession",
+       "sess_home_ada"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "a reset made the moment an awaited open returns runs its own reset",
+   "world": {
+    "agents": [
+     "ada"
+    ],
+    "mixyRoute": null,
+    "mixyCreated": false,
+    "sessions": {
+     "sess_home_ada": {
+      "route": {
+       "provider": "openai",
+       "model": "gpt-x",
+       "effort": "high"
+      },
+      "turns": true
+     }
+    },
+    "archived": [],
+    "retired": [],
+    "running": [],
+    "setRouteFails": false,
+    "clearFails": false,
+    "catalogFailures": 0
+   },
+   "ops": [
+    {
+     "op": "hold"
+    },
+    {
+     "op": "start",
+     "call": "open",
+     "kind": "open",
+     "agent": "ada",
+     "then": {
+      "call": "reset",
+      "kind": "reset",
+      "agent": "ada"
+     }
+    },
+    {
+     "op": "release"
+    },
+    {
+     "op": "settle",
+     "calls": [
+      {
+       "call": "open",
+       "result": {
+        "sessionId": "sess_home_ada"
+       }
+      },
+      {
+       "call": "reset",
+       "result": {
+        "sessionId": "sess_home_ada",
+        "archivedSessionId": "sess_archive_1"
+       }
+      }
+     ],
+     "log": [
+      [
+       "listAgents"
+      ],
+      [
+       "setRetired",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "setArchived",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "readSession",
+       "sess_home_ada"
+      ],
+      [
+       "listAgents"
+      ],
+      [
+       "setRetired",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "setArchived",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "readSession",
+       "sess_home_ada"
+      ],
+      [
+       "setArchived",
+       "sess_archive_1",
+       true
+      ],
+      [
+       "clearSession",
+       "sess_home_ada",
+       "sess_archive_1"
+      ],
+      [
+       "readSession",
+       "sess_archive_1"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "a flight whose caller is gone still completes and leaves the map",
+   "world": {
+    "agents": [
+     "ada"
+    ],
+    "mixyRoute": null,
+    "mixyCreated": false,
+    "sessions": {},
+    "archived": [],
+    "retired": [],
+    "running": [],
+    "setRouteFails": false,
+    "clearFails": false,
+    "catalogFailures": 0
+   },
+   "ops": [
+    {
+     "op": "hold"
+    },
+    {
+     "op": "start",
+     "call": "gone",
+     "kind": "open",
+     "agent": "ada"
+    },
+    {
+     "op": "abandon",
+     "call": "gone"
+    },
+    {
+     "op": "release"
+    },
+    {
+     "op": "drain",
+     "log": [
+      [
+       "listAgents"
+      ],
+      [
+       "setRetired",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "setArchived",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "readSession",
+       "sess_home_ada"
+      ],
+      [
+       "taskWorkspace"
+      ],
+      [
+       "createSession",
+       "sess_home_ada",
+       {
+        "provider": "openai",
+        "model": "gpt-x",
+        "effort": "high",
+        "sessionProfile": {
+         "homeAgent": "ada"
+        },
+        "cwd": "/work",
+        "desktopSession": {
+         "classification": "task",
+         "projectPath": null
+        }
+       }
+      ]
+     ]
+    },
+    {
+     "op": "start",
+     "call": "later",
+     "kind": "open",
+     "agent": "ada"
+    },
+    {
+     "op": "settle",
+     "calls": [
+      {
+       "call": "later",
+       "result": {
+        "sessionId": "sess_home_ada"
+       }
+      }
+     ],
+     "log": [
+      [
+       "listAgents"
+      ],
+      [
+       "setRetired",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "setArchived",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "readSession",
+       "sess_home_ada"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "a flight with every caller gone but one still answers that one",
+   "world": {
+    "agents": [
+     "ada"
+    ],
+    "mixyRoute": null,
+    "mixyCreated": false,
+    "sessions": {},
+    "archived": [],
+    "retired": [],
+    "running": [],
+    "setRouteFails": false,
+    "clearFails": false,
+    "catalogFailures": 0
+   },
+   "ops": [
+    {
+     "op": "hold"
+    },
+    {
+     "op": "start",
+     "call": "gone",
+     "kind": "open",
+     "agent": "ada"
+    },
+    {
+     "op": "start",
+     "call": "stays",
+     "kind": "open",
+     "agent": "ada"
+    },
+    {
+     "op": "abandon",
+     "call": "gone"
+    },
+    {
+     "op": "release"
+    },
+    {
+     "op": "settle",
+     "calls": [
+      {
+       "call": "stays",
+       "result": {
+        "sessionId": "sess_home_ada"
+       }
+      }
+     ],
+     "log": [
+      [
+       "listAgents"
+      ],
+      [
+       "setRetired",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "setArchived",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "readSession",
+       "sess_home_ada"
+      ],
+      [
+       "taskWorkspace"
+      ],
+      [
+       "createSession",
+       "sess_home_ada",
+       {
+        "provider": "openai",
+        "model": "gpt-x",
+        "effort": "high",
+        "sessionProfile": {
+         "homeAgent": "ada"
+        },
+        "cwd": "/work",
+        "desktopSession": {
+         "classification": "task",
+         "projectPath": null
+        }
+       }
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "a failed flight with every caller gone leaves the map and the next open retries",
+   "world": {
+    "agents": [
+     "ada"
+    ],
+    "mixyRoute": null,
+    "mixyCreated": false,
+    "sessions": {},
+    "archived": [],
+    "retired": [],
+    "running": [],
+    "setRouteFails": false,
+    "clearFails": false,
+    "catalogFailures": 1
+   },
+   "ops": [
+    {
+     "op": "hold"
+    },
+    {
+     "op": "start",
+     "call": "gone",
+     "kind": "open",
+     "agent": "ada"
+    },
+    {
+     "op": "abandon",
+     "call": "gone"
+    },
+    {
+     "op": "release"
+    },
+    {
+     "op": "drain",
+     "log": [
+      [
+       "listAgents"
+      ]
+     ]
+    },
+    {
+     "op": "start",
+     "call": "later",
+     "kind": "open",
+     "agent": "ada"
+    },
+    {
+     "op": "settle",
+     "calls": [
+      {
+       "call": "later",
+       "result": {
+        "sessionId": "sess_home_ada"
+       }
+      }
+     ],
+     "log": [
+      [
+       "listAgents"
+      ],
+      [
+       "setRetired",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "setArchived",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "readSession",
+       "sess_home_ada"
+      ],
+      [
+       "taskWorkspace"
+      ],
+      [
+       "createSession",
+       "sess_home_ada",
+       {
+        "provider": "openai",
+        "model": "gpt-x",
+        "effort": "high",
+        "sessionProfile": {
+         "homeAgent": "ada"
+        },
+        "cwd": "/work",
+        "desktopSession": {
+         "classification": "task",
+         "projectPath": null
+        }
+       }
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "a reset queued behind an open still runs when both callers are gone",
+   "world": {
+    "agents": [
+     "ada"
+    ],
+    "mixyRoute": null,
+    "mixyCreated": false,
+    "sessions": {
+     "sess_home_ada": {
+      "route": {
+       "provider": "openai",
+       "model": "gpt-x",
+       "effort": "high"
+      },
+      "turns": true
+     }
+    },
+    "archived": [],
+    "retired": [],
+    "running": [],
+    "setRouteFails": false,
+    "clearFails": false,
+    "catalogFailures": 0
+   },
+   "ops": [
+    {
+     "op": "hold"
+    },
+    {
+     "op": "start",
+     "call": "open",
+     "kind": "open",
+     "agent": "ada"
+    },
+    {
+     "op": "start",
+     "call": "reset",
+     "kind": "reset",
+     "agent": "ada"
+    },
+    {
+     "op": "abandon",
+     "call": "open"
+    },
+    {
+     "op": "abandon",
+     "call": "reset"
+    },
+    {
+     "op": "release"
+    },
+    {
+     "op": "drain",
+     "log": [
+      [
+       "listAgents"
+      ],
+      [
+       "setRetired",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "setArchived",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "readSession",
+       "sess_home_ada"
+      ],
+      [
+       "listAgents"
+      ],
+      [
+       "setRetired",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "setArchived",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "readSession",
+       "sess_home_ada"
+      ],
+      [
+       "setArchived",
+       "sess_archive_1",
+       true
+      ],
+      [
+       "clearSession",
+       "sess_home_ada",
+       "sess_archive_1"
+      ],
+      [
+       "readSession",
+       "sess_archive_1"
+      ]
+     ]
+    },
+    {
+     "op": "start",
+     "call": "later",
+     "kind": "open",
+     "agent": "ada"
+    },
+    {
+     "op": "settle",
+     "calls": [
+      {
+       "call": "later",
+       "result": {
+        "sessionId": "sess_home_ada"
+       }
+      }
+     ],
+     "log": [
+      [
+       "listAgents"
+      ],
+      [
+       "setRetired",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "setArchived",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "readSession",
+       "sess_home_ada"
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "name": "resets whose callers are all gone run one behind another and leave the map",
+   "world": {
+    "agents": [
+     "ada"
+    ],
+    "mixyRoute": null,
+    "mixyCreated": false,
+    "sessions": {
+     "sess_home_ada": {
+      "route": {
+       "provider": "openai",
+       "model": "gpt-x",
+       "effort": "high"
+      },
+      "turns": true
+     }
+    },
+    "archived": [],
+    "retired": [],
+    "running": [],
+    "setRouteFails": false,
+    "clearFails": false,
+    "catalogFailures": 0
+   },
+   "ops": [
+    {
+     "op": "hold"
+    },
+    {
+     "op": "start",
+     "call": "first",
+     "kind": "reset",
+     "agent": "ada"
+    },
+    {
+     "op": "start",
+     "call": "second",
+     "kind": "reset",
+     "agent": "ada"
+    },
+    {
+     "op": "abandon",
+     "call": "first"
+    },
+    {
+     "op": "abandon",
+     "call": "second"
+    },
+    {
+     "op": "release"
+    },
+    {
+     "op": "drain",
+     "log": [
+      [
+       "listAgents"
+      ],
+      [
+       "setRetired",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "setArchived",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "readSession",
+       "sess_home_ada"
+      ],
+      [
+       "setArchived",
+       "sess_archive_1",
+       true
+      ],
+      [
+       "clearSession",
+       "sess_home_ada",
+       "sess_archive_1"
+      ],
+      [
+       "readSession",
+       "sess_archive_1"
+      ],
+      [
+       "listAgents"
+      ],
+      [
+       "setRetired",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "setArchived",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "readSession",
+       "sess_home_ada"
+      ],
+      [
+       "setArchived",
+       "sess_archive_2",
+       true
+      ],
+      [
+       "clearSession",
+       "sess_home_ada",
+       "sess_archive_2"
+      ],
+      [
+       "readSession",
+       "sess_archive_2"
+      ],
+      [
+       "setArchived",
+       "sess_archive_2",
+       false
+      ]
+     ]
+    },
+    {
+     "op": "start",
+     "call": "later",
+     "kind": "open",
+     "agent": "ada"
+    },
+    {
+     "op": "settle",
+     "calls": [
+      {
+       "call": "later",
+       "result": {
+        "sessionId": "sess_home_ada"
+       }
+      }
+     ],
+     "log": [
+      [
+       "listAgents"
+      ],
+      [
+       "setRetired",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "setArchived",
+       "sess_home_ada",
+       false
+      ],
+      [
+       "readSession",
+       "sess_home_ada"
+      ]
+     ]
+    }
+   ]
   }
  ],
  "memoryList": [
