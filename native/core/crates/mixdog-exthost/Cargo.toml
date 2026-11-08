@@ -43,7 +43,3 @@ tokio ={ workspace = true, features = ["rt", "rt-multi-thread", "macros", "time"
 [features]
 # Observation hooks for the G8 driver (the core reader's outstanding-window counts).
 test-support = []
-
-[[test]]
-name = "g8"
-required-features = ["test-support"]
