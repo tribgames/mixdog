@@ -481,7 +481,7 @@ test('folderUnwatch ends the watch whatever case the path is spelled in on a cas
       unwatchFiles: async (watchId) => void unwatched.push(watchId),
     },
   });
-  const respelled = process.platform === 'win32' ? 'C:\\Work\\Repo' : '/work/repo';
+  const respelled = process.platform === 'win32' ? 'C:\\Work\\Repo' : '/Work/Repo';
   const other = respelled.toLowerCase();
   await lane.invoke('folderWatch', [respelled, true]);
   await lane.invoke('folderUnwatch', [other, true]);
