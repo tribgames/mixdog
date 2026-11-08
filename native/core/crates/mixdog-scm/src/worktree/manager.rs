@@ -314,15 +314,17 @@ impl Worktrees {
     pub async fn inspect_repo(&self, project: &Path, cancel: &CancellationToken) -> Result<RepoFacts, ScmFailure> {
         let project_text = path_text(project);
         if !project.is_dir() {
-            return Err(errors::project_unknown(project_text, "missing"));
+            return Err(errors::project_unknown_text(project_text, "missing", "The project folder no longer exists."));
         }
         let repo = match self.scm.open(project, cancel).await {
             Ok(repo) => repo,
-            Err(ScmFailure::NotARepository) => return Err(errors::unsupported_repo(Some(project_text), None)),
+            Err(ScmFailure::NotARepository) => {
+                return Err(errors::unsupported_repo_text(project_text, "The project folder is not a git repository."))
+            }
             Err(other) => return Err(other),
         };
         let Ok(top_level) = repo.root().map(Path::to_path_buf) else {
-            return Err(errors::unsupported_repo(Some(project_text), None));
+            return Err(errors::unsupported_repo_text(project_text, "Bare repositories cannot host managed worktrees."));
         };
         let head = self
             .scm
@@ -330,7 +332,7 @@ impl Worktrees {
             .outcome(cancel, &top_level, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], &RunOptions::default())
             .await?;
         if !head.success() {
-            return Err(errors::unsupported_repo(Some(project_text), None));
+            return Err(errors::unsupported_repo_text(project_text, "The repository has no commits yet; commit once first."));
         }
         Ok(RepoFacts {
             project_path: project.to_path_buf(),

@@ -1589,6 +1589,43 @@ async fn a_branch_asked_for_by_name_is_not_retried() {
     assert_eq!(taken_folder_outcome(1, Some("feature/login")).await, add_retry_golden()["exactBranch"]);
 }
 
+/// Node's `inspectRepo` refusal (`record-worktree-inspect-repo.mjs`) as the window gets it: code, text and details, the
+/// folder's path written `<folder>`.
+async fn inspect_refusal(folder: &Path) -> Value {
+    use crate::worktree::manager::Worktrees;
+    let data = tempfile::tempdir().unwrap();
+    let worktrees = Worktrees::new(scm(), data.path().to_path_buf());
+    let failure = worktrees.inspect_repo(folder, &CancellationToken::new()).await.unwrap_err();
+    let mixdog_core_api::CoreError::DomainError { code, message, detail, .. } = mixdog_core_api::CoreError::from(failure) else { panic!("not a domain error") };
+    let mut details = serde_json::to_value(detail).unwrap();
+    if let Some(fields) = details.as_object_mut() {
+        fields.remove("type");
+        fields.retain(|_, value| !value.is_null());
+        if fields.get("projectPath").and_then(Value::as_str) == Some(folder.to_string_lossy().as_ref()) {
+            fields.insert("projectPath".into(), "<folder>".into());
+        }
+    }
+    serde_json::json!({ "code": code, "message": message, "details": details })
+}
+
+#[tokio::test]
+async fn inspect_repo_refuses_with_the_code_text_and_details_node_does() {
+    let golden: Value = serde_json::from_str(include_str!("../../../fixtures/worktree-inspect-repo/golden.json")).unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let plain = root.path().join("plain");
+    let bare = root.path().join("bare");
+    let empty = root.path().join("empty");
+    for folder in [&plain, &bare, &empty] {
+        std::fs::create_dir_all(folder).unwrap();
+    }
+    git(&bare, &["init", "-q", "--bare"]);
+    git(&empty, &["init", "-q", "-b", "main"]);
+    assert_eq!(inspect_refusal(&root.path().join("gone")).await, golden["missing"]);
+    assert_eq!(inspect_refusal(&plain).await, golden["plain"]);
+    assert_eq!(inspect_refusal(&bare).await, golden["bare"]);
+    assert_eq!(inspect_refusal(&empty).await, golden["noCommit"]);
+}
+
 #[tokio::test]
 async fn a_repository_review_names_the_default_branch_it_diffs_against() {
     let (_guard, repo, _head) = fixture_repo();

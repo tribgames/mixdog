@@ -1,0 +1,30 @@
+{
+  "command": "node benchmarks/rust-core/recorders/record-worktree-inspect-repo.mjs --tree <tree>",
+  "fileCount": 1,
+  "files": [
+    {
+      "bytes": 745,
+      "path": "golden.json",
+      "sha256": "f9eb295c9ee477258aa204ed3c81e8e7aa9652be7a646f30f3b95f321dc2bfcd"
+    }
+  ],
+  "product": {
+    "appsSha256": "6d40b642ed54b3d455d35829735e4cbbd6e22eee98220fd71ce02834420a783e",
+    "commit": "16c19295650f6702bb84131664c356173d9a6fea",
+    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
+    "files": 9276,
+    "refComparison": {
+      "closestCommit": "16c19295650f6702bb84131664c356173d9a6fea",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
+    },
+    "srcSha256": "9c1937306eaae7e485e50c87e4960d2011af97e3ad417416fac6750c18c2cce2",
+    "tree": "product tree loaded by the recorder",
+    "treeKind": "git-checkout",
+    "version": "1.4.5"
+  },
+  "recorder": "benchmarks/rust-core/recorders/record-worktree-inspect-repo.mjs",
+  "set": "worktree-inspect-repo",
+  "totalBytes": 745
+}
