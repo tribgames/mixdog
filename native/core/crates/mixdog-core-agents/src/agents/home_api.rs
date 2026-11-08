@@ -8,15 +8,19 @@
 //! The service claims exactly [`HOME_METHODS`]; the definitions and lead methods belong to the
 //! services that own them.
 //!
-//! One thing differs in how it runs, never in what it answers: Node lets concurrent opens of one
-//! agent join a single flight, here the calls of one agent run one after the other (an open after
-//! an open finds the session the first created). The dependency calls of the second differ only
-//! in that it reads instead of creating.
+//! Open and reset of one agent share a single in-flight result, errors included, as Node's
+//! `opening` map of promises does: an open that finds a flight joins it, a reset queues behind the
+//! flight it finds (ignoring how it ended) and becomes the flight later calls join.
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::Weak;
 
 use async_trait::async_trait;
+use futures::FutureExt;
+use futures::future::BoxFuture;
+use futures::future::Shared;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::DomainService;
@@ -39,7 +43,6 @@ use mixdog_js::js_trim;
 use mixdog_js::to_number;
 use mixdog_js::utf16_len;
 use mixdog_js::value_to_string;
-use mixdog_rt::KeyedChains;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -176,88 +179,168 @@ fn dep(error: DepError) -> CoreError {
     failed(DOMAIN, error.message)
 }
 
-/// The home threads: open, reset, retire and restore, one agent at a time.
+/// What a flight settles with: the home's session id, and for a reset the archived copy's id.
+type Outcome = Result<(String, Option<String>), CoreError>;
+
+/// One shared in-flight result (a promise of Node's `opening` map).
+type Flight = Shared<BoxFuture<'static, Outcome>>;
+
+/// The flight each agent currently has, with the number that tells it from a later one.
+#[derive(Default)]
+struct Flights {
+    next: u64,
+    current: HashMap<String, (u64, Flight)>,
+}
+
+impl Flights {
+    fn register(&mut self, agent_id: &str, flight: Flight, id: u64) {
+        self.current.insert(agent_id.to_owned(), (id, flight));
+    }
+
+    /// The `finally` of a flight: it leaves the map unless a later flight replaced it.
+    fn settled(&mut self, agent_id: &str, id: u64) {
+        if self.current.get(agent_id).is_some_and(|(current, _)| *current == id) {
+            self.current.remove(agent_id);
+        }
+    }
+}
+
+fn locked(flights: &Mutex<Flights>) -> std::sync::MutexGuard<'_, Flights> {
+    flights.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The home threads: open, reset, retire and restore. Open and reset of one agent share a flight.
 #[derive(Clone)]
 pub struct AgentHomeSessions {
     deps: Arc<dyn HomeDeps>,
-    serial: Arc<KeyedChains>,
+    flights: Arc<Mutex<Flights>>,
+}
+
+async fn resolve(deps: &dyn HomeDeps, agent_id: &str) -> Result<String, CoreError> {
+    let session_id = agent_home_session_id(agent_id).ok_or_else(|| type_error("agent id is invalid."))?;
+    let (route, params) = if agent_id == MIXY_AGENT_ID {
+        // Mixy runs on its own model (bots/mixy), Main's once it has none.
+        let route = route_params(&deps.mixy_route().await.map_err(dep)?);
+        (route.clone(), route)
+    } else {
+        let agents = deps.list_agents().await.map_err(dep)?;
+        let row = contact_row(&agents, agent_id).ok_or_else(|| failed(DOMAIN, format!("Agent \"{agent_id}\" is not available.")))?;
+        let route = route_params(row.get("route").unwrap_or(&Value::Null));
+        let mut params = route.clone();
+        params.insert("sessionProfile".into(), json!({ "homeAgent": agent_id }));
+        // A bot made again under a deleted one's id owns its thread again.
+        deps.set_retired(&session_id, false).await.map_err(dep)?;
+        (route, params)
+    };
+    // Reopening a contact brings its thread back from the archive.
+    deps.set_archived(&session_id, false).await.map_err(dep)?;
+    match deps.read_session(&session_id).await {
+        Ok(snapshot) => {
+            // An existing thread follows its definition's current model and effort from its next
+            // turn. A route the runtime refuses (provider signed out) never blocks opening.
+            if route_changed(&route, &snapshot) {
+                if let Err(error) = deps.set_route(&session_id, &Value::Object(route)).await {
+                    // `agent-home-sessions.ts:141`: warned, never blocks opening.
+                    tracing::warn!("[mixdog-session] Could not refresh the agent thread route: {error:?}");
+                }
+            }
+            return Ok(session_id);
+        }
+        Err(error) if error.session_missing() => {}
+        Err(error) => return Err(dep(error)),
+    }
+    // A Mixy the user never created gets no chat, whichever surface asks.
+    if agent_id == MIXY_AGENT_ID && !deps.mixy_created().await.map_err(dep)? {
+        return Err(failed(DOMAIN, "Create the representative bot first."));
+    }
+    let mut create = params;
+    create.insert("cwd".into(), json!(deps.task_workspace().await.map_err(dep)?));
+    create.insert("desktopSession".into(), json!({ "classification": "task", "projectPath": null }));
+    deps.create_session(&session_id, &Value::Object(create)).await.map_err(dep)?;
+    Ok(session_id)
+}
+
+/// `resetHome`: resolve the home, then move its conversation to a new archived id
+/// (`startSessionOver`), `None` when it had no user turn. The archive mark is written before the
+/// copy exists, so the copy never lists as a live chat.
+async fn reset_home(deps: &dyn HomeDeps, agent_id: &str) -> Outcome {
+    let session_id = resolve(deps, agent_id).await?;
+    let archive_id = deps.mint_archive_id();
+    deps.set_archived(&archive_id, true).await.map_err(dep)?;
+    if let Err(error) = deps.clear_session(&session_id, &archive_id).await {
+        let _ = deps.set_archived(&archive_id, false).await;
+        return Err(dep(error));
+    }
+    let archived = match deps.read_session(&archive_id).await {
+        Ok(_) => Some(archive_id),
+        Err(error) if error.session_missing() => {
+            deps.set_archived(&archive_id, false).await.map_err(dep)?;
+            None
+        }
+        Err(error) => return Err(dep(error)),
+    };
+    Ok((session_id, archived))
 }
 
 impl AgentHomeSessions {
     pub fn new(deps: Arc<dyn HomeDeps>) -> Self {
-        Self { deps, serial: KeyedChains::new() }
+        Self { deps, flights: Arc::default() }
     }
 
-    async fn resolve(&self, agent_id: &str) -> Result<String, CoreError> {
-        let session_id = agent_home_session_id(agent_id).ok_or_else(|| type_error("agent id is invalid."))?;
-        let (route, params) = if agent_id == MIXY_AGENT_ID {
-            // Mixy runs on its own model (bots/mixy), Main's once it has none.
-            let route = route_params(&self.deps.mixy_route().await.map_err(dep)?);
-            (route.clone(), route)
-        } else {
-            let agents = self.deps.list_agents().await.map_err(dep)?;
-            let row = contact_row(&agents, agent_id).ok_or_else(|| failed(DOMAIN, format!("Agent \"{agent_id}\" is not available.")))?;
-            let route = route_params(row.get("route").unwrap_or(&Value::Null));
-            let mut params = route.clone();
-            params.insert("sessionProfile".into(), json!({ "homeAgent": agent_id }));
-            // A bot made again under a deleted one's id owns its thread again.
-            self.deps.set_retired(&session_id, false).await.map_err(dep)?;
-            (route, params)
-        };
-        // Reopening a contact brings its thread back from the archive.
-        self.deps.set_archived(&session_id, false).await.map_err(dep)?;
-        match self.deps.read_session(&session_id).await {
-            Ok(snapshot) => {
-                // An existing thread follows its definition's current model and effort from its next
-                // turn. A route the runtime refuses (provider signed out) never blocks opening.
-                if route_changed(&route, &snapshot) {
-                    if let Err(error) = self.deps.set_route(&session_id, &Value::Object(route)).await {
-                        // `agent-home-sessions.ts:141`: warned, never blocks opening.
-                        tracing::warn!("[mixdog-session] Could not refresh the agent thread route: {error:?}");
-                    }
-                }
-                return Ok(session_id);
+    /// Registers the flight `work` makes for `agent_id`; it leaves the map when `work` ends.
+    fn start_flight(&self, flights: &mut Flights, agent_id: &str, work: impl FnOnce(Arc<dyn HomeDeps>) -> BoxFuture<'static, Outcome>) -> Flight {
+        let id = flights.next;
+        flights.next += 1;
+        let (deps, map, agent) = (self.deps.clone(), Arc::downgrade(&self.flights), agent_id.to_owned());
+        let running = work(deps);
+        let flight = async move {
+            let outcome = running.await;
+            if let Some(map) = Weak::upgrade(&map) {
+                locked(&map).settled(&agent, id);
             }
-            Err(error) if error.session_missing() => {}
-            Err(error) => return Err(dep(error)),
+            outcome
         }
-        // A Mixy the user never created gets no chat, whichever surface asks.
-        if agent_id == MIXY_AGENT_ID && !self.deps.mixy_created().await.map_err(dep)? {
-            return Err(failed(DOMAIN, "Create the representative bot first."));
-        }
-        let mut create = params;
-        create.insert("cwd".into(), json!(self.deps.task_workspace().await.map_err(dep)?));
-        create.insert("desktopSession".into(), json!({ "classification": "task", "projectPath": null }));
-        self.deps.create_session(&session_id, &Value::Object(create)).await.map_err(dep)?;
-        Ok(session_id)
+        .boxed()
+        .shared();
+        flights.register(agent_id, flight.clone(), id);
+        flight
     }
 
-    /// `agent/home/open`: `{ sessionId }`.
+    /// `agent/home/open`: `{ sessionId }`. A flight in progress, an open's or a reset's, is joined.
     pub async fn open(&self, agent_id: &str) -> Result<Value, CoreError> {
-        let _turn = self.serial.acquire(agent_id).await;
-        Ok(json!({ "sessionId": self.resolve(agent_id).await? }))
+        let flight = {
+            let mut flights = locked(&self.flights);
+            match flights.current.get(agent_id) {
+                Some((_, pending)) => pending.clone(),
+                None => {
+                    let agent = agent_id.to_owned();
+                    self.start_flight(&mut flights, agent_id, |deps| async move { resolve(&*deps, &agent).await.map(|session_id| (session_id, None)) }.boxed())
+                }
+            }
+        };
+        let (session_id, _) = flight.await?;
+        Ok(json!({ "sessionId": session_id }))
     }
 
     /// `agent/home/reset`: the agent keeps its one fixed home id; the conversation so far moves to a
-    /// new archived id (`startSessionOver`), `null` when it had no user turn. The archive mark is
-    /// written before the copy exists, so the copy never lists as a live chat.
+    /// new archived id. It waits for the flight it finds, however that ended, and is the flight an
+    /// open arriving meanwhile joins.
     pub async fn reset(&self, agent_id: &str) -> Result<Value, CoreError> {
-        let _turn = self.serial.acquire(agent_id).await;
-        let session_id = self.resolve(agent_id).await?;
-        let archive_id = self.deps.mint_archive_id();
-        self.deps.set_archived(&archive_id, true).await.map_err(dep)?;
-        if let Err(error) = self.deps.clear_session(&session_id, &archive_id).await {
-            let _ = self.deps.set_archived(&archive_id, false).await;
-            return Err(dep(error));
-        }
-        let archived = match self.deps.read_session(&archive_id).await {
-            Ok(_) => Some(archive_id),
-            Err(error) if error.session_missing() => {
-                self.deps.set_archived(&archive_id, false).await.map_err(dep)?;
-                None
-            }
-            Err(error) => return Err(dep(error)),
+        let flight = {
+            let mut flights = locked(&self.flights);
+            let previous = flights.current.get(agent_id).map(|(_, pending)| pending.clone());
+            let agent = agent_id.to_owned();
+            self.start_flight(&mut flights, agent_id, |deps| {
+                async move {
+                    if let Some(previous) = previous {
+                        let _ = previous.await;
+                    }
+                    reset_home(&*deps, &agent).await
+                }
+                .boxed()
+            })
         };
+        let (session_id, archived) = flight.await?;
         Ok(json!({ "sessionId": session_id, "archivedSessionId": archived }))
     }
 
