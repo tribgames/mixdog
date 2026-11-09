@@ -103,6 +103,11 @@ impl LegLink {
         self.send_out(Outgoing::Text(envelope.to_string()))
     }
 
+    /// Messages queued for the socket and not yet written.
+    fn queued(&self) -> usize {
+        self.slot().as_ref().map_or(0, |tx| tx.max_capacity() - tx.capacity())
+    }
+
     fn send_out(&self, out: Outgoing) -> bool {
         self.slot().as_ref().is_some_and(|tx| tx.try_send(out).is_ok())
     }
@@ -212,6 +217,109 @@ struct Inner {
     /// Whether the relay leg is open, written wherever `State::connected` changes (the leg opening,
     /// being lost, being closed): what a caller waits on instead of polling `is_connected`.
     link_up: tokio::sync::watch::Sender<bool>,
+    /// TURN/STUN credentials the relay issues over this leg, cached for the live view and the transport.
+    ice: crate::ice::RemoteIceServers,
+    /// Where gallery files and download leases come from; nothing until the composition sets it.
+    sources: Arc<SourcesSlot>,
+    /// The relay's HTTP media lane (`media-request` envelopes).
+    media_lane: crate::media::RelayMediaLane,
+}
+
+/// The media sources the composition installs; every request is a 404 until then.
+struct SourcesSlot(Mutex<Arc<dyn crate::media::MediaSources>>);
+
+struct NoSources;
+
+#[async_trait]
+impl crate::media::MediaSources for NoSources {
+    async fn gallery(&self, _asset_id: &str, _variant: &str) -> Result<Option<Box<dyn crate::media::ByteSource>>, crate::media::SourceFailure> {
+        Ok(None)
+    }
+
+    async fn download(&self, _asset_id: &str, _device: &str) -> Option<Box<dyn crate::media::ByteSource>> {
+        None
+    }
+}
+
+#[async_trait]
+impl crate::media::MediaSources for SourcesSlot {
+    async fn gallery(&self, asset_id: &str, variant: &str) -> Result<Option<Box<dyn crate::media::ByteSource>>, crate::media::SourceFailure> {
+        let sources = lock(&self.0).clone();
+        sources.gallery(asset_id, variant).await
+    }
+
+    async fn download(&self, asset_id: &str, device: &str) -> Option<Box<dyn crate::media::ByteSource>> {
+        let sources = lock(&self.0).clone();
+        sources.download(asset_id, device).await
+    }
+}
+
+/// Bytes one queued leg message is counted as when the media lane measures the socket backlog.
+const QUEUED_MESSAGE_BYTES: u64 = 96 * 1024;
+
+/// The transport sessions' view of the runtime.
+struct SessionEnvironment {
+    inner: std::sync::Weak<Inner>,
+}
+
+impl crate::transport::session::SessionEnv for SessionEnvironment {
+    fn relay_write(&self, client_id: &str, message: Vec<u8>) -> futures::future::BoxFuture<'static, bool> {
+        let inner = self.inner.upgrade();
+        let frame = encode_binary_frame(client_id, &message, false, false);
+        Box::pin(async move {
+            match (inner, frame) {
+                (Some(inner), Some(frame)) => inner.cfg.link.send_wait(Outgoing::Binary(frame)).await,
+                _ => false,
+            }
+        })
+    }
+
+    fn deliver(&self, client_id: &str, text: String) -> futures::future::BoxFuture<'static, ()> {
+        let (inner, client_id) = (self.inner.upgrade(), client_id.to_owned());
+        Box::pin(async move {
+            if let Some(inner) = inner {
+                inner.bridge.from_phone(&client_id, Frame::Text(text)).await;
+            }
+        })
+    }
+
+    fn ended(&self, client_id: &str, reason: &str) {
+        if let Some(inner) = self.inner.upgrade() {
+            RemoteRuntime { inner }.close_client(client_id, &format!("remote transport {reason}"));
+        }
+    }
+
+    fn resolve_ice(&self) -> futures::future::BoxFuture<'static, Vec<crate::webrtc::config::IceServer>> {
+        let inner = self.inner.upgrade();
+        Box::pin(async move {
+            let Some(inner) = inner else { return Vec::new() };
+            let runtime = RemoteRuntime { inner };
+            let servers = runtime.resolve_ice().await;
+            servers
+                .into_iter()
+                .map(|s| crate::webrtc::config::IceServer { urls: s.urls, username: s.username, credential: s.credential })
+                .collect()
+        })
+    }
+
+    fn live(&self, client_id: &str) {
+        if let Some(inner) = self.inner.upgrade() {
+            inner.cfg.registry.note_peer_live(client_id);
+        }
+    }
+
+    fn background(&self, client_id: &str) {
+        if let Some(inner) = self.inner.upgrade() {
+            inner.cfg.registry.set_peer_background(client_id);
+        }
+    }
+
+    fn media_sources(&self) -> Arc<dyn crate::media::MediaSources> {
+        match self.inner.upgrade() {
+            Some(inner) => inner.sources.clone(),
+            None => Arc::new(NoSources),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -385,6 +493,7 @@ impl RemoteRuntime {
         };
         let pair_effects = factory(wiring);
         let dialer = cfg.dialer.clone();
+        let sources = Arc::new(SourcesSlot(Mutex::new(Arc::new(NoSources))));
         let inner = Arc::new_cyclic(|weak: &std::sync::Weak<Inner>| {
             let sink: Arc<dyn PhoneSink> = Arc::new(WeakSink { inner: weak.clone() });
             Inner {
@@ -408,6 +517,16 @@ impl RemoteRuntime {
                 gate: tokio::sync::Semaphore::new(1),
                 bridge: Bridge::new(dialer, sink),
                 link_up: tokio::sync::watch::Sender::new(false),
+                ice: crate::ice::RemoteIceServers::new(),
+                media_lane: {
+                    let (send_link, backlog_link) = (link.clone(), link.clone());
+                    crate::media::RelayMediaLane::new(
+                        sources.clone(),
+                        Arc::new(move |envelope| send_link.send(&envelope)),
+                        Arc::new(move || backlog_link.queued() as u64 * QUEUED_MESSAGE_BYTES),
+                    )
+                },
+                sources,
             }
         });
         // The ticker's notification becomes `on_tick` on the runtime's own task.
@@ -426,6 +545,26 @@ impl RemoteRuntime {
     /// The `PhoneSink` of the bridge, for compositions that build their own `Bridge`.
     pub fn sink(&self) -> RuntimeSink {
         RuntimeSink { inner: self.inner.clone() }
+    }
+
+    /// Installs where gallery files and download leases come from (both media lanes read it).
+    pub fn set_media_sources(&self, sources: Arc<dyn crate::media::MediaSources>) {
+        *lock(&self.inner.sources.0) = sources;
+    }
+
+    /// The ICE/TURN set for a new phone connection: the relay issues it over this leg
+    /// (`ice-servers-request`) when it can; otherwise empty.
+    pub async fn resolve_ice(&self) -> Vec<crate::ice::IceServer> {
+        let runtime = self.clone();
+        self.inner
+            .ice
+            .resolve(|| async move {
+                if !runtime.inner.state().caps.ice() {
+                    return Ok::<_, RemoteError>(None);
+                }
+                runtime.control("ice-servers-request", Map::new()).await.map(Some)
+            })
+            .await
     }
 
     /// Points new bridged phones at another target core (an SSH server core, or back).
@@ -869,6 +1008,8 @@ impl RemoteRuntime {
     /// The OS is about to sleep: nothing the relay client timed before this point can be trusted
     /// afterwards. The leg closes without error spam; `resume` brings it back.
     pub fn suspend(&self) {
+        self.inner.ice.invalidate();
+        self.inner.media_lane.destroy_all();
         self.close_leg();
         self.inner.refresh();
     }
@@ -1275,6 +1416,7 @@ impl RemoteRuntime {
         };
         self.inner.link_up.send_replace(false);
         live.controls.reject_all(&ControlError::Failed("Relay disconnected.".into()));
+        self.inner.media_lane.destroy_all();
         self.inner.bridge.close_all();
         for peer in peers {
             self.inner.cfg.registry.detach_peer(&peer);
@@ -1361,7 +1503,28 @@ impl RemoteRuntime {
             }
             // Media and the phone ICE are served by their own modules over the same leg; the
             // envelopes are theirs. A Web Push result only feeds diagnostics, which are not shown.
-            Inbound::WebPushResult(_) | Inbound::Media(_) | Inbound::Ignored => {}
+            Inbound::Media(envelope) => self.on_media(&envelope),
+            Inbound::WebPushResult(_) | Inbound::Ignored => {}
+        }
+    }
+
+    /// A `media-*` envelope of the relay's HTTP media lane.
+    fn on_media(&self, envelope: &Value) {
+        use crate::media::{MediaCommand, MediaSession};
+        match crate::media::route_media_envelope(envelope) {
+            MediaCommand::Serve(request) => {
+                // The session is named by its handshake challenge; only an authenticated client
+                // has a media key to find.
+                let (media_key, device) = {
+                    let state = self.inner.state();
+                    (state.table.media_key(&request.sid), state.table.media_device(&request.sid))
+                };
+                let inner = self.inner.clone();
+                tokio::spawn(async move { inner.media_lane.serve(request, MediaSession { media_key, device }).await });
+            }
+            MediaCommand::Abort(id) => self.inner.media_lane.abort(&id),
+            MediaCommand::Pause { id, paused } => self.inner.media_lane.set_paused(&id, paused),
+            MediaCommand::Ignored => {}
         }
     }
 
@@ -1374,7 +1537,8 @@ impl RemoteRuntime {
         }
         let text = {
             let mut state = self.inner.state();
-            let flags = challenge_flags(state.caps.binary_frames(), true, false);
+            // The core owns the peers, so the transport is always on offer to a phone that can take binary frames.
+            let flags = challenge_flags(state.caps.binary_frames(), true, true);
             state.table.open(client_id, credential_id, &flags)
         };
         match text {
@@ -1399,6 +1563,24 @@ impl RemoteRuntime {
             Received::Ready(frames) => {
                 for sealed in frames {
                     self.inner.write_sealed(client_id, sealed).await;
+                }
+                self.attach_peer(client_id).await;
+                self.inner.bridge.client_open(client_id);
+            }
+            Received::Transport { session, message } => session.receive_relay(&message),
+            Received::TransportReady { channel, ready } => {
+                let (session_id, device) = {
+                    let state = self.inner.state();
+                    let device = state.table.media_device_of(client_id).unwrap_or_default();
+                    (state.table.challenge_of(client_id).unwrap_or_default(), device)
+                };
+                let env: Arc<dyn crate::transport::session::SessionEnv> = Arc::new(SessionEnvironment { inner: Arc::downgrade(&self.inner) });
+                let session = crate::transport::session::TransportSession::open(env, client_id, device, &session_id, channel);
+                self.inner.state().table.attach_transport(client_id, session.clone());
+                self.inner.cfg.registry.set_peer_transport(client_id);
+                // Opened before anything is sent, so `e2ee-ready` is its record 1.
+                if let Ok(text) = String::from_utf8(ready) {
+                    let _ = session.send(&text, false).await;
                 }
                 self.attach_peer(client_id).await;
                 self.inner.bridge.client_open(client_id);
@@ -1491,6 +1673,17 @@ impl PhoneSink for RuntimeSink {
     async fn deliver(&self, message: ToPhone) {
         match message {
             ToPhone::Frame { peer_id, frame } => {
+                let session = self.inner.state().table.transport(&peer_id);
+                if let Some(session) = session {
+                    let text = match frame {
+                        Frame::Text(text) => Some(text),
+                        Frame::Binary(bytes) => String::from_utf8(bytes).ok(),
+                    };
+                    if let Some(text) = text {
+                        let _ = session.send(&text, false).await;
+                    }
+                    return;
+                }
                 let (bytes, binary) = match frame {
                     Frame::Text(text) => (text.into_bytes(), false),
                     Frame::Binary(bytes) => (bytes, true),
