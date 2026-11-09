@@ -86,6 +86,12 @@ test('the recordings are exact Node b6f10295a manifests', () => {
   }
 });
 
+// The sections below each take one `group` of the recording; no recorded case may fall outside them.
+test('every recorded case belongs to a replayed group', () => {
+  const replayed = ['start', 'remote', 'history', 'history-request', 'stale', 'secret', 'room', 'home'];
+  assert.deepEqual([...new Set(recorded.cases.map((c) => c.group))].sort(), [...replayed].sort());
+});
+
 // ── start calls ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
 // mixdog-workspace/src/service.rs: project/create answers { project }, project/directory and project/taskWorkspace { path };
 // a failure is the domain error { code: pathMissing (message: the path realpath named) | notADirectory (message: Node's text) } or permissionDenied.
