@@ -7,7 +7,6 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_core_base::quota_resume::{QUOTA_RESUME_FILE, QuotaResumeStore};
@@ -359,7 +358,7 @@ async fn overlapping_ticks_fire_once() {
         let scheduler = scheduler.clone();
         async move { scheduler.tick().await }
     });
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    scheduler.joined().await;
     assert!(!second.is_finished(), "the second tick waits for the pass in flight");
     assert_eq!(host.fires.lock().unwrap().len() as u64, want["firesWhileHeld"].as_u64().unwrap());
     host.gate.add_permits(1);
@@ -388,7 +387,6 @@ async fn nothing_fires_after_stop() {
     assert_eq!(scheduler.tick().await, None, "a tick after stop runs nothing");
     scheduler.start();
     assert_eq!(clock.armed(), None, "a stopped clock stays stopped");
-    tokio::time::sleep(Duration::from_millis(100)).await;
     assert!(host.fires.lock().unwrap().is_empty(), "nothing fired after stop");
     assert_eq!(store.list().len(), 1, "the resume is still pending");
 }

@@ -188,6 +188,14 @@ pub(crate) fn prompt_list(handle: &SessionHandle) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Returns once the actor has taken a message of its inbox. The loop is biased (jobs and deadlines before the inbox), so every
+/// timer that is due, and every job it queued, was handled first.
+pub(crate) async fn caught_up(handle: &SessionHandle) {
+    let (tx, taken) = tokio::sync::oneshot::channel();
+    handle.inbox.send(super::actor::Inbox::QuotaFacts { tx }).await.expect("the actor takes the inbox");
+    taken.await.expect("the actor answers");
+}
+
 pub(crate) fn idle(handle: &SessionHandle) -> bool {
     handle.cell.run.load().is_none()
 }
@@ -3741,13 +3749,13 @@ async fn a_thread_nobody_watched_unloads_after_the_idle_delay() {
 
     // Working at the deadline: the whole delay starts again.
     tokio::time::advance(super::actor::IDLE_EVICT + Duration::from_secs(1)).await;
-    tokio::task::yield_now().await;
+    caught_up(&handle).await;
     assert!(directory.handle(&handle.id).is_some(), "a running thread is never evicted");
 
     release.send(true).expect("release");
     eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     tokio::time::advance(super::actor::IDLE_EVICT - Duration::from_secs(1)).await;
-    tokio::task::yield_now().await;
+    caught_up(&handle).await;
     assert!(directory.handle(&handle.id).is_some(), "not before the delay");
     tokio::time::advance(Duration::from_secs(2)).await;
     eventually_on(&[&handle.cell.stepped, directory.left()], || directory.handle(&handle.id).is_none().then_some(())).await;

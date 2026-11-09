@@ -113,8 +113,6 @@ mod tests {
     #[derive(Default)]
     struct Store {
         headers: std::sync::Mutex<std::collections::HashMap<ThreadId, Header>>,
-        /// Told as a header is updated.
-        updated: tokio::sync::Notify,
     }
 
     #[async_trait::async_trait]
@@ -124,7 +122,6 @@ mod tests {
             let header = headers.entry(thread.clone()).or_default();
             let change = update(header);
             header.extend(change.set);
-            self.updated.notify_waiters();
             Ok(())
         }
     }
@@ -165,18 +162,20 @@ mod tests {
         let store = Arc::new(Store::default());
         let (thread, loaded) = loaded_thread();
         store.headers.lock().expect("store").insert(thread.clone(), header(json!({ "auto": true, "lastCompactAt": 5 })));
-        let follower = tokio::spawn(follow(config.clone(), false, store.clone(), loaded));
-        tokio::task::yield_now().await;
+        // The follower is driven by polling it here: one poll runs it to where it waits for the next change, and a poll after a
+        // save runs it through that change. A save is acknowledged after the config ticks its changes.
+        let mut follower = std::pin::pin!(follow(config.clone(), false, store.clone(), loaded));
+        assert!(futures::poll!(follower.as_mut()).is_pending());
         save_compaction(&config, json!({ "auto": false })).await;
-        let got = mixdog_core_session::session::testing::eventually_on(&[&store.updated], || compaction_of(&store, &thread).filter(|c| c.get("auto") == Some(&json!(false)))).await;
+        assert!(futures::poll!(follower.as_mut()).is_pending());
+        let got = compaction_of(&store, &thread).filter(|c| c.get("auto") == Some(&json!(false))).expect("the saved change reached the header");
         assert_eq!(got.get("lastCompactAt"), Some(&json!(5)), "the session's own fields survive");
         // The same section saved again changes nothing.
         let before = store.headers.lock().expect("store").get(&thread).cloned();
         store.headers.lock().expect("store").get_mut(&thread).expect("thread").insert("compaction".into(), json!({ "auto": true, "marker": 1 }));
         save_compaction(&config, json!({ "auto": false })).await;
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(futures::poll!(follower.as_mut()).is_pending());
         assert_eq!(compaction_of(&store, &thread), Some(json!({ "auto": true, "marker": 1 })), "an unchanged section is not adopted again ({before:?})");
-        follower.abort();
     }
 
     /// Removing the saved section syncs a loaded thread to the empty-section defaults: the header after Node's
@@ -190,8 +189,8 @@ mod tests {
         let store = Arc::new(Store::default());
         let (thread, loaded) = loaded_thread();
         store.headers.lock().expect("store").insert(thread.clone(), case["header"].as_object().expect("header").clone());
-        let follower = tokio::spawn(follow(config.clone(), false, store.clone(), loaded));
-        tokio::task::yield_now().await;
+        let mut follower = std::pin::pin!(follow(config.clone(), false, store.clone(), loaded));
+        assert!(futures::poll!(follower.as_mut()).is_pending());
         config
             .update(|doc| {
                 doc.shift_remove("agent");
@@ -199,10 +198,9 @@ mod tests {
             })
             .await
             .expect("removed");
+        assert!(futures::poll!(follower.as_mut()).is_pending());
         let want = case["after"]["compaction"].clone();
-        let got = mixdog_core_session::session::testing::eventually_on(&[&store.updated], || compaction_of(&store, &thread).filter(|c| *c == want)).await;
-        assert_eq!(got, want);
-        follower.abort();
+        assert_eq!(compaction_of(&store, &thread), Some(want));
     }
 
     /// A headless caller's injected config is never reloaded, so its sessions are never followed.
@@ -215,7 +213,6 @@ mod tests {
         // An injected config has nothing to follow: the call returns.
         follow(config.clone(), true, store.clone(), loaded).await;
         save_compaction(&config, json!({ "auto": false })).await;
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         assert_eq!(compaction_of(&store, &thread), Some(json!({ "auto": true })));
     }
 }

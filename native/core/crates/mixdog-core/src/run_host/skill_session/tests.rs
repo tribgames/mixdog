@@ -35,15 +35,17 @@ struct Store {
     /// Reads that fail, and updates that fail.
     unreadable: bool,
     fails: bool,
+    /// Holds a permit once the arm has read the header or updated it.
+    touched: tokio::sync::Notify,
 }
 
 impl Store {
     fn of(header: &Value) -> Arc<Self> {
-        Arc::new(Self { header: Mutex::new(object(header)), interloper: Mutex::new(None), unreadable: false, fails: false })
+        Arc::new(Self { header: Mutex::new(object(header)), interloper: Mutex::new(None), unreadable: false, fails: false, touched: tokio::sync::Notify::new() })
     }
 
     fn failing(header: &Value, unreadable: bool, fails: bool) -> Arc<Self> {
-        Arc::new(Self { header: Mutex::new(object(header)), interloper: Mutex::new(None), unreadable, fails })
+        Arc::new(Self { header: Mutex::new(object(header)), interloper: Mutex::new(None), unreadable, fails, touched: tokio::sync::Notify::new() })
     }
 
     fn snapshot(&self) -> Header {
@@ -62,7 +64,9 @@ impl ThreadState for Store {
         if self.unreadable {
             return Err(PortError::Failed { capability: "session".into(), message: "header unreadable".into() });
         }
-        Ok(self.snapshot())
+        let header = self.snapshot();
+        self.touched.notify_one();
+        Ok(header)
     }
     async fn patch_header(&self, _: &ThreadId, _: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
         unreachable!("the arm updates the header through HeaderUpdates")
@@ -81,6 +85,7 @@ impl HeaderUpdates for Store {
         if self.fails {
             return Err(PortError::Failed { capability: "session".into(), message: "header unwritable".into() });
         }
+        self.touched.notify_one();
         let mut header = self.header.lock().expect("store");
         if let Some(write) = self.interloper.lock().expect("interloper").take() {
             header.extend(write);
@@ -252,17 +257,28 @@ async fn a_writer_that_keeps_writing_neither_stalls_the_load_nor_loses_its_keys(
     let store = Store::of(&case["before"]);
     let skill = dependencies(&case["dependencies"], &json!([]));
     let arm = arm_of(&store, Switches::default());
+    let (done, ended) = tokio::sync::watch::channel(false);
     let writer = {
         let store = store.clone();
+        let mut ended = ended;
         async move {
             for round in 0..50 {
                 store.write(Map::from_iter([("title".to_owned(), json!(round)), ("skillLoadedTools".to_owned(), json!(["recall"]))]));
-                tokio::task::yield_now().await;
+                // The next write follows the arm's next step, or comes at once when the arm has ended.
+                tokio::select! {
+                    () = store.touched.notified() => {}
+                    _ = ended.wait_for(|ended| *ended) => {}
+                }
             }
         }
     };
     let thread = thread();
-    let (armed, ()) = tokio::join!(arm.arm(&thread, &skill), writer);
+    let arming = async {
+        let armed = arm.arm(&thread, &skill).await;
+        done.send_replace(true);
+        armed
+    };
+    let (armed, ()) = tokio::join!(arming, writer);
     armed.expect("armed");
     let header = store.snapshot();
     assert_eq!(header["title"], json!(49));

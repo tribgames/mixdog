@@ -197,7 +197,9 @@ async fn a_program_that_does_not_exist_fails_the_step_with_its_spawn_text() {
     assert!(report.steps[0].output.contains("ENOENT"), "{}", report.steps[0].output);
 }
 
-#[tokio::test(start_paused = true)]
+// The limit is the process manager's own: an OS thread enforces it, so no tokio clock (paused or not) moves it. The run
+// waits on the process's exit event.
+#[tokio::test]
 async fn a_command_over_its_time_limit_is_killed_and_reported_timed_out() {
     let dir = tempfile::tempdir().unwrap();
     let options = RunOptions { timeout: Duration::from_millis(300), ..RunOptions::default() };
@@ -211,12 +213,14 @@ async fn a_command_over_its_time_limit_is_killed_and_reported_timed_out() {
 async fn a_cancel_kills_the_running_command_and_leaves_the_rest_pending() {
     let dir = tempfile::tempdir().unwrap();
     let cancel = CancellationToken::new();
-    let stop = cancel.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(400)).await;
-        stop.cancel();
-    });
-    let (report, _) = run_all(vec![sleeper(dir.path()), command("git", &["--version"], dir.path())], &cancel, RunOptions::default()).await;
+    // The cancel lands as the sleeper's step begins: the run kills the process it just started.
+    let report = runner()
+        .run(vec![sleeper(dir.path()), command("git", &["--version"], dir.path())], &cancel, &RunOptions::default(), &mut |event| {
+            if matches!(event, SetupEvent::Running { .. }) {
+                cancel.cancel();
+            }
+        })
+        .await;
     assert_eq!(report.status, SetupStatus::Cancelled);
     assert_eq!(report.steps[0].status, SetupStatus::Cancelled);
     assert_eq!(report.pending.len(), 1);

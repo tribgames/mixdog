@@ -164,6 +164,9 @@ struct Pass {
     /// The pass in flight, as a signal that turns true when it ends. A tick that finds one waits
     /// for it instead of starting another, as Node's `tick()` answers `running`.
     running: Mutex<Option<watch::Receiver<bool>>>,
+    /// Holds a permit once a tick has found a pass in flight and begun waiting for it.
+    #[cfg(test)]
+    joined: tokio::sync::Notify,
 }
 
 /// Ends the pass in flight when its leader finishes or is dropped.
@@ -312,6 +315,8 @@ impl Pass {
         };
         match leader {
             Err(mut done) => {
+                #[cfg(test)]
+                self.joined.notify_one();
                 // Ends when the leader's release signals, or when the leader is dropped, or at stop.
                 let _ = Scope::new().cancel(&self.cancel).run(done.wait_for(|finished| *finished)).await;
             }
@@ -409,8 +414,14 @@ impl QuotaResumeScheduler {
         auto_resume: Arc<dyn Fn() -> bool + Send + Sync>,
         log: ResumeLog,
     ) -> Self {
-        let pass = Pass { store, host, clock, auto_resume, log, cancel: CancellationToken::new(), not_before: Mutex::default(), running: Mutex::default() };
+        let pass = Pass { store, host, clock, auto_resume, log, cancel: CancellationToken::new(), not_before: Mutex::default(), running: Mutex::default(), #[cfg(test)] joined: tokio::sync::Notify::new() };
         Self { pass: Arc::new(pass), started: Mutex::new(None) }
+    }
+
+    /// Returns once a tick has found a pass in flight and is waiting for it.
+    #[cfg(test)]
+    pub(crate) async fn joined(&self) {
+        self.pass.joined.notified().await;
     }
 
     /// The delay the one timer would wait now, or none when nothing is queued.
