@@ -185,12 +185,18 @@ mod tests {
             })
             .await
             .expect("saved");
-        let revision = config.revision();
         let reap = ConfigReap::new(config.clone());
+        // What the forbidden work is counted at: the config's file reads and agent-section rebuilds (an equal document
+        // moves no revision), and the provider loads and credential reads of `mixdog_ai::registry::effective`.
+        let before = (config.revision(), config.loads(), mixdog_ai::registry::effective::work::loads(), mixdog_ai::registry::effective::work::probes());
         for _ in 0..5 {
             assert_eq!(reap.terminal_reap_ms("openai"), 120_000.0);
         }
-        assert_eq!(config.revision(), revision, "a reap-window read rebuilt the config");
+        let after = (config.revision(), config.loads(), mixdog_ai::registry::effective::work::loads(), mixdog_ai::registry::effective::work::probes());
+        assert_eq!(after.1, before.1, "a reap-window read loaded or rebuilt the config");
+        assert_eq!(after.3, before.3, "a reap-window read probed a credential");
+        assert_eq!(after.2, before.2, "a reap-window read built the providers");
+        assert_eq!(after.0, before.0, "a reap-window read installed a document");
     }
 
     /// `resolveAgentTerminalReapMs`: openai-oauth keeps the finite hour its unlimited cache needs, a

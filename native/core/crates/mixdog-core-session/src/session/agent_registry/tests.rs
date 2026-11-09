@@ -348,6 +348,51 @@ async fn the_kept_reads_follow_the_clock_as_a_read_that_keeps_nothing_does() {
     }
 }
 
+/// The invalidation argument of the kept reads (`State::kept`, `window_at`) at its sharpest point: the exact instant a
+/// tombstone, a release marker or a future-stamped tombstone starts to read differently. One registry keeps its answers
+/// while the clock is walked up to, across and back over each such instant, a millisecond at a time, and at every
+/// step its reads (all four index reads, and the scoped worker rows a tombstone blocks) equal those of a registry
+/// that has kept nothing.
+#[tokio::test]
+async fn the_kept_reads_equal_a_fresh_computation_at_every_ms_around_each_expiry() {
+    let (rig, _) = tombstone_rig();
+    crowd(&rig, 2);
+    let future_at = NOW + 2 * HOUR;
+    let future = obj(json!({ "tombstone": tombstone("fut", &at(future_at), json!({})) }));
+    rig.store.write("s-future", without_row(&future));
+    let mut released = worker_row("s-released", "rel", json!({ "createdAt": at(NOW - 3 * HOUR) }));
+    released.insert("releasedAt".into(), json!(at(NOW - 2 * DAY)));
+    rig.store.write("s-released", Some(released));
+    let kept = rig.registry();
+    kept.reload().await;
+    kept.resolve_tombstone_owners();
+
+    let ttl = TAG_TOMBSTONE_TTL_MS as i64;
+    let (reap_end, marker_end) = (NOW - HOUR + ttl, NOW - 2 * DAY + ttl);
+    let scope = lead("lead-a");
+    let reads = |registry: &AgentRegistry| {
+        let scoped: Vec<Row> = registry.lock().rows(&scope, registry.now()).iter().cloned().collect();
+        (index_reads(registry), scoped)
+    };
+    let tags = |rows: &[Row]| rows.iter().map(|r| clean(r.get("tag"))).collect::<Vec<_>>();
+    let mut instants: Vec<i64> = [reap_end, marker_end, future_at, NOW].into_iter().flat_map(|b| (-2..=2).map(move |d| b + d)).collect();
+    instants.sort_unstable();
+    let back: Vec<i64> = instants.iter().rev().copied().collect();
+    for now in instants.into_iter().chain(back) {
+        rig.clock.0.store(now, Ordering::SeqCst);
+        let fresh = rig.registry();
+        fresh.reload().await;
+        fresh.resolve_tombstone_owners();
+        assert_eq!(reads(&kept), reads(&fresh), "at {now}");
+        let (index, scoped) = reads(&kept);
+        // The boundaries are real: a tombstone is read through its last instant and not after, and the row it blocked
+        // (r3, created before the reap) is work again only once the tombstone ended.
+        assert_eq!(index.3.iter().any(|t| t["tag"] == "r3"), now <= reap_end, "r3 tombstone at {now}");
+        assert_eq!(tags(&scoped).contains(&"r3".to_owned()), now > reap_end, "r3 row at {now}");
+        assert_eq!(index.1.iter().any(|r| r["tag"] == "rel" && r.get("released") == Some(&json!(true))), now <= marker_end, "release marker at {now}");
+    }
+}
+
 /// Hot path 2: whether a session is at work is answered from memory. No bookkeeping pass of the registry reads a
 /// session's record (a busy worker's whole log) from the store.
 #[tokio::test]

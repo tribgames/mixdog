@@ -931,8 +931,7 @@ impl Registry for AgentRegistry {
     }
 
     async fn refresh_tags_from_sessions(&self, scan_sessions: bool, scope: &Scope) {
-        self.reload().await;
-        let mut st = self.lock();
+        self.reload().await;        let mut st = self.lock();
         self.refresh(&mut st, scan_sessions, scope);
     }
 
