@@ -1,7 +1,9 @@
-// Records Node's composed screen-access decision: the real relay's `screenDisplays` (apps/desktop/src/main/remote-webrtc/relay.ts) asking the
-// real screen-access publisher (apps/desktop/src/main/remote-screen/screen-access-publisher.ts `allowed`) over a client table, as
+// Records Node's composed screen-access decision as the phone receives it: the real relay-client call dispatch
+// (apps/desktop/src/main/remote-relay-client-calls.ts, `browserRemoteScreenDisplays`) over the real relay's `screenDisplays`
+// (apps/desktop/src/main/remote-webrtc/relay.ts) asking the real screen-access publisher (apps/desktop/src/main/remote-screen/screen-access-publisher.ts `allowed`) over a client table, as
 // remote-relay.ts composes them (`screenAuthorized: (clientId, origin) => screenAccessPublisher.allowed(clientId, origin)`). Each scenario
-// records the complete observation of one request for the display list and how many times the host was asked for it.
+// records the complete frame sent to the phone for one request for the display list (`{ id, ok, value }` or `{ id, ok, error }`, the
+// whole payload) and how many times the host was asked for it.
 //   node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-screen-access.mjs --tree <exact git archive of b6f10295a with node_modules> --commit b6f10295a2f698afc85332467192de28500bd146
 import { join } from 'node:path';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
@@ -14,6 +16,7 @@ const finalDir = join(FIXTURES_ROOT, 'screen-access');
 const stage = stageSet(finalDir);
 
 const { createRemoteWebrtcRelay } = await importFrom(tree, 'apps/desktop/src/main/remote-webrtc/relay.ts');
+const { createRelayClientCallDispatch } = await importFrom(tree, 'apps/desktop/src/main/remote-relay-client-calls.ts');
 const { createScreenAccessPublisher } = await importFrom(tree, 'apps/desktop/src/main/remote-screen/screen-access-publisher.ts');
 
 const DISPLAYS = [{ id: 'display-1', label: 'Display 1', primary: true, width: 1920, height: 1080 }];
@@ -48,15 +51,23 @@ async function scenario(name, act) {
     publisher.admitted(client);
     return client;
   };
+  const frames = [];
+  const dispatch = createRelayClientCallDispatch({
+    acknowledgePaintProbe: () => null,
+    attached: () => true,
+    webrtc: relay,
+    sendEncryptedFrame: async (_clientId, payload) => {
+      frames.push(JSON.parse(JSON.stringify(payload)));
+    },
+  });
+  const CALL_ID = 7;
   const observe = async (clientId, origin) => {
     const before = asked;
-    let observation;
-    try {
-      observation = { ok: true, value: JSON.parse(JSON.stringify(await relay.screenDisplays(clientId, origin))) };
-    } catch (error) {
-      observation = { ok: false, error: error instanceof Error ? error.message : String(error), errorType: error?.constructor?.name };
-    }
-    return { observation, hostAsked: asked - before };
+    frames.length = 0;
+    const outcome = await dispatch(clientId, origin, { id: CALL_ID, method: 'browserRemoteScreenDisplays', params: [] }, 0);
+    await outcome.execution;
+    if (frames.length !== 1) throw new Error('the phone is sent exactly one frame, got ' + frames.length);
+    return { reply: frames[0], hostAsked: asked - before };
   };
   scenarios.push({ name, ...(await act({ admit, observe, publisher, unpaired })) });
 }

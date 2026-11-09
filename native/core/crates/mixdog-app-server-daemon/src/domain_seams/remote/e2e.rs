@@ -15,7 +15,10 @@ use std::time::Duration;
 use std::time::Instant;
 
 use mixdog_app_protocol::limits::Limits;
+use mixdog_app_protocol::RequestId;
 use mixdog_app_server::AppServer;
+use mixdog_app_server::error_data;
+use mixdog_app_server::error_frame;
 use mixdog_app_server::Outgoing;
 use mixdog_app_server_transport::ConnectionHub;
 use mixdog_app_server::HostMedia;
@@ -566,20 +569,35 @@ fn a_local_client_is_recorded_by_what_it_states_and_a_relay_or_claimed_phone_is_
 
 const SCREEN_ACCESS: &str = include_str!("../../../../../fixtures/screen-access/screen-access.json");
 
-/// Node's refusal (`relay.ts` `screenDisplays`) as the core's domain error: the whole error, every field.
-fn assert_refused(refused: &CoreError, recorded: &Value, at: &str) {
-    assert_eq!(recorded["ok"], false, "{at}");
-    let CoreError::DomainError { domain, code, message, detail } = refused else { panic!("{at}: {refused:?}") };
-    assert_eq!(
-        (domain.as_ref(), code.as_ref().map(|code| code.to_string()), message.as_ref().map(|message| message.to_string()), detail.is_some()),
-        ("remote", None, recorded["error"].as_str().map(str::to_owned), false),
-        "{at}"
-    );
+/// A reply as the core's wire carries it, from the frame Node sent the phone for the same call: `{ id, ok: true, value }` is the
+/// result, `{ id, ok: false, error }` the remote domain's error with that text, framed by the server's single error mapping. Every
+/// recorded field is used (id, ok, value, error); the rest of the error body is the wire's own.
+fn wire_of(node: &Value) -> Value {
+    let id = RequestId::Integer(node["id"].as_i64().unwrap());
+    let unread: Vec<&String> = node.as_object().unwrap().keys().filter(|key| !["id", "ok", "value", "error"].contains(&key.as_str())).collect();
+    assert!(unread.is_empty(), "recorded reply fields this replay does not compare: {unread:?}");
+    match node["ok"].as_bool().unwrap() {
+        true => json!({ "id": node["id"], "result": node["value"] }),
+        false => {
+            let refusal = CoreError::DomainError { domain: "remote".into(), code: None, message: Some(node["error"].as_str().unwrap().into()), detail: None };
+            serde_json::from_slice(&error_frame(&id, &error_data(&refusal))).unwrap()
+        }
+    }
 }
 
+/// A refusal the core's service gave, framed by that same mapping.
+fn wire_of_error(id: i64, refused: &CoreError) -> Value {
+    serde_json::from_slice(&error_frame(&RequestId::Integer(id), &error_data(refused))).unwrap()
+}
+
+/// The recorded scenario `name` (by its leading words), with the guard that every key in it is one this replay reads.
 fn recorded(name: &str) -> Value {
     let all: Value = serde_json::from_str(SCREEN_ACCESS).unwrap();
-    all["scenarios"].as_array().unwrap().iter().find(|scenario| scenario["name"].as_str().unwrap().starts_with(name)).unwrap_or_else(|| panic!("no recorded scenario {name}")).clone()
+    let scenario = all["scenarios"].as_array().unwrap().iter().find(|scenario| scenario["name"].as_str().unwrap().starts_with(name)).unwrap_or_else(|| panic!("no recorded scenario {name}")).clone();
+    let read = ["name", "reply", "hostAsked", "before"];
+    let unread: Vec<&String> = scenario.as_object().unwrap().keys().filter(|key| !read.contains(&key.as_str())).collect();
+    assert!(unread.is_empty(), "recorded fields this replay does not compare: {unread:?}");
+    scenario
 }
 
 fn displays_request(connection: ConnectionId, origin: Origin) -> CoreRequest {
@@ -591,10 +609,10 @@ fn displays_request(connection: ConnectionId, origin: Origin) -> CoreRequest {
     }
 }
 
-/// Node's composed screen access (`screen-access.json`: the real relay asking the real publisher), against the production wiring.
-/// Every recorded scenario is replayed: a paired phone allowed, a local client refused, a device whose unpair is in force refused,
-/// and a paired phone refused once its credential is unpaired. The allowed answer is compared whole on the wire; a refusal as the whole
-/// domain error. The host is asked exactly as often as Node's was.
+/// Node's composed screen access (`screen-access.json`: the frame the real relay-client call dispatch sent the phone, over the real
+/// relay asking the real publisher), against the production wiring. Every recorded scenario is replayed and every reply is compared
+/// whole: a paired phone's answer is the frame it received over the relay; a refusal is the error the service gave, framed by the
+/// server's own mapping, against the frame Node's refusal maps to. The host is asked exactly as often as Node's was.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_composed_screen_access_answers_as_nodes_relay_and_publisher_did() {
     let all: Value = serde_json::from_str(SCREEN_ACCESS).unwrap();
@@ -605,18 +623,18 @@ async fn the_composed_screen_access_answers_as_nodes_relay_and_publisher_did() {
     let h = Harness::start(true).await;
     let (mut phone, connection) = h.connect("p1", CRED).await;
     phone.send(&json!({ "id": 7, "method": "browser/screenDisplays", "params": {} }).to_string());
-    assert_eq!(answer(&mut phone, 7).await, json!({ "id": 7, "result": revoked["before"]["observation"]["value"] }));
+    assert_eq!(answer(&mut phone, 7).await, wire_of(&revoked["before"]["reply"]), "before the unpair");
     assert_eq!(h.desktop.asked.lock().unwrap().len() as u64, revoked["before"]["hostAsked"].as_u64().unwrap());
     h.runtime.revoke_client(CRED).await.unwrap();
     assert_eq!(phone.closed().await, "device unpaired");
     h.closed(connection).await;
     let refused = h.core.live.call(displays_request(connection, Origin::Relay)).await.unwrap_err();
-    assert_refused(&refused, &revoked["observation"], "after the unpair");
+    assert_eq!(wire_of_error(7, &refused), wire_of(&revoked["reply"]), "after the unpair");
     assert_eq!(h.desktop.asked.lock().unwrap().len() as u64, revoked["before"]["hostAsked"].as_u64().unwrap() + revoked["hostAsked"].as_u64().unwrap());
 
-    // The paired phone alone (the first recorded scenario): the same list, whole.
+    // The paired phone alone (the first recorded scenario): the same frame, whole.
     let allowed = recorded("a paired, E2EE-established phone");
-    assert_eq!(allowed["observation"]["value"], revoked["before"]["observation"]["value"]);
+    assert_eq!(allowed["reply"], revoked["before"]["reply"]);
     assert_eq!(allowed["hostAsked"], revoked["before"]["hostAsked"]);
 
     // A local client, even one naming itself after the paired device.
@@ -624,8 +642,8 @@ async fn the_composed_screen_access_answers_as_nodes_relay_and_publisher_did() {
     let named = ConnectionId(9001);
     h.core.connection_opened(named, Origin::Local, "Pixel", ConnectionKind::Cli);
     let refused = h.core.live.call(displays_request(named, Origin::Local)).await.unwrap_err();
-    assert_refused(&refused, &local["observation"], "a local client");
-    assert_eq!(h.desktop.asked.lock().unwrap().len(), 1, "{}", local["hostAsked"]);
+    assert_eq!(wire_of_error(7, &refused), wire_of(&local["reply"]), "a local client");
+    assert_eq!(h.desktop.asked.lock().unwrap().len() as u64, revoked["before"]["hostAsked"].as_u64().unwrap() + local["hostAsked"].as_u64().unwrap());
     h.runtime.close().await;
 
     // An unpair the relay has not confirmed is in force: the device's connection is refused, and the host is not asked.
@@ -636,7 +654,7 @@ async fn the_composed_screen_access_answers_as_nodes_relay_and_publisher_did() {
     assert_eq!(phone.closed().await, "device unpaired");
     h.closed(connection).await;
     let refused = h.core.live.call(displays_request(connection, Origin::Relay)).await.unwrap_err();
-    assert_refused(&refused, &unpaired["observation"], "an unpair in force");
+    assert_eq!(wire_of_error(7, &refused), wire_of(&unpaired["reply"]), "an unpair in force");
     assert_eq!(h.desktop.asked.lock().unwrap().len() as u64, unpaired["hostAsked"].as_u64().unwrap());
     h.runtime.close().await;
 }

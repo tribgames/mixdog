@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 1825,
+      "bytes": 1780,
       "path": "screen-access.json",
-      "sha256": "a65ae2bb62da1554006205537b8dc1416e6dcbc18ff157bb9b054c0741395977"
+      "sha256": "23b259298a6cd1c5517dca1d60cdd38d4ec557cde8424281391ae728637032ea"
     }
   ],
   "product": {
@@ -27,5 +27,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-screen-access.mjs",
   "set": "screen-access",
-  "totalBytes": 1825
+  "totalBytes": 1780
 }
