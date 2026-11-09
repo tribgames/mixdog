@@ -514,11 +514,13 @@ impl HostEnv for LiveEnv {
             inner.peers.close(connection_id);
         }
     }
-    fn push_picture(&self, source_key: &str, picture: &Picture) {
+    fn push_picture(&self, source_key: &str, frame_id: u64, picture: &Picture) {
         let Some(inner) = self.inner() else { return };
         let Some(stream) = source_key.strip_prefix(SESSION_PREFIX).and_then(|session| lock(&inner.state).streams.get(session).cloned()) else { return };
-        // A picture that cannot describe itself is dropped like any junk frame.
-        let _ = lock(&stream.sink).push_jpeg(picture.data.clone());
+        // A picture that cannot describe itself is dropped like any junk frame. The sink takes the
+        // picture at once (it keeps only the newest), so the frame is done when the push returns.
+        let ok = lock(&stream.sink).push_jpeg(picture.data.clone()).is_ok();
+        inner.host().sender_event(SenderEvent::FrameDone { source_key: source_key.to_owned(), frame_id, ok });
     }
 
     fn source_closed(&self, _source_key: &str) {}

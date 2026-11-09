@@ -2,11 +2,12 @@
 //! [`Viewer`] per paired client × browser source, the sources' newest pictures, and the peer
 //! connections' events routed back to their viewer. Phone signals arrive validated by the relay.
 //!
-//! Where Node's host fed one sender window (one picture in flight per source) the core owns the
-//! peers and gives every connection an encoder of its own over the source's shared newest picture
-//! (see [`HostEnv::push_picture`]): no picture is in flight, and the pictures a viewer sees are the
-//! same, a new connection starting from the newest one. The measurement line (`measure`) is a
-//! diagnostic and is not ported.
+//! The host hands pictures over exactly as Node's did: one in flight per source, the newest
+//! replacing the waiting one, the delivered one sent again to a connection that comes up (see
+//! [`HostEnv::push_picture`]). Where Node's sender window turned them into one track, the core
+//! gives every connection an encoder of its own over the source's shared latest picture, so a
+//! connection that comes up starts from the last picture handed over. The measurement line
+//! (`measure`) is a diagnostic and is not ported.
 //!
 //! The host is runtime-free: everything it runs later (the input lanes, signal delivery, resize
 //! calls) goes through [`HostEnv::spawn`], so a test drives it by polling.
@@ -74,15 +75,17 @@ pub trait HostEnv: Send + Sync + 'static {
     fn send_signal(&self, client: &str, signal: &DesktopSignal) -> BoxFuture<'static, Result<(), String>>;
     /// The source a viewer names, or `None` when it is not streamed (to this client).
     fn source(&self, source: &Source, client: &str, signal: &str) -> Option<Arc<dyn VideoSource>>;
-    /// A new peer connection for the source. Its encoder starts from the source's newest picture.
+    /// A new peer connection for the source. Its encoder starts from the last picture handed over.
     fn open(&self, connection_id: &str, source_key: &str, ice_servers: &[IceServer], receive_codecs: &[String]);
     fn answer(&self, connection_id: &str, sdp: &str);
     fn candidate(&self, connection_id: &str, candidate: &Option<Candidate>);
     fn channel_send(&self, connection_id: &str, text: &str);
     fn close(&self, connection_id: &str);
-    /// The newest picture of the source: every connection's encoder reads it, and a connection that
-    /// comes up later starts from it.
-    fn push_picture(&self, source_key: &str, picture: &Picture);
+    /// The next picture of the source, handed over as frame `frame_id` (one in flight: the next
+    /// comes after `SenderEvent::FrameDone`). Every connection's encoder reads the source's latest
+    /// picture, and a connection that comes up later starts from the last one handed over, as the
+    /// track Node's sender kept.
+    fn push_picture(&self, source_key: &str, frame_id: u64, picture: &Picture);
     /// The source ended: its shared picture goes.
     fn source_closed(&self, source_key: &str);
     fn report(&self, event: &str, data: Value);
@@ -107,6 +110,8 @@ pub enum SenderEvent {
     CaptureOk { source_key: String },
     /// No track to send for the source: every connection of it falls back.
     CaptureFailed { source_key: String, detail: String },
+    /// The sender took the picture with this frame id, or could not.
+    FrameDone { source_key: String, frame_id: u64, ok: bool },
     /// The peers are gone (the sender crashed or closed).
     Gone,
 }
@@ -133,6 +138,14 @@ fn live(state: TransportState) -> bool {
 
 struct Feed {
     source: Arc<dyn VideoSource>,
+    /// The newest picture not yet handed over; a newer one replaces it.
+    latest: Option<Picture>,
+    /// The newest picture the sender took (acknowledged ok): sent again to a connection that comes
+    /// up on a page that shows no new picture.
+    delivered: Option<Picture>,
+    /// The one picture handed over and not yet acknowledged, with its frame id.
+    in_flight: Option<(u64, Picture)>,
+    serial: u64,
     /// `documentId|generation` the count below belongs to.
     current_key: String,
     frames_since_current: u64,
@@ -199,6 +212,13 @@ struct State {
     outgoing: HashMap<String, mpsc::UnboundedSender<Queued>>,
 }
 
+impl State {
+    /// Whether any viewer of the source holds a peer connection now.
+    fn wanted(&self, source_key: &str) -> bool {
+        self.viewers.values().any(|e| e.source_key == source_key && live(*lock(&e.state)))
+    }
+}
+
 struct Shared {
     env: Arc<dyn HostEnv>,
     state: Mutex<State>,
@@ -215,7 +235,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 impl Shared {
     fn wanted(&self, source_key: &str) -> bool {
-        lock(&self.state).viewers.values().any(|e| e.source_key == source_key && live(*lock(&e.state)))
+        lock(&self.state).wanted(source_key)
     }
 
     /// Queues `signal` to the client's phone behind the ones made before it.
@@ -417,7 +437,15 @@ impl LiveHost {
                 {
                     let mut state = lock(&self.shared.state);
                     state.viewers.insert(key.clone(), entry.clone());
-                    state.feeds.entry(source_key.clone()).or_insert_with(|| Feed { source: source.clone(), current_key: String::new(), frames_since_current: 0 });
+                    state.feeds.entry(source_key.clone()).or_insert_with(|| Feed {
+                        source: source.clone(),
+                        latest: None,
+                        delivered: None,
+                        in_flight: None,
+                        serial: 0,
+                        current_key: String::new(),
+                        frames_since_current: 0,
+                    });
                 }
                 // The locked geometry goes to every new viewer first.
                 let first = entry.viewer.geometry_changed();
@@ -519,22 +547,77 @@ impl LiveHost {
         }
     }
 
-    /// A source's newest picture.
+    /// A source's newest picture; an older one not yet taken is superseded.
     pub fn frame(&self, source_key: &str, picture: Picture) {
         {
             let mut state = lock(&self.shared.state);
             let Some(feed) = state.feeds.get_mut(source_key) else { return };
-            let (document_id, geometry) = feed.source.page();
-            let key = page_key(&document_id, &geometry);
-            if key != feed.current_key {
-                feed.current_key = key.clone();
-                feed.frames_since_current = 0;
+            feed.latest = Some(picture);
+        }
+        self.pump(source_key);
+    }
+
+    /// Hands the newest picture over, one in flight per source and only while a viewer holds a peer
+    /// connection (as Node's host does; the next `FrameDone` or `Connected` pumps again).
+    fn pump(&self, source_key: &str) {
+        let (frame_id, picture) = {
+            let mut state = lock(&self.shared.state);
+            let wanted = state.wanted(source_key);
+            let Some(feed) = state.feeds.get_mut(source_key) else { return };
+            if feed.in_flight.is_some() || !wanted {
+                return;
             }
-            if format!("{}|{}", picture.document_id.as_deref().unwrap_or(""), picture.generation) == key {
-                feed.frames_since_current += 1;
+            let Some(picture) = feed.latest.take() else { return };
+            feed.serial += 1;
+            feed.in_flight = Some((feed.serial, picture.clone()));
+            (feed.serial, picture)
+        };
+        self.shared.env.push_picture(source_key, frame_id, &picture);
+    }
+
+    /// The sender took (or failed to take) the picture in flight. An acknowledgement of any other
+    /// picture is ignored.
+    fn frame_done(&self, source_key: &str, frame_id: u64, ok: bool) {
+        {
+            let mut state = lock(&self.shared.state);
+            let Some(feed) = state.feeds.get_mut(source_key) else { return };
+            match feed.in_flight.take() {
+                Some((id, picture)) if id == frame_id => {
+                    if ok {
+                        let (document_id, geometry) = feed.source.page();
+                        let key = page_key(&document_id, &geometry);
+                        if key != feed.current_key {
+                            feed.current_key = key.clone();
+                            feed.frames_since_current = 0;
+                        }
+                        if format!("{}|{}", picture.document_id.as_deref().unwrap_or(""), picture.generation) == key {
+                            feed.frames_since_current += 1;
+                        }
+                        feed.delivered = Some(picture);
+                    }
+                }
+                other => {
+                    feed.in_flight = other;
+                    return;
+                }
             }
         }
-        self.shared.env.push_picture(source_key, &picture);
+        self.pump(source_key);
+    }
+
+    /// A connection came up: a page that shows no new picture sends the delivered one again, so the
+    /// fresh connection has a frame to decode.
+    fn resend(&self, source_key: &str) {
+        {
+            let mut state = lock(&self.shared.state);
+            if let Some(feed) = state.feeds.get_mut(source_key)
+                && feed.latest.is_none()
+                && let Some(delivered) = feed.delivered.clone()
+            {
+                feed.latest = Some(delivered);
+            }
+        }
+        self.pump(source_key);
     }
 
     /// A source's desktop → phone channel message (already serialized), to each of its viewers
@@ -579,6 +662,10 @@ impl LiveHost {
         let routed = |id: &str| lock(&self.shared.state).connections.get(id).cloned();
         let outcome = match event {
             SenderEvent::Gone => {
+                // The pictures in flight went with the sender.
+                for feed in lock(&self.shared.state).feeds.values_mut() {
+                    feed.in_flight = None;
+                }
                 self.fail_all(None);
                 return;
             }
@@ -601,7 +688,15 @@ impl LiveHost {
                 e.viewer.sender_candidate(&connection_id, candidate);
                 (e, Ok(()))
             }),
-            SenderEvent::Connected { connection_id, certificate } => routed(&connection_id).map(|e| (e.clone(), e.viewer.sender_connected(&connection_id, certificate.as_ref()))),
+            SenderEvent::Connected { connection_id, certificate } => routed(&connection_id).map(|e| {
+                let result = e.viewer.sender_connected(&connection_id, certificate.as_ref());
+                self.resend(&e.source_key);
+                (e, result)
+            }),
+            SenderEvent::FrameDone { source_key, frame_id, ok } => {
+                self.frame_done(&source_key, frame_id, ok);
+                return;
+            }
             SenderEvent::Failed { connection_id, reason } => routed(&connection_id).map(|e| (e.clone(), e.viewer.sender_failed(&connection_id, reason))),
             SenderEvent::Channel { connection_id, text, received_at } => routed(&connection_id).map(|e| (e.clone(), e.viewer.channel(&connection_id, &text, received_at))),
         };
