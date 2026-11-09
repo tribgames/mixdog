@@ -144,6 +144,21 @@ fn stored_details(message: &Value) -> (Vec<String>, Vec<Option<String>>, Option<
     (strings("submissionIds"), consumed, hop, strings("botChain"), room_row)
 }
 
+/// The id a client holds for a row: a user row shows its submission id (Node's row id, `pushUserOrSyntheticItem(text, id)`;
+/// `rowOf` in `rows.ts`), every other row its item id.
+pub(in crate::session) fn displayed_id(item: &ThreadItem) -> &str {
+    match item {
+        ThreadItem::UserMessage { client_submission_id: Some(id), .. } if !id.is_empty() => id,
+        _ => item.id().as_str(),
+    }
+}
+
+/// The position of the row a client's id names, in Node's order (`rewind.mjs`: the displayed id is matched first): by displayed
+/// id, then by the internal item id for a caller that read the id from the item itself.
+pub(in crate::session) fn position_of_id<'a>(mut items: impl Iterator<Item = &'a ThreadItem> + Clone, wanted: &str) -> Option<usize> {
+    items.clone().position(|item| displayed_id(item) == wanted).or_else(|| items.position(|item| item.id().as_str() == wanted))
+}
+
 fn user_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
     let id = id_of(&mut row);
     let text = take_str(&mut row, "text").unwrap_or_default();
@@ -173,8 +188,7 @@ fn user_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
         }
     }
     let device = take_str(&mut row, "device");
-    let client_submission_id = take_str(&mut row, "clientSubmissionId");
-    let checkpoint_id = take_str(&mut row, "checkpointId");
+    let client_submission_id = take_str(&mut row, "clientSubmissionId");    let checkpoint_id = take_str(&mut row, "checkpointId");
     let applied_skills = row.shift_remove("appliedSkills").and_then(|skills| serde_json::from_value::<Vec<String>>(skills).ok());
     row.shift_remove("expanded");
     meta = finish(meta, row);
