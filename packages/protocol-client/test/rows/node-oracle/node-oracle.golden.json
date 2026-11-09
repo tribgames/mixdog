@@ -1,0 +1,1001 @@
+{
+ "recordedFrom": "b6f10295a2f698afc85332467192de28500bd146",
+ "text": [
+  {
+   "fn": "toolResultText",
+   "args": [
+    [
+     "a",
+     {
+      "type": "text",
+      "text": "b"
+     },
+     {
+      "type": "text",
+      "text": ""
+     },
+     null
+    ]
+   ],
+   "result": "a\nb"
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    {
+     "content": [
+      {
+       "type": "output_text",
+       "text": "x"
+      }
+     ]
+    }
+   ],
+   "result": "x"
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    {
+     "parts": [
+      {
+       "type": "input_text",
+       "text": "p"
+      },
+      {
+       "type": "text"
+      }
+     ]
+    }
+   ],
+   "result": "p"
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    {
+     "content": {
+      "type": "text",
+      "text": "single"
+     }
+    }
+   ],
+   "result": "single"
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    [
+     {
+      "type": "image",
+      "mimeType": "image/png"
+     }
+    ]
+   ],
+   "result": "[image: image/png]"
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    [
+     {
+      "type": "image"
+     }
+    ]
+   ],
+   "result": "[image: image]"
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    {
+     "source": {
+      "type": "base64",
+      "data": "AA",
+      "media_type": "image/jpeg"
+     }
+    }
+   ],
+   "result": "[image: image/jpeg]"
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    {
+     "type": "tool_result",
+     "content": [
+      {
+       "type": "text",
+       "text": "deep"
+      }
+     ]
+    }
+   ],
+   "result": "deep"
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    {
+     "type": "tool_result",
+     "content": "flat"
+    }
+   ],
+   "result": "flat"
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    {
+     "type": "tool_result",
+     "content": []
+    }
+   ],
+   "result": ""
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    {
+     "output": "out"
+    }
+   ],
+   "result": "out"
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    {
+     "message": "msg"
+    }
+   ],
+   "result": "msg"
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    {
+     "foo": 1
+    }
+   ],
+   "result": "{\"foo\":1}"
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    {}
+   ],
+   "result": "{}"
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    null
+   ],
+   "result": ""
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    "plain"
+   ],
+   "result": "plain"
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    [
+     [
+      [
+       "x"
+      ]
+     ]
+    ]
+   ],
+   "result": "x"
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    [
+     [
+      [
+       [
+        [
+         [
+          [
+           [
+            "x"
+           ]
+          ]
+         ]
+        ]
+       ]
+      ]
+     ]
+    ]
+   ],
+   "result": "x"
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    [
+     [
+      [
+       [
+        [
+         [
+          [
+           [
+            [
+             "x"
+            ]
+           ]
+          ]
+         ]
+        ]
+       ]
+      ]
+     ]
+    ]
+   ],
+   "result": "x"
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    [
+     [
+      [
+       [
+        [
+         [
+          [
+           [
+            [
+             [
+              "x"
+             ]
+            ]
+           ]
+          ]
+         ]
+        ]
+       ]
+      ]
+     ]
+    ]
+   ],
+   "result": "x"
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    [
+     [
+      [
+       [
+        [
+         [
+          [
+           [
+            [
+             [
+              [
+               [
+                [
+                 [
+                  [
+                   [
+                    [
+                     [
+                      [
+                       [
+                        "x"
+                       ]
+                      ]
+                     ]
+                    ]
+                   ]
+                  ]
+                 ]
+                ]
+               ]
+              ]
+             ]
+            ]
+           ]
+          ]
+         ]
+        ]
+       ]
+      ]
+     ]
+    ]
+   ],
+   "result": ""
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    {
+     "content": [
+      [
+       [
+        [
+         [
+          [
+           {
+            "type": "text",
+            "text": "at the cap"
+           }
+          ]
+         ]
+        ]
+       ]
+      ]
+     ]
+    }
+   ],
+   "result": "at the cap"
+  },
+  {
+   "fn": "toolResultText",
+   "args": [
+    [
+     {
+      "type": "image",
+      "source": {
+       "media_type": "image/webp"
+      }
+     },
+     "after"
+    ]
+   ],
+   "result": "[image: image/webp]\nafter"
+  },
+  {
+   "fn": "toolAggregateDetailFallback",
+   "args": [
+    "  summary  ",
+    "other result"
+   ],
+   "result": "  summary  "
+  },
+  {
+   "fn": "toolAggregateDetailFallback",
+   "args": [
+    "",
+    "﻿ \r\n  result \t\r\nsecond line\n"
+   ],
+   "result": "result"
+  },
+  {
+   "fn": "toolAggregateDetailFallback",
+   "args": [
+    null,
+    "﻿ \n "
+   ],
+   "result": null
+  },
+  {
+   "fn": "toolAggregateDetailFallback",
+   "args": [
+    "",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   "result": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+   "fn": "toolAggregateDetailFallback",
+   "args": [
+    "",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   "result": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+  },
+  {
+   "fn": "toolAggregateDetailFallback",
+   "args": [
+    "",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   "result": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"
+  },
+  {
+   "fn": "toolAggregateDetailFallback",
+   "args": [
+    "",
+    "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+   ],
+   "result": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…"
+  },
+  {
+   "fn": "toolAggregateDetailFallback",
+   "args": [
+    null,
+    "   "
+   ],
+   "result": null
+  },
+  {
+   "fn": "toolAggregateDetailFallback",
+   "args": [
+    "",
+    "\n\n  first nonblank  \nsecond"
+   ],
+   "result": "first nonblank"
+  }
+ ],
+ "ctx": [
+  {
+   "kind": "stats",
+   "input": {
+    "measurement": {
+     "tokens": 8300,
+     "source": "last_api_request",
+     "updatedAt": 5
+    }
+   },
+   "opts": {
+    "contextWindow": 436000
+   },
+   "result": {
+    "stats": {
+     "currentContextTokens": 8300,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "last_api_request",
+     "currentContextUpdatedAt": 5
+    },
+    "usage": {
+     "used": 8300,
+     "limit": 436000,
+     "percent": 1.9,
+     "known": true,
+     "source": "last_api_request",
+     "updatedAt": 5,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "stats",
+   "input": {
+    "measurement": {
+     "tokens": 24000,
+     "source": "pending"
+    }
+   },
+   "opts": {
+    "contextWindow": 100000
+   },
+   "result": {
+    "stats": {
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null
+    },
+    "usage": {
+     "used": null,
+     "limit": 100000,
+     "percent": null,
+     "known": false,
+     "source": "pending",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "stats",
+   "input": {
+    "measurement": {
+     "tokens": 24000,
+     "source": "unavailable"
+    }
+   },
+   "opts": {
+    "contextWindow": 100000
+   },
+   "result": {
+    "stats": {
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "unavailable",
+     "currentContextUpdatedAt": null
+    },
+    "usage": {
+     "used": null,
+     "limit": 100000,
+     "percent": null,
+     "known": false,
+     "source": "unavailable",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "stats",
+   "input": {
+    "measurement": {
+     "tokens": 0,
+     "source": "last_api_request"
+    }
+   },
+   "opts": {
+    "contextWindow": 100000
+   },
+   "result": {
+    "stats": {
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null
+    },
+    "usage": {
+     "used": null,
+     "limit": 100000,
+     "percent": null,
+     "known": false,
+     "source": "pending",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "stats",
+   "input": {
+    "measurement": {
+     "tokens": -5,
+     "source": "last_api_request"
+    }
+   },
+   "opts": {
+    "contextWindow": 100000
+   },
+   "result": {
+    "stats": {
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null
+    },
+    "usage": {
+     "used": null,
+     "limit": 100000,
+     "percent": null,
+     "known": false,
+     "source": "pending",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "stats",
+   "input": {
+    "measurement": {
+     "tokens": "abc",
+     "source": "last_api_request"
+    }
+   },
+   "opts": {
+    "contextWindow": 100000
+   },
+   "result": {
+    "stats": {
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null
+    },
+    "usage": {
+     "used": null,
+     "limit": 100000,
+     "percent": null,
+     "known": false,
+     "source": "pending",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "stats",
+   "input": {
+    "measurement": {
+     "tokens": null,
+     "source": "last_api_request"
+    }
+   },
+   "opts": {
+    "contextWindow": 100000
+   },
+   "result": {
+    "stats": {
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null
+    },
+    "usage": {
+     "used": null,
+     "limit": 100000,
+     "percent": null,
+     "known": false,
+     "source": "pending",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "stats",
+   "input": {
+    "measurement": {
+     "tokens": 150000,
+     "source": "last_api_request"
+    }
+   },
+   "opts": {
+    "contextWindow": 100000
+   },
+   "result": {
+    "stats": {
+     "currentContextTokens": 150000,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "last_api_request",
+     "currentContextUpdatedAt": null
+    },
+    "usage": {
+     "used": 150000,
+     "limit": 100000,
+     "percent": 100,
+     "known": true,
+     "source": "last_api_request",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "stats",
+   "input": {
+    "measurement": {
+     "tokens": 1234,
+     "source": "last_api_request"
+    }
+   },
+   "opts": {
+    "contextWindow": 0,
+    "displayContextWindow": 200000
+   },
+   "result": {
+    "stats": {
+     "currentContextTokens": 1234,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "last_api_request",
+     "currentContextUpdatedAt": null
+    },
+    "usage": {
+     "used": 1234,
+     "limit": 200000,
+     "percent": 0.6,
+     "known": true,
+     "source": "last_api_request",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "stats",
+   "input": {
+    "measurement": {
+     "tokens": 1234,
+     "source": "last_api_request"
+    }
+   },
+   "opts": {
+    "contextWindow": 0,
+    "rawContextWindow": 400000
+   },
+   "result": {
+    "stats": {
+     "currentContextTokens": 1234,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "last_api_request",
+     "currentContextUpdatedAt": null
+    },
+    "usage": {
+     "used": 1234,
+     "limit": 400000,
+     "percent": 0.3,
+     "known": true,
+     "source": "last_api_request",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "stats",
+   "input": {
+    "measurement": {
+     "tokens": 1234,
+     "source": "last_api_request"
+    }
+   },
+   "opts": {},
+   "result": {
+    "stats": {
+     "currentContextTokens": 1234,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "last_api_request",
+     "currentContextUpdatedAt": null
+    },
+    "usage": {
+     "used": 1234,
+     "limit": 0,
+     "percent": null,
+     "known": true,
+     "source": "last_api_request",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "stats",
+   "input": {
+    "lastApiRequestTokens": 9000,
+    "lastApiRequestStale": false
+   },
+   "opts": {
+    "contextWindow": 90000
+   },
+   "result": {
+    "stats": {
+     "currentContextTokens": 9000,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "last_api_request",
+     "currentContextUpdatedAt": null
+    },
+    "usage": {
+     "used": 9000,
+     "limit": 90000,
+     "percent": 10,
+     "known": true,
+     "source": "last_api_request",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "stats",
+   "input": {
+    "lastApiRequestTokens": 9000,
+    "lastApiRequestStale": true
+   },
+   "opts": {
+    "contextWindow": 90000
+   },
+   "result": {
+    "stats": {
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null
+    },
+    "usage": {
+     "used": null,
+     "limit": 90000,
+     "percent": null,
+     "known": false,
+     "source": "pending",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "stats",
+   "input": {},
+   "opts": {
+    "contextWindow": 90000
+   },
+   "result": {
+    "stats": {
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null
+    },
+    "usage": {
+     "used": null,
+     "limit": 90000,
+     "percent": null,
+     "known": false,
+     "source": "pending",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "stats",
+   "input": null,
+   "opts": {
+    "contextWindow": 90000
+   },
+   "result": {
+    "stats": {
+     "currentContextTokens": null,
+     "currentEstimatedContextTokens": 0,
+     "currentContextSource": "pending",
+     "currentContextUpdatedAt": null
+    },
+    "usage": {
+     "used": null,
+     "limit": 90000,
+     "percent": null,
+     "known": false,
+     "source": "pending",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "usage",
+   "input": {
+    "currentContextTokens": 5000,
+    "currentContextSource": "last_api_request"
+   },
+   "opts": {
+    "contextWindow": 100000
+   },
+   "result": {
+    "usage": {
+     "used": 5000,
+     "limit": 100000,
+     "percent": 5,
+     "known": true,
+     "source": "last_api_request",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "usage",
+   "input": {
+    "currentContextTokens": 5000
+   },
+   "opts": {
+    "contextWindow": 100000
+   },
+   "result": {
+    "usage": {
+     "used": 5000,
+     "limit": 100000,
+     "percent": 5,
+     "known": true,
+     "source": "last_api_request",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "usage",
+   "input": {
+    "currentContextTokens": 5000,
+    "currentContextSource": "estimate"
+   },
+   "opts": {
+    "contextWindow": 100000
+   },
+   "result": {
+    "usage": {
+     "used": null,
+     "limit": 100000,
+     "percent": null,
+     "known": false,
+     "source": "pending",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "usage",
+   "input": {
+    "currentContextTokens": 5000,
+    "currentContextSource": "unavailable"
+   },
+   "opts": {
+    "contextWindow": 100000
+   },
+   "result": {
+    "usage": {
+     "used": null,
+     "limit": 100000,
+     "percent": null,
+     "known": false,
+     "source": "unavailable",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "usage",
+   "input": {
+    "currentContextTokens": null,
+    "currentContextSource": "unavailable"
+   },
+   "opts": {
+    "contextWindow": 100000
+   },
+   "result": {
+    "usage": {
+     "used": null,
+     "limit": 100000,
+     "percent": null,
+     "known": false,
+     "source": "unavailable",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "usage",
+   "input": {
+    "currentContextTokens": 33333,
+    "currentContextSource": "last_api_request"
+   },
+   "opts": {
+    "contextWindow": 100000
+   },
+   "result": {
+    "usage": {
+     "used": 33333,
+     "limit": 100000,
+     "percent": 33.3,
+     "known": true,
+     "source": "last_api_request",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  },
+  {
+   "kind": "usage",
+   "input": {
+    "currentContextTokens": 1,
+    "currentContextSource": "last_api_request"
+   },
+   "opts": {
+    "contextWindow": 3
+   },
+   "result": {
+    "usage": {
+     "used": 1,
+     "limit": 3,
+     "percent": 33.3,
+     "known": true,
+     "source": "last_api_request",
+     "updatedAt": null,
+     "estimated": false
+    }
+   }
+  }
+ ]
+}
