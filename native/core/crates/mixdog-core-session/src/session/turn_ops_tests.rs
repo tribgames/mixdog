@@ -557,6 +557,73 @@ async fn a_manual_compaction_commit_writes_the_header_it_carries_without_countin
     assert_eq!(handle.live_header().header()["compaction"]["compactCount"], json!(7));
 }
 
+/// A manual compaction's header is evaluated after the provider continuation is reset and the replacement is in
+/// (Node stamps `committedAt` after `session.messages = transcript` and `providerState = undefined`,
+/// `compaction-runner.mjs:695-749`; the replacement precedes the header, `session-log-writer.mjs:1146-1159`), and the commit
+/// answers only once that header is durable. Observed through events: the header the closure is handed has no `providerState`,
+/// the log holds reset, replacement, header in that order, and the commit stays unanswered while the header's batch is held.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_manual_compactions_header_follows_the_reset_and_the_replacement_and_is_durable_before_the_answer() {
+    use super::run::Compaction;
+    use mixdog_core_api::ids::ItemId;
+    use mixdog_core_api::ids::ThreadId;
+    use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::record::HeaderChange;
+    use mixdog_store::schema::record::Record;
+
+    let rig = Rig::new();
+    let id = ThreadId::from("sess_order");
+    let creator = SessionDirectory::new(rig.deps());
+    creator.create_with_id(id.clone(), json!({ "cwd": "/ws" }).as_object().cloned().expect("object"), json!({})).await.expect("create");
+    let seeded = rig.store.records(&id).len();
+    rig.store.seed(&id, vec![serde_json::from_value(json!({ "k": "meta", "change": { "inline": { "set": { "providerState": { "id": "resp_1" } }, "unset": [] } } })).expect("meta record")]);
+    let directory = SessionDirectory::new(rig.deps());
+    directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+
+    let seen: Arc<std::sync::Mutex<Vec<bool>>> = Arc::default();
+    let log = seen.clone();
+    let mut set = serde_json::Map::new();
+    set.insert("compaction".into(), json!({ "compactCount": 1, "lastStage": "manual" }));
+    let header: super::turn_ops::CompactionHeader = Box::new(move |current, _| {
+        log.lock().expect("log").push(current.contains_key("providerState"));
+        HeaderChange { set, unset: Vec::new() }
+    });
+    let (release, go) = std::sync::mpsc::channel();
+    let arrived = Arc::new(tokio::sync::Notify::new());
+    *super::testing::lock(&rig.store.header_gate) = Some((arrived.clone(), go));
+
+    let compaction = Compaction { replacement: vec![(ItemId::from("sum1".to_owned()), json!({ "role": "user", "content": "summary" }))], at: 5, dropped_count: 0, dropped: None };
+    let mut commit = Box::pin(directory.commit_compaction(&id, Vec::new(), compaction, Some(header)));
+    tokio::select! {
+        () = arrived.notified() => {}
+        answered = &mut commit => panic!("answered before the header was durable: {answered:?}"),
+        () = tokio::time::sleep(std::time::Duration::from_secs(30)) => panic!("header batch never reached: {:?}", rig.store.records(&id)),
+    }
+    assert!(tokio::time::timeout(std::time::Duration::from_millis(50), &mut commit).await.is_err(), "the commit answered while the header was held");
+    release.send(()).expect("release");
+    assert_eq!(commit.await.expect("answered"), super::turn_ops::CompactionCommit::Applied);
+
+    assert_eq!(*seen.lock().expect("log"), vec![false], "the header is evaluated once, after the provider reset");
+    let order: Vec<&str> = rig
+        .store
+        .records(&id)
+        .into_iter()
+        .skip(seeded + 1)
+        .filter_map(|(_, record)| match record {
+            Record::Meta(meta) => match meta.change {
+                Slot::Inline(change) if change.unset.iter().any(|key| key == "providerState") => Some("reset"),
+                Slot::Inline(change) if change.set.contains_key("compaction") => Some("header"),
+                _ => None,
+            },
+            Record::Compacted(_) => Some("replacement"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(order, vec!["reset", "replacement", "header"]);
+    let context = directory.model_context(&id).read().await.expect("context");
+    assert_eq!(context.iter().map(|(iid, _)| iid.as_str()).collect::<Vec<_>>(), vec!["sum1"]);
+}
+
 /// `failedTurnProvenance` (`ask-session.mjs:198-201`): a retry of a system-caused turn (a restored
 /// message with `meta.source` and the failed completion) is noted to the warmer as system, and its
 /// row carries that provenance as `meta.provenance` (`turnPromptSourceFor`, `ask-turn-execute.mjs:27-34`)

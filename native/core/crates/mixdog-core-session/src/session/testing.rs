@@ -47,6 +47,7 @@ use mixdog_rt::InteractiveIo;
 use mixdog_store::schema::blob::Slot;
 use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::ItemRecord;
+use mixdog_store::schema::record::MetaRecord;
 use mixdog_store::schema::record::Record;
 use mixdog_tools::policy::SessionSurface;
 use serde_json::Value;
@@ -242,6 +243,9 @@ pub struct MemStore {
     pub create_gate: Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>,
     /// The next commit to an open log tells `.0` it arrived, then waits for `.1` before it commits.
     pub commit_gate: CommitGate,
+    /// The next batch holding a `meta` record that sets `compaction` (a manual compaction's header) tells `.0` it arrived, then
+    /// waits for `.1` before it becomes durable.
+    pub header_gate: CommitGate,
 }
 
 impl MemStore {
@@ -264,6 +268,7 @@ struct MemLog {
     log: Log,
     fail_next: Arc<AtomicBool>,
     commit_gate: CommitGate,
+    header_gate: CommitGate,
 }
 
 impl SessionLog for MemLog {
@@ -281,6 +286,12 @@ impl SessionLog for MemLog {
             return Err(BarrierError::Failed {
                 io_kind: "test".into(),
             });
+        }
+        let sets_compaction = batch.iter().any(|commit| matches!(&*commit.record, Record::Meta(MetaRecord { change: Slot::Inline(change), .. }) if change.set.contains_key("compaction")));
+        let gate = if sets_compaction { lock(&self.header_gate).take() } else { None };
+        if let Some((arrived, go)) = gate {
+            arrived.notify_one();
+            let _ = go.recv();
         }
         let mut log = lock(&self.log);
         let mut next = log.last().map_or(0, |(ordinal, _)| ordinal + 1);
@@ -459,6 +470,7 @@ impl ThreadStore for MemStore {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
             commit_gate: self.commit_gate.clone(),
+            header_gate: self.header_gate.clone(),
         }))
     }
 
@@ -477,6 +489,7 @@ impl ThreadStore for MemStore {
             log: self.log(id),
             fail_next: self.fail_next.clone(),
             commit_gate: self.commit_gate.clone(),
+            header_gate: self.header_gate.clone(),
         };
         let ordinal = log.commit(lane, std::slice::from_ref(session))?[0];
         Ok((Box::new(log), ordinal))
