@@ -19,8 +19,8 @@
           "unborn": false,
           "upstream": false,
           "upstreamName": "",
-          "remote": false,
-          "remoteUrl": "",
+          "remote": true,
+          "remoteUrl": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
           "ahead": 0,
           "behind": 0,
           "operation": "",
@@ -86,8 +86,8 @@
             "unborn": false,
             "upstream": false,
             "upstreamName": "",
-            "remote": false,
-            "remoteUrl": "",
+            "remote": true,
+            "remoteUrl": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
             "ahead": 0,
             "behind": 0,
             "operation": "",
@@ -169,8 +169,8 @@
           "unborn": false,
           "upstream": false,
           "upstreamName": "",
-          "remote": false,
-          "remoteUrl": "",
+          "remote": true,
+          "remoteUrl": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
           "ahead": 0,
           "behind": 0,
           "operation": "",
@@ -236,8 +236,8 @@
             "unborn": false,
             "upstream": false,
             "upstreamName": "",
-            "remote": false,
-            "remoteUrl": "",
+            "remote": true,
+            "remoteUrl": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
             "ahead": 0,
             "behind": 0,
             "operation": "",
@@ -320,8 +320,8 @@
           "unborn": false,
           "upstream": false,
           "upstreamName": "",
-          "remote": false,
-          "remoteUrl": "",
+          "remote": true,
+          "remoteUrl": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
           "ahead": 0,
           "behind": 0,
           "operation": "",
@@ -387,8 +387,8 @@
             "unborn": false,
             "upstream": false,
             "upstreamName": "",
-            "remote": false,
-            "remoteUrl": "",
+            "remote": true,
+            "remoteUrl": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
             "ahead": 0,
             "behind": 0,
             "operation": "",
@@ -468,8 +468,8 @@
           "unborn": false,
           "upstream": false,
           "upstreamName": "",
-          "remote": false,
-          "remoteUrl": "",
+          "remote": true,
+          "remoteUrl": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
           "ahead": 0,
           "behind": 0,
           "operation": "",
@@ -535,8 +535,8 @@
             "unborn": false,
             "upstream": false,
             "upstreamName": "",
-            "remote": false,
-            "remoteUrl": "",
+            "remote": true,
+            "remoteUrl": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\origin.git",
             "ahead": 0,
             "behind": 0,
             "operation": "",
@@ -5383,7 +5383,7 @@
       "name": "gitPush-no-remote",
       "call": "gitPush",
       "params": [
-        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo"
       ],
       "frame": {
         "ok": false,
@@ -5393,7 +5393,7 @@
         {
           "name": "gitPush",
           "args": [
-            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo"
           ],
           "error": {
             "message": "fatal: 'origin' does not appear to be a git repository\nfatal: Could not read from remote repository.\n\nPlease make sure you have the correct access rights\nand the repository exists."
@@ -5418,7 +5418,7 @@
       "name": "gitFetch-no-remote",
       "call": "gitFetch",
       "params": [
-        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo"
       ],
       "frame": {
         "ok": true,
@@ -5428,7 +5428,7 @@
         {
           "name": "gitFetch",
           "args": [
-            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo"
           ],
           "result": ""
         }
@@ -5451,7 +5451,7 @@
       "name": "gitPull-no-remote",
       "call": "gitPull",
       "params": [
-        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo"
       ],
       "frame": {
         "ok": false,
@@ -5461,7 +5461,7 @@
         {
           "name": "gitPull",
           "args": [
-            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo"
           ],
           "error": {
             "message": "There is no tracking information for the current branch.\nPlease specify which branch you want to merge with.\nSee git-pull(1) for details.\n\n    git pull <remote> <branch>\n\nIf you wish to set tracking information for this branch you can do so with:\n\n    git branch --set-upstream-to=<remote>/<branch> main"
@@ -5486,7 +5486,7 @@
       "name": "gitSync-no-remote",
       "call": "gitSync",
       "params": [
-        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo"
       ],
       "frame": {
         "ok": false,
@@ -5496,7 +5496,7 @@
         {
           "name": "gitSync",
           "args": [
-            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo"
           ],
           "error": {
             "message": "There is no tracking information for the current branch.\nPlease specify which branch you want to merge with.\nSee git-pull(1) for details.\n\n    git pull <remote> <branch>\n\nIf you wish to set tracking information for this branch you can do so with:\n\n    git branch --set-upstream-to=<remote>/<branch> main"
@@ -5521,13 +5521,13 @@
       "name": "gitStatus-before-remote-add",
       "call": "gitStatus",
       "params": [
-        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo"
       ],
       "frame": {
         "ok": true,
         "value": {
           "repository": true,
-          "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
           "branch": "main",
           "detached": false,
           "unborn": false,
@@ -5546,7 +5546,7 @@
         {
           "name": "gitStatus",
           "args": [
-            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
             {
               "reuseLineStats": false,
               "skipLineStats": false
@@ -5554,7 +5554,7 @@
           ],
           "result": {
             "repository": true,
-            "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
             "branch": "main",
             "detached": false,
             "unborn": false,
@@ -5588,13 +5588,13 @@
       "name": "gitStatus-remote-just-added",
       "call": "gitStatus",
       "params": [
-        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo"
       ],
       "frame": {
         "ok": true,
         "value": {
           "repository": true,
-          "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
           "branch": "main",
           "detached": false,
           "unborn": false,
@@ -5613,7 +5613,7 @@
         {
           "name": "gitStatus",
           "args": [
-            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
             {
               "reuseLineStats": false,
               "skipLineStats": false
@@ -5621,7 +5621,7 @@
           ],
           "result": {
             "repository": true,
-            "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
             "branch": "main",
             "detached": false,
             "unborn": false,
@@ -5655,13 +5655,13 @@
       "name": "gitStatus-remote-after-ttl",
       "call": "gitStatus",
       "params": [
-        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo"
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo"
       ],
       "frame": {
         "ok": true,
         "value": {
           "repository": true,
-          "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+          "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
           "branch": "main",
           "detached": false,
           "unborn": false,
@@ -5680,7 +5680,7 @@
         {
           "name": "gitStatus",
           "args": [
-            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
             {
               "reuseLineStats": false,
               "skipLineStats": false
@@ -5688,7 +5688,7 @@
           ],
           "result": {
             "repository": true,
-            "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\repo",
+            "root": "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\bare-repo",
             "branch": "main",
             "detached": false,
             "unborn": false,

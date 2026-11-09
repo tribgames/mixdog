@@ -171,6 +171,9 @@ write(R, 'a.txt', 'one\ntwo\nthree\n');
 write(R, 'src/b.mjs', 'export const b = 1;\n');
 git(R, 'add', '.');
 git(R, 'commit', '-q', '-m', 'first');
+// R has its remote from the start, so no status of it depends on how long Node keeps a remote list (see the cache cases on TEMP below).
+git(WORK, 'init', '-q', '--bare', '-b', 'main', ORIGIN);
+git(R, 'remote', 'add', 'origin', ORIGIN);
 write(R, 'a.txt', 'one\nTWO\nthree\nfour\n');
 git(R, 'commit', '-q', '-am', 'second: edit a');
 git(R, 'branch', 'feature');
@@ -188,6 +191,7 @@ if (REPLAY) {
   if (process.env.PHONE_SCM_VERBOSE) console.error('stage: imports');
   const { adapter } = await here('apps/desktop/src/renderer/remote-protocol-scm.ts');
   const { connect, sessionReducer } = await here('packages/protocol-client/src/index.ts');
+  const { scopeClient } = await here('apps/mobile/src/phone-send-scope.ts');
   const { createWsConnector } = await here('apps/desktop/src/main/protocol/ws-connector.ts');
   const { parseDiscovery } = await here('apps/desktop/src/main/protocol/discovery.ts');
   const runtimeRoot = join(WORK, 'runtime');
@@ -280,7 +284,8 @@ if (REPLAY) {
     clock: { sleep: (ms) => new Promise((done) => setTimeout(done, ms)) },
     random: Math.random,
   });
-  const host = { client: () => client };
+  // As the router gives it: the client scoped to the call, so every request frame carries the call's `sent` claim.
+  const host = { ctx: {}, client: () => scopeClient(client, () => {}) };
   const byName = new Map(golden.cases.map((entry) => [entry.name, entry]));
   replay = { core, client, host, adapter, byName, shims, compared: [], differences: [], ptySeen: 0 };
 }
@@ -348,7 +353,13 @@ async function rec(name, call, params, note) {
     replay.shims.sync();
     // The tools the core ran, as Node ran them: the same programs with the same arguments, in the same order.
     // A tool the script says is absent (spawn ENOENT) ran nowhere: there is no executable for the core to start.
-    const ran = (list) => (list ?? []).filter((entry) => entry.reply?.code !== -1).map(({ tool, argv }) => ({ tool, argv }));
+    // `ghPrList` starts its four category queries at once (Promise.all there, join_all in the core): which process the OS starts
+    // first is not defined, so for that call alone the programs and arguments are compared as a set. Every other call is ordered.
+    const concurrent = call === 'ghPrList';
+    const ran = (list) => {
+      const done = (list ?? []).filter((entry) => entry.reply?.code !== -1).map(({ tool, argv }) => ({ tool, argv }));
+      return concurrent ? done.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))) : done;
+    };
     if (!isDeepStrictEqual(ran(processes), ran(recorded.processes))) replay.differences.push({ name: `${name} (processes)`, node: ran(recorded.processes), core: ran(processes) });
     // A revision is the file system's own identity (size, times, inode): it differs per machine and per run, so Node answers these
     // again on the very files the core just read instead of the golden's scripted ones.
@@ -568,20 +579,27 @@ git(R, 'reset', '-q', '--hard', 'HEAD');
 git(R, 'clean', '-q', '-fd');
 
 // ═══ 5. the remote ═══
-await rec('gitPush-no-remote', 'gitPush', [R]);
-await rec('gitFetch-no-remote', 'gitFetch', [R]);
-await rec('gitPull-no-remote', 'gitPull', [R]);
-await rec('gitSync-no-remote', 'gitSync', [R]);
-git(WORK, 'init', '-q', '--bare', '-b', 'main', ORIGIN);
-// Node answers `remote` from a read it keeps for 60 s per directory and never drops earlier (git-status.ts:179-207, TTL
-// git-read-utils.ts:6): a remote added right after a status shows only once that minute has passed. Node's clock is virtual:
-// the recorder moves Date.now past the TTL. The core's cache is proven at that point by its injected-clock test
-// (remote_metadata_expires_by_clock).
-await rec('gitStatus-before-remote-add', 'gitStatus', [R]);
-git(R, 'remote', 'add', 'origin', ORIGIN);
-await rec('gitStatus-remote-just-added', 'gitStatus', [R]);
+// The repository without a remote: Node answers 'remote' from a read it keeps for 60 s per directory and never drops earlier
+// (git-status.ts:179-207, TTL git-read-utils.ts:6), so a remote added right after a status shows only once that minute has
+// passed. Node's clock is virtual: the recorder moves Date.now past the TTL. The core's cache is proven at that point by its
+// injected-clock test (remote_metadata_expires_by_clock); the real mixdogd keeps no clock to move, so these cases have a
+// repository of their own and nothing else's status depends on the minute.
+const TEMP = join(WORK, 'bare-repo');
+mkdirSync(TEMP, { recursive: true });
+git(TEMP, 'init', '-q', '-b', 'main');
+write(TEMP, 't.txt', 't\n');
+git(TEMP, 'add', '.');
+git(TEMP, 'commit', '-q', '-m', 'first');
+await rec('gitPush-no-remote', 'gitPush', [TEMP]);
+await rec('gitFetch-no-remote', 'gitFetch', [TEMP]);
+await rec('gitPull-no-remote', 'gitPull', [TEMP]);
+await rec('gitSync-no-remote', 'gitSync', [TEMP]);
+await rec('gitStatus-before-remote-add', 'gitStatus', [TEMP]);
+git(TEMP, 'remote', 'add', 'origin', ORIGIN);
+await rec('gitStatus-remote-just-added', 'gitStatus', [TEMP]);
 clockSkew += 61_000;
-await rec('gitStatus-remote-after-ttl', 'gitStatus', [R]);
+await rec('gitStatus-remote-after-ttl', 'gitStatus', [TEMP]);
+clockSkew -= 61_000;
 await rec('gitPush-no-upstream', 'gitPush', [R]);
 git(R, 'push', '-q', '-u', 'origin', 'main');
 await rec('gitPush-up-to-date', 'gitPush', [R]);

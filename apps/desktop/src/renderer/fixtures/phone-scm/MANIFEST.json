@@ -5,9 +5,9 @@
   "fileCount": 3,
   "files": [
     {
-      "bytes": 841,
+      "bytes": 848,
       "path": "calls.txt",
-      "sha256": "cac86bcf4866239925b9378c55b76fda18e14a74d8bf1c2ad45148a77f097038"
+      "sha256": "fb478bbea7ada0ce291005c19d307544036883efb7084e908d28ec534378f563"
     },
     {
       "bytes": 10463,
@@ -15,9 +15,9 @@
       "sha256": "86fccdf8b84803f67e29719e29667e40f4e6d1498e5c1d0b293f11fd3358b7c1"
     },
     {
-      "bytes": 312122,
+      "bytes": 312630,
       "path": "golden.json",
-      "sha256": "ce3d0b86731ad8a27572413994c8ca7c2c8e4a3f7804ce671bd322b1d529291c"
+      "sha256": "ca266c1bba3da068b5fcefe83b41fa80e3cf08123876951cd681a62f5b9e308f"
     }
   ],
   "product": {
@@ -39,5 +39,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-phone-scm.mjs",
   "set": "phone-scm",
-  "totalBytes": 323426
+  "totalBytes": 323941
 }
