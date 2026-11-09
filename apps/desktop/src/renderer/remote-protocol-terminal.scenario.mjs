@@ -4,16 +4,17 @@
 // core on a loopback WebSocket. The relay end only carries frames both ways: the core answers for itself.
 // Prints the trace on a marker line; remote-protocol-terminal.slow.test.mjs compares it with the recording.
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
+import net from 'node:net';
 import { join } from 'node:path';
+import readline from 'node:readline';
 import WebSocket from 'ws';
 import { createPhoneWorld, protocolDialect } from '../../../../benchmarks/rust-core/recorders/lib/phone-world.mjs';
 import { play, sizeClaimScript, terminalScript } from '../../../../benchmarks/rust-core/recorders/lib/phone-terminal-script.mjs';
 
-// The world replaces the timers with a virtual clock; this scenario's own deadlines are real.
+// The world replaces the timers with a virtual clock; this scenario's own deadline (a guard that fails a wait that never ends) is real.
 const realSetTimeout = globalThis.setTimeout;
 const realClearTimeout = globalThis.clearTimeout;
-const wait = (ms) => new Promise((resolve) => realSetTimeout(resolve, ms));
 
 const golden = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-terminal/golden.json', import.meta.url), 'utf8'));
 const ROOT = golden.root;
@@ -29,22 +30,51 @@ async function startCore() {
   for (const key of Object.keys(env)) if (key.startsWith('MIXDOG_')) delete env[key];
   Object.assign(env, { MIXDOG_RUNTIME_ROOT: join(CORE_ROOT, 'runtime'), MIXDOG_DATA_DIR: join(CORE_ROOT, 'data'), MIXDOG_HOME: join(CORE_ROOT, 'home'), MIXDOG_TERMINAL_LEASE_CLOCK: CLOCK_DIR });
   const child = spawn(BIN, ['serve'], { env, stdio: 'ignore', windowsHide: true });
-  const discovery = join(CORE_ROOT, 'runtime', 'daemon.json');
-  // A debug core spends about a minute migrating its stores before it serves.
-  for (let i = 0; i < 1200; i += 1) {
-    await wait(200);
-    try {
-      const record = JSON.parse(readFileSync(discovery, 'utf8'));
-      if (record.core?.state === 'serving' && record.core.rpc?.port) {
-        return { child, url: `ws://127.0.0.1:${record.core.rpc.port}/rpc`, token: record.endpoints.session.token };
-      }
-    } catch {}
-  }
-  child.kill();
-  throw new Error('the core did not come up');
+  // The core publishes its discovery record when it serves (a debug core first migrates its stores): the wait is on that file's change.
+  const record = await untilFile(join(CORE_ROOT, 'runtime'), child, (dir) => {
+    const found = JSON.parse(readFileSync(join(dir, 'daemon.json'), 'utf8'));
+    return found.core?.state === 'serving' && found.core.rpc?.port ? found : null;
+  });
+  return { child, url: `ws://127.0.0.1:${record.core.rpc.port}/rpc`, token: record.endpoints.session.token };
 }
 
-const stopCore = (core) => spawnSync('taskkill', ['/PID', String(core.child.pid), '/T', '/F'], { stdio: 'ignore' });
+/** Resolves with `read(dir)` once it returns a value, trying again on each change in `dir` (a file system notification, no timer). */
+function untilFile(dir, child, read) {
+  return new Promise((resolve, reject) => {
+    const attempt = () => {
+      try {
+        const value = read(dir);
+        if (!value) return;
+        watcher.close();
+        resolve(value);
+      } catch {}
+    };
+    const watcher = watch(dir, attempt);
+    child.once('exit', (status) => {
+      watcher.close();
+      reject(new Error(`the core exited (${status}) before it was ready`));
+    });
+    attempt();
+  });
+}
+
+/** The manual lease clock's socket: the core writes its port into the clock directory, and answers each command with one line. */
+async function openClock(core) {
+  const port = await untilFile(CLOCK_DIR, core.child, (dir) => Number(readFileSync(join(dir, 'port'), 'utf8')) || null);
+  const socket = net.connect(port, '127.0.0.1');
+  await new Promise((resolve, reject) => {
+    socket.once('connect', resolve);
+    socket.once('error', reject);
+  });
+  return { socket, lines: readline.createInterface({ input: socket }) };
+}
+
+/** Ends the core and its children, and resolves when the core has exited (its files are released then). */
+function stopCore(core) {
+  const exited = new Promise((resolve) => core.child.once('exit', resolve));
+  spawnSync('taskkill', ['/PID', String(core.child.pid), '/T', '/F'], { stdio: 'ignore' });
+  return exited;
+}
 
 async function main() {
   const repo = new URL('../../../../', import.meta.url);
@@ -135,7 +165,7 @@ async function main() {
 
   // The second connection of the size-claim cases: a client of its own on the same core, started with the phone's own initialize.
   let peer = null;
-  let advanceSeq = 0;
+  let clock = null;
   const peerSend = (frame) => {
     peer ??= (async () => {
       const ws = new WebSocket(core.url, { headers: { Authorization: `Bearer ${core.token}` }, perMessageDeflate: false });
@@ -165,15 +195,13 @@ async function main() {
     },
     clock() {},
     // The core's manual lease clock (a debug build whose MIXDOG_TERMINAL_LEASE_CLOCK names this directory): time moves by exactly `ms`,
-    // and the core acknowledges once every claim due by then has lapsed. The poll below only waits for that acknowledgement.
+    // and the core answers on the same socket once every claim due by then has lapsed; that answer is what this waits for.
     async advance(ms) {
-      advanceSeq += 1;
-      writeFileSync(join(CLOCK_DIR, 'advance'), `${advanceSeq} ${ms}`);
-      for (let i = 0; i < 5000; i += 1) {
-        if (existsSync(join(CLOCK_DIR, 'acked')) && readFileSync(join(CLOCK_DIR, 'acked'), 'utf8') === String(advanceSeq)) return;
-        await wait(2);
-      }
-      throw new Error('the core did not acknowledge the clock step');
+      clock ??= await openClock(core);
+      const answer = new Promise((resolve) => clock.lines.once('line', resolve));
+      clock.socket.write(`advance ${ms}\n`);
+      const line = await answer;
+      if (!/^lapsed \d+$/.test(line)) throw new Error(`the core refused the clock step: ${line}`);
     },
     close(who) {
       if (who === 'other') void peer?.then((ws) => ws.close());
@@ -218,7 +246,8 @@ async function main() {
   } finally {
     for (const stop of off) stop();
     void peer?.then((ws) => ws.close());
-    stopCore(core);
+    clock?.socket.destroy();
+    await stopCore(core);
   }
 }
 main().then(

@@ -464,27 +464,29 @@ impl Claims {
         }
     }
 
-    /// The replay's handle on the manual clock, with no wire method (the method table is shared with release builds): the replay
-    /// writes `advance` as `<seq> <ms>` in the clock directory, the clock steps by `ms` and answers by writing `<seq>` to `acked`
-    /// once every claim due has lapsed. The poll interval only delays an answer; the replay waits for it, so no timing is assumed.
+    /// The replay's handle on the manual clock, with no wire method (the method table is shared with release builds): a loopback
+    /// socket whose port is written to `<dir>/port`. A client sends `advance <ms>\n`; the clock steps by `ms`, ends every claim then due,
+    /// and answers `lapsed <n>\n` (`n` claims ended), so the answer is the completion signal. The thread blocks in accept and read.
     #[cfg(debug_assertions)]
-    fn watch_manual_clock(claims: &Arc<Self>, dir: std::path::PathBuf) {
+    fn serve_manual_clock(claims: &Arc<Self>, dir: std::path::PathBuf) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("the manual lease clock binds a loopback port");
+        let port = listener.local_addr().expect("the bound port").port();
+        std::fs::write(dir.join("port.tmp"), port.to_string()).and_then(|()| std::fs::rename(dir.join("port.tmp"), dir.join("port"))).expect("the manual lease clock publishes its port");
         let claims = Arc::downgrade(claims);
         std::thread::spawn(move || {
-            let mut done = String::new();
-            while let Some(claims) = claims.upgrade() {
-                if let Ok(text) = std::fs::read_to_string(dir.join("advance")) {
-                    let mut parts = text.split_whitespace();
-                    if let (Some(seq), Some(ms)) = (parts.next(), parts.next().and_then(|ms| ms.parse::<u64>().ok())) {
-                        if seq != done {
-                            claims.advance(std::time::Duration::from_millis(ms));
-                            let _ = std::fs::write(dir.join("acked.tmp"), seq).and_then(|()| std::fs::rename(dir.join("acked.tmp"), dir.join("acked")));
-                            done = seq.to_owned();
-                        }
+            for stream in listener.incoming().flatten() {
+                let Ok(reader) = stream.try_clone() else { continue };
+                let mut stream = stream;
+                for line in BufReader::new(reader).lines().map_while(Result::ok) {
+                    let answer = match (line.strip_prefix("advance ").and_then(|ms| ms.trim().parse::<u64>().ok()), claims.upgrade()) {
+                        (Some(ms), Some(claims)) => format!("lapsed {}\n", claims.advance(std::time::Duration::from_millis(ms))),
+                        _ => "refused\n".to_owned(),
+                    };
+                    if stream.write_all(answer.as_bytes()).is_err() {
+                        break;
                     }
                 }
-                drop(claims);
-                std::thread::sleep(std::time::Duration::from_millis(2));
             }
         });
     }
@@ -682,7 +684,7 @@ impl TerminalTabs {
         });
         #[cfg(debug_assertions)]
         if let Some(dir) = std::env::var_os("MIXDOG_TERMINAL_LEASE_CLOCK") {
-            Claims::watch_manual_clock(&claims, std::path::PathBuf::from(dir));
+            Claims::serve_manual_clock(&claims, std::path::PathBuf::from(dir));
         }
         Self {
             manager,
@@ -1085,12 +1087,6 @@ impl TerminalTabs {
     /// Where the tab `id` stands in creation order, if it is open.
     pub fn creation_order(&self, id: &str) -> Option<u64> {
         self.live(id).map(|tab| tab.seq)
-    }
-
-    /// Steps the manual lease clock (debug builds with `MIXDOG_TERMINAL_LEASE_CLOCK` set); returns the claims that lapsed.
-    #[cfg(debug_assertions)]
-    pub fn advance_lease_clock(&self, by: std::time::Duration) -> usize {
-        self.claims.advance(by)
     }
 
     /// Who owns this PTY's size right now, if anyone.

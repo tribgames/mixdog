@@ -5,12 +5,25 @@
 // in order. Pushes of different kinds race each other on a real shell, so each kind keeps its own list; every wait is on an event the
 // product itself produces (`until`), never on a clock.
 //
-// What a shell prints (the prompt, the echo) is the shell's, not the product's: the script compares `output`/`replay` only through the
-// facts it controls (the command's marker text arrived, no integration marker leaked).
+// The terminal text is compared exactly: every reply's `replay` and the streamed `output` are what Node's real ConPTY and shell produced.
+// Two Node recordings of this script differ in the shell's echo of the typed command (PSReadLine redraws the line as it is typed: one
+// recording held the line in one frame, the next redrew it per character with colour and cursor moves), so that echo, and only that, is
+// recorded as `[echo]` in `output`. ConPTY re-renders the screen after a resize, in a
+// number of frames and a form (blank fill by spaces or by ESC[K) that differ from one Node recording to the next, and when it arrives
+// relative to the script's calls is not something a step awaits. So, and only so:
+//   - `output`: the text up to ConPTY's first resize report (`ESC[8;`) is exact, but for that echo; what follows is recorded as `reRendered: true` only;
+//   - the answers to calls made after that resize (`RESIZED`) and the size-claim script's attach answers (`only`) keep `id` and
+//     `sizeOwner`, not `replay`: with the loop turned between calls, three Node recordings held 235, 553 and 957 characters of `replay`
+//     at the same step; the size-claim script's attach answers differed in 23 of 52 in two recordings.
+// Everything else, the terminal text of every other answer and push included, is compared as it came.
 import { join } from 'node:path';
 
 export const TAB = 'term_ph2a';
 export const MARK = 'MIXDOG_PH2_DONE';
+/** What ConPTY prints when the size changes: a report of the new size, then a re-render of the screen. */
+const RESIZE_REPORT = '\x1b[8;';
+/** The answers kept for calls made after the tab was resized (see the header). */
+const RESIZED = ['id', 'sizeOwner'];
 /** The agent's reveal as the desktop holds it (ack id and paths included), and what a paired phone is pushed. */
 const RUN = {
   sessionId: 's1',
@@ -58,7 +71,9 @@ export function terminalScript(root) {
       // A command: running, then finished (no view has the tab focused).
       { op: 'fire', name: 'termWrite', params: [TAB, `Write-Output ${MARK}\r`] },
       { op: 'until', kind: 'activity', event: { id: TAB, state: 'finished' } },
-      { op: 'until', kind: 'output', text: MARK },
+      // The command's own output line (the echo before it holds MARK too, never followed by a line end and the prompt) and the prompt
+      // the shell prints after it, so the resize below follows the whole result.
+      { op: 'until', kind: 'output', text: `${MARK}\r\nPS ${cwd}> ` },
       { op: 'call', name: 'termActivity', params: [] },
       // Focusing the finished tab clears it.
       { op: 'call', name: 'termFocus', params: [TAB, true] },
@@ -69,13 +84,13 @@ export function terminalScript(root) {
       { op: 'fire', name: 'termResize', params: [TAB, 100, 30, true] },
       { op: 'until', kind: 'sizeOwner', event: { id: TAB, cols: 100, rows: 30, own: true } },
       { op: 'fire', name: 'termResize', params: [TAB, 60, 20, false] },
-      { op: 'call', name: 'termEnsure', params: [TAB, cwd, null] },
-      { op: 'call', name: 'termAttach', params: [TAB] },
+      { op: 'call', name: 'termEnsure', params: [TAB, cwd, null], only: RESIZED },
+      { op: 'call', name: 'termAttach', params: [TAB], only: RESIZED },
       { op: 'fire', name: 'termResize', params: [TAB, 1, 900, true] },
       { op: 'until', kind: 'sizeOwner', event: { id: TAB, cols: 2, rows: 200, own: true } },
       { op: 'fire', name: 'termResize', params: [TAB, 0, 0, true] },
       { op: 'until', kind: 'sizeOwner', event: { id: TAB, cols: 0, rows: 0, own: false } },
-      { op: 'call', name: 'termAttach', params: [TAB] },
+      { op: 'call', name: 'termAttach', params: [TAB], only: RESIZED },
       // A folder watched twice reports a change once; the second unwatch ends it.
       { op: 'call', name: 'folderWatch', params: [watched, true] },
       { op: 'call', name: 'folderWatch', params: [watched, true] },
@@ -123,12 +138,14 @@ export function sizeClaimScript(root) {
   const tabs = [L1, L2, L4, L5, L6];
   const claim = (tab, cols, rows, from) => ({ op: 'fire', name: 'termResize', params: [tab, cols, rows, true], ...(from ? { from } : {}) });
   const owner = (id, cols, rows, own, count) => ({ op: 'until', kind: 'sizeOwner', event: { id, cols, rows, own }, ...(count ? { count } : {}) });
-  const attachAll = (list) => list.map((tab) => ({ op: 'call', name: 'termAttach', params: [tab] }));
+  const attachAll = (list) => list.map((tab) => ({ op: 'call', name: 'termAttach', params: [tab], only: ['id', 'sizeOwner'] }));
   return {
     cwd,
     ops: [
       { op: 'lane', lane: 'terminal', on: true },
       ...tabs.map((tab) => ({ op: 'call', name: 'termEnsure', params: [tab, cwd, null] })),
+      // Every shell is up (its first prompt made the tab idle) before the leases are timed, so the disposals at the end end live shells.
+      ...tabs.map((tab) => ({ op: 'until', kind: 'activity', event: { id: tab, state: 'idle' } })),
       // From here the leases are timed.
       { op: 'clock' },
       claim(L1, 100, 30),
@@ -154,12 +171,12 @@ export function sizeClaimScript(root) {
       claim(L2, 101, 31),
       claim(L6, 0, 0, 'other'),
       owner(L6, 103, 33, true, 2),
-      { op: 'call', name: 'termAttach', params: [L2] },
+      ...attachAll([L2]),
       { op: 'advance', ms: 2000 },
       { op: 'close', who: 'other' },
       { op: 'advance', ms: 8000 },
       claim(L2, 101, 31),
-      { op: 'call', name: 'termAttach', params: [L2] },
+      ...attachAll([L2]),
       { op: 'advance', ms: 5000 },
       // 25 s: every claim still stands except the released one. Then time steps to each lease edge: the millisecond before it the
       // claim holds, the edge itself ends it (L1 at 30 s, L4 at 32 s, L6's phone claim at 34 s, L2 at 50 s, 30 s after its renewal at 20 s).
@@ -190,16 +207,24 @@ export function sizeClaimScript(root) {
   };
 }
 
-/** What a terminal reply says without the shell's own text: the reply with `replay` reduced to the facts the script controls. */
-export function replayFacts(replay) {
-  return { hasMark: replay.includes(MARK), leakedMarker: replay.includes(']697;') };
+/**
+ * The streamed text up to ConPTY's first resize report, exactly, but for the shell's echo of the typed command; after the report only
+ * that a re-render came (see the header). The echo is the text between the first prompt and the command's result line: PSReadLine
+ * redraws the line as it is typed (syntax colouring, cursor moves), in a number of frames that differs between Node recordings.
+ */
+function streamed(output, cwd) {
+  const at = output.indexOf(RESIZE_REPORT);
+  const head = at < 0 ? output : output.slice(0, at);
+  const prompt = `PS ${cwd}> `;
+  const echoFrom = head.indexOf(prompt) + prompt.length;
+  const echoTo = head.indexOf(`${MARK}\r\n${prompt}`);
+  const text = echoFrom >= prompt.length && echoTo >= echoFrom ? `${head.slice(0, echoFrom)}[echo]${head.slice(echoTo)}` : head;
+  return { text, reRendered: at >= 0 };
 }
-
-const reduce = (value) =>
-  value && typeof value === 'object' && !Array.isArray(value) && typeof value.replay === 'string' ? { ...value, replay: replayFacts(value.replay) } : value;
 
 /**
  * Plays the ops against a driver and returns the trace.
+ * An op with `only` keeps just those fields of the call's answer.
  * driver: call(name, params) -> value (throws the error), fire(name, params), lane(lane, on), touch(file), run(request, redeliver),
  *         waitFor(test) -> Promise (resolves once `test(events)` holds), events() ->
  *         { activity: [], sizeOwner: [], folder: [], run: [], output: string }.
@@ -210,7 +235,8 @@ export async function play(script, driver) {
   for (const op of script.ops) {
     if (op.op === 'call') {
       try {
-        steps.push({ call: op.name, params: op.params, value: reduce(await driver.call(op.name, op.params)) ?? null });
+        const value = (await driver.call(op.name, op.params)) ?? null;
+        steps.push({ call: op.name, params: op.params, value: op.only ? Object.fromEntries(op.only.filter((key) => key in value).map((key) => [key, value[key]])) : value });
       } catch (error) {
         steps.push({ call: op.name, params: op.params, error: error instanceof Error ? error.message : String(error) });
       }
@@ -243,6 +269,6 @@ export async function play(script, driver) {
     sizeOwner: events.sizeOwner,
     folder: events.folder,
     run: events.run,
-    output: replayFacts(events.output),
+    output: streamed(events.output, script.cwd),
   };
 }

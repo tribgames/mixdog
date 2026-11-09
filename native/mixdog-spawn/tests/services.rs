@@ -323,6 +323,25 @@ async fn terminal_ensure_opens_the_output_feed_without_an_attach() {
     service.tabs().dispose_all();
 }
 
+/// An ensure that names no profile spawns the shell `terminal/profiles` marks as the default (Node's `resolveShellProfile('')`):
+/// on Windows that is pwsh before Windows PowerShell, not the manager's bare `powershell.exe`.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_ensure_without_a_profile_spawns_the_default_profile() {
+    let manager = manager();
+    let feeds = ProcessFeeds::new(manager.clone(), scoped());
+    let publisher = Arc::new(SectionLog::default());
+    let service = TerminalService::new(manager, feeds, publisher.clone(), TerminalServiceConfig::default());
+    let Reply::Value(profiles) = service.call(request("terminal/profiles", json!({}), 1)).await.unwrap() else {
+        panic!("terminal/profiles answers with a value");
+    };
+    let default = profiles.as_array().unwrap().iter().find(|p| p["default"] == json!(true)).unwrap()["id"].as_str().unwrap().to_owned();
+    let cwd = temp_dir().as_path().to_string_lossy().into_owned();
+    service.call(request("terminal/ensure", json!({ "tabId": "term_default", "options": { "cwd": cwd } }), 1)).await.unwrap();
+    let shells: Vec<String> = service.tabs().list_tabs().into_iter().map(|tab| tab.shell).collect();
+    assert_eq!(shells, vec![default]);
+    service.tabs().dispose_all();
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn terminal_ensure_names_a_fresh_tab_and_attach_answers_replay_or_not_running() {
     let manager = manager();
