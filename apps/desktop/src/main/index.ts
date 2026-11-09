@@ -71,12 +71,6 @@ import { createBackgroundWindow } from './background-window';
 import { createDesktopTray, type DesktopTray } from './desktop-tray';
 import { createDesktopQuitSequence } from './quit-sequence';
 import { loginShellOverrides, readLoginShellEnvironment, withHomebrewPath } from './login-shell-environment';
-import {
-  answerSystemProxyRequest,
-  SYSTEM_PROXY_ATTACH_OPERATION,
-  SYSTEM_PROXY_REQUEST_EVENT,
-  SYSTEM_PROXY_RESOLVED_OPERATION,
-} from './system-proxy';
 import { createTurnAttention, type TurnAttention } from './turn-attention';
 import { createDesktopTurnNotifier } from './desktop-turn-notifier';
 import { isSessionOnScreen } from './screen-sessions';
@@ -138,7 +132,6 @@ import { TERMINAL_SHOWN_WAIT_MS } from '../shared/terminal-command';
 import { defaultBrowserPermissionPolicy } from '../shared/browser-permission-policy';
 import { createTerminalRunDispatch } from './terminal/run-dispatch';
 import { TerminalBridgeServer } from './terminal/bridge-server';
-import { requiredVisualizeTabCommand } from './ipc-validation';
 import { VisualizeBridgeServer } from './visualize/bridge-server';
 import { createDesktopVisualize } from './visualize/host';
 import { localPageOrigin, localPageUrl } from './local-page-server';
@@ -172,7 +165,6 @@ import {
   type DesktopSessionSummary,
   type DesktopSettings,
 } from '../shared/contract';
-import { BROWSER_REMOTE_METHODS, runBrowserRemoteRequest, type BrowserRemoteMethod } from './remote-browser-methods';
 import {
   createElectronScreenDisplays,
   createElectronScreenInputHost,
@@ -189,13 +181,6 @@ import {
   type RemoteControllerKeyRecord,
   type RemoteControllerKeysOwed,
 } from '../shared/remote-controller-key';
-import {
-  REMOTE_TRANSPORT_LOG_EVENT,
-  REMOTE_TRANSPORT_PEER_COMMAND_EVENT,
-  REMOTE_TRANSPORT_PEER_OPERATIONS,
-  createRemoteTransportPeerEndpoint,
-} from './remote-transport/peer-link';
-import { createRemoteTransportPeerWindow } from './remote-transport/peer-window';
 import { fileSnapshots } from './file-snapshot';
 import { clampBoundsToWorkArea, persistWindowState, readWindowState } from './window-state';
 import {
@@ -602,21 +587,6 @@ const connectionDependencies: DesktopConnectionDependencies = {
     console.error(`[mixdog:${connection.name}] ${event}`, data);
   },
   onServiceReady: (connection, { generation }) => {
-    // This PC's daemon (again): the direct transport's peer window serves it
-    // (a replaced daemon's peers are dropped first).
-    if (connection.kind === 'local') {
-      void remoteTransportPeers.attach().catch((error: unknown) => {
-        diagnostics?.write('remote-transport-attach-failed', {
-          message: error instanceof Error ? error.message : String(error),
-        });
-      });
-      // This PC's daemon routes each origin by the OS proxy the browser uses;
-      // a server's daemon never asks this PC (its network is not this one).
-      void app
-        .whenReady()
-        .then(() => localService.invokeDesktopOperation(SYSTEM_PROXY_ATTACH_OPERATION, []))
-        .catch(() => undefined);
-    }
     // The FIRST attachment belongs to the deferred scheduler, so no early
     // interaction pays for relay startup. Every later one follows a daemon
     // replacement that dropped the relay leg with the old process, and
@@ -644,26 +614,6 @@ connectionPool.add(localConnection);
  *  keep-awake). Window IPC never uses it directly: it resolves the sender's
  *  connection through the route registry. */
 const localService = localConnection.client;
-/** The direct transport's peers (docs/remote-transport.md §3): the daemon's
- *  coordinators drive them over this PC's daemon connection only. The hidden
- *  peer window opens on the first `create`. */
-const remoteTransportPeers = createRemoteTransportPeerEndpoint({
-  createBridge: () =>
-    createRemoteTransportPeerWindow({
-      page: (() => {
-        const { developmentUrl, rendererUrl } = resolveRendererTarget();
-        return {
-          developmentUrl: developmentUrl ? rendererUrl.href : undefined,
-          file: join(import.meta.dirname, '../renderer/remote-transport-peer.html'),
-        };
-      })(),
-      report: (event, data) => diagnostics?.write(`remote-transport-peer-${event}`, data),
-    }),
-  attach: () => localService.invokeDesktopOperation(REMOTE_TRANSPORT_PEER_OPERATIONS.attach, []),
-  report: (attachment, report) =>
-    localService.notifyDesktopOperation(REMOTE_TRANSPORT_PEER_OPERATIONS.report, [attachment, report]),
-  detach: (attachment) => localService.notifyDesktopOperation(REMOTE_TRANSPORT_PEER_OPERATIONS.detach, [attachment]),
-});
 // MIXDOG_SSH_TARGET (development and tests): the main window stays on this PC
 // and a server window for that target opens beside it at startup.
 const ENV_SSH_CONNECTION_ID = 'ssh-env-target';
@@ -821,16 +771,8 @@ const requestTerminalRun = createTerminalRunDispatch({
     mainWindow.webContents.send(DESKTOP_IPC.terminalRunRequested, request);
     return true;
   },
-  relay: (request) => {
-    // Best effort: a paired client missing the reveal costs nothing the run
-    // needs, but the failure is reported rather than lost.
-    void localService.invokeDesktopOperation('terminalRemoteOpen', [request]).catch((error: unknown) => {
-      diagnostics?.write('terminal-remote-open-failed', {
-        sessionId: request.sessionId,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    });
-  },
+  // Paired clients: the core sends ui/openRequested{kind: terminal} itself (protocol/open-requested.ts).
+  relay: () => {},
 });
 const terminalRuns = createTerminalRunRequests(requestTerminalRun);
 // A run waits for a pane to claim its reveal (the renderer watches
@@ -1000,10 +942,7 @@ setBrowserApprovalHooks({
   audit: browserApprovalGrants.audit,
   downloadsDir: () => app.getPath('downloads'),
   surfaceSessionId: (sessionId) => approvalSurfaceSessionId(sessionId, approvalSources),
-  // Paired devices mark these sessions too (ids only; the card stays here).
-  onPendingSessions: (sessionIds) => {
-    void localService.invokeDesktopOperation('publishBrowserApprovalSessions', [sessionIds]).catch(() => {});
-  },
+  // Paired devices see a browser approval as the core's own request (item/browser/requestApproval); nothing is published from here.
   notify: (window, { sessionId, name }) => {
     if (!Notification.isSupported()) return;
     const target = sessionId ? approvalSurfaceSessionId(sessionId, approvalSources) : '';
@@ -1163,16 +1102,6 @@ const onTakeoverState = createTakeoverStateHandler({
 });
 unsubscribeTakeovers = localService.subscribeSessionStates(onTakeoverState);
 unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value }) => {
-  // Only this PC's daemon connection drives the peer window.
-  if (name === REMOTE_TRANSPORT_PEER_COMMAND_EVENT) {
-    remoteTransportPeers.command(value);
-    return;
-  }
-  // One diagnostics line of a transport session (the daemon has no file).
-  if (name === REMOTE_TRANSPORT_LOG_EVENT) {
-    if (typeof value === 'string') diagnostics?.write('remote-transport-pc', { line: value.slice(0, 500) });
-    return;
-  }
   if (name === 'session-runtime-released') {
     const event = value as { sessionId?: unknown; restore?: unknown } | null;
     if (isSessionId(event?.sessionId)) {
@@ -1184,129 +1113,9 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
     }
     return;
   }
-  if (name === SYSTEM_PROXY_REQUEST_EVENT) {
-    void answerSystemProxyRequest(
-      value,
-      (url) => session.defaultSession.resolveProxy(url),
-      (args) => localService.invokeDesktopOperation(SYSTEM_PROXY_RESOLVED_OPERATION, args)
-    );
-    return;
-  }
-  if (name === 'browser-remote-request') {
-    const request =
-      value && typeof value === 'object' ? (value as { id?: unknown; method?: unknown; args?: unknown }) : {};
-    const id = typeof request.id === 'string' ? request.id : '';
-    const args = Array.isArray(request.args) ? request.args : [];
-    if (
-      id &&
-      (request.method === 'trashItem' ||
-        request.method === 'updaterState' ||
-        request.method === 'updaterCheck' ||
-        request.method === 'updaterInstall' ||
-        request.method === 'displayPreferences' ||
-        request.method === 'visualizeState' ||
-        request.method === 'visualizeCommand' ||
-        request.method === 'visualizeExport' ||
-        request.method === 'captureFileSnapshot' ||
-        request.method === 'localPageUrl' ||
-        request.method === 'notificationStatus' ||
-        request.method === 'notificationTest' ||
-        request.method === 'provideSecretInput')
-    ) {
-      const hostMethod = request.method;
-      void (async () => {
-        let installAfterAnswer = false;
-        let confirmedInstall = false;
-        try {
-          let result: unknown = null;
-          if (hostMethod === 'trashItem') {
-            await shell.trashItem(String(args[0] || ''));
-          } else if (hostMethod === 'updaterState') {
-            result = desktopUpdater.getState();
-          } else if (hostMethod === 'updaterCheck') {
-            result = await desktopUpdater.check();
-          } else if (hostMethod === 'displayPreferences') {
-            result = await readHostWindowDisplayPreferences(mainWindow, app.getLocale());
-          } else if (hostMethod === 'notificationStatus') {
-            // Paired devices that hold pushes while this PC is in use read
-            // the OS's own idle time: input anywhere on the PC counts.
-            result = { supported: Notification.isSupported(), idleSeconds: powerMonitor.getSystemIdleTime() };
-          } else if (hostMethod === 'notificationTest') {
-            result = showTestNotification();
-          } else if (hostMethod === 'provideSecretInput') {
-            // A paired phone's value into the very slot the PC card fills
-            // (ipc-sessions provideSecretInput); only whether it was taken
-            // goes back, never the value.
-            result = secretInputs.provide(String(args[0] || ''), typeof args[1] === 'string' ? args[1] : '');
-          } else if (hostMethod === 'visualizeState') {
-            result = visualize.hostSnapshot();
-          } else if (hostMethod === 'visualizeCommand') {
-            result = (await visualize.command(requiredVisualizeTabCommand(args[0]))) ?? null;
-          } else if (hostMethod === 'visualizeExport') {
-            // A paired device's PNG/PDF: rendered to a temp file the daemon
-            // turns into that device's download.
-            result = await visualize.exportForDevice(requiredVisualizeTabCommand(args[0]));
-          } else if (hostMethod === 'captureFileSnapshot') {
-            // The daemon already confined the path; this only renders it.
-            result = await fileSnapshots.capture(String(args[0] || ''), String(args[1] || ''), args[2] === true);
-          } else if (hostMethod === 'localPageUrl') {
-            // The daemon already confined the path; this only mints the lease
-            // the desktop handler mints, owned by the window so it dies with it.
-            result = await localPageUrl(String(args[0] || ''), String(args[1] || ''), {
-              scope: args[2] === 'file' ? 'file' : 'project',
-              owner: mainWindow?.webContents,
-              authorize: async () => {},
-            });
-          } else {
-            // Only a confirmed request (args[0]) installs past running agent
-            // tasks; otherwise the answer is the ready state saying why not.
-            const confirmed = args[0] === true;
-            const held =
-              !confirmed && desktopUpdater.getState().status === 'ready' && (await desktopUpdater.confirmBusy());
-            result = desktopUpdater.getState();
-            installAfterAnswer = !held && desktopUpdater.getState().status === 'ready';
-            confirmedInstall = confirmed;
-          }
-          await localService.invokeDesktopOperation('browserRemoteResolve', [id, true, result, null]);
-        } catch (error) {
-          installAfterAnswer = false;
-          await localService
-            .invokeDesktopOperation('browserRemoteResolve', [
-              id,
-              false,
-              null,
-              error instanceof Error ? error.message : String(error),
-            ])
-            .catch(() => {});
-        }
-        // Installing restarts this app, so the caller is answered first.
-        if (installAfterAnswer) await desktopUpdater.install(confirmedInstall);
-      })();
-      return;
-    }
-    const method =
-      typeof request.method === 'string' && BROWSER_REMOTE_METHODS.has(request.method)
-        ? (request.method as BrowserRemoteMethod)
-        : null;
-    if (!id || !method) return;
-    void (async () => {
-      try {
-        if (!browserHost) throw new Error('Desktop Browser Use is unavailable.');
-        const result = await runBrowserRemoteRequest(browserHost, method, args);
-        await localService.invokeDesktopOperation('browserRemoteResolve', [id, true, result ?? null, null]);
-      } catch (error) {
-        await localService
-          .invokeDesktopOperation('browserRemoteResolve', [
-            id,
-            false,
-            null,
-            error instanceof Error ? error.message : String(error),
-          ])
-          .catch(() => {});
-      }
-    })();
-    return;
-  }
+  // The window-process requests Node's service sent as the browser-remote-request event (updater, display preferences,
+  // visualize, file snapshot, local page, notification status, browser methods) are the core's host/* requests now,
+  // served by the host role (host/); trashItem is the core's projectFs/trash, provideSecretInput its approval/provideSecret.
   if (name === 'desktop-settings-changed' && value && typeof value === 'object') {
     applyDesktopSettings(value as DesktopSettings);
   }
@@ -1369,6 +1178,8 @@ const hostRole = createLocalHostRole({
       }),
     ...(process.platform === 'win32' ? { playSound: () => playNotificationSound() } : {}),
     activate: () => primaryActivation.activate(),
+    isSupported: () => Notification.isSupported(),
+    idleSeconds: () => powerMonitor.getSystemIdleTime(),
   },
   updater: {
     check: () => desktopUpdater.check(),
@@ -1549,8 +1360,9 @@ function startDeferredDesktopServices(): Promise<void> {
   if (deferredServicesPromise) return deferredServicesPromise;
   const startedAt = Date.now();
   diagnostics?.write('deferred-services-start', {});
-  deferredServicesPromise = localService
-    .invokeDesktopOperation('remoteAccessStart', [])
+  // The relay starts at core boot from config (remote.enabled); the core is serving once the connection is open.
+  deferredServicesPromise = localConnection.protocol
+    .whenSynced()
     .then(() => {
       diagnostics?.write('deferred-services-ready', { durationMs: Date.now() - startedAt });
     })
@@ -1722,9 +1534,6 @@ function disposeDesktopResources(): Promise<void> {
   computerUseOverlay = null;
   desktopPet?.dispose();
   desktopPet = null;
-  // Before the daemon connection closes: the detach fails this app's direct
-  // carriers back to the relay at once.
-  remoteTransportPeers.dispose();
   if (!disposalPromise) {
     diagnostics?.write('desktop-stop');
     // Paired phones' whole-PC screen sessions release their held keys and
@@ -2879,6 +2688,7 @@ function startDesktopDiagnostics(appReadyAt: number): void {
   // The daemon handshake is already running (started before whenReady);
   // stamp its start into the timeline now that the sink exists.
   reportDaemonServiceStart();
+  // The one-time defaults separation of the `desktop` config section (Node: DesktopSettingsStore.separateDefaults) is run by the core (branch desktop-separation).
   for (const { event, entry, at } of earlyDiagnostics.splice(0)) {
     log.write(event, { ...entry, occurredAt: at });
   }

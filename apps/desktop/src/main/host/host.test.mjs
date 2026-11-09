@@ -126,6 +126,8 @@ function build(overrides = {}) {
       },
       playSound: async () => void calls.sounds++,
       activate: () => void calls.activations++,
+      isSupported: () => true,
+      idleSeconds: () => 42,
     },
     updater: updaterFixture(calls),
     ...overrides,
@@ -228,6 +230,11 @@ test('a shown notification plays its sound and a click reports the thread', () =
   clicks.forEach((fn) => fn());
   assert.equal(calls.activations, 1);
   assert.deepEqual(wire.sent.notifications, [['host/notification/clicked', { threadId: 'th9' }]]);
+});
+
+test('the core asks whether this PC shows toasts and how long it has been idle, as Node\'s notificationStatus answered', async () => {
+  const { wire } = build();
+  assert.deepEqual(await wire.call('host/notification/status', {}), { supported: true, idleSeconds: 42 });
 });
 
 test('power, update state and remote target reports; state is re-sent after a claim', async () => {

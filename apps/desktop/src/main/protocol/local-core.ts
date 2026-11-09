@@ -12,6 +12,7 @@ export function coreBinaryPath(packaged: boolean, resourcesPath: string, platfor
   return join(resourcesPath, 'core', platform === 'win32' ? 'mixdogd.exe' : 'mixdogd');
 }
 
+// Switches to `desktopMixdogRoot` of scripts/core-layout.mjs when k1-packaging combines.
 /** The core's resource root in a packaged app: the unpacked `src/` of the mixdog package (the same rule as
  *  `desktopMixdogRoot` in scripts/core-layout.mjs, which stages it). */
 export function packagedMixdogRoot(resourcesPath: string): string {
