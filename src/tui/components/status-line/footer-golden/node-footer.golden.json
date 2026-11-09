@@ -175,6 +175,18 @@
    "expected": "\u001b[1mDeepSeek Chat\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136mSESS\u001b[0m $0.500"
   },
   {
+   "name": "events: one just older than 35 days is dropped, the rest are spent",
+   "expected": "\u001b[1mDeepSeek Chat\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136mCredit\u001b[0m $998"
+  },
+  {
+   "name": "events: one exactly 35 days old is kept",
+   "expected": "\u001b[1mDeepSeek Chat\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136mCredit\u001b[0m $999"
+  },
+  {
+   "name": "events: only the last 5000 of 5003 are read",
+   "expected": "\u001b[1mDeepSeek Chat\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136mCredit\u001b[0m $950"
+  },
+  {
    "name": "first renders: an OAuth route with windows and a memory cycle",
    "steps": [
     0,
@@ -202,6 +214,17 @@
     "\u001b[1mDeepSeek Chat\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%",
     "\u001b[1mDeepSeek Chat\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%",
     "\u001b[1mDeepSeek Chat\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136mCredit\u001b[0m $50"
+   ]
+  },
+  {
+   "name": "events: appended lines are read incrementally, a torn line waits for its end, a replaced or truncated file reloads",
+   "expected": [
+    "\u001b[1mDeepSeek Chat\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136mCredit\u001b[0m $997",
+    "\u001b[1mDeepSeek Chat\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136mCredit\u001b[0m $993",
+    "\u001b[1mDeepSeek Chat\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136mCredit\u001b[0m $993",
+    "\u001b[1mDeepSeek Chat\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136mCredit\u001b[0m $985",
+    "\u001b[1mDeepSeek Chat\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136mCredit\u001b[0m $920",
+    "\u001b[1mDeepSeek Chat\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26% \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;136;136;136mCredit\u001b[0m $968"
    ]
   }
  ]

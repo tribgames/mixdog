@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
-import { LIFECYCLE, SCENARIOS, T0 } from './footer-golden/scenarios.mjs';
+import { applyStage, LIFECYCLE, SCENARIOS, STORE_STAGES, T0 } from './footer-golden/scenarios.mjs';
 
 process.env.TZ = 'UTC';
 process.env.COLORTERM = 'truecolor';
@@ -20,7 +20,7 @@ test('the golden covers every scenario, recorded from b6f10295a', () => {
   assert.match(golden.recordedFrom, /^b6f10295a[0-9a-f]{31}$/);
   assert.deepEqual(
     golden.scenarios.map((s) => s.name),
-    SCENARIOS.map((s) => s.name)
+    [...SCENARIOS, ...STORE_STAGES].map((s) => s.name)
   );
 });
 
@@ -75,6 +75,38 @@ for (const scenario of LIFECYCLE) {
 }
 
 const NO_SHELLS ={ count: 0, unconfirmed: 0, elapsedLabel: '' };
+
+for (const scenario of STORE_STAGES) {
+  test(`footer text equals Node's across event store changes: ${scenario.name}`, async (t) => {
+    const dir = writeScenarioFiles(scenario);
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    let clock = T0;
+    const warmth = createCatalogWarmth({ dataDir: () => dir });
+    const inputs = createFooterInputs({ dataDir: dir, configDir: join(dir, 'config'), env: {}, now: () => clock, warmth });
+    const footer = createFooterRenderer({ routeMetaLoaded: true });
+    const { provider, model } = scenario.args;
+    const texts = [];
+    for (const [index, stage] of scenario.stages.entries()) {
+      applyStage(dir, stage);
+      clock = T0 + 1000 * index;
+      let text = '';
+      for (let i = 0; i < 3; i += 1) {
+        const data = await inputs.read(provider, model);
+        text = footer.render({ ...scenario.args, shellStatus: NO_SHELLS }, data, {
+          now: clock,
+          cols: scenario.cols,
+          processStartedAt: T0 - 200,
+          isPidAlive: () => true,
+        });
+        footer.flush();
+      }
+      texts.push(text);
+    }
+    assert.deepEqual(texts, golden.scenarios.find((s) => s.name === scenario.name).expected);
+    // The stages must differ where the store changed, or the scenario proves nothing.
+    assert.equal(new Set(texts).size, texts.length - 1, 'only the torn-line stage repeats the text before it');
+  });
+}
 
 for (const scenario of SCENARIOS) {
   const recorded = golden.scenarios.find((s) => s.name === scenario.name);

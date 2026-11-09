@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { exportNodeTree } from './node-tree.mjs';
-import { SCENARIOS, T0 } from './scenarios.mjs';
+import { SCENARIOS, STORE_STAGES, T0 } from './scenarios.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = process.argv[2];
@@ -20,7 +20,7 @@ const { tree, commit } = exportNodeTree(repo);
 const head = { stdout: commit };
 
 const recorded = [];
-for (const scenario of SCENARIOS) {
+for (const scenario of [...SCENARIOS, ...STORE_STAGES]) {
   const dir = mkdtempSync(join(tmpdir(), 'footer-record-'));
   try {
     for (const [name, content] of Object.entries(scenario.files)) {
@@ -54,6 +54,7 @@ for (const scenario of SCENARIOS) {
           FOOTER_COLS: String(scenario.cols),
           FOOTER_ARGS: JSON.stringify(scenario.args),
           ...(scenario.steps ? { FOOTER_STEPS: JSON.stringify(scenario.steps) } : {}),
+          ...(scenario.stages ? { FOOTER_STAGES: JSON.stringify(scenario.stages) } : {}),
           ...(scenario.warm ? { FOOTER_WARM: '1' } : {}),
         },
       }
