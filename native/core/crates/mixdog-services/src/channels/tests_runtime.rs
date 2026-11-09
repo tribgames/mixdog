@@ -92,6 +92,8 @@ impl AutomationServices for FakeServices {
 #[derive(Default)]
 struct FakeAgent {
     inits: AtomicUsize,
+    /// Provider inits that ran to their end (not dropped while held).
+    init_finished: AtomicUsize,
     /// The provider init waits for a permit of this semaphore (a start stuck in it).
     init_gate: Mutex<Option<Arc<tokio::sync::Semaphore>>>,
     /// Notified when a provider init has been entered.
@@ -107,6 +109,7 @@ impl AgentRuntime for FakeAgent {
         if let Some(gate) = gate {
             gate.acquire().await.expect("the gate stays open").forget();
         }
+        self.init_finished.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 }
@@ -1139,23 +1142,20 @@ async fn a_stop_during_the_provider_init_ends_in_the_state_node_left() {
     assert_eq!(saved, rec["saveReply"]);
     rig.wait_for_init_entered().await;
 
-    // The first poll runs the stop up to its first suspension: it has marked the start for abort and
-    // queued behind it on the start gate, which the start in the provider init still holds.
+    // The init gate is observed entered above. The stop is polled by hand: it runs to its first
+    // suspension, having marked the start for abort and queued behind it on the start gate that the
+    // start, held in the provider init, still owns. Node's stop does not settle here either.
     let runtime = rig.runtime.clone();
     let mut stop = Box::pin(async move { runtime.stop_owned_runtime("test").await });
     let first = std::future::poll_fn(|cx| std::task::Poll::Ready(stop.as_mut().poll(cx))).await;
     assert_eq!(first.is_pending(), !rec["stopSettledWhileInit"].as_bool().unwrap(), "the stop settles while the init is held only if Node's did");
-    // On the one thread of this test, yielding runs every other task until it waits again: a start the
-    // stop had cut short would have ended by now and the stop would be done.
-    for _ in 0..64 {
-        tokio::task::yield_now().await;
-    }
-    let second = std::future::poll_fn(|cx| std::task::Poll::Ready(stop.as_mut().poll(cx))).await;
-    assert_eq!(second.is_pending(), !rec["stopSettledWhileInit"].as_bool().unwrap(), "the stop still waits for the init (recorded stopSettledWhileInit)");
     assert_step(&rig, rig.admin.get_channel_setup().await.unwrap(), &rec, "stop-issued-start-pending").await;
 
+    // Releasing the gate lets the init finish: a stop that had cancelled it would drop the init
+    // before it returns, so `init_finished` would stay 0.
     rig.init.add_permits(1);
     stop.await.unwrap();
+    assert_eq!(rig.e.agent.init_finished.load(Ordering::SeqCst), 1, "the stop awaited the init instead of cancelling it");
     rig.runtime.scheduled_start_settled().await;
     assert!(!rig.runtime.status().running && !rig.runtime.automation_running());
     assert_step(&rig, rig.admin.get_channel_setup().await.unwrap(), &rec, "after-stop").await;
