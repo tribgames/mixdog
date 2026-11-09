@@ -17,6 +17,7 @@ test('the table is the one Node measured: rendering results.json gives table.md'
 // holds only the other eight models, so there is no recorded row to compare it against.
 test('every model results.json holds is measured, in its order (results.json predates Qwen)', () => {
   const recorded = JSON.parse(readFileSync(new URL('./results/results.json', import.meta.url), 'utf8'));
+  // Dropped: Qwen 3.8 Flash (in MODELS, absent from results/results.json's model list); Node's measure.mjs never recorded it.
   assert.deepEqual(MODELS.map(([name]) => name).filter((name) => recorded.results.some((row) => row.name === name)), recorded.results.map((row) => row.name));
   assert.deepEqual(LANGS.map(([lang]) => lang), Object.keys(recorded.results[0].net));
 });
