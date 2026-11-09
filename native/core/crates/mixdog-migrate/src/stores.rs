@@ -124,10 +124,11 @@ const RETIRED_FILES: &[&str] = &[
 /// Retired directories under `<D>`, one item each.
 const RETIRED_DIRS: &[&str] = &["live-sessions", "session-writer-locks", "media/renditions"];
 
+/// `gateway-usage.local.jsonl` is not here: at 1.4.5 it is the live store the core appends to per request and the
+/// footer reads (`route-meta.mjs`), which `usage-ledger-import.mjs` only reads. `gateway-usage.local.json` is not
+/// either: only the store's first writer retires it (renamed to `.migrated.bak`), which the Rust writer does too.
 const LEDGER_LEGACY_INPUTS: &[&str] = &[
     "usage-rollup.local.json",
-    "gateway-usage.local.jsonl",
-    "gateway-usage.local.json",
     "usage-rollup.local.json.migrated.bak",
     "gateway-usage.local.jsonl.migrated.bak",
     "gateway-usage.local.json.migrated.bak",

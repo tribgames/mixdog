@@ -129,6 +129,7 @@ pub mod run;
 pub mod delegated_host;
 pub mod handoff_questions;
 pub mod runtime_hooks;
+pub mod gateway_usage;
 pub mod notices;
 mod seams;
 mod state;
@@ -339,6 +340,8 @@ pub struct SessionDeps {
     pub quota: quota_lane::SessionQuota,
     pub lanes: SessionLanes,
     pub limits: SessionLimits,
+    /// The writer of `<data>/gateway-usage.local.jsonl`: one event per completed ask.
+    pub gateway_usage: gateway_usage::GatewayUsage,
     /// The prompt-cache warmer told of each turn's start (`noteTurnForCacheWarm`).
     pub warm: Arc<dyn turn_warm::TurnWarmth>,
     /// The built-in skills a live turn hides the loads of (`builtinSkillNamesFor`).

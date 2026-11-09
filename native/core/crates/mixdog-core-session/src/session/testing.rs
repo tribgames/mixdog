@@ -1556,7 +1556,7 @@ impl Rig {
         Arc::new(self.deps_parts(store))
     }
 
-    /// The stack's parts, for a test that swaps one of them.
+    /// The stack's parts, for a test that swaps one of them. Its gateway usage writer prices nothing.
     pub fn deps_parts(&self, store: Arc<dyn ThreadStore>) -> SessionDeps {
         let tokens = mixdog_rt::testing::tokens();
         SessionDeps {
@@ -1616,6 +1616,7 @@ impl Rig {
                 durability: tokens.durability_io,
             },
             limits: SessionLimits::default(),
+            gateway_usage: super::gateway_usage::GatewayUsage::new(self._data.path(), tokens.durability_io, self.clock.clone(), Arc::new(NoPricing), Arc::new(super::gateway_usage::TokioScheduler)),
             warm: self.warms.clone(),
             builtin_skills: self.builtin_skills.clone(),
         }
@@ -1635,4 +1636,13 @@ pub fn quota_error(reset_at: u64) -> mixdog_protocol::TurnError {
     error.message = "Usage limit reached".into();
     error.reset_at = Some(std::time::UNIX_EPOCH + std::time::Duration::from_millis(reset_at));
     super::failure_record::provider_turn_error(&error, "anthropic-oauth", Value::Null)
+}
+
+/// The pricing of a rig: no catalog, so every request is unpriced.
+struct NoPricing;
+
+impl mixdog_ai::registry::accounting::UsagePricing for NoPricing {
+    fn price_usage(&self, _: &mixdog_ai::catalog::UsageArgs) -> mixdog_ai::catalog::PricedUsage {
+        mixdog_ai::catalog::PricedUsage { input: 0.0, cost_usd: None, rates: Default::default() }
+    }
 }

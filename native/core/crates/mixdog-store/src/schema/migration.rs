@@ -168,7 +168,7 @@ pub enum ItemKind {
     // ── group `data`, retired or retained ──
     /// Turn checkpoints whose session has no session item.
     OrphanCheckpoint,
-    /// `usage-rollup.local.json`, `gateway-usage.local.json[l]`: retired when the ledger's
+    /// `usage-rollup.local.json` and the `.migrated.bak` files (the live `gateway-usage.local.json[l]` stay): retired when the ledger's
     /// `metadata.importedThrough` exists, else retained `ledger_import_incomplete`.
     LedgerLegacyInputs,
     // ── group `desktopProfile` (SPEC §4.11), converted ──

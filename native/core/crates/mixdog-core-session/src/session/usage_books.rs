@@ -110,7 +110,22 @@ pub(crate) fn settled_change(header: &Header, settled: &Settled, incremental: bo
     change(patch)
 }
 
-/// `HEARTBEAT_THROTTLE_MS` (`manager/runtime-liveness.mjs`).
+/// What `recordStandaloneStatusTelemetry` reads of a settled ask: the transcript estimate
+/// (`estimateTranscriptContextUsage(session.messages, session.tools, { provider })`, 0 without meters)
+/// and the effort the latest user message ran at (`turnEffort`).
+pub(crate) fn gateway_facts(header: &Header, settled: &Settled, books: Option<&Books>) -> (f64, Option<String>) {
+    let provider = header.get("provider");
+    let estimate = books.map_or(0.0, |books| {
+        with_books(books, provider_of(header), |books| {
+            let tools = mixdog_agent::compact::tool_schema::RequestTools { native: books.native, defined: &settled.send_tools };
+            pressure::estimate_transcript_context_usage(&settled.transcript, &tools, provider, books)
+        })
+    });
+    let effort = super::gateway_usage::turn_effort(settled.transcript.iter().filter_map(|message| message.stored.as_deref()));
+    (estimate, effort)
+}
+
+/// `HEARTBEAT_THROTTLE_MS`(`manager/runtime-liveness.mjs`).
 const HEARTBEAT_THROTTLE_MS: f64 = 60_000.0;
 
 /// The disk-side heartbeat of `markSessionStreamDelta`: a semantic model event refreshes

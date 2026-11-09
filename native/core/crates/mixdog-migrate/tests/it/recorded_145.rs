@@ -141,7 +141,7 @@ fn removed_by_contract(rel: &str, answers: &Value) -> bool {
         || rel.starts_with("data/session-pending/")
         || rel.starts_with("data/turn-checkpoints/")
         || rel.starts_with("data/media/renditions/")
-        || ["data/gateway-usage.local.jsonl", "data/session-summaries.log", "data/prompt-attachments/gc-last-run", "data/prompt-attachments/gc-reference-cache.json"]
+        || ["data/session-summaries.log", "data/prompt-attachments/gc-last-run", "data/prompt-attachments/gc-reference-cache.json"]
             .contains(&rel)
 }
 
