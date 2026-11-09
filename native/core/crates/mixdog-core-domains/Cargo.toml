@@ -45,6 +45,7 @@ mixdog-core-base = { workspace = true }
 mixdog-core-config = { workspace = true }
 mixdog-core-ports = { workspace = true }
 mixdog-secrets = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
 bytes = { workspace = true }

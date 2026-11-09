@@ -20,6 +20,7 @@ tokio = { workspace = true, features = ["rt", "sync", "time", "net", "macros"] }
 tokio-tungstenite = { workspace = true, features = ["handshake"] }
 tokio-util = { workspace = true }
 tracing = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
 # The relay-only grant is judged by the real server's origin gate, behind the real listener.

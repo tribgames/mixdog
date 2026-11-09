@@ -25,6 +25,7 @@ sha2 = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt", "macros", "time"] }
 mixdog-core-base = { workspace = true }
 mixdog-core-ports = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
 tempfile = { workspace = true }

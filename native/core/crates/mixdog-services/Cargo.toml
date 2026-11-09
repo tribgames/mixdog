@@ -55,6 +55,7 @@ tokio-util = { workspace = true }
 tracing = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
 walkdir = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

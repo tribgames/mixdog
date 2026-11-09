@@ -31,6 +31,7 @@ sha2 = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt", "macros", "time"] }
 tokio-util = { workspace = true }
 mixdog-spawn = { path = "../../../mixdog-spawn", features = ["core"], optional = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [features]
 test-support = ["dep:mixdog-spawn", "mixdog-rt/test-support"]

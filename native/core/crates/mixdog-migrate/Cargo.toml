@@ -33,6 +33,7 @@ sha1 = { workspace = true }
 sha2 = { workspace = true }
 tokio = { workspace = true, features = ["rt"] }
 uuid = { workspace = true }
+mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
 mixdog-migrate = { workspace = true, features = ["crash-hook"] }
