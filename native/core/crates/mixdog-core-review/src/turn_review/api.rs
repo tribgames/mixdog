@@ -46,8 +46,7 @@ impl TurnReviewApi for TurnReview {
     }
 
     fn on_review_changed(&self, listener: ReviewChanged) {
-        let bases = self.inner.bases.clone();
-        self.inner.worktrees.on_review_changed(std::sync::Arc::new(move || listener(&bases.threads())));
+        self.inner.worktrees.on_review_changed(listener);
     }
 
     async fn begin_turn(&self, worktree: &str, session_id: &str, open: TurnOpen) -> Option<TurnToken> {

@@ -190,30 +190,59 @@ struct ReposShared {
     temp_seq: AtomicU64,
     /// `onTurnReviewChanged` listeners (`turn-boundary-signal.mjs`).
     review_listeners: Mutex<Vec<Arc<dyn Fn() + Send + Sync>>>,
-    /// `reviewQueued`: a signal waits for its dispatch.
-    review_queued: AtomicBool,
-    /// The dispatches not yet delivered, for [`ShadowRepos::review_signal_delivered`].
-    review_dispatches: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    /// `reviewQueued` (`pending`) and whether a dispatch task is in flight (`running`), one lock so a
+    /// signal either joins the delivery still to come or starts the next one.
+    review_signal: Mutex<SignalState>,
+    /// The latest dispatch task, for [`ShadowRepos::review_signal_settled`].
+    #[cfg(any(test, feature = "test-support"))]
+    review_dispatch: Mutex<Option<tokio::task::JoinHandle<()>>>,
+}
+
+#[derive(Default)]
+struct SignalState {
+    pending: bool,
+    running: bool,
 }
 
 impl ReposShared {
-    /// `noteTurnReviewChanged`: signals within one task reach the listeners once, after it (Node
-    /// queues a microtask; here the dispatch is a task spawned on the caller's runtime).
+    /// `noteTurnReviewChanged`: signals within one task reach the listeners once, after it (Node queues
+    /// one microtask). The dispatch is one task spawned from the signalling task, so on the runtime's
+    /// worker it runs once that task yields (tokio keeps a freshly spawned task in the spawning worker's
+    /// LIFO slot, which other workers do not steal). One dispatch is in flight at a time: a signal raised
+    /// by a listener, as in Node, is delivered by the next round, after this one ends.
     fn note_review_changed(self: &Arc<Self>) {
-        if self.review_queued.swap(true, Ordering::AcqRel) {
-            return;
+        {
+            let mut state = self.review_signal.lock().unwrap_or_else(|e| e.into_inner());
+            state.pending = true;
+            if state.running {
+                return;
+            }
+            state.running = true;
         }
         let shared = self.clone();
         let dispatch = tokio::spawn(async move {
-            shared.review_queued.store(false, Ordering::Release);
-            let listeners: Vec<_> = shared.review_listeners.lock().unwrap_or_else(|e| e.into_inner()).clone();
-            for listener in listeners {
-                listener();
+            loop {
+                {
+                    let mut state = shared.review_signal.lock().unwrap_or_else(|e| e.into_inner());
+                    if !state.pending {
+                        state.running = false;
+                        return;
+                    }
+                    state.pending = false;
+                }
+                let listeners: Vec<_> = shared.review_listeners.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                for listener in listeners {
+                    // Node: `try { fn() } catch {}`.
+                    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener()));
+                }
             }
         });
-        let mut dispatches = self.review_dispatches.lock().unwrap_or_else(|e| e.into_inner());
-        dispatches.retain(|task| !task.is_finished());
-        dispatches.push(dispatch);
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            *self.review_dispatch.lock().unwrap_or_else(|e| e.into_inner()) = Some(dispatch);
+        }
+        #[cfg(not(any(test, feature = "test-support")))]
+        drop(dispatch);
     }
 }
 
@@ -243,10 +272,17 @@ impl ShadowRepos {
                 maintained: Mutex::new(HashSet::new()),
                 temp_seq: AtomicU64::new(0),
                 review_listeners: Mutex::new(Vec::new()),
-                review_queued: AtomicBool::new(false),
-                review_dispatches: Mutex::new(Vec::new()),
+                review_signal: Mutex::new(SignalState::default()),
+                #[cfg(any(test, feature = "test-support"))]
+                review_dispatch: Mutex::new(None),
             }),
         }
+    }
+
+    /// A bare `noteTurnReviewChanged()`, for the tests of the dispatch itself.
+    #[cfg(test)]
+    pub(super) fn raise_review_signal(&self) {
+        self.shared.note_review_changed();
     }
 
     /// `onTurnReviewChanged(listener)`.
@@ -254,13 +290,17 @@ impl ShadowRepos {
         self.shared.review_listeners.lock().unwrap_or_else(|e| e.into_inner()).push(listener);
     }
 
-    /// Resolves once every signal raised so far has reached its listeners (what a Node caller gets
-    /// from one `await` after the signal's task).
-    pub async fn review_signal_delivered(&self) {
-        let dispatches = std::mem::take(&mut *self.shared.review_dispatches.lock().unwrap_or_else(|e| e.into_inner()));
-        for dispatch in dispatches {
-            let _ = dispatch.await;
+    /// Resolves once every signal raised so far has reached its listeners (what a Node caller gets from one
+    /// `await` after the signal's task). A dispatch task that panicked or was cancelled fails the wait.
+    #[cfg(any(test, feature = "test-support"))]
+    pub async fn review_signal_settled(&self) {
+        loop {
+            let dispatch = self.shared.review_dispatch.lock().unwrap_or_else(|e| e.into_inner()).take();
+            let Some(dispatch) = dispatch else { break };
+            dispatch.await.expect("the review signal dispatch ended without delivering");
         }
+        let state = self.shared.review_signal.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(!state.pending && !state.running, "a signal is still waiting for its delivery");
     }
 
     /// `repositoryRoot(worktree)`.

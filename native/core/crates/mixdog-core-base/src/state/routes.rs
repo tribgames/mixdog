@@ -59,6 +59,12 @@ impl ScopedRoutes for ScopedRouteTable {
             .or_else(|| routes.get(&(section, None)))
             .cloned()
     }
+
+    fn keys(&self, section: SectionName) -> Vec<String> {
+        let mut keys: Vec<String> = lock(&self.routes).keys().filter(|(s, _)| *s == section).filter_map(|(_, key)| key.clone()).collect();
+        keys.sort();
+        keys
+    }
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {

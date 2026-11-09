@@ -4292,6 +4292,7 @@ version = "1.4.5"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
+ "bytes",
  "flate2",
  "futures",
  "indexmap",
@@ -4305,6 +4306,7 @@ dependencies = [
  "mixdog-spawn",
  "mixdog-statefile",
  "mixdog-tools",
+ "mixdog-workspace",
  "mixdog-workspace-hack",
  "regex",
  "serde_json",
