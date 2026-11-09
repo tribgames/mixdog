@@ -59,7 +59,8 @@ globalThis.clearTimeout = (timer) => {
 async function advance(ms) {
   const target = NOW + ms;
   for (;;) {
-    const due = timers.queue.filter((t) => t.due <= target).sort((a, b) => a.due - b.due || a.seq - b.seq)[0];
+    // Node runs timers earliest-due first and, at equal due times, in registration order (libuv's timer heap).
+    const due = [...timers.queue].sort((a, b) => a.due - b.due || a.seq - b.seq).find((t) => t.due <= target);
     if (!due) break;
     timers.queue.splice(timers.queue.indexOf(due), 1);
     NOW = due.due;
@@ -93,6 +94,7 @@ const HOOK_ASK = { action: 'ask', reason: 'needs approval' };
 const APPROVE = { approved: true, response: 'approve', device: 'Pixel' };
 const APPROVE_AGENT = { ...APPROVE, remember: 'agent' };
 const DENY = { approved: false, response: 'deny', reason: 'not now', device: 'Pixel' };
+const HUNDRED_YEARS = 100 * 365 * 86_400_000;
 const ask = (id, session, call, { hook = null, ui = null } = {}) => ({ op: 'ask', id, session, call, hook, ui });
 
 const SCENARIOS = [
@@ -127,6 +129,7 @@ const SCENARIOS = [
   { name: 'a slow pending delivery: the answer arrives first, both deliveries start in order, the settled row persists before the pending one', stallDelivery: 'pending-until-release', script: [ask('a', 'room', COMMENT), { op: 'answer', ask: 'a', decision: APPROVE }, { op: 'release' }, { op: 'facts' }] },
   { name: 'a pending delivery that never completes: the settled row still persists', stallDelivery: 'pending', script: [ask('a', 'room', COMMENT), { op: 'answer', ask: 'a', decision: DENY }, { op: 'facts' }] },
   { name: 'a held request never expires: it still waits after a virtual day', script: [ask('a', 'room', COMMENT), { op: 'advance', ms: 86_400_000 }, { op: 'facts' }, { op: 'answer', ask: 'a', decision: APPROVE }, { op: 'facts' }] },
+  { name: 'held requests never expire: both still wait after a hundred virtual years, and are answered then', script: [ask('a', 'room', COMMENT), ask('b', 'room', SHELL, { hook: HOOK_ASK }), { op: 'advance', ms: HUNDRED_YEARS }, { op: 'facts' }, { op: 'answer', ask: 'a', decision: APPROVE }, { op: 'advance', ms: HUNDRED_YEARS }, { op: 'facts' }, { op: 'answer', ask: 'b', decision: DENY }, { op: 'facts' }] },
 ];
 
 const NOW_BASE = 1_800_000_000_000;
@@ -218,7 +221,10 @@ async function runScenario(index, scenario) {
       });
       const first = await Promise.race([outcome.then(() => 'settled'), pushed.then(() => 'held')]);
       waiter = null;
-      const entry = { outcome, heldId: null };
+      const entry = { outcome, heldId: null, settled: false };
+      outcome.then(() => {
+        entry.settled = true;
+      });
       asks.set(op.id, entry);
       const step = { op: 'ask', id: op.id, session: SESSIONS[op.session], state: first };
       if (first === 'held') {
@@ -245,7 +251,9 @@ async function runScenario(index, scenario) {
       trace.push({ op: 'release', released: releasing.length, ...fresh() });
     } else if (op.op === 'advance') {
       await advance(op.ms);
-      trace.push({ op: 'advance', ms: op.ms, now: NOW });
+      // The held asks whose call has not settled, by request id: Node holds them for as long as the clock runs (no timer is registered).
+      const waiting = [...asks.values()].flatMap((e) => (e.heldId && !e.settled ? [e.heldId] : [])).sort();
+      trace.push({ op: 'advance', ms: op.ms, now: NOW, waiting });
     } else throw new Error(`unknown op ${op.op}`);
   }
   await Promise.all(globalThis.__heldRecords);
