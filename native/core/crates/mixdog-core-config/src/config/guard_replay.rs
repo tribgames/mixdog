@@ -184,12 +184,15 @@ impl World {
         }
     }
 
-    fn tree(&self) -> BTreeMap<String, Value> {
-        fn walk(world: &World, dir: &Path, files: &mut BTreeMap<String, Value>) {
+    /// Every file with its bytes, and every directory (empty ones too), below the root.
+    fn tree(&self) -> (BTreeMap<String, Value>, Vec<String>) {
+        fn walk(world: &World, dir: &Path, files: &mut BTreeMap<String, Value>, dirs: &mut Vec<String>) {
             for entry in std::fs::read_dir(dir).unwrap() {
                 let path = entry.unwrap().path();
                 if path.is_dir() {
-                    walk(world, &path, files);
+                    let rel = path.strip_prefix(&world.root).unwrap().to_string_lossy().replace('\\', "/");
+                    dirs.push(world.normalize(&rel));
+                    walk(world, &path, files, dirs);
                     continue;
                 }
                 let rel = path.strip_prefix(&world.root).unwrap().to_string_lossy().replace('\\', "/");
@@ -202,8 +205,10 @@ impl World {
             }
         }
         let mut files = BTreeMap::new();
-        walk(self, &self.root, &mut files);
-        files
+        let mut dirs = Vec::new();
+        walk(self, &self.root, &mut files, &mut dirs);
+        dirs.sort();
+        (files, dirs)
     }
 }
 
@@ -268,7 +273,9 @@ fn every_recorded_scenario_leaves_nodes_answers_logs_and_tree() {
                 }
             }
         }
-        let tree = world.tree();
+        let (tree, dirs) = world.tree();
+        let recorded_dirs: Vec<&str> = scenario["dirs"].as_array().unwrap().iter().map(|d| d.as_str().unwrap()).collect();
+        assert_eq!(dirs.iter().map(String::as_str).collect::<Vec<_>>(), recorded_dirs, "{name}: directories");
         let recorded: BTreeMap<String, Value> = scenario["files"].as_object().unwrap().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         assert_eq!(tree.keys().collect::<Vec<_>>(), recorded.keys().collect::<Vec<_>>(), "{name}: file names");
         for (path, bytes) in &tree {

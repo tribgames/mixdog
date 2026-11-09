@@ -1,30 +1,28 @@
 {
-  "command": "node benchmarks/rust-core/recorders/record-user-data-guard.mjs --tree <tree>",
+  "command": "node benchmarks/rust-core/recorders/record-user-data-guard.mjs --tree <git checkout at commit> --commit <full id>",
   "fileCount": 1,
   "files": [
     {
-      "bytes": 188349,
+      "bytes": 206276,
       "path": "golden.json",
-      "sha256": "f5b8da3eafaa2403c673ef1baac8879e2746a53e8ef2451ba696406a86dddfde"
+      "sha256": "7a0e232d232d1d6379010df53eae3e954c1e4cd1df229d21882fa8c175158fbc"
     }
   ],
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": null,
-    "comparedAgainst": "HEAD and the 60 latest commits touching src/apps",
-    "files": 9139,
+    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "comparedAgainst": "b6f10295a2f698afc85332467192de28500bd146",
+    "exact": true,
     "refComparison": {
-      "closestCommit": "4aefe126aa8048fcfdb5c872b2b64cf3659d38c6",
-      "commitFilesMissingFromTree": 115,
-      "exact": false,
-      "filesDifferingFromCommit": 136
+      "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
+      "commitFilesMissingFromTree": 0,
+      "exact": true,
+      "filesDifferingFromCommit": 0
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "archive",
+    "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-user-data-guard.mjs",
   "set": "user-data-guard",
-  "totalBytes": 188349
+  "totalBytes": 206276
 }
