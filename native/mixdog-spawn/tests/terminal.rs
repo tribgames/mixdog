@@ -840,6 +840,13 @@ async fn terminal_tool_lists_runs_and_reads_in_process() {
     assert!(grep.text.contains(": bridge line 250"), "{}", grep.text);
     assert!(grep.text.contains(": bridge line 248") && grep.text.contains(": bridge line 252"), "{}", grep.text);
 
+    // A live shell keeps redrawing its prompt asynchronously, so "nothing new" can only be
+    // asserted once the output source is finished. Ending the shell is that barrier: the feed's
+    // exit event follows every byte the reader will ever put into the replay window.
+    rig.tabs.write("session-terminal:sess8", "exit\r");
+    let (_, exit) = collect(&rig.manager, &mixdog_protocol::ProcessHandle::from("session-terminal:sess8")).await;
+    assert!(exit.killed.is_none(), "the shell left on its own");
+
     // since: only what came after the run's cursor, nothing when asked again at the new cursor.
     let since = call(json!({ "action": "read", "since": cursor, "lines": 400 })).await;
     assert!(since.text.contains("Terminal (partial)") && since.text.contains("new lines"), "{}", since.text);
