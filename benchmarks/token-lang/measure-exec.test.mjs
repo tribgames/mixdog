@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { LANGS, MODELS, execInputTokens, inputTokensOfFirstRequest, measureModel, renderTable, usageLogInput } from './measure-exec.mjs';
 
 const lines = (...events) => events.map((event) => JSON.stringify(event)).join('\n');
@@ -95,4 +97,42 @@ test('the net count of a language is its count less the "." baseline', async () 
   assert.equal(measured.baseline, 7);
   assert.equal(measured.raw.English, 17);
   assert.deepEqual(measured.net, Object.fromEntries(LANGS.map(([lang], i) => [lang, 10 * (i + 1)])));
+});
+
+test('an exec that does not finish by the deadline is ended and reported, not waited for', async () => {
+  const killed = [];
+  const hung = () => {
+    const c = new EventEmitter();
+    c.stdout = new EventEmitter();
+    c.stderr = new EventEmitter();
+    c.kill = () => killed.push('killed');
+    return c;
+  };
+  await assert.rejects(execInputTokens({ bin: 'mixdogd', provider: 'x', model: 'm', text: 't', cwd: '/w', spawnImpl: hung, deadlineMs: 20 }), /did not finish within 20ms and was ended/);
+  assert.deepEqual(killed, ['killed']);
+});
+
+test('a child that cannot start is ended and rejects', async () => {
+  const killed = [];
+  const broken = () => {
+    const c = new EventEmitter();
+    c.stdout = new EventEmitter();
+    c.stderr = new EventEmitter();
+    c.kill = () => killed.push('killed');
+    queueMicrotask(() => c.emit('error', new Error('spawn ENOENT')));
+    return c;
+  };
+  await assert.rejects(execInputTokens({ bin: 'mixdogd', provider: 'x', model: 'm', text: 't', cwd: '/w', spawnImpl: broken, deadlineMs: 60_000 }), /spawn ENOENT/);
+  assert.deepEqual(killed, ['killed']);
+});
+
+test('the command fails when a selected model fails, and leaves results.json as it was', () => {
+  const results = new URL('./results/results.json', import.meta.url);
+  const before = readFileSync(results, 'utf8');
+  // node is the "mixdogd" here: `node exec --json ...` exits 1, which is a failed measurement of the selected model.
+  const run = spawnSync(process.execPath, [fileURLToPath(new URL('./measure-exec.mjs', import.meta.url)), '--mixdogd', process.execPath, '--models', 'kimi', '--n', '1'], { encoding: 'utf8' });
+  assert.notEqual(run.status, 0);
+  assert.match(run.stderr, /FAILED: Kimi K3/);
+  assert.match(run.stderr, /measurement failed for: Kimi K3/);
+  assert.equal(readFileSync(results, 'utf8'), before);
 });

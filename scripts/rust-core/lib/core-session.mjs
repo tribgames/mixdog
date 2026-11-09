@@ -205,6 +205,8 @@ export async function startCore({ bin, root, config, prepare, extraEnv = {}, rea
   const exe = stageProfile(paths, { bin, config });
   prepare?.(paths);
   const tail = [];
+  // The process-start instant: the boot budget runs from here, not from the staging copy above.
+  const spawnedAt = performance.now();
   const child = spawn(exe, ['serve'], { env: isolatedEnv(paths, extraEnv), cwd: paths.root, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   for (const stream of ['stdout', 'stderr']) {
     child[stream].setEncoding('utf8');
@@ -227,6 +229,7 @@ export async function startCore({ bin, root, config, prepare, extraEnv = {}, rea
       discovery: doc,
       client,
       pid: child.pid,
+      spawnedAt,
       tail: () => tail.join('\n') || '(no output)',
       call: (method, params) => client.call(method, params),
       /**
