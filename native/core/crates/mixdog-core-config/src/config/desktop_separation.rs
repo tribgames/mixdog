@@ -102,21 +102,29 @@ impl Shared {
     /// Node's read-modify-write does (not the canonical document in memory), so the copy is the pre-image Node saved.
     fn separate_desktop_on(&self, lane: &InLane<DurabilityIo>, now_ms: i64) -> Result<(bool, Applied), ConfigError> {
         let mut raised = super::lock(&self.writer);
-        let preimage = read_preimage(&self.path)?;
-        if marked(&record(preimage.get("desktop"))) {
-            return Ok((false, Applied::default()));
-        }
         let data_dir = self.path.parent().unwrap_or_else(|| Path::new(""));
-        let dir = claim_backup_dir(lane, data_dir, now_ms)?;
-        let opts = mixdog_statefile::Opts::default();
-        let bytes = mixdog_statefile::json_bytes(&Value::Object(preimage.clone()), &opts);
-        mixdog_statefile::write_file_stepped(lane, &dir.join("mixdog-config.json"), &bytes, &opts).map_err(ConfigError::Publish)?;
-        // `writeAll`: a save writes the canonical document; a file with nothing in it is born current.
-        let mut next = canonical::canonicalize(separate(&preimage));
-        if preimage.is_empty() && !next.contains_key(DEFAULTS_VERSION_KEY) {
-            next.insert(DEFAULTS_VERSION_KEY.into(), Value::from(2));
-        }
-        super::persist(lane, &self.path, &next)?;
+        // Node's pass is `updateConfig`: under the file's lock, from what `readAllForRmW` settles on, snapshotted by the guard.
+        let written = self.guard.locked(lane, |baseline| {
+            let preimage = match baseline.doc {
+                Some(restored) => restored,
+                None => read_preimage(&self.path)?,
+            };
+            if marked(&record(preimage.get("desktop"))) {
+                return Ok(None);
+            }
+            let dir = claim_backup_dir(lane, data_dir, now_ms)?;
+            let opts = mixdog_statefile::Opts::default();
+            let bytes = mixdog_statefile::json_bytes(&Value::Object(preimage.clone()), &opts);
+            mixdog_statefile::write_file_stepped(lane, &dir.join("mixdog-config.json"), &bytes, &opts).map_err(ConfigError::Publish)?;
+            // `writeAll`: a save writes the canonical document; a file with nothing in it is born current.
+            let mut next = canonical::canonicalize(separate(&preimage));
+            if preimage.is_empty() && !next.contains_key(DEFAULTS_VERSION_KEY) {
+                next.insert(DEFAULTS_VERSION_KEY.into(), Value::from(2));
+            }
+            self.guard.write(lane, &next, "post-config-write")?;
+            Ok(Some(next))
+        })?;
+        let Some(next) = written else { return Ok((false, Applied::default())) };
         let current = self.doc.load_full();
         Ok((true, self.install(&mut raised, &current, next)))
     }
