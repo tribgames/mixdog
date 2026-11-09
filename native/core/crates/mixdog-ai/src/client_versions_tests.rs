@@ -29,6 +29,23 @@ impl Environment for TestEnv {
     }
 }
 
+/// The lookups that outlive their timers end at Node's: the npm read at 4 s (`sites.npmVersion`) and the update manifest at
+/// 5 s (`sites.antigravityVersion`), each an `AbortSignal.timeout` on a raw `fetch`.
+#[tokio::test(start_paused = true)]
+async fn a_lookup_that_outlives_its_timer_ends_at_nodes() {
+    use crate::transport::site_probe::{TimingOut, assert_transport};
+
+    let tokens = mixdog_rt::testing::tokens();
+    let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
+    for (dialect, site) in [(Dialect::Codex, "npmVersion"), (Dialect::Antigravity, "antigravityVersion")] {
+        let dir = tempfile::tempdir().unwrap();
+        let transport = TimingOut::new();
+        let versions = ClientVersions::with_clock(transport.clone(), dir.path().to_owned(), io.clone(), Arc::new(TestEnv(HashMap::new())), Arc::new(|| 1_000_000_000_000));
+        versions.warm(dialect).await;
+        assert_transport(site, &transport);
+    }
+}
+
 struct Body(Option<Bytes>);
 
 #[async_trait]

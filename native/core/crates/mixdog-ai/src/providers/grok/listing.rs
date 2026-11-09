@@ -10,6 +10,8 @@
 //! order (`_fetchAndCacheCatalog`).
 
 use crate::transport::deadlines::GROK_LISTING;
+use crate::transport::deadlines::GROK_PROXY_LISTING;
+use crate::transport::Exchange;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -103,7 +105,7 @@ impl GrokListing {
 
     /// The `data` array of one catalog. A redirect is refused like any other
     /// refusal: the bearer is never replayed to another host.
-    async fn items(&self, url: String, headers: Vec<(String, String)>) -> Result<Vec<Value>, ProviderError> {
+    async fn items(&self, url: String, headers: Vec<(String, String)>, exchange: Exchange) -> Result<Vec<Value>, ProviderError> {
         let head = self
             .http
             .send(
@@ -114,7 +116,7 @@ impl GrokListing {
                     headers,
                     body: Vec::new(),
                 },
-                GROK_LISTING,
+                exchange,
             )
             .await?;
         let success = head.is_success();
@@ -317,8 +319,8 @@ impl ModelListing for GrokListing {
         let mut proxy_headers = bearer.clone();
         proxy_headers.extend(identity_headers(&self.client_version.get()));
         let (api, proxy) = futures::future::join(
-            self.items(format!("{INFERENCE_BASE_URL}/models"), bearer),
-            self.items(format!("{PROXY_BASE_URL}/models"), proxy_headers),
+            self.items(format!("{INFERENCE_BASE_URL}/models"), bearer, GROK_LISTING),
+            self.items(format!("{PROXY_BASE_URL}/models"), proxy_headers, GROK_PROXY_LISTING),
         )
         .await;
         // The proxy is best-effort by design; the primary catalog is not.

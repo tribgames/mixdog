@@ -5,8 +5,8 @@
 //!
 //! The login token is the only credential and cannot be refreshed: a token without a readable
 //! `exp` claim is assumed to live for a year. Response bodies may carry the token itself, so an
-//! error names the status only. Known limit: a request that got no answer is worded with the
-//! generic cause "network error" (Node names the transport error code or "timed out").
+//! error names the status only. A request that got no answer is worded by its cause as Node words it
+//! (`oauthNetworkCause`): "timed out" or the error code the typed fault names, else "network error".
 
 use std::sync::Arc;
 
@@ -29,7 +29,6 @@ pub const AUTHORIZE_URL: &str = "https://app.devin.ai/auth/cli/continue";
 pub const TOKEN_URL: &str = "https://api.devin.ai/auth/cli/token";
 pub const REDIRECT: Redirect = Redirect { host: "127.0.0.1", port: 59653, path: "/callback" };
 const DEFAULT_TOKEN_LIFETIME_MS: u64 = 365 * 24 * 60 * 60_000;
-const NETWORK_HINT: &str = "Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY.";
 
 pub struct DevinLogin {
     file: CredentialFile,
@@ -122,9 +121,9 @@ impl PkceProvider for DevinLogin {
     async fn exchange(&self, code: &str, verifier: &str, _redirect_uri: &str) -> Result<Option<String>, LoginFailure> {
         let body = serde_json::to_vec(&json!({ "code": code, "code_verifier": verifier })).expect("a JSON value serializes");
         let headers = vec![("Accept", "application/json".to_owned()), ("Content-Type", "application/json".to_owned())];
-        let reply = http::call(self.http.as_ref(), "POST", TOKEN_URL, headers, body).await.map_err(|_| {
-            coded("TOKEN_EXCHANGE_FAILED", format!("Devin token exchange request failed (network error). {NETWORK_HINT}"))
-        })?;
+        let reply = http::try_call(self.http.as_ref(), "POST", TOKEN_URL, headers, body)
+            .await
+            .map_err(|error| coded("TOKEN_EXCHANGE_FAILED", format!("Devin token exchange request failed ({}). {}", http::network_cause(&error), http::NETWORK_HINT)))?;
         // Response bodies may carry the login token: only the status is reported.
         if !reply.ok() {
             return Err(coded("TOKEN_EXCHANGE_FAILED", format!("Devin token exchange failed ({})", reply.status)));

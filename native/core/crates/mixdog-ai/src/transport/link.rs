@@ -125,6 +125,14 @@ pub enum Surface {
     /// Node's `http2`: a socket error whose text names the resolved address (`connect ECONNREFUSED
     /// 1.2.3.4:443`), which the link cannot know; the fault's own description stands.
     Socket,
+    /// Node's `http2` under `providerTimeoutError(label, ms)` (`callCursorUnary`, `cursor-wire-transport.mjs:274`): the
+    /// socket's own text for a connection failure, `"<label> timed out after <ms>ms"` when the timer fires.
+    SocketLabeled(&'static str),
+    /// The Cursor stream's connect timer (`CONNECT_TIMEOUT_MS`, `cursor-wire-transport.mjs:151`, cleared by the response
+    /// head). Its `close` cancels the request first, and the request's `aborted` handler (`:230`) ends the stream before
+    /// the timer's own error does: `Cursor stream was aborted`, `code: 'stream_aborted'` (`golden/connect_errors.json`
+    /// `sites.cursorConnect`).
+    SocketConnect,
 }
 
 /// `TypeError: fetch failed`, the message of every network error of a raw `fetch`.
@@ -144,7 +152,7 @@ impl Surface {
         match self {
             Self::Fetch | Self::FetchSignal | Self::FetchAborted | Self::FetchLabeled(_) => Some(FETCH_FAILED),
             Self::Sdk => Some(CONNECTION_ERROR),
-            Self::Socket => None,
+            Self::Socket | Self::SocketLabeled(_) | Self::SocketConnect => None,
         }
     }
 
@@ -154,8 +162,9 @@ impl Surface {
             Self::Fetch => Some(FETCH_FAILED.to_owned()),
             Self::FetchSignal => Some(SIGNAL_TIMED_OUT.to_owned()),
             Self::FetchAborted => Some(ABORTED.to_owned()),
-            Self::FetchLabeled(label) => Some(format!("{label} timed out after {}ms", after.as_millis())),
+            Self::FetchLabeled(label) | Self::SocketLabeled(label) => Some(format!("{label} timed out after {}ms", after.as_millis())),
             Self::Sdk => Some(REQUEST_TIMED_OUT.to_owned()),
+            Self::SocketConnect => Some("Cursor stream was aborted".to_owned()),
             Self::Socket => None,
         }
     }
@@ -338,9 +347,12 @@ pub fn deadline_error(expired: Expired, delivery: DeliveryState, surface: Surfac
     // A timer the call armed itself: Node's `TimeoutError` (`AbortSignal.timeout`), `AbortError` (a bare
     // `controller.abort()`) or `ProviderTimeoutError` (`createTimeoutSignal`, which also carries
     // `code: 'EPROVIDERTIMEOUT'`, `stall-policy.mjs:380`).
-    error.timed_out = matches!(surface, Surface::FetchSignal | Surface::FetchAborted | Surface::FetchLabeled(_));
-    if matches!(surface, Surface::FetchLabeled(_)) {
+    error.timed_out = matches!(surface, Surface::FetchSignal | Surface::FetchAborted | Surface::FetchLabeled(_) | Surface::SocketLabeled(_));
+    if matches!(surface, Surface::FetchLabeled(_) | Surface::SocketLabeled(_)) {
         error.code = Some("EPROVIDERTIMEOUT".to_owned());
+    }
+    if matches!(surface, Surface::SocketConnect) {
+        error.code = Some("stream_aborted".to_owned());
     }
     error
 }

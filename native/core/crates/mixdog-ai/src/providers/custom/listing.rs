@@ -9,7 +9,7 @@
 
 use crate::transport::deadlines::MODEL_LIST_WAIT;
 use crate::transport::deadlines::compat_model_list_within;
-use crate::transport::deadlines::custom_anthropic_models;
+use crate::transport::deadlines::abort_signal;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -352,7 +352,7 @@ impl CustomListing {
                 // Node: the Anthropic protocol fetches under `AbortSignal.timeout` (`custom-provider.mjs:116`), every
                 // other under the labelled compat list timer (`openai-compat-models.mjs:104`).
                 match self.protocol {
-                    Protocol::Anthropic => custom_anthropic_models(wait),
+                    Protocol::Anthropic => abort_signal(wait),
                     _ => compat_model_list_within(&self.id, wait),
                 },
             )

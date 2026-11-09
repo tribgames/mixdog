@@ -35,6 +35,20 @@ fn login(file: CredentialFile, http: Arc<dyn HttpSend>, now: u64) -> DevinLogin 
     DevinLogin::new(file, http).with_clock(Arc::new(move || now))
 }
 
+/// The code exchange that outlives its timer reads as the real Node function did (`sites.devinExchange`): a coded failure
+/// naming the cause, "timed out".
+#[tokio::test(start_paused = true)]
+async fn an_exchange_that_outlives_its_timer_reads_as_nodes() {
+    use crate::transport::site_probe::{TimingOut, assert_thrown, assert_transport, login_message};
+
+    let transport = TimingOut::new();
+    let dir = tempfile::tempdir().unwrap();
+    let provider = login(CredentialFile::new(dir.path().join("devin-oauth.json"), io()), transport.clone(), 0);
+    let failure = provider.exchange("c", "v", "unused").await.expect_err("never answers");
+    assert_transport("devinExchange", &transport);
+    assert_thrown("devinExchange", login_message(&failure));
+}
+
 #[test]
 fn the_authorize_url_is_nodes_for_its_state_and_challenge() {
     let golden: Value = serde_json::from_str(GOLDEN).unwrap();

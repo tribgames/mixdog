@@ -158,12 +158,12 @@ impl Inner {
                 TOKEN_OPENAI,
             )
             .await;
-        let (status, body) = match response {
+        let (status, body, unanswered) = match response {
             Ok(response) => {
                 let read = response.read_all().await?;
-                (read.status, read.body)
+                (read.status, read.body, None)
             }
-            Err(_) => (None, Vec::new()),
+            Err(error) => (None, Vec::new(), Some(error)),
         };
         let json: Option<Value> = serde_json::from_slice(&body).ok();
         let Some(tokens) = json
@@ -171,7 +171,7 @@ impl Inner {
             .filter(|_| status.is_some_and(|s| (200..300).contains(&s)))
             .and_then(|v| v.get("access_token")?.as_str().map(|a| (v, a.to_owned())))
         else {
-            return self.failed(&stored, status, &body);
+            return self.failed(&stored, status, &body, unanswered.as_ref());
         };
         let (json, access_token) = tokens;
         let expires_at = json
@@ -209,7 +209,13 @@ impl Inner {
 
     /// A refresh that did not produce tokens. A dead grant needs a new login;
     /// anything else coasts on the current token while it still has life.
-    fn failed(&self, stored: &Stored, status: Option<u16>, body: &[u8]) -> Result<Credential, ProviderError> {
+    fn failed(
+        &self,
+        stored: &Stored,
+        status: Option<u16>,
+        body: &[u8],
+        unanswered: Option<&ProviderError>,
+    ) -> Result<Credential, ProviderError> {
         match classify_refresh_failure(status, body) {
             RefreshFailure::Definitive => Err(login_required("the ChatGPT login was revoked or expired")),
             verdict => {
@@ -223,7 +229,19 @@ impl Inner {
                 };
                 let mut err = ProviderError::new(kind, DeliveryState::NotSent);
                 err.status = status;
-                err.message = "the ChatGPT token refresh failed".into();
+                // A request that got no answer is worded by Node's wrapper (`openai-oauth-tokens.mjs:354`), over the
+                // timer's own text (`:276`, the bare-`setTimeout` abort) or the fetch's.
+                err.message = match unanswered {
+                    Some(fault) => {
+                        let cause = if fault.timed_out {
+                            format!("OpenAI OAuth token refresh timed out after {}ms", TOKEN_OPENAI.liveness.head_deadline().map_or(0, |wait| wait.as_millis()))
+                        } else {
+                            fault.message.clone()
+                        };
+                        format!("OpenAI OAuth token refresh failed ({cause}). Re-authenticate via provider login.")
+                    }
+                    None => "the ChatGPT token refresh failed".into(),
+                };
                 Err(err)
             }
         }
@@ -257,5 +275,29 @@ impl CredentialSource for OpenAiOAuth {
     async fn after_rejection(&self, rejected: &Credential) -> Result<Option<Credential>, ProviderError> {
         let next = self.renewed(Some(rejected.bearer.clone())).await?;
         Ok((next != *rejected).then_some(next))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::oauth::CredentialIo;
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_thrown;
+    use crate::transport::site_probe::assert_transport;
+
+    /// The refresh that outlives its timer reads as the real Node function did (`sites.openaiRefresh`): the bare-`setTimeout`
+    /// abort, worded by the refresh's own catch and wrapped by the caller.
+    #[tokio::test(start_paused = true)]
+    async fn a_refresh_that_outlives_its_timer_reads_as_nodes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("openai-oauth.json");
+        tokio::fs::write(&path, r#"{"access_token":"a","refresh_token":"r","expires_at":1}"#).await.unwrap();
+        let rt = mixdog_rt::testing::tokens();
+        let file = CredentialFile::new(path, CredentialIo { read: rt.interactive_io, write: rt.durability_io });
+        let transport = TimingOut::new();
+        let error = OpenAiOAuth::new(file, transport.clone()).current().await.expect_err("never answers");
+        assert_transport("openaiRefresh", &transport);
+        assert_thrown("openaiRefresh", &error.message);
     }
 }

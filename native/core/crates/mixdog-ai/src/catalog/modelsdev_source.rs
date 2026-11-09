@@ -14,7 +14,7 @@
 //! Nothing here runs on a read path: catalog reads load an `ArcSwap`
 //! snapshot, and the layer is applied when the catalog refreshes.
 
-use crate::transport::deadlines::NODE_DISPATCHER;
+use crate::transport::deadlines::abort_signal;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -244,20 +244,12 @@ impl ModelsDevSource {
             headers: Vec::new(),
             body: Vec::new(),
         };
-        let exchange = async {
-            let response = self
-                .http
-                .send(request, NODE_DISPATCHER)
-                .await
-                .map_err(|e| e.message)?;
-            if !response.is_success() {
-                return Err(format!("HTTP {}", response.status));
-            }
-            response.read_all().await.map(|r| r.body).map_err(|e| e.message)
-        };
-        let body = tokio::time::timeout(FETCH_DEADLINE, exchange)
-            .await
-            .map_err(|_| "timed out".to_owned())??;
+        // `AbortSignal.timeout(10_000)` over the whole exchange (`model-catalog.mjs:270`).
+        let response = self.http.send(request, abort_signal(FETCH_DEADLINE)).await.map_err(|e| e.message)?;
+        if !response.is_success() {
+            return Err(format!("HTTP {}", response.status));
+        }
+        let body = response.read_all().await.map(|r| r.body).map_err(|e| e.message)?;
         // The parse of ~8 MB runs as a lane job.
         let parse = self.parse;
         let job = self
@@ -381,6 +373,25 @@ mod tests {
             },
         );
         (dir, fake, source)
+    }
+
+    /// The fetch that outlives its timer is logged as the real Node loader logged it (`sites.modelsDev`): the signal's own text.
+    #[tokio::test(start_paused = true)]
+    async fn a_fetch_that_outlives_its_timer_reads_as_nodes() {
+        use crate::transport::site_probe::{TimingOut, assert_transport, recorded};
+
+        let tokens = mixdog_rt::testing::tokens();
+        let dir = tempfile::tempdir().unwrap();
+        let transport = TimingOut::new();
+        let source = ModelsDevSource::new(
+            transport.clone(),
+            dir.path().to_owned(),
+            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
+        );
+        let reason = source.fetch().await.map(|_| ()).expect_err("never answers");
+        assert_transport("modelsDev", &transport);
+        let logged = recorded("modelsDev")["logged"][0].as_str().unwrap().to_owned();
+        assert_eq!(logged, format!("[model-catalog] models.dev fetch failed: {reason}"));
     }
 
     fn cache_text(dir: &tempfile::TempDir) -> String {

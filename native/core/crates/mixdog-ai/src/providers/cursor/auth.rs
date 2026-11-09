@@ -443,4 +443,15 @@ mod tests {
         assert!(!throttled.reauth_required);
         assert_eq!(throttled.retry_after, Some(Duration::from_secs(2)));
     }
+
+    /// The refresh that outlives its timer reads as the real Node function did (`sites.cursorRefresh`).
+    #[tokio::test(start_paused = true)]
+    async fn an_exchange_that_outlives_its_timer_reads_as_nodes() {
+        use crate::transport::site_probe::{TimingOut, assert_thrown, assert_transport};
+
+        let transport = TimingOut::new();
+        let error = exchange_token(transport.as_ref(), "r").await.expect_err("never answers");
+        assert_transport("cursorRefresh", &transport);
+        assert_thrown("cursorRefresh", &error.message);
+    }
 }

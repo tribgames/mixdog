@@ -23,9 +23,12 @@ use super::Http;
 use crate::oauth::Pace;
 use crate::oauth::http::Reply;
 use crate::oauth::FlowGuard;
-use crate::oauth::http::call;
 use crate::oauth::http::call_under;
+use crate::oauth::http::try_call;
+use crate::oauth::http::try_call_under;
+use mixdog_core_api::domain::provider::ProviderError;
 use crate::transport::deadlines::MUSE_KEY;
+use crate::transport::deadlines::credential_signal;
 use crate::oauth::device;
 use crate::oauth::device::Poll;
 use crate::oauth::device::Schedule;
@@ -43,6 +46,8 @@ const DEVICE_TOKEN_URL: &str = "https://auth.meta.com/oidc/device/token/";
 const KEY_URL: &str = "https://api.meta.ai/muse-code/key";
 const API_VERSION: &str = "1.0.0";
 const DEVICE_GRANT_TYPE: &str = "urn:ietf:params:oauth:grant-type:device_code";
+/// `DEVICE_REQUEST_TIMEOUT_MS` (`muse-code-oauth-login.mjs:22`).
+const DEVICE_REQUEST: Duration = Duration::from_secs(30);
 const DEFAULT_INTERVAL_S: f64 = 5.0;
 const MIN_INTERVAL_S: f64 = 1.0;
 const TRANSIENT_STATUSES: [u16; 5] = [429, 500, 502, 503, 504];
@@ -225,6 +230,15 @@ pub fn credentials_from_key_response(doc: &JsonValue, access_token: &str) -> Res
     })
 }
 
+/// `postForm`'s catch (`muse-code-oauth-login.mjs:70-82`): the timer's own wording, else the cause under the request's kind.
+fn request_error(url: &str, kind: &str, error: &ProviderError) -> LoginFailure {
+    if error.timed_out {
+        let host = url::Url::parse(url).ok().and_then(|parsed| parsed.host_str().map(str::to_owned)).unwrap_or_default();
+        return failed("timeout", format!("[muse-code-oauth] request to {host} timed out"));
+    }
+    failed(kind, format!("[muse-code-oauth] {kind} request failed: {}", muse_prefix(&error.message, &[], 300)))
+}
+
 /// Mints the Model API key for a fresh account token.
 async fn mint_key(http: &Http, access_token: &str) -> Result<MuseCodeCredentials, LoginFailure> {
     let reply = call_under(
@@ -277,7 +291,7 @@ impl LoginFlow for MuseCodeLogin {
 
     async fn start(&self) -> Result<Box<dyn LoginSession>, LoginError> {
         let guard = FlowGuard::claim(&self.running).ok_or(LoginError::Busy)?;
-        let reply = call(
+        let reply = try_call(
             self.http.as_ref(),
             "POST",
             DEVICE_AUTH_URL,
@@ -285,7 +299,7 @@ impl LoginFlow for MuseCodeLogin {
             form(&[("client_id", CLIENT_ID)]),
         )
         .await
-        .map_err(LoginError::Failed)?;
+        .map_err(|error| LoginError::Failed(request_error(DEVICE_AUTH_URL, "device-auth", &error)))?;
         let device = device_authorization(&reply).map_err(LoginError::Failed)?;
         let now_ms = self.pace.now_ms();
         let expires_at = device
@@ -300,15 +314,20 @@ impl LoginFlow for MuseCodeLogin {
         let (http, pace, file) = (self.http.clone(), self.pace.clone(), self.file.clone());
         Ok(start_session(guard, first, false, move |ctx, _| async move {
             ctx.set(LoginState::Waiting);
+            let deadline_ms = device.expires_in.map(|d| now_ms + d.as_millis() as u64);
             let schedule = Schedule {
                 interval: device.interval,
-                deadline_ms: device.expires_in.map(|d| now_ms + d.as_millis() as u64),
+                deadline_ms,
                 back_off_on_network: true,
                 ..Schedule::default()
             };
             let token = device::run(pace.as_ref(), schedule, || async {
-                let polled = call(
+                // The in-flight request dies with the device code (`muse-code-oauth-login.mjs:138-143`), inside the
+                // request's own 30_000 (`:22`, `:58`).
+                let remaining = Duration::from_millis(deadline_ms.map_or(u64::MAX, |end| end.saturating_sub(pace.now_ms()).max(1)));
+                let polled = try_call_under(
                     http.as_ref(),
+                    credential_signal(DEVICE_REQUEST.min(remaining)),
                     "POST",
                     DEVICE_TOKEN_URL,
                     headers(vec![("content-type", "application/x-www-form-urlencoded".to_owned())]),
@@ -321,7 +340,7 @@ impl LoginFlow for MuseCodeLogin {
                 .await;
                 match polled {
                     Ok(reply) => classify_poll(&reply, &device.device_code),
-                    Err(fault) => Poll::Network { fault },
+                    Err(error) => Poll::Network { fault: request_error(DEVICE_TOKEN_URL, "device-token", &error) },
                 }
             })
             .await?;
@@ -365,6 +384,24 @@ use crate::oauth::http::testing::finish;
         let failure = mint_key(&http, "t").await.expect_err("never answers");
         assert_transport("museKey", &transport);
         assert_thrown("museKey", login_message(&failure));
+    }
+
+    /// The device authorization that outlives its timer reads as the real Node function did (`sites.museDeviceAuth`): the
+    /// code's own wording over the timer, not the fetch's text.
+    #[tokio::test(start_paused = true)]
+    async fn a_device_authorization_that_outlives_its_timer_reads_as_nodes() {
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_window;
+        use crate::transport::site_probe::login_message;
+
+        let dir = tempfile::tempdir().unwrap();
+        let transport = TimingOut::new();
+        let http: Http = transport.clone();
+        let flow = MuseCodeLogin::new(http, Arc::new(FakePace::default()), store(&dir));
+        let Err(LoginError::Failed(failure)) = flow.start().await else { panic!("the authorization never answers") };
+        assert_window("museDeviceAuth", &transport);
+        assert_thrown("museDeviceAuth", login_message(&failure));
     }
 
     const DEVICE: &str = r#"{"device_code":"DC","user_code":"ABCD","verification_uri":"https://meta/v","verification_uri_complete":"https://meta/v?c=ABCD","interval":2,"expires_in":600}"#;
