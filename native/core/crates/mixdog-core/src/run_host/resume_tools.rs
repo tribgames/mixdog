@@ -358,6 +358,23 @@ mod tests {
         }
     }
 
+    /// The six malformed values Node's route change was recorded over (`context-status-route`'s `surfaceProbes`): none fails the
+    /// resolve, and the spec is the one Node stored (a `preset` of `{}` is truthy, so it is the spec).
+    #[tokio::test]
+    async fn malformed_values_resolve_as_nodes_do() {
+        let recorded: Value = serde_json::from_str(include_str!("../../../../fixtures/context-status-route/golden.json")).expect("fixture");
+        let probes = recorded["inFlight"]["surfaceProbes"].as_array().expect("probes");
+        assert_eq!(probes.len(), 6);
+        for probe in probes {
+            let mut stored = recorded["stored"].clone();
+            stored["model"] = probe["model"].clone();
+            stored[probe["key"].as_str().expect("key")] = probe["value"].clone();
+            let prepared = producer(Ok(false), Policy { hidden: false, no_delegation: false }).prepare_tools(&header(stored)).await;
+            let prepared = prepared.unwrap_or_else(|e| panic!("{}: {e}", probe["key"]));
+            assert_eq!(prepared.tool_spec, probe["header"]["toolSpec"], "{}", probe["key"]);
+        }
+    }
+
     /// Node's rules around the resolve: no preset is `full`; an agent worker is `full` whatever
     /// its preset and loses `react`; its allowlist binds only a hidden role; a Lead that may not
     /// delegate loses `agent`; outside a home chat or room seat `react` is gone.
