@@ -722,8 +722,30 @@ mod tests {
     #[derive(Default)]
     struct Scripted {
         log: Mutex<Vec<Value>>,
+        logged: tokio::sync::Notify,
         events: Mutex<HashMap<String, Box<dyn Fn(SenderEvent) + Send + Sync>>>,
         ids: AtomicU64,
+    }
+
+    impl Scripted {
+        fn record(&self, command: Value) {
+            lock(&self.log).push(command);
+            self.logged.notify_waiters();
+        }
+
+        /// A step's effects run on the host's own tasks; the next step starts once the recorded commands
+        /// of this one have all reached the peers, as Node's microtasks had settled them.
+        async fn until_logged(&self, count: usize) {
+            loop {
+                let arrived = self.logged.notified();
+                tokio::pin!(arrived);
+                arrived.as_mut().enable();
+                if lock(&self.log).len() >= count {
+                    return;
+                }
+                tokio::time::timeout(Duration::from_secs(10), arrived).await.unwrap_or_else(|_| panic!("a peer command never arrived"));
+            }
+        }
     }
 
     impl Peers for Scripted {
@@ -733,24 +755,24 @@ mod tests {
 
         fn open(&self, connection_id: &str, _ice: &[IceServer], receive_codecs: &[String], _source: Arc<SharedSource>, events: Box<dyn Fn(SenderEvent) + Send + Sync>) -> Result<(), String> {
             lock(&self.events).insert(connection_id.to_owned(), events);
-            lock(&self.log).push(json!({ "type": "open", "connectionId": connection_id, "receiveCodecs": receive_codecs }));
+            self.record(json!({ "type": "open", "connectionId": connection_id, "receiveCodecs": receive_codecs }));
             Ok(())
         }
 
         fn answer(&self, connection_id: &str, sdp: &str) {
-            lock(&self.log).push(json!({ "type": "answer", "connectionId": connection_id, "sdp": sdp }));
+            self.record(json!({ "type": "answer", "connectionId": connection_id, "sdp": sdp }));
         }
 
         fn candidate(&self, connection_id: &str, candidate: &Option<mixdog_remote::webrtc::config::Candidate>) {
-            lock(&self.log).push(json!({ "type": "candidate", "connectionId": connection_id, "candidate": candidate_json(candidate) }));
+            self.record(json!({ "type": "candidate", "connectionId": connection_id, "candidate": candidate_json(candidate) }));
         }
 
         fn channel_send(&self, connection_id: &str, text: &str) {
-            lock(&self.log).push(json!({ "type": "channel-send", "connectionId": connection_id, "text": text }));
+            self.record(json!({ "type": "channel-send", "connectionId": connection_id, "text": text }));
         }
 
         fn close(&self, connection_id: &str) {
-            lock(&self.log).push(json!({ "type": "close", "connectionId": connection_id }));
+            self.record(json!({ "type": "close", "connectionId": connection_id }));
         }
     }
 
@@ -912,13 +934,22 @@ mod tests {
                 let (to, signal) = tokio::time::timeout(Duration::from_secs(10), pushes.recv()).await.unwrap_or_else(|_| panic!("{what}: a signal never reached its phone")).unwrap();
                 got_pushes.push((to, without_ice(signal)));
             }
-            assert_eq!(got_pushes, expected_pushes, "{what}: signals to the phones");
+            // Each phone has its own delivery lane, so the order between two phones is not a contract; each phone's own order is.
+            let per_phone = |pushes: Vec<(u64, Value)>| {
+                let mut lanes: std::collections::BTreeMap<u64, Vec<Value>> = std::collections::BTreeMap::new();
+                for (phone, signal) in pushes {
+                    lanes.entry(phone).or_default().push(signal);
+                }
+                lanes
+            };
+            assert_eq!(per_phone(got_pushes), per_phone(expected_pushes), "{what}: signals to the phones");
             assert!(pushes.try_recv().is_err(), "{what}: no signal beyond the recorded ones");
             let expected_commands: Vec<Value> = trace
                 .iter()
                 .filter(|entry| entry[0] == "sender" && entry[1]["type"] != "frame")
                 .map(|entry| without_ice(entry[1].clone()))
                 .collect();
+            peers.until_logged(logged + expected_commands.len()).await;
             let got_commands: Vec<Value> = lock(&peers.log)[logged..].iter().cloned().map(without_ice).collect();
             assert_eq!(got_commands, expected_commands, "{what}: peer commands");
             if step["op"] == "signal" {
