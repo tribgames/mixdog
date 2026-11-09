@@ -12,6 +12,8 @@ pub mod listing;
 mod tool_schema;
 #[cfg(test)]
 mod listing_tests;
+#[cfg(test)]
+mod wire_tests;
 
 use std::sync::Arc;
 
@@ -56,27 +58,94 @@ pub fn identity_headers(client_version: &str) -> Vec<(String, String)> {
 /// The oldest CLI release the proxy accepts; a newer one is configured.
 pub const CLIENT_VERSION_FLOOR: &str = "1.0.70";
 
+/// `openai` npm package version the Node provider's client reports (`x-stainless-package-version`).
+const SDK_PACKAGE_VERSION: &str = "6.49.0";
+/// The Node runtime the reference recordings were made on (`process.version`, `x-stainless-runtime-version`).
+const SDK_RUNTIME_VERSION: &str = "v22.20.0";
+
+/// The platform headers Node's OpenAI client adds to every request (`detect-platform.js`) for a Node host:
+/// `process.platform`, `process.arch` and `process.version`, normalized the way the client does.
+pub fn sdk_headers_for(platform: &str, arch: &str, runtime_version: &str) -> Vec<(String, String)> {
+    let platform = platform.to_lowercase();
+    let os = if platform.contains("ios") {
+        "iOS".to_owned()
+    } else {
+        match platform.as_str() {
+            "android" => "Android".to_owned(),
+            "darwin" => "MacOS".to_owned(),
+            "win32" => "Windows".to_owned(),
+            "freebsd" => "FreeBSD".to_owned(),
+            "openbsd" => "OpenBSD".to_owned(),
+            "linux" => "Linux".to_owned(),
+            "" => "Unknown".to_owned(),
+            other => format!("Other:{other}"),
+        }
+    };
+    let arch = match arch {
+        "x32" => "x32".to_owned(),
+        "x86_64" | "x64" => "x64".to_owned(),
+        "arm" => "arm".to_owned(),
+        "aarch64" | "arm64" => "arm64".to_owned(),
+        "" => "unknown".to_owned(),
+        other => format!("other:{other}"),
+    };
+    [
+        ("x-stainless-lang", "js".to_owned()),
+        ("x-stainless-package-version", SDK_PACKAGE_VERSION.to_owned()),
+        ("x-stainless-os", os),
+        ("x-stainless-arch", arch),
+        ("x-stainless-runtime", "node".to_owned()),
+        ("x-stainless-runtime-version", runtime_version.to_owned()),
+        ("x-stainless-retry-count", "0".to_owned()),
+    ]
+    .into_iter()
+    .map(|(name, value)| (name.to_owned(), value))
+    .collect()
+}
+
+/// The headers for this host, spelled with the names Node's `process` has for it.
+fn sdk_headers() -> Vec<(String, String)> {
+    let platform = match std::env::consts::OS {
+        "windows" => "win32",
+        "macos" => "darwin",
+        other => other,
+    };
+    let arch = match std::env::consts::ARCH {
+        "x86" => "ia32",
+        other => other,
+    };
+    sdk_headers_for(platform, arch, SDK_RUNTIME_VERSION)
+}
 /// Points the xAI request at the proxy and adds the CLI identity headers.
 pub struct GrokRewriter {
     pub client_version: crate::client_versions::Live,
-    pub credential: Arc<GrokCredential>,
+    /// The signed-in user's id once a turn loaded it (`x-grok-user-id`).
+    pub user_id: Arc<dyn Fn() -> Option<String> + Send + Sync>,
+    /// `x-grok-req-id` of a request; a fresh UUID, replaced only by a test that needs the recorded one.
+    pub request_id: fn() -> String,
+    /// The platform headers of the Node client this host stands in for (sdk_headers).
+    pub sdk_headers: Vec<(String, String)>,
 }
 
 impl Rewriter for GrokRewriter {
     fn rewrite(&self, mut wire: WireRequest, request: &ModelRequest) -> Result<WireRequest, ProviderError> {
         let opts = &request.options;
+        // The Node client sends the SDK's `accept: application/json` even for a streamed request.
+        wire.headers.retain(|(name, _)| !name.eq_ignore_ascii_case("accept"));
+        wire.headers.push(("accept".to_owned(), "application/json".to_owned()));
         wire.headers.extend(identity_headers(&self.client_version.get()));
+        wire.headers.extend(self.sdk_headers.iter().cloned());
         let mut add = |name: &str, value: String| wire.headers.push((name.to_owned(), value));
         // The session id is Mixdog's own; no Grok conversation id is made up.
         if let Some(session) = opts.session_id.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
             add("x-grok-session-id", session.to_owned());
         }
-        add("x-grok-req-id", random_uuid());
+        add("x-grok-req-id", (self.request_id)());
         if !request.model.is_empty() {
             add("x-grok-model-override", request.model.clone());
         }
         add("x-grok-turn-idx", opts.iteration.to_string());
-        if let Some(user) = self.credential.user_id() {
+        if let Some(user) = (self.user_id)() {
             add("x-grok-user-id", user);
         }
         if let Some(body) = tool_schema::flatten_body(&wire.body) {
@@ -109,7 +178,12 @@ pub fn adapter(
     let client_version = client_version.unwrap_or_else(|| CLIENT_VERSION_FLOOR.into());
     let rewriter = GrokRewriter {
         client_version: client_version.clone(),
-        credential: credential.clone(),
+        user_id: {
+            let credential = credential.clone();
+            Arc::new(move || credential.user_id())
+        },
+        request_id: random_uuid,
+        sdk_headers: sdk_headers(),
     };
     let codec: Arc<dyn WireCodec> = Arc::new(RewriteCodec::new(codec(&client_version.get()), rewriter));
     let listing = GrokListing::new(

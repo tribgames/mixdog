@@ -10,7 +10,7 @@
 // replay registers; a case's `provider` array names its tools in wire order, each pointing at the
 // definition it carries (`definitions`), so a definition that differs between cases (the Lead's and
 // an agent's `git`/`task`, the edit dialect, the bridge pair) is recorded once per variant.
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // Import-time sweeps delete real user data: every user dir is a fresh temp dir first.
@@ -39,6 +39,9 @@ const { BUILTIN_TOOLS, bindAgentOwner } = await at(`${orch}tools/builtin/builtin
 const { TODO_TOOL } = await at(`${orch}runtime-core/todo-tool-defs.mjs`);
 const mcp = await at(`${orch}mcp/client.mjs`);
 const { deferredSurfaceModeForLead, toolSpecForMode } = await at(`${orch}runtime-core/effort.mjs`);
+const { HEADLESS_MODEL_TOOL_NAMES, HEARTBEAT_MODEL_TOOL_NAMES } = await at(`${orch}runtime-core/tool-profile.mjs`);
+const { featureDisallowedToolsFor } = await at('src/session-runtime/builtin-features.mjs');
+const pristine = JSON.parse(readFileSync(join(tree, 'src/runtime/shared/pristine-execution-contract.json'), 'utf8'));
 const defs = async (path, key = 'TOOL_DEFS') => (await at(path))[key];
 
 const { GOAL_TOOL_DEFS } = await at(`${orch}runtime-core/goal-tool-defs.mjs`);
@@ -113,7 +116,7 @@ const poolTools = [...poolByName.values()].map((tool) => {
 function record(name, input) {
   const {
     kind = 'lead', provider = 'anthropic', model = 'claude-opus-4-6', mode = 'full', agent = null, schemaAllowedTools = null,
-    callerDisallowed = [], featureDenied = [], mcpConnected = false, sessionId = 'sess_recorder', tools = null,
+    callerDisallowed = [], featureDenied = [], mcpConnected = false, sessionId = 'sess_recorder', tools = null, toolProfile = 'interactive',
   } = input;
   const worker = kind === 'worker';
   if (mcpConnected && !mcpRegistered) registerMcp();
@@ -147,7 +150,7 @@ function record(name, input) {
     const route = { provider, model };
     const toolSurface = createToolSurface({
       mgr: { previewSessionTools }, mode: readonlyLead ? 'readonly' : 'lead', standaloneTools, agentToolNames,
-      getSession: () => session, getRoute: () => route, getConfig: () => ({}), cfgMod: { getPluginData: () => sandbox },
+      getSession: () => session, getRoute: () => route, getConfig: () => ({}), getToolProfile: () => toolProfile, cfgMod: { getPluginData: () => sandbox },
       delegatableAgentIds: () => [], dataDir: sandbox, getFeatureDisallowedTools: () => featureDenied,
     });
     const connected = mcpConnected ? mcp.getMcpTools(null) : [];
@@ -161,7 +164,7 @@ function record(name, input) {
   const sent = snapshotProviderRequestTools({ provider, tools: session.tools, nativeTools: [], messages: [], session });
   return {
     name,
-    input: { kind, provider, model, mode: readonlyLead ? 'readonly' : mode, agent, schemaAllowedTools, callerDisallowed, featureDenied, mcpConnected, sessionId },
+    input: { kind, provider, model, mode: readonlyLead ? 'readonly' : mode, agent, schemaAllowedTools, callerDisallowed, featureDenied, mcpConnected, sessionId, toolProfile },
     // `getHiddenAgent(agent)`: the replay's role policy for a worker.
     hiddenAgent: worker && Boolean(getHiddenAgent(opts.agent)),
     toolSpec: surface.toolSpec,
@@ -188,6 +191,14 @@ add('lead, feature gates off (web, memory, git, explore), native', { provider: '
 add('lead, feature gates off (desktop bridges), bridge route', { provider: 'xai', model: 'grok-4', featureDenied: ['browser', 'browser_devtools', 'computer', 'terminal', 'office', 'media'] });
 add('lead, caller denylist', { provider: 'anthropic', model: 'claude-opus-4-6', callerDisallowed: ['Skill', 'shell'] });
 add('lead, caller allowlist', { provider: 'anthropic', model: 'claude-opus-4-6', schemaAllowedTools: ['Read', 'GREP', 'todo', 'shell', 'nope'] });
+// A headless exec thread (`mixdog exec`) carries its runtime's profile as the session's schema allowlist; the features
+// its config turns off are the harness's (web search on, memory off, git available), the profile's own denials added.
+const headlessDenied = () => featureDisallowedToolsFor({ ...pristine.agentDefaults, modules: { webSearch: { enabled: true } }, memoryTools: { enabled: false } }, { toolProfile: 'headless', gitAvailable: true });
+add('lead, headless profile, anthropic native', { provider: 'anthropic', model: 'claude-opus-4-6', toolProfile: 'headless', schemaAllowedTools: [...HEADLESS_MODEL_TOOL_NAMES], featureDenied: headlessDenied() });
+add('lead, headless profile, openai native', { provider: 'openai', model: 'gpt-5', toolProfile: 'headless', schemaAllowedTools: [...HEADLESS_MODEL_TOOL_NAMES], featureDenied: headlessDenied() });
+add('lead, headless profile, bridge route', { provider: 'xai', model: 'grok-4', toolProfile: 'headless', schemaAllowedTools: [...HEADLESS_MODEL_TOOL_NAMES], featureDenied: headlessDenied() });
+add('lead, headless profile, manifest route', { provider: 'gemini', model: 'gemini-3-pro', toolProfile: 'headless', schemaAllowedTools: [...HEADLESS_MODEL_TOOL_NAMES], featureDenied: headlessDenied() });
+add('lead, heartbeat profile, native', { provider: 'anthropic', model: 'claude-opus-4-6', toolProfile: 'heartbeat', schemaAllowedTools: [...HEARTBEAT_MODEL_TOOL_NAMES] });
 add('worker, native, no allowlist', { kind: 'worker', provider: 'anthropic', model: 'claude-opus-4-6' });
 add('worker, openai native, no allowlist', { kind: 'worker', provider: 'openai', model: 'gpt-5' });
 add('worker, bridge route, no allowlist', { kind: 'worker', provider: 'xai', model: 'grok-4' });

@@ -300,7 +300,7 @@ impl HostRunParts {
         prior: Vec<(mixdog_core_api::ids::ItemId, Value)>,
         window: u64,
     ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
-        self.rebuild_request(thread, header, surface, prior, window, true).await
+        self.rebuild_request(thread, header, surface, prior, window, true, false).await
     }
 
     /// [`Self::next_request`] for a thread that has no conversation yet: the request its first send would
@@ -313,7 +313,8 @@ impl HostRunParts {
         prior: Vec<(mixdog_core_api::ids::ItemId, Value)>,
         window: u64,
     ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
-        let (provider, mut request) = self.rebuild_request(thread, header, surface, prior, window, false).await?;
+        // A real send carries the tail reminder its rules give (`Run::build_request`), so the snapshot does.
+        let (provider, mut request) = self.rebuild_request(thread, header, surface, prior, window, false, true).await?;
         // `snapshotProviderRequestTools` at the request boundary: the tools the provider is sent, with no native tool searches yet.
         let owner = mixdog_js::js_trim(text(header, "provider")).to_lowercase();
         request.tools = super::context_world::snapshot_tools(header, std::mem::take(&mut request.tools), Vec::new(), &owner);
@@ -328,6 +329,7 @@ impl HostRunParts {
         prior: Vec<(mixdog_core_api::ids::ItemId, Value)>,
         window: u64,
         conversation_required: bool,
+        with_reminder: bool,
     ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
         if super::compaction_world::is_agent_owner(header) {
             return None;
@@ -342,11 +344,12 @@ impl HostRunParts {
         let messages = rebuilt_messages(header, &rows)?;
         let mut options = parts.options;
         options.iteration = 1;
-        let request = mixdog_agent::wire_request(
+        let tail = with_reminder.then(|| self.tail_reminder(header));
+        let (request, _) = mixdog_agent::assemble_request(
             text(header, "model"),
             options,
             mixdog_agent::project::project_for_wire(&messages),
-            None,
+            tail.as_deref(),
             parts.tool_set.definitions(),
         );
         Some((parts.provider, request))
@@ -583,7 +586,7 @@ impl RunParts for HostRunParts {
             }),
             reactions: Some(Arc::new(LoopReactions::new(session_id, s.reaction_targets.clone(), rows, mixdog_protocol::text_class::is_internal_transcript_display_text))),
             reaction_scope: Some(ReactionScope::new(s.reaction_targets.clone(), session_id)),
-            tail: Some(Arc::new(mixdog_agent::tail_rules::RuleTailReminder { context: seams.tail_context(header) })),
+            tail: Some(self.tail_reminder(header)),
             side: Some(side),
             step_judge,
             artifacts: Some(artifacts),

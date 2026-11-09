@@ -941,6 +941,9 @@ impl LeadSurfaceHost {
         session["orchestrationMode"] = json!(target.orchestration_mode);
         session["sessionMode"] = json!(session_mode_of(header));
         let standalone = internal_tools(&s.pool);
+        // `filterModelToolsForProfile(modelStandaloneTools())`: a headless or heartbeat thread carries its runtime's
+        // profile on the header, which fences the standalone and the connected servers' tools.
+        let profile_allowed = mixdog_core_session::session::session_options::header_profile_allowlist(header).map(|names| names.to_vec());
         let mut extra: Vec<Value> = {
             // A headless exec session (`sourceType: exec`) is the headless profile, whose allowlist bounds the standalone
             // tools too (`modelToolSchemaAllowlist`); the Lead's interactive profile has none.
@@ -954,7 +957,8 @@ impl LeadSurfaceHost {
             };
             model_internal_tools(&standalone, &s.agent_tools, &inputs).iter().map(tool_doc).collect()
         };
-        extra.extend(s.mcp.tools(Some(scope), &cwd).iter().map(tool_doc));
+        let in_profile = |name: &str| profile_allowed.as_ref().is_none_or(|names| names.iter().any(|a| a.to_lowercase() == mixdog_js::js_trim(name).to_lowercase()));
+        extra.extend(s.mcp.tools(Some(scope), &cwd).iter().filter(|tool| in_profile(&tool.spec().name)).map(tool_doc));
         // `composeSessionSystem`: a Lead's identity is the default one (no caller prompt, no skips), of the `lead` agent
         // (`sessionOptions`: `agent: homeAgent || 'lead'`).
         let mut identified = header.clone();
