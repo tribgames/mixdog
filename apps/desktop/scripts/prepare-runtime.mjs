@@ -907,7 +907,8 @@ async function prepareRuntime(manifest, fingerprint) {
     const embeddingBinaryRoot = `/${ortArchiveRoot}/bin/napi-v6/${embeddingTarget.platform}/${embeddingTarget.arch}`;
     for (const required of [
       '/package.json',
-      // What the Rust core reads from the package root (core-layout.mjs); the unpacked copy is checked below.
+      // What the Rust core reads from the package root (core-layout.mjs); the real-file copy is the
+      // core-runtime-mirror below, which verifyCoreTree checks against the same list.
       ...CORE_READS.files.map((file) => `/node_modules/${PACKAGE_DIR}/${file}`),
       '/node_modules/mixdog/src/runtime/office/core/journal.mjs',
       '/node_modules/mixdog/src/runtime/office/quality/visual-diff.mjs',

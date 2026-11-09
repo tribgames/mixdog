@@ -35,7 +35,10 @@ export const ORT_PACKAGE = 'onnxruntime-node';
  *   src/rules          run_host/rules.rs (shared, routes, lead, agent-mode, agent)
  *   src/output-styles  run_host/rules_lead.rs; compose_domains.rs; compose_mcp.rs
  *   src/agents         compose_flip.rs / compose_mcp.rs `build_agents`; mixdog-core-prompt real_sources.rs
- *   src/defaults       compose_mcp.rs `skill_roots` (the built-in skills)
+ *   src/defaults       compose_mcp.rs `skill_roots` (the built-in skills);
+ *                      src/defaults/shipped-history.json: read from MIXDOG_ROOT by the retirement pass of old
+ *                      default-file copies (`Paths::plugin_root_of` in mixdog-store paths.rs, used by
+ *                      `retirement_paths` in compose_flip.rs; branch seeds-retire, not merged yet)
  *   src/orchestration  compose_domains/rows.rs `shipped_orchestration`
  *   src/workflows      mixdog-core-config workflow/pack.rs `load_pack` / `list_packs` (WorkflowPaths.root = src) */
 export const CORE_READS = Object.freeze({
@@ -44,6 +47,7 @@ export const CORE_READS = Object.freeze({
     'src/skill-script-entry.mjs',
     'src/ext-host/worker.mjs',
     'src/runtime/channels/data/voice-runtime-manifest.json',
+    'src/defaults/shipped-history.json',
   ],
   dirs: ['src/rules', 'src/output-styles', 'src/agents', 'src/defaults', 'src/orchestration', 'src/workflows'],
 });

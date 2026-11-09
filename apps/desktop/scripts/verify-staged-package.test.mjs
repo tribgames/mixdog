@@ -134,6 +134,15 @@ test('a file of the K1 deletion list in the unpacked package, runtime.asar or a 
   assert.throws(() => verify(inBundle, { deleted }), /bundle\.tgz packs 1 file\(s\).*src\/app\.mjs/);
 });
 
+test('src/defaults/shipped-history.json only inside runtime.asar is refused', async () => {
+  const tree = resources();
+  rmSync(join(tree.modules, 'mixdog/src/defaults/shipped-history.json'));
+  const source = join(tree.top, 'asar-history');
+  put(join(source, 'node_modules/mixdog/src/defaults/shipped-history.json'));
+  await createPackage(source, join(tree.root, 'runtime.asar'));
+  assert.throws(() => verify(tree, { deleted: new Set() }), /src\/defaults\/shipped-history\.json are only inside runtime\.asar; MIXDOG_ROOT/);
+});
+
 test('core resources only inside runtime.asar are refused: MIXDOG_ROOT needs real files', async () => {
   const tree = resources();
   rmSync(join(tree.modules, 'mixdog/src/rules'), { recursive: true });
