@@ -66,6 +66,7 @@ const MIMO_CASES = [
   ['sealed payload on another path, then on the right one', GOOD_DOC, [['GET', '/other?u={sealed}'], ['GET', '/?u={sealed}']]],
   ['POST of a sealed payload', GOOD_DOC, [['POST', '/?u={sealed}']]],
   ['HEAD and OPTIONS of a sealed payload, then a GET', GOOD_DOC, [['HEAD', '/?u={sealed}'], ['OPTIONS', '/?u={sealed}'], ['GET', '/?u={sealed}']]],
+  ['OPTIONS while the login is live, then a GET', GOOD_DOC, [['OPTIONS', '/?u={sealed}'], ['OPTIONS', '/'], ['GET', '/?u={sealed}']]],
   ['an unsealed payload first and a sealed one second', GOOD_DOC, [['GET', '/?u=AAAA&u={sealed}'], ['GET', '/?u={sealed}&u=AAAA']]],
   ['sealed payload, then once more after the login ended', GOOD_DOC, [['GET', '/?u={sealed}'], ['GET', '/?u={sealed}']]],
   ['Token Plan key no region accepts', TP_DOC, [['GET', '/?u={sealed}'], ['GET', '/?u={sealed}']]],

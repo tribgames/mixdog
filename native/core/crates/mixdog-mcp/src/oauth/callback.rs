@@ -15,7 +15,6 @@ use tokio::net::TcpListener;
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::sync::oneshot;
-use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use url::Url;
 
@@ -110,34 +109,61 @@ pub struct Callback {
     pub code: Option<String>,
     /// Answers the held browser page once the code exchange and scope check ended.
     pub respond: oneshot::Sender<PageOutcome>,
+    /// Resolves once the held page was written (or at once when no page is held), as Node's `settle()`
+    /// awaits the page's flush before the listener closes.
+    pub flushed: oneshot::Receiver<()>,
+}
+
+impl Callback {
+    /// A callback with no held page: a pasted URL, or a denial (already answered).
+    pub fn unheld(code: Option<String>) -> Self {
+        let (respond, _) = oneshot::channel();
+        let (_, flushed) = oneshot::channel();
+        Self { code, respond, flushed }
+    }
+}
+
+/// Test seam: how long the next held page waits before it is written, so a request can land in the
+/// window between the login's outcome and the flush of its page; `HELD_PAGE_DELAYING` is notified
+/// when that wait starts.
+#[cfg(feature = "test-support")]
+pub static HELD_PAGE_DELAY_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+#[cfg(feature = "test-support")]
+pub static HELD_PAGE_DELAYING: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// Stops a listener from accepting and waits until its port is released.
+#[derive(Clone)]
+pub struct Stopper {
+    stop: CancellationToken,
+    closed: CancellationToken,
+}
+
+impl Stopper {
+    pub async fn stop(&self) {
+        self.stop.cancel();
+        self.closed.cancelled().await;
+    }
 }
 
 pub struct Listener {
     pub port: u16,
-    stop: CancellationToken,
-    answered: Arc<AtomicBool>,
-    task: Option<JoinHandle<()>>,
+    stopper: Stopper,
 }
 
 impl Listener {
-    /// Whether this login's callback was taken (by the loopback or a paste): a callback after it is
-    /// answered as one nobody waits for, as Node's listener (open until the login ends) does.
-    pub fn answered(&self) -> Arc<AtomicBool> {
-        self.answered.clone()
+    pub fn stopper(&self) -> Stopper {
+        self.stopper.clone()
     }
 
     /// Stops accepting and returns once the port is released; pages already held still finish.
-    pub async fn close(mut self) {
-        self.stop.cancel();
-        if let Some(task) = self.task.take() {
-            let _ = task.await;
-        }
+    pub async fn close(self) {
+        self.stopper.stop().await;
     }
 }
 
 impl Drop for Listener {
     fn drop(&mut self) {
-        self.stop.cancel();
+        self.stopper.stop.cancel();
     }
 }
 
@@ -213,18 +239,27 @@ async fn answer(mut stream: TcpStream, port: u16, state: String, server: String,
     if has_error {
         // The authorization server's error text is never reflected.
         write_page(&mut stream, "400 Bad Request", &page::error_html(&format!("Sign-in to {server} was not completed.")), false).await;
-        let (respond, _) = oneshot::channel();
-        let _ = tx.send(Callback { code: None, respond });
+        let _ = tx.send(Callback::unheld(None));
         return;
     }
     let (respond, outcome) = oneshot::channel();
+    let (flushed_tx, flushed) = oneshot::channel();
     // An empty code is no code: the login fails without an exchange and the page says so.
     let code = all("code").pop().filter(|code| !code.is_empty());
-    if tx.send(Callback { code, respond }).is_err() {
+    if tx.send(Callback { code, respond, flushed }).is_err() {
         return write_page(&mut stream, "400 Bad Request", &invalid, false).await;
     }
     // The code is only the start: the page stays open until the login reports its outcome.
-    match tokio::time::timeout(OUTCOME_WAIT, outcome).await {
+    let outcome = tokio::time::timeout(OUTCOME_WAIT, outcome).await;
+    #[cfg(feature = "test-support")]
+    {
+        let delay = HELD_PAGE_DELAY_MS.swap(0, Ordering::SeqCst);
+        if delay > 0 {
+            HELD_PAGE_DELAYING.notify_one();
+            tokio::time::sleep(Duration::from_millis(delay)).await;
+        }
+    }
+    match outcome {
         Ok(Ok(PageOutcome::Done)) => write_page(&mut stream, "200 OK", &page::success_html(&server), false).await,
         Ok(Ok(PageOutcome::Stale)) => write_page(&mut stream, "400 Bad Request", &invalid, false).await,
         Ok(Ok(PageOutcome::Failed { scope_not_granted })) => {
@@ -234,6 +269,7 @@ async fn answer(mut stream: TcpStream, port: u16, state: String, server: String,
             write_page(&mut stream, "400 Bad Request", &page::error_html(&page::failure_reason(&server, false)), false).await;
         }
     }
+    let _ = flushed_tx.send(());
 }
 
 /// Listens on the loopback `port` (0: any free one) for the callback of the login whose state is
@@ -246,11 +282,10 @@ pub async fn listen(
 ) -> std::io::Result<Listener> {
     let listener = TcpListener::bind(("127.0.0.1", port)).await?;
     let port = listener.local_addr()?.port();
-    let stop = CancellationToken::new();
-    let token = stop.clone();
+    let stopper = Stopper { stop: CancellationToken::new(), closed: CancellationToken::new() };
+    let (token, closed) = (stopper.stop.clone(), stopper.closed.clone());
     let answered = Arc::new(AtomicBool::new(false));
-    let taken = answered.clone();
-    let task = mixdog_rt::spawn("mcp.oauth.callback", mixdog_rt::TaskClass::Work, async move {
+    mixdog_rt::spawn("mcp.oauth.callback", mixdog_rt::TaskClass::Work, async move {
         loop {
             let accepted = tokio::select! {
                 () = token.cancelled() => break,
@@ -258,11 +293,13 @@ pub async fn listen(
             };
             let Ok((stream, _)) = accepted else { continue };
             // Held pages finish on their own tasks after the listener stops accepting.
-            let (state, server, tx, taken) = (state.clone(), server.clone(), tx.clone(), taken.clone());
+            let (state, server, tx, taken) = (state.clone(), server.clone(), tx.clone(), Arc::clone(&answered));
             mixdog_rt::spawn("mcp.oauth.callback.page", mixdog_rt::TaskClass::Work, answer(stream, port, state, server, tx, taken));
         }
+        drop(listener);
+        closed.cancel();
     });
-    Ok(Listener { port, stop, answered, task: Some(task) })
+    Ok(Listener { port, stopper })
 }
 
 #[cfg(test)]
@@ -307,6 +344,7 @@ mod tests {
         let callback = rx.recv().await.unwrap();
         assert_eq!(callback.code.as_deref(), Some("c0de"));
         callback.respond.send(PageOutcome::Done).unwrap();
+        callback.flushed.await.unwrap();
         let body = page.await.unwrap();
         assert!(body.starts_with("HTTP/1.1 200") && body.contains("Acme"));
     }

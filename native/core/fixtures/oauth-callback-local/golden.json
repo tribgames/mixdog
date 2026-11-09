@@ -252,6 +252,53 @@
       ]
     },
     {
+      "title": "OPTIONS while the login is live, then a GET",
+      "doc": {
+        "sk": "sk-live",
+        "uid": 7
+      },
+      "served": [],
+      "settled": "tokens",
+      "answers": [
+        {
+          "method": "OPTIONS",
+          "target": "/?u={sealed}",
+          "answer": {
+            "statusLine": "HTTP/1.1 302 Found",
+            "headers": [
+              [
+                "location",
+                "https://platform.xiaomimimo.com/authorize/callback?status=success"
+              ],
+              [
+                "connection",
+                "close"
+              ],
+              [
+                "transfer-encoding",
+                "chunked"
+              ]
+            ],
+            "body": ""
+          }
+        },
+        {
+          "method": "OPTIONS",
+          "target": "/",
+          "answer": {
+            "connection": "ECONNREFUSED"
+          }
+        },
+        {
+          "method": "GET",
+          "target": "/?u={sealed}",
+          "answer": {
+            "connection": "ECONNREFUSED"
+          }
+        }
+      ]
+    },
+    {
       "title": "an unsealed payload first and a sealed one second",
       "doc": {
         "sk": "sk-live",
