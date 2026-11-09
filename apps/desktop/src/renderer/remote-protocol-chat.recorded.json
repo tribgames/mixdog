@@ -96,7 +96,7 @@
       "args": [],
       "daemon": {},
       "node": {
-        "result": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-92b5rp\\workspace\\unclassified",
+        "result": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-QaF0Ik\\workspace\\unclassified",
         "daemonCalls": [],
         "events": []
       }
@@ -250,58 +250,6 @@
               "prompt": "hi",
               "options": {
                 "id": "sub1",
-                "transcriptMeta": {
-                  "device": "DESKTOP-IBLP835"
-                }
-              }
-            }
-          }
-        ],
-        "events": [
-          {
-            "event": "sessionState",
-            "sessionId": "sess_a"
-          }
-        ]
-      }
-    },
-    {
-      "name": "submitToSession-refused",
-      "call": "submitToSession",
-      "args": [
-        "sess_a",
-        "hi",
-        {
-          "id": "sub2"
-        }
-      ],
-      "daemon": {
-        "submit": {
-          "sessionId": "sess_a",
-          "revision": 1,
-          "full": {
-            "sessionId": "sess_a",
-            "items": [],
-            "queued": [],
-            "busy": false,
-            "commandBusy": false,
-            "provider": "p",
-            "model": "m",
-            "fast": false
-          },
-          "accepted": false
-        }
-      },
-      "node": {
-        "result": false,
-        "daemonCalls": [
-          {
-            "method": "submit",
-            "args": {
-              "sessionId": "sess_a",
-              "prompt": "hi",
-              "options": {
-                "id": "sub2",
                 "transcriptMeta": {
                   "device": "DESKTOP-IBLP835"
                 }
@@ -1008,7 +956,7 @@
           {
             "method": "create",
             "args": {
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-OyS6mT\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-8ikuyA\\workspace\\unclassified",
               "desktopSession": null
             }
           },
@@ -1140,7 +1088,7 @@
           {
             "method": "create",
             "args": {
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-jfpnLZ\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-6JgkOQ\\workspace\\unclassified",
               "desktopSession": null
             }
           },
@@ -1209,7 +1157,7 @@
           {
             "method": "create",
             "args": {
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-HVoDcF\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-CkbTih\\workspace\\unclassified",
               "desktopSession": null
             }
           },
@@ -1280,7 +1228,7 @@
           {
             "method": "create",
             "args": {
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-G0hU7O\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-vMtJel\\workspace\\unclassified",
               "desktopSession": null
             }
           },
@@ -1353,7 +1301,7 @@
           {
             "method": "create",
             "args": {
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-l9Akyp\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-6Jd6sO\\workspace\\unclassified",
               "desktopSession": null
             }
           },
@@ -1441,7 +1389,7 @@
           {
             "method": "create",
             "args": {
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-V1jwcg\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-1AUtoa\\workspace\\unclassified",
               "desktopSession": null
             }
           },
@@ -1567,7 +1515,7 @@
           "queued": [],
           "busy": false,
           "commandBusy": false,
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-q44OEg\\workspace\\unclassified",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-rjffCU\\workspace\\unclassified",
           "currentProject": null,
           "desktopSession": {
             "classification": "task",
@@ -1678,7 +1626,7 @@
           {
             "method": "create",
             "args": {
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-1Qpjba\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-6nmVdF\\workspace\\unclassified",
               "desktopSession": null
             }
           },
@@ -2127,7 +2075,7 @@
           {
             "method": "create",
             "args": {
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-DDqc4l\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-AYs5VR\\workspace\\unclassified",
               "desktopSession": null
             }
           },
@@ -2193,7 +2141,7 @@
           {
             "method": "create",
             "args": {
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-yyw9Uq\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-3nBWjn\\workspace\\unclassified",
               "desktopSession": null
             }
           },
@@ -2208,7 +2156,7 @@
           {
             "method": "create",
             "args": {
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-yyw9Uq\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-3nBWjn\\workspace\\unclassified",
               "desktopSession": null
             }
           },
@@ -2507,7 +2455,7 @@
             "method": "create",
             "args": {
               "sessionId": "sess_desktop_7740bb610dd3a4dc42985f4a504c32e080219f0931e108aac4122145ce81352e",
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-EqQwWc\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-vXl0Jc\\workspace\\unclassified",
               "desktopSession": {
                 "classification": "task",
                 "projectPath": null
@@ -2532,68 +2480,6 @@
           {
             "event": "sessionState",
             "sessionId": "sess_desktop_7740bb610dd3a4dc42985f4a504c32e080219f0931e108aac4122145ce81352e"
-          }
-        ]
-      }
-    },
-    {
-      "name": "submitNewTask-refused",
-      "call": "submitNewTask",
-      "args": [
-        "build it",
-        {
-          "id": "sub10"
-        },
-        {}
-      ],
-      "daemon": {
-        "unsubscribe": {},
-        "list": {
-          "sessions": []
-        }
-      },
-      "node": {
-        "result": {
-          "accepted": false,
-          "sessionId": "",
-          "snapshot": null
-        },
-        "daemonCalls": [
-          {
-            "method": "create",
-            "args": {
-              "sessionId": "sess_desktop_a8bf310235f8ba703949b8b5b239905dfa795d2c203351913b65f7b6c82e566c",
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-fnhS0L\\workspace\\unclassified",
-              "desktopSession": {
-                "classification": "task",
-                "projectPath": null
-              }
-            }
-          },
-          {
-            "method": "submit",
-            "args": {
-              "sessionId": "sess_desktop_a8bf310235f8ba703949b8b5b239905dfa795d2c203351913b65f7b6c82e566c",
-              "prompt": "build it",
-              "options": {
-                "id": "sub10",
-                "transcriptMeta": {
-                  "device": "Pixel 9"
-                }
-              }
-            }
-          },
-          {
-            "method": "unsubscribe",
-            "args": {
-              "sessionId": "sess_desktop_a8bf310235f8ba703949b8b5b239905dfa795d2c203351913b65f7b6c82e566c"
-            }
-          }
-        ],
-        "events": [
-          {
-            "event": "sessionState",
-            "sessionId": "sess_desktop_a8bf310235f8ba703949b8b5b239905dfa795d2c203351913b65f7b6c82e566c"
           }
         ]
       }
@@ -2641,7 +2527,7 @@
             "method": "create",
             "args": {
               "sessionId": "sess_desktop_8608b9e91f79669f4d1d2879deabf400f5ea2e3ca743e5a9aa0103ad19a9dba1",
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-2VENaT\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-XTGrQJ\\workspace\\unclassified",
               "desktopSession": {
                 "classification": "task",
                 "projectPath": null
@@ -2739,7 +2625,7 @@
           {
             "method": "create",
             "args": {
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-megv3T\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-3BIIzs\\workspace\\unclassified",
               "desktopSession": {
                 "classification": "task",
                 "projectPath": null
@@ -2797,7 +2683,7 @@
       "name": "startProject",
       "call": "startProject",
       "args": [
-        "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8"
+        "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-proj-frag5T"
       ],
       "daemon": {},
       "node": {
@@ -2807,11 +2693,11 @@
           "queued": [],
           "busy": false,
           "commandBusy": false,
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8",
-          "currentProject": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-proj-frag5T",
+          "currentProject": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-proj-frag5T",
           "desktopSession": {
             "classification": "project",
-            "projectPath": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8"
+            "projectPath": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-proj-frag5T"
           },
           "remoteEnabled": false,
           "remoteSessionId": null
@@ -2824,13 +2710,13 @@
       "name": "startProjectTask-registered",
       "call": "startProjectTask",
       "args": [
-        "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8"
+        "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-proj-frag5T"
       ],
       "daemon": {
         "projects": [
           {
             "name": "proj",
-            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8",
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-proj-frag5T",
             "addedAt": 1
           }
         ]
@@ -2842,11 +2728,11 @@
           "queued": [],
           "busy": false,
           "commandBusy": false,
-          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8",
-          "currentProject": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8",
+          "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-proj-frag5T",
+          "currentProject": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-proj-frag5T",
           "desktopSession": {
             "classification": "project",
-            "projectPath": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8"
+            "projectPath": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-proj-frag5T"
           },
           "remoteEnabled": false,
           "remoteSessionId": null
@@ -2859,7 +2745,7 @@
       "name": "startProjectTask-unknown",
       "call": "startProjectTask",
       "args": [
-        "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-proj-aeUZK8"
+        "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-proj-frag5T"
       ],
       "daemon": {},
       "node": {
@@ -2897,7 +2783,7 @@
           {
             "method": "create",
             "args": {
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-8HmLsq\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-hoZfYa\\workspace\\unclassified",
               "desktopSession": null
             }
           },
@@ -2932,7 +2818,7 @@
               "sessionProfile": {
                 "homeAgent": "agent1"
               },
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-8HmLsq\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-hoZfYa\\workspace\\unclassified",
               "desktopSession": {
                 "classification": "task",
                 "projectPath": null
@@ -2978,7 +2864,7 @@
           {
             "method": "create",
             "args": {
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-vI29pW\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-HKi0C8\\workspace\\unclassified",
               "desktopSession": null
             }
           },
@@ -3036,7 +2922,7 @@
           {
             "method": "create",
             "args": {
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-KSoTBC\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-lqSc1R\\workspace\\unclassified",
               "desktopSession": null
             }
           },
@@ -3076,13 +2962,13 @@
       "node": {
         "result": {
           "sessionId": "sess_home_agent1",
-          "archivedSessionId": "sess_30576_1794214904644_16ef15e6b1894a47a5e6ceca109d34ba"
+          "archivedSessionId": "sess_7020_1794267456829_0d34e81c3cc2443f97170259a581a51b"
         },
         "daemonCalls": [
           {
             "method": "create",
             "args": {
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-F3JOq1\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-1ocbdp\\workspace\\unclassified",
               "desktopSession": null
             }
           },
@@ -3116,7 +3002,7 @@
               "action": "clear",
               "args": [
                 {
-                  "archiveAs": "sess_30576_1794214904644_16ef15e6b1894a47a5e6ceca109d34ba",
+                  "archiveAs": "sess_7020_1794267456829_0d34e81c3cc2443f97170259a581a51b",
                   "rebuildPrompt": true
                 }
               ]
@@ -3134,7 +3020,7 @@
           {
             "method": "read",
             "args": {
-              "sessionId": "sess_30576_1794214904644_16ef15e6b1894a47a5e6ceca109d34ba",
+              "sessionId": "sess_7020_1794267456829_0d34e81c3cc2443f97170259a581a51b",
               "transcriptItemLimit": 32,
               "transcriptByteBudget": 1000000,
               "transcriptPrepend": true
@@ -3183,14 +3069,14 @@
       },
       "node": {
         "result": {
-          "sessionId": "sess_room_mw9188u4fdb44353",
-          "roomId": "mw9188u4fdb44353"
+          "sessionId": "sess_room_mw9wimax78bfafb0",
+          "roomId": "mw9wimax78bfafb0"
         },
         "daemonCalls": [
           {
             "method": "create",
             "args": {
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-oVjEgz\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-vrFGgK\\workspace\\unclassified",
               "desktopSession": null
             }
           },
@@ -3239,12 +3125,12 @@
             "args": {
               "provider": "p",
               "model": "m",
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-oVjEgz\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-vrFGgK\\workspace\\unclassified",
               "desktopSession": {
                 "classification": "task",
                 "projectPath": null
               },
-              "sessionId": "sess_room_mw9188u4fdb44353"
+              "sessionId": "sess_room_mw9wimax78bfafb0"
             }
           },
           {
@@ -3253,7 +3139,7 @@
               "sessionId": "ctl",
               "action": "renameSessionTitle",
               "args": [
-                "sess_room_mw9188u4fdb44353",
+                "sess_room_mw9wimax78bfafb0",
                 "Room"
               ]
             }
@@ -3292,7 +3178,7 @@
       "scripted": "the room id is the one the same host minted in create",
       "node": {
         "result": {
-          "id": "mw9188vl29bc66d2",
+          "id": "mw9wimbt6e63f7e1",
           "name": "Renamed",
           "members": [
             "agent1",
@@ -3310,7 +3196,7 @@
           {
             "method": "create",
             "args": {
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-YeA7oq\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-ZpZmnh\\workspace\\unclassified",
               "desktopSession": null
             }
           },
@@ -3359,12 +3245,12 @@
             "args": {
               "provider": "p",
               "model": "m",
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-YeA7oq\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-ZpZmnh\\workspace\\unclassified",
               "desktopSession": {
                 "classification": "task",
                 "projectPath": null
               },
-              "sessionId": "sess_room_mw9188vl29bc66d2"
+              "sessionId": "sess_room_mw9wimbt6e63f7e1"
             }
           },
           {
@@ -3373,7 +3259,7 @@
               "sessionId": "ctl",
               "action": "renameSessionTitle",
               "args": [
-                "sess_room_mw9188vl29bc66d2",
+                "sess_room_mw9wimbt6e63f7e1",
                 "Room"
               ]
             }
@@ -3406,7 +3292,7 @@
               "sessionId": "ctl",
               "action": "renameSessionTitle",
               "args": [
-                "sess_room_mw9188vl29bc66d2",
+                "sess_room_mw9wimbt6e63f7e1",
                 "Renamed"
               ]
             }
@@ -3416,14 +3302,14 @@
           {
             "event": "sessions",
             "ids": [
-              "sess_room_mw9188vl29bc66d2",
+              "sess_room_mw9wimbt6e63f7e1",
               "sess_a"
             ]
           },
           {
             "event": "sessions",
             "ids": [
-              "sess_room_mw9188vl29bc66d2",
+              "sess_room_mw9wimbt6e63f7e1",
               "sess_a"
             ]
           }
@@ -3460,7 +3346,7 @@
           {
             "method": "create",
             "args": {
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-E2hDIV\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-tg2eB8\\workspace\\unclassified",
               "desktopSession": null
             }
           },
@@ -3509,12 +3395,12 @@
             "args": {
               "provider": "p",
               "model": "m",
-              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.677e7f3f502d1163\\phone-chat-host-E2hDIV\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.4a47238fba4fe2a6\\phone-chat-host-tg2eB8\\workspace\\unclassified",
               "desktopSession": {
                 "classification": "task",
                 "projectPath": null
               },
-              "sessionId": "sess_room_mw918903aea3f1f6"
+              "sessionId": "sess_room_mw9wimdfd6d37897"
             }
           },
           {
@@ -3523,7 +3409,7 @@
               "sessionId": "ctl",
               "action": "renameSessionTitle",
               "args": [
-                "sess_room_mw918903aea3f1f6",
+                "sess_room_mw9wimdfd6d37897",
                 "Room"
               ]
             }
@@ -3543,7 +3429,7 @@
           {
             "method": "unsubscribe",
             "args": {
-              "sessionId": "sess_rmem_mw918903aea3f1f6_agent1"
+              "sessionId": "sess_rmem_mw9wimdfd6d37897_agent1"
             }
           },
           {
@@ -3561,7 +3447,7 @@
           {
             "method": "unsubscribe",
             "args": {
-              "sessionId": "sess_rmem_mw918903aea3f1f6_agent2"
+              "sessionId": "sess_rmem_mw9wimdfd6d37897_agent2"
             }
           },
           {
@@ -3579,7 +3465,7 @@
           {
             "method": "unsubscribe",
             "args": {
-              "sessionId": "sess_room_mw918903aea3f1f6"
+              "sessionId": "sess_room_mw9wimdfd6d37897"
             }
           },
           {

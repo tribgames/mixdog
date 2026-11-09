@@ -213,8 +213,14 @@ export function createChatApi(
       return true;
     },
     abortSession: async (sessionId: string, abort: DesktopAbortOptions = {}): Promise<unknown> => {
-      const reply = record(await service('abortSession', [sessionId, abort]));
-      // Rust gap: `turn/interrupt` hands no prompt back (restorePrompt is not acted on), so nothing is restored.
+      // A Stop of a thread that runs no turn is Node's `aborted: false` (abort.mjs:129 `reclaimIdleSubmission`, no submission named).
+      const reply = record(
+        await service('abortSession', [sessionId, abort]).catch((error: unknown) => {
+          if ((error as { detail?: { data?: { reason?: unknown } } } | null)?.detail?.data?.reason === 'turnNotActive') return { cancelRequested: false };
+          throw error;
+        })
+      );
+      // `turn/interrupt` hands no prompt back (actor.rs `close_done`: `reclaimed` is never set), so nothing is restored.
       return {
         aborted: reply.cancelRequested === true,
         restoreText: '',

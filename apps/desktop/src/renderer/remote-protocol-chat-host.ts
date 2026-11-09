@@ -23,9 +23,6 @@ import { READ_NOT_VIEWED } from './remote-protocol-chat.ts';
 /** remote-methods.ts STALE_SESSION_VIEW_MESSAGE. */
 export const STALE_SESSION_VIEW_MESSAGE = 'This conversation changed on another device. Review the latest messages, then send again.';
 
-/** The core's code for a submit Node refused (empty text, a closed or terminal session, a failed steering mirror, a retired agent home). */
-export const SUBMIT_REFUSED = 'SUBMIT_REFUSED';
-
 /** ipc-validation.ts: the page size of a historical-position read. */
 const HISTORY_PAGE_ITEMS = 512;
 const HISTORY_ROW_ID_MAX_CHARS = 512;
@@ -84,8 +81,26 @@ export function requiredTranscriptHistoryRequest(value: unknown): DesktopTranscr
   } as DesktopTranscriptHistoryRequest;
 }
 
+/** Whether Node's submission intake would take this prompt: `promptDisplayText` (queue-helpers.mjs:89) of it is not blank, or the submit names a
+ *  display text (submission.mjs:14-15 answers `false` otherwise, and the host's reply is `false` / `accepted: false`). The text is
+ *  `promptContentText` (prompt-utils.mjs:10) of the content without its attachment-reference parts. The core takes a blank prompt and
+ *  starts an empty turn, so the refusal is made here, before anything is sent. */
+function showsText(prompt: unknown, submit: unknown): boolean {
+  const displayText = (submit as { displayText?: unknown } | null)?.displayText;
+  if (typeof displayText === 'string' && displayText.trim()) return true;
+  const shown = Array.isArray(prompt)
+    ? prompt.filter((part) => !(part?.type === 'text' && part.attachmentReference && typeof part.text === 'string'))
+    : prompt;
+  const text = Array.isArray(shown)
+    ? shown
+        .map((part) => (typeof part === 'string' ? part : part?.type === 'image' ? '[Image]' : part?.text || ''))
+        .filter(Boolean)
+        .join('\n')
+    : String(shown ?? '');
+  return text.trim() !== '';
+}
+
 const reasonOf = (error: unknown): unknown => (error as { detail?: { data?: { reason?: unknown } } } | null)?.detail?.data?.reason;
-const refused = (error: unknown): boolean => (error as { code?: unknown } | null)?.code === SUBMIT_REFUSED;
 
 export function createChatHostApi(client: ChatClient, shared: ChatHostShared, base: ChatApi, options: ChatHostOptions) {
   const remoteId = (): string => remoteSessionIdOf(options.remoteSession());
@@ -122,24 +137,16 @@ export function createChatHostApi(client: ChatClient, shared: ChatHostShared, ba
     startProjectTask: (projectPath: string): Promise<SessionSnapshot> => start('startProjectTask', requiredString(projectPath, 'projectPath')),
     submitToSession: async (sessionId: string, prompt: DesktopPromptContent, submit: DesktopSubmitOptions = {}): Promise<boolean> => {
       if (await staleView(sessionId)) throw new Error(STALE_SESSION_VIEW_MESSAGE);
-      try {
-        return await base.submitToSession(sessionId, prompt, submit);
-      } catch (error) {
-        if (refused(error)) return false;
-        throw error;
-      }
+      if (!showsText(prompt, submit)) return false;
+      return base.submitToSession(sessionId, prompt, submit);
     },
     submitNewTask: async (
       prompt: DesktopPromptContent,
       submit: DesktopSubmitOptions = {},
       draft: Parameters<ChatApi['submitNewTask']>[2] = {}
     ): Promise<DesktopNewTaskSubmitResult> => {
-      try {
-        return decorated(await base.submitNewTask(prompt, submit, draft)) as DesktopNewTaskSubmitResult;
-      } catch (error) {
-        if (!refused(error)) throw error;
-        return { accepted: false, sessionId: '', snapshot: null } as unknown as DesktopNewTaskSubmitResult;
-      }
+      if (!showsText(prompt, submit)) return { accepted: false, sessionId: '', snapshot: null } as unknown as DesktopNewTaskSubmitResult;
+      return decorated(await base.submitNewTask(prompt, submit, draft)) as DesktopNewTaskSubmitResult;
     },
     inheritSession: async (...args: Parameters<ChatApi['inheritSession']>) => {
       const forked = await base.inheritSession(...args);

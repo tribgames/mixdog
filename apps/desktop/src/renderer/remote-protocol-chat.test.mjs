@@ -13,6 +13,14 @@ import { normalizedProviderModels } from '../main/desktop-support.ts';
 import { remoteToolOutput } from '../main/remote-transcript.ts';
 
 const recorded = JSON.parse(readFileSync(new URL('./remote-protocol-chat.recorded.json', import.meta.url), 'utf8'));
+// What a running mixdogd answered to the phone's own requests for the refusal cases (remote-protocol-chat-refusals.record.mjs).
+const refusals = JSON.parse(readFileSync(new URL('./remote-protocol-chat-refusals.recorded.json', import.meta.url), 'utf8'));
+const coreReply = (name) => {
+  const { reply } = refusals.cases.find((x) => x.name === name);
+  return reply.error
+    ? Object.assign(new Error(reply.error.message), { detail: { kind: 'rpc', code: reply.error.code, reason: reply.error.data?.reason, message: reply.error.message, data: reply.error.data } })
+    : reply.result;
+};
 const S = 'sess_a';
 const threadRead = (state = {}) => ({
   thread: { id: S, preview: '', title: '', updatedAt: 1, messageCount: 0, cwd: '/w', classification: {}, projectPath: null },
@@ -43,7 +51,8 @@ const SCRIPT = {
   getTaskWorkspace: (n) => ({ 'project/taskWorkspace': { path: n.result } }),
   // v2/thread.rs:741 TurnInterruptResponse: `cancelRequested` is always true (R12)
   'abortSession-restored': () => ({ 'turn/interrupt': { cancelRequested: true } }),
-  'abortSession-idle': () => ({ 'turn/interrupt': { cancelRequested: true } }),
+  // What a running mixdogd answers a Stop of a thread that runs no turn: `turnNotActive` (remote-protocol-chat-refusals.recorded.json)
+  'abortSession-idle': () => ({ 'turn/interrupt': coreReply('abortSession-idle') }),
   // actor.rs:3980 `{ "kind": "started" }`
   'submitToSession-accepted': () => ({ 'turn/start': { kind: 'started', turnId: 't1' } }),
   'resolveToolApproval-approved': () => ({ pending: [{ id: 'ap1', method: 'item/tool/requestApproval', params: { threadId: S, order: 1 } }] }),
@@ -121,23 +130,21 @@ const SCRIPT = {
   'deleteSession-missing': () => ({ 'thread/delete': rpcError('threadNotFound', 'thread not found'), 'thread/unsubscribe': {} }),
 };
 
-/** Differences that are the Rust gaps of the report: Node's answer and the adapter's, both asserted. */
+/** The cases this file does not replay through the base adapter, each with where it is replayed whole against Node's own answer:
+ *  a string names the test that owns it (remote-protocol-chat-host.test.mjs: the host adapter, which the phone mounts, answers these
+ *  from the start/secret/room/home recordings and the core replies in remote-protocol-chat-refusals.recorded.json); an object is a
+ *  difference that is still open, Node's answer and the adapter's both asserted. */
 const DIFFERENT = {
-  // The start calls create no thread (Node's blank snapshot): remote-protocol-chat-host.ts composes it, replayed in remote-protocol-chat-host.test.mjs.
-  startTask: 'covered by remote-protocol-chat-host.test.mjs',
-  startProject: 'covered by remote-protocol-chat-host.test.mjs',
-  'startProjectTask-registered': 'covered by remote-protocol-chat-host.test.mjs',
-  // control.rs:366, actor.rs:2619: `turn/interrupt` hands no prompt back and its reply carries no `aborted` outcome
+  startTask: 'remote-protocol-chat-host.test.mjs: "start" group, the whole blank snapshot against Node',
+  startProject: 'remote-protocol-chat-host.test.mjs: "start" group, the whole blank snapshot against Node',
+  'startProjectTask-registered': 'remote-protocol-chat-host.test.mjs: "start" group, the whole blank snapshot against Node',
+  'provideSecretInput-false': 'remote-protocol-chat-host.test.mjs: provideSecretInput of an id that is no secret request',
+  'startProjectTask-unknown': 'remote-protocol-chat-host.test.mjs: startProjectTask of an unregistered Project, over the core reply recorded from mixdogd',
+  'openAgentHome-unknown-agent': 'remote-protocol-chat-host.test.mjs: openAgentHome of an unknown agent, over the core reply recorded from mixdogd',
+  'agentRoomAction-unknown': 'remote-protocol-chat-host.test.mjs: agentRoomAction of an unknown action',
+  // OPEN: Node reclaims the stopped turn's prompt into the composer (abort.mjs:65-155, `restoreText` / `restoredSubmissionIds`); the core's
+  // `turn/interrupt` hands none back (actor.rs `close_done`: `reclaimed` is never set).
   'abortSession-restored': { aborted: true, restoreText: '', restoredSubmissionIds: [] },
-  'abortSession-idle': { aborted: true, restoreText: '', restoredSubmissionIds: [] },
-  // v2/thread.rs:741 + actor.rs:3980: a start while a turn runs is queued, never refused
-  'submitToSession-refused': 'no mixdogd equivalent: turn/start queues',
-  'submitNewTask-refused': 'no mixdogd equivalent: thread/start with an initial input always answers its turn',
-  // Node answered false from the window process's slot; the core's answer for an unknown request id is unread (call.rs:76)
-  'provideSecretInput-false': 'unverified: the core refusal for an unknown request id is not read',
-  'startProjectTask-unknown': 'unverified: the core refusal text for an unregistered project is not read',
-  'openAgentHome-unknown-agent': 'unverified: the core refusal text for an unknown agent is not read',
-  'agentRoomAction-unknown': 'the adapter refuses with routeService unknownMethod, not Node text: Unknown room action',
 };
 
 /** The fields the phone's readers use (use-composer-submission.ts:461, model-controls.tsx:654/754, shell-job-controls.tsx:63/65). */
