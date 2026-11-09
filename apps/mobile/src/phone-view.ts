@@ -20,7 +20,7 @@ export const VIEW_WINDOW = { lastItems: 50 } as const;
 
 const APP_FEED = 'app';
 
-export type ViewClient = Pick<ProtocolClient<SessionFold>, 'resumeThread' | 'unsubscribeThread' | 'subscribeApp' | 'status' | 'on' | 'withSendScope'> & {
+export type ViewClient = Pick<ProtocolClient<SessionFold>, 'resumeThread' | 'unsubscribeThread' | 'subscribeApp' | 'status' | 'on'> & {
   readonly store: Pick<ProtocolClient<SessionFold>['store'], 'subscribe'>;
 };
 

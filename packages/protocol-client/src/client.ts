@@ -432,29 +432,18 @@ class Engine implements ProtocolClient<Json> {
 
   // ── wire ──
 
-  private scope: SentClaim | null = null;
-  withSendScope<T>(claim: SentClaim, run: () => T): T {
-    const outer = this.scope;
-    this.scope = claim;
-    try {
-      return run();
-    } finally {
-      this.scope = outer;
-    }
-  }
-
-  private send(frame: Record<string, unknown>, claim?: SentClaim | null): void {
+  private send(frame: Record<string, unknown>, sent?: SentClaim): void {
     const w = this.writer;
     if (!w) throw fail({ kind: 'connectionLost' });
-    w.send(JSON.stringify(frame), claim ?? undefined);
+    w.send(JSON.stringify(frame), sent);
   }
 
-  private rpc(method: string, params: Json | undefined, cls?: RequestClass, sync?: (v: Json) => void, claim?: SentClaim | null): Promise<Json> {
+  private rpc(method: string, params: Json | undefined, cls?: RequestClass, sync?: (v: Json) => void, sent?: SentClaim): Promise<Json> {
     return new Promise<Json>((resolve, reject) => {
       const id = this.nextRequestId++;
       try {
         this.pending.set(id, { cls, resolve, reject, ...(sync ? { sync } : {}) });
-        this.send(params === undefined ? { id, method } : { id, method, params }, claim);
+        this.send(params === undefined ? { id, method } : { id, method, params }, sent);
       } catch (e) {
         this.pending.delete(id);
         reject(e);
@@ -775,27 +764,27 @@ class Engine implements ProtocolClient<Json> {
     this.subToken.set(feedId, ++this.tokenSeq);
   }
 
-  async resumeThread(threadId: string, window: ResumeWindow): Promise<ThreadResumeResponse> {
+  async resumeThread(threadId: string, window: ResumeWindow, options?: Pick<CallOptions, 'sent'>): Promise<ThreadResumeResponse> {
     const params = this.resumeParams(threadId, window);
     const r = await this.run('thread/resume', params, INTERNAL, (v) => {
       this.attached(threadId, v);
       this.subs.set(threadId, window);
-    });
+    }, false, options?.sent);
     return r as unknown as ThreadResumeResponse;
   }
-  async unsubscribeThread(threadId: string): Promise<void> {
+  async unsubscribeThread(threadId: string, options?: Pick<CallOptions, 'sent'>): Promise<void> {
     this.subs.delete(threadId);
     this.subToken.delete(threadId);
     this.recv.delete(threadId);
     this.store.threads.delete(threadId);
     this.feedChains.delete(threadId);
-    await this.run('thread/unsubscribe', { threadId }, INTERNAL);
+    await this.run('thread/unsubscribe', { threadId }, INTERNAL, undefined, false, options?.sent);
   }
-  async subscribeApp(): Promise<void> {
+  async subscribeApp(options?: Pick<CallOptions, 'sent'>): Promise<void> {
     await this.run('app/subscribe', this.appParams(), INTERNAL, (v) => {
       this.attached(WIRE.appFeedId, v);
       this.appSubscribed = true;
-    });
+    }, false, options?.sent);
   }
 
   // ── calls ──
@@ -808,20 +797,18 @@ class Engine implements ProtocolClient<Json> {
       const given = (p as { opId?: string } | null)?.opId;
       p = { ...(p as object), opId: options?.opId ?? given ?? (this.o.newOpId ?? (() => uuidv7(Date.now())))() } as Json;
     }
-    return this.run(method, p, info) as Promise<never>;
+    return this.run(method, p, info, undefined, false, options?.sent) as Promise<never>;
   }
 
   /** `stay` calls (stub resolution inside the fold) never wait for a reconnect: they reject `connectionLost` instead. */
-  private async run(method: string, params: Json, info: MethodInfo, sync?: (v: Json) => void, stay = false): Promise<Json> {
-    // The caller's claim is read before the first await: the frame is written later, after the connection is known to be ready.
-    const claim = this.scope;
+  private async run(method: string, params: Json, info: MethodInfo, sync?: (v: Json) => void, stay = false, onSent?: SentClaim): Promise<Json> {
     for (;;) {
       if (stay) {
         if (this.status.state !== 'ready') throw fail({ kind: 'connectionLost' });
       } else await this.whenReady();
       const sent: SentAt = { all: this.responses, byClass: { ...this.classResponses }, feed: this.feedEvents };
       try {
-        return await this.rpc(method, params, info.class, sync, claim);
+        return await this.rpc(method, params, info.class, sync, onSent);
       } catch (e) {
         const d = detailOf(e);
         if (d.kind === 'rpc' && d.code === -32001) {
@@ -926,7 +913,8 @@ class Engine implements ProtocolClient<Json> {
 
   // ── blobs ──
 
-  private async readPages(blob: BlobDescriptor, stay: boolean): Promise<Uint8Array> {
+  /** `sent` is the first page's frame: the call's own request. */
+  private async readPages(blob: BlobDescriptor, stay: boolean, sent?: SentClaim): Promise<Uint8Array> {
     const page = this.server.limits.maxBlobPageBytes;
     const parts: Uint8Array[] = [];
     let offset = 0;
@@ -934,7 +922,7 @@ class Engine implements ProtocolClient<Json> {
       const params = { digest: blob.digest, offset, length: Math.min(page, blob.bytes - offset) };
       let r: Json;
       try {
-        r = await this.run('blob/read', params, READ_C1, undefined, stay);
+        r = await this.run('blob/read', params, READ_C1, undefined, stay, offset === 0 ? sent : undefined);
       } catch (e) {
         throw blobError(e);
       }
@@ -951,16 +939,16 @@ class Engine implements ProtocolClient<Json> {
     }
     return out;
   }
-  readBlob(ref: BlobRef): Promise<Uint8Array> {
-    return this.readPages(ref.blob, false);
+  readBlob(ref: BlobRef, options?: Pick<CallOptions, 'sent'>): Promise<Uint8Array> {
+    return this.readPages(ref.blob, false, options?.sent);
   }
 
-  async putBlob(bytes: Uint8Array, mediaType: string): Promise<BlobRef> {
+  async putBlob(bytes: Uint8Array, mediaType: string, options?: Pick<CallOptions, 'sent'>): Promise<BlobRef> {
     const digest = `sha256:${[...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes as DigestInput))].map((x) => x.toString(16).padStart(2, '0')).join('')}`;
     const chunk = this.server.limits.maxBlobPutChunkBytes;
     let offset = 0;
     do {
-      await this.run('blob/put', { digest, offset, bytesB64: toB64(bytes.subarray(offset, offset + chunk)) }, READ_C1);
+      await this.run('blob/put', { digest, offset, bytesB64: toB64(bytes.subarray(offset, offset + chunk)) }, READ_C1, undefined, false, offset === 0 ? options?.sent : undefined);
       offset += chunk;
     } while (offset < bytes.length);
     return { blob: { digest, bytes: bytes.length, mediaType } };
