@@ -1,5 +1,6 @@
 {
   "now": 1800000000000,
+  "nodeVersion": "v22.20.0",
   "scenarios": [
     {
       "name": "tie-alone",
@@ -9,34 +10,147 @@
           "answersAfterMs": 4000
         }
       ],
-      "first": [
-        {
-          "name": "tie",
-          "models": [],
-          "error": {
-            "code": "ETIMEDOUT",
-            "message": "provider \"tie\" catalog list did not finish within 4000ms"
+      "first": {
+        "entries": [
+          {
+            "name": "tie",
+            "models": [],
+            "error": {
+              "code": "ETIMEDOUT",
+              "message": "provider \"tie\" catalog list did not finish within 4000ms"
+            },
+            "retryAt": 34000
+          }
+        ],
+        "calls": {
+          "tie": 1
+        },
+        "at": 4000,
+        "armed": [
+          {
+            "kind": "deadline",
+            "dueAt": 4000
           },
-          "retryAfterMs": 30000
-        }
-      ],
-      "callsAfterFirst": {
-        "tie": 1
+          {
+            "kind": "listing:tie",
+            "dueAt": 4000
+          }
+        ],
+        "pendingOps": [
+          "tie"
+        ],
+        "stalled": [
+          {
+            "name": "tie",
+            "kind": "list"
+          }
+        ],
+        "timersLeft": [
+          {
+            "kind": "listing:tie",
+            "dueAt": 4000
+          }
+        ]
       },
-      "second": [
-        {
-          "name": "tie",
-          "models": [],
-          "error": {
-            "code": "ETIMEDOUT",
-            "message": "provider \"tie\" catalog list did not finish within 4000ms"
+      "whilePending": {
+        "entries": [
+          {
+            "name": "tie",
+            "models": [],
+            "error": {
+              "code": "ETIMEDOUT",
+              "message": "provider \"tie\" catalog list is still pending after its deadline"
+            },
+            "retryAt": 34000
+          }
+        ],
+        "calls": {
+          "tie": 1
+        },
+        "at": 4000,
+        "armed": [
+          {
+            "kind": "listing:tie",
+            "dueAt": 4000
+          }
+        ],
+        "pendingOps": [
+          "tie"
+        ],
+        "stalled": [
+          {
+            "name": "tie",
+            "kind": "list"
+          }
+        ],
+        "timersLeft": [
+          {
+            "kind": "listing:tie",
+            "dueAt": 4000
+          }
+        ]
+      },
+      "settledOps": [],
+      "afterSettle": {
+        "entries": [
+          {
+            "name": "tie",
+            "models": [],
+            "error": {
+              "code": "ETIMEDOUT",
+              "message": "provider \"tie\" catalog list did not finish within 4000ms"
+            },
+            "retryAt": 38000
+          }
+        ],
+        "calls": {
+          "tie": 2
+        },
+        "at": 8000,
+        "armed": [
+          {
+            "kind": "deadline",
+            "dueAt": 8000
           },
-          "retryAfterMs": 30000
+          {
+            "kind": "listing:tie",
+            "dueAt": 8000
+          }
+        ],
+        "pendingOps": [
+          "tie"
+        ],
+        "stalled": [
+          {
+            "name": "tie",
+            "kind": "list"
+          }
+        ],
+        "timersLeft": [
+          {
+            "kind": "listing:tie",
+            "dueAt": 8000
+          }
+        ]
+      },
+      "dispatched": [
+        {
+          "fired": "deadline",
+          "at": 4000
+        },
+        {
+          "fired": "listing:tie",
+          "at": 4000
+        },
+        {
+          "fired": "deadline",
+          "at": 8000
+        },
+        {
+          "fired": "listing:tie",
+          "at": 8000
         }
-      ],
-      "callsAfterSecond": {
-        "tie": 2
-      }
+      ]
     },
     {
       "name": "tie-beside-a-fast-provider",
@@ -50,48 +164,151 @@
           "answersAfterMs": 4000
         }
       ],
-      "first": [
-        {
-          "name": "fast",
-          "models": [
-            "m"
-          ]
-        },
-        {
-          "name": "tie",
-          "models": [],
-          "error": {
-            "code": "ETIMEDOUT",
-            "message": "provider \"tie\" catalog list did not finish within 4000ms"
+      "first": {
+        "entries": [
+          {
+            "name": "fast",
+            "models": [
+              "m"
+            ]
           },
-          "retryAfterMs": 30000
-        }
-      ],
-      "callsAfterFirst": {
-        "fast": 1,
-        "tie": 1
+          {
+            "name": "tie",
+            "models": [],
+            "error": {
+              "code": "ETIMEDOUT",
+              "message": "provider \"tie\" catalog list did not finish within 4000ms"
+            },
+            "retryAt": 42000
+          }
+        ],
+        "calls": {
+          "fast": 1,
+          "tie": 1
+        },
+        "at": 12000,
+        "armed": [
+          {
+            "kind": "listing:fast",
+            "dueAt": 8010
+          },
+          {
+            "kind": "deadline",
+            "dueAt": 12000
+          },
+          {
+            "kind": "deadline",
+            "dueAt": 12000
+          },
+          {
+            "kind": "listing:tie",
+            "dueAt": 12000
+          }
+        ],
+        "pendingOps": [
+          "tie"
+        ],
+        "stalled": [
+          {
+            "name": "tie",
+            "kind": "list"
+          }
+        ],
+        "timersLeft": [
+          {
+            "kind": "listing:tie",
+            "dueAt": 12000
+          }
+        ]
       },
-      "second": [
+      "whilePending": {
+        "entries": [
+          {
+            "name": "fast",
+            "models": [
+              "m"
+            ]
+          },
+          {
+            "name": "tie",
+            "models": [],
+            "error": {
+              "code": "ETIMEDOUT",
+              "message": "provider \"tie\" catalog list did not finish within 4000ms"
+            },
+            "retryAt": 42000
+          }
+        ],
+        "calls": {
+          "fast": 1,
+          "tie": 1
+        },
+        "at": 12000,
+        "armed": [
+          {
+            "kind": "listing:tie",
+            "dueAt": 12000
+          }
+        ],
+        "pendingOps": [
+          "tie"
+        ],
+        "stalled": [
+          {
+            "name": "tie",
+            "kind": "list"
+          }
+        ],
+        "timersLeft": [
+          {
+            "kind": "listing:tie",
+            "dueAt": 12000
+          }
+        ]
+      },
+      "settledOps": [],
+      "afterSettle": {
+        "entries": [
+          {
+            "name": "fast",
+            "models": [
+              "m"
+            ]
+          },
+          {
+            "name": "tie",
+            "models": [],
+            "error": {
+              "code": "ETIMEDOUT",
+              "message": "provider \"tie\" catalog list did not finish within 4000ms"
+            },
+            "retryAt": 42000
+          }
+        ],
+        "calls": {
+          "fast": 1,
+          "tie": 1
+        },
+        "at": 12000,
+        "armed": [],
+        "pendingOps": [],
+        "stalled": [],
+        "timersLeft": []
+      },
+      "dispatched": [
         {
-          "name": "fast",
-          "models": [
-            "m"
-          ]
+          "fired": "listing:fast",
+          "at": 8010
         },
         {
-          "name": "tie",
-          "models": [],
-          "error": {
-            "code": "ETIMEDOUT",
-            "message": "provider \"tie\" catalog list did not finish within 4000ms"
-          },
-          "retryAfterMs": 30000
+          "fired": "deadline",
+          "at": 12000
+        },
+        {
+          "fired": "listing:tie",
+          "at": 12000
         }
-      ],
-      "callsAfterSecond": {
-        "fast": 1,
-        "tie": 1
-      }
+      ]
     }
   ]
 }
