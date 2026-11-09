@@ -19,9 +19,8 @@ export const RUST_GAP = 'branch rs-thread-list-rows: the core\'s thread rows lac
  * both sides, the recorded core rows). `kind` is 'missing' (Node's row has the field, the core's has none), 'extra' (the core's has one Node's
  * lacks) or 'value' (both have it and they differ). Anything else, including a wrong value where a field is merely missing, fails.
  */
-function gapPredicates({ createdRows }) {
+function gapPredicates({ createdRows, taskWorkspace }) {
   const parent = createdRows.get('Title 0');
-  const taskWorkspace = /[\\/]workspace[\\/]unclassified$/;
   return [
     // The core's list rows have no read cursor: only Title 1 has one in the scenario, and it is absent, not different.
     ({ title, field, kind }) => title === 'Title 1' && (field === 'readMessageCount' || field === 'readRevision') && kind === 'missing',
@@ -34,7 +33,7 @@ function gapPredicates({ createdRows }) {
       title === 'Title 2' &&
       ((field === 'classification' && kind === 'value' && got === 'task') ||
         (field === 'projectPath' && (kind === 'missing' || (kind === 'value' && got === null))) ||
-        (field === 'cwd' && kind === 'value' && typeof got === 'string' && taskWorkspace.test(got))),
+        (field === 'cwd' && kind === 'value' && got === taskWorkspace)),
     // Fork times: the core's fork carries its parent's creation times where Node stamps the fork with its own creation tick.
     ({ title, field, kind, got }) => title === 'Title 2' && TIME_FIELDS.includes(field) && kind === 'value' && got === parent[field],
     // A rename moves the core's updatedAt away from activityAt (Node's rename is sidebar metadata and writes nothing to the session): the row
@@ -50,7 +49,8 @@ export function createParity({ live, node, project }) {
   const folders = { 'C:\\proj\\a': live.projects.a, 'C:\\proj\\b': live.projects.b };
   const byTitle = (rows) => new Map(rows.map((row) => [row.title, row]));
   const createdRows = byTitle(project(live.steps[0].listed.data));
-  const predicates = gapPredicates({ createdRows });
+  // The exact task-workspace path of the live run, as the core itself named it when it was recorded (project/taskWorkspace).
+  const predicates = gapPredicates({ createdRows, taskWorkspace: live.manifest.taskWorkspace });
 
   const times = new Map();
   const firstAt = new Map();
