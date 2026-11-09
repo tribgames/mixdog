@@ -262,3 +262,33 @@ async fn a_sign_in_without_gh_reads_as_nodes_text() {
     let error = call(&handle, "github/login/start", json!({ "opId": "op" })).await.unwrap_err();
     assert_eq!(text(error), (None, "GitHub CLI is not installed.".to_owned()));
 }
+/// A `gh` that answers `--version` and the auth probe, and counts the version probes.
+struct CountingGh(std::sync::atomic::AtomicUsize);
+
+#[async_trait]
+impl GhRunner for CountingGh {
+    async fn raw(&self, command: &GhCommand, _: &Path, _: &CancellationToken) -> Result<GhOutput, ScmFailure> {
+        if command.args == ["--version"] {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        Ok(GhOutput { code: Some(0), stdout: "gh version 2.50.0 (2024-06-01)\n".into(), stderr: String::new() })
+    }
+}
+
+#[tokio::test]
+async fn gh_is_probed_once_until_a_refresh_looks_again() {
+    let counting = Arc::new(CountingGh(Default::default()));
+    let scm = Scm::with_gh(
+        TestProcesses::shared(),
+        mixdog_rt::testing::tokens().maintenance_io,
+        std::env::temp_dir().join(format!("mixdog-scm-probe-{}", std::process::id())),
+        counting.clone(),
+        Arc::new(|| "gh".to_owned()),
+    );
+    let cancel = CancellationToken::new();
+    scm.gh_status(&cancel, false).await.unwrap();
+    scm.gh_status(&cancel, false).await.unwrap();
+    assert_eq!(counting.0.load(std::sync::atomic::Ordering::SeqCst), 1, "the second status reuses the first probe");
+    scm.gh_status(&cancel, true).await.unwrap();
+    assert_eq!(counting.0.load(std::sync::atomic::Ordering::SeqCst), 2, "a refresh probes again");
+}

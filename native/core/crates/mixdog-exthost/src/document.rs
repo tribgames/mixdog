@@ -58,11 +58,12 @@ fn map_error(error: ExtError) -> CoreError {
             }
         }
         ExtError::Failed { code, message } if code == "invalid_params" => invalid("params", &message),
-        // The two codes whose text Node shows includes an external program's own message: the
+        // The codes whose text Node shows include an external program's own message: the
         // package manager's last output line (`cli-run.ts` installWithPackageManager) and the
         // conversion engine's error (`document-preview.mjs` renderWithEngine and
         // renderWithMicrosoftOffice, which throw uncoded).
-        ExtError::Failed { code, message } if code == "install_failed" || code == "failed" => CoreError::DomainError {
+        ExtError::Failed { code, message }
+            if matches!(code.as_str(), "install_failed" | "install_unsupported" | "package_manager_unavailable" | "executable_not_found" | "failed") => CoreError::DomainError {
             domain: "document".into(),
             code: Some(code.to_uppercase().into()),
             message: Some(message.into()),
@@ -280,6 +281,16 @@ mod tests {
         assert_eq!(code.as_deref(), Some("INSTALL_FAILED"));
         assert_eq!(message.as_deref(), Some("m"));
         assert_eq!(detail, None);
+    }
+
+    #[tokio::test]
+    async fn every_installer_failure_carries_the_text_node_showed() {
+        for code in ["install_unsupported", "package_manager_unavailable", "executable_not_found"] {
+            let (service, _) = service_failing(code);
+            let error = service.call(request("document/installLibreOffice", json!({ "opId": "x" }))).await.unwrap_err();
+            let CoreError::DomainError { message, .. } = error else { panic!("a coded error") };
+            assert_eq!(message.as_deref(), Some("m"), "{code}");
+        }
     }
 
     fn service_failing(code: &str) -> (DocumentService, Arc<Scripted>) {

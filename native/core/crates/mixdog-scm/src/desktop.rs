@@ -204,20 +204,33 @@ impl Scm {
         }))
     }
 
-    pub async fn git_cli_status(self: &Arc<Self>, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+    /// `refresh` looks again; otherwise the last probe answers, as Node's `resolveGit`.
+    pub async fn git_cli_status(self: &Arc<Self>, cancel: &CancellationToken, refresh: bool) -> Result<Value, ScmFailure> {
         let home = home_dir();
-        match self.git.run(cancel, &home, &["--version"]).await {
-            Ok(out) => {
-                let version = out.trim().strip_prefix("git version ").unwrap_or("").split_whitespace().next().unwrap_or("");
-                Ok(if version.is_empty() {
-                    json!({ "installed": true })
-                } else {
-                    json!({ "installed": true, "version": version })
-                })
+        let known = {
+            let mut probes = self.cli_probes.lock().expect("cli probes");
+            if refresh {
+                probes.git = None;
             }
-            Err(ScmFailure::Unavailable { .. }) => Ok(json!({ "installed": false })),
-            Err(other) => Err(other),
-        }
+            probes.git.clone()
+        };
+        let version = match known {
+            Some(version) => version,
+            None => {
+                let found = match self.git.run(cancel, &home, &["--version"]).await {
+                    Ok(out) => Some(out.trim().strip_prefix("git version ").unwrap_or("").split_whitespace().next().unwrap_or("").to_owned()),
+                    Err(ScmFailure::Unavailable { .. }) => None,
+                    Err(other) => return Err(other),
+                };
+                self.cli_probes.lock().expect("cli probes").git = Some(found.clone());
+                found
+            }
+        };
+        Ok(match version {
+            None => json!({ "installed": false }),
+            Some(version) if version.is_empty() => json!({ "installed": true }),
+            Some(version) => json!({ "installed": true, "version": version }),
+        })
     }
 
     /// The global identity and default branch, empty where unset.
