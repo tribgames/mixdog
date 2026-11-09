@@ -332,6 +332,10 @@ impl MemoryStore {
         }
     }
 
+    pub(super) fn session(&self, http: Arc<ScriptedHttp>) -> Arc<OAuthSession> {
+        Arc::new(OAuthSession::new(self.file.clone(), http))
+    }
+
     pub(super) fn signed_in() -> Arc<Self> {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("anthropic-oauth-credentials.json");

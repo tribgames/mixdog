@@ -19,6 +19,8 @@ mod lowering;
 mod models;
 pub mod oauth;
 mod policy;
+mod reminders;
+mod threads;
 
 #[cfg(test)]
 mod effort_tests;
@@ -36,6 +38,8 @@ mod native_search_tests;
 mod shared_prefix_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+pub(crate) mod wire_tests;
 
 pub use adapter::AnthropicAdapter;
 pub use adapter::ApiKeySource;
