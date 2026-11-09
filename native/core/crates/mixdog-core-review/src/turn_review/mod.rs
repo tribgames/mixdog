@@ -24,6 +24,7 @@ mod patch;
 pub mod ports;
 mod reads;
 mod review_diff;
+mod git_command;
 mod scm_ports;
 mod shadow;
 mod snapshot;
