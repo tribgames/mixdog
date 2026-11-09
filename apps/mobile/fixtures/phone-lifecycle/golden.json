@@ -27,7 +27,8 @@
           "view": [
             "restored-1"
           ],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -49,7 +50,8 @@
           "view": [
             "restored-1"
           ],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -81,7 +83,8 @@
           ],
           "lanes": [
             "terminal"
-          ]
+          ],
+          "resyncs": 0
         }
       }
     ],
@@ -109,7 +112,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -152,7 +156,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -199,7 +204,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -215,26 +221,41 @@
         "offline": true,
         "wire": [
           "socket@1500",
-          "socket@3000",
-          "socket@5000",
-          "socket@9000",
-          "socket@17000",
-          "socket@33000",
-          "socket@65000",
-          "socket@125000",
-          "socket@185000",
-          "socket@245000",
-          "socket@305000",
-          "socket@365000",
-          "socket@425000",
-          "socket@485000"
+          "socket@2500",
+          "socket@4500",
+          "socket@8500",
+          "socket@16500",
+          "socket@32500",
+          "socket@64500",
+          "socket@124500",
+          "socket@184500",
+          "socket@244500",
+          "socket@304500",
+          "socket@364500",
+          "socket@424500",
+          "socket@484500"
         ],
         "pairingInvalid": [],
         "reconnected": 0,
         "calls": [],
         "core": null,
         "maxRedialDelayMs": 60000,
-        "offlineSeen": true
+        "redialDelaysMs": [
+          1500,
+          1000,
+          2000,
+          4000,
+          8000,
+          16000,
+          32000,
+          60000,
+          60000,
+          60000,
+          60000,
+          60000,
+          60000,
+          60000
+        ]
       }
     ],
     "pairing-revoked": [
@@ -261,7 +282,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -328,7 +350,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -345,7 +368,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -364,7 +388,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -383,7 +408,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -400,7 +426,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -426,7 +453,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       }
     ],
@@ -454,7 +482,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -471,7 +500,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -490,7 +520,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -507,7 +538,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -533,7 +565,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       }
     ],
@@ -561,7 +594,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -575,7 +609,8 @@
         ],
         "offline": false,
         "wire": [
-          "ping@10000"
+          "ping@10000",
+          "resync@10000"
         ],
         "pairingInvalid": [],
         "reconnected": 0,
@@ -585,7 +620,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 1
         }
       }
     ],
@@ -613,7 +649,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -630,7 +667,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -647,7 +685,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -672,7 +711,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -689,7 +729,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -715,7 +756,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       }
     ],
@@ -743,7 +785,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -769,7 +812,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -786,7 +830,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       }
     ],
@@ -814,7 +859,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -837,7 +883,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -861,7 +908,8 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
         }
       },
       {
@@ -878,7 +926,994 @@
           "screen": [],
           "panels": [],
           "view": [],
-          "lanes": []
+          "lanes": [],
+          "resyncs": 0
+        }
+      }
+    ],
+    "wake-after-offline": [
+      {
+        "name": "connected",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "offline-backed-off",
+        "states": [
+          "connected",
+          "reconnecting"
+        ],
+        "banner": [
+          false,
+          true
+        ],
+        "offline": true,
+        "wire": [
+          "socket@1500",
+          "socket@2500",
+          "socket@4500",
+          "socket@8500",
+          "socket@16500",
+          "socket@32500",
+          "socket@64500",
+          "socket@124500"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": null,
+        "maxRedialDelayMs": 60000,
+        "redialDelaysMs": [
+          1500,
+          1000,
+          2000,
+          4000,
+          8000,
+          16000,
+          32000,
+          60000
+        ]
+      },
+      {
+        "name": "wake-dials",
+        "states": [
+          "reconnecting"
+        ],
+        "banner": [
+          true
+        ],
+        "offline": true,
+        "wire": [
+          "socket@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": null
+      },
+      {
+        "name": "offline-again",
+        "states": [
+          "reconnecting"
+        ],
+        "banner": [
+          true
+        ],
+        "offline": true,
+        "wire": [
+          "socket@0",
+          "socket@1000"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": null,
+        "maxRedialDelayMs": 1000,
+        "redialDelaysMs": [
+          0,
+          0,
+          1000
+        ]
+      }
+    ],
+    "other-failure-after-offline": [
+      {
+        "name": "connected",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "offline-backed-off",
+        "states": [
+          "connected",
+          "reconnecting"
+        ],
+        "banner": [
+          false,
+          true
+        ],
+        "offline": true,
+        "wire": [
+          "socket@1500",
+          "socket@2500",
+          "socket@4500",
+          "socket@8500",
+          "socket@16500",
+          "socket@32500"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": null,
+        "maxRedialDelayMs": 16000,
+        "redialDelaysMs": [
+          1500,
+          1000,
+          2000,
+          4000,
+          8000,
+          16000
+        ]
+      },
+      {
+        "name": "other-failures",
+        "states": [
+          "reconnecting"
+        ],
+        "banner": [
+          true
+        ],
+        "offline": true,
+        "wire": [
+          "socket@32000",
+          "socket@42000",
+          "socket@52000",
+          "socket@62000",
+          "socket@72000",
+          "socket@82000"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": null,
+        "maxRedialDelayMs": 32000,
+        "redialDelaysMs": [
+          32000,
+          10000,
+          10000,
+          10000,
+          10000,
+          10000
+        ]
+      }
+    ],
+    "relay-resync-hint": [
+      {
+        "name": "connected",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "hint",
+        "states": [
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "resync@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 1
+        }
+      }
+    ],
+    "transient-closes": [
+      {
+        "name": "connected",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "after-1001",
+        "states": [
+          "connected",
+          "reconnecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          false,
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@750"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 1,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "after-1011",
+        "states": [
+          "connected",
+          "reconnecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          false,
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@750"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 1,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "after-1012",
+        "states": [
+          "connected",
+          "reconnecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          false,
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@750"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 1,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "after-4004",
+        "states": [
+          "connected",
+          "reconnecting"
+        ],
+        "banner": [
+          false,
+          true
+        ],
+        "offline": false,
+        "wire": [
+          "socket@750"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": null
+      }
+    ],
+    "frozen-wake": [
+      {
+        "name": "connected",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "suspended",
+        "states": [
+          "connected",
+          "connecting"
+        ],
+        "banner": [
+          false,
+          true
+        ],
+        "offline": false,
+        "wire": [
+          "close(1000,background)@30000"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": false,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "frozen-no-dial",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "wire": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": false,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "resumed-dials",
+        "states": [
+          "connecting"
+        ],
+        "banner": [
+          true
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": false,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "thawed",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [],
+        "pairingInvalid": [],
+        "reconnected": 1,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      }
+    ],
+    "wake-late-pong": [
+      {
+        "name": "connected",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "probe-waiting",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "wire": [
+          "ping@10000"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "late-pong",
+        "states": [
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "resync@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 1
+        }
+      },
+      {
+        "name": "quiet-after",
+        "states": [],
+        "banner": [],
+        "offline": false,
+        "wire": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 1
+        }
+      }
+    ],
+    "dead-on-resume": [
+      {
+        "name": "connected",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "recycled",
+        "states": [
+          "connected",
+          "connecting"
+        ],
+        "banner": [
+          false,
+          true
+        ],
+        "offline": false,
+        "wire": [
+          "ping@10000",
+          "close(null,null)@12500",
+          "socket@12500"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [
+          "interrupted"
+        ],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "redialed",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [],
+        "pairingInvalid": [],
+        "reconnected": 1,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      }
+    ],
+    "close-on-thaw": [
+      {
+        "name": "connected",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "thaw-close",
+        "states": [
+          "connected",
+          "connecting"
+        ],
+        "banner": [
+          false,
+          true
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": null
+      },
+      {
+        "name": "redialed",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [],
+        "pairingInvalid": [],
+        "reconnected": 1,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      }
+    ],
+    "backlog-kept": [
+      {
+        "name": "connected",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "kept",
+        "states": [
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "ping@10000",
+          "resync@12500"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 1
+        }
+      }
+    ],
+    "proven-drop-visible": [
+      {
+        "name": "connected",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "dropped",
+        "states": [
+          "syncing",
+          "connected",
+          "reconnecting"
+        ],
+        "banner": [
+          false,
+          true
+        ],
+        "offline": false,
+        "wire": [
+          "ping@10000",
+          "resync@10000",
+          "socket@10000"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": null
+      },
+      {
+        "name": "redialed",
+        "states": [
+          "reconnecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [],
+        "pairingInvalid": [],
+        "reconnected": 1,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      }
+    ],
+    "restarts-bounded": [
+      {
+        "name": "three-answered",
+        "states": [
+          "connecting"
+        ],
+        "banner": [
+          true
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": null,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      },
+      {
+        "name": "fourth-refused",
+        "states": [
+          "connecting"
+        ],
+        "banner": [
+          true
+        ],
+        "offline": false,
+        "wire": [
+          "close(null,null)@0",
+          "socket@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": null,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
+        }
+      }
+    ],
+    "socket-ctor-throws": [
+      {
+        "name": "refused",
+        "states": [
+          "connecting"
+        ],
+        "banner": [
+          true
+        ],
+        "offline": false,
+        "wire": [
+          "socket@0"
+        ],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": null
+      },
+      {
+        "name": "connected",
+        "states": [
+          "connecting",
+          "syncing",
+          "connected"
+        ],
+        "banner": [
+          true,
+          false
+        ],
+        "offline": false,
+        "wire": [],
+        "pairingInvalid": [],
+        "reconnected": 0,
+        "calls": [],
+        "core": {
+          "foreground": true,
+          "screen": [],
+          "panels": [],
+          "view": [],
+          "lanes": [],
+          "resyncs": 0
         }
       }
     ]

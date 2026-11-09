@@ -9,8 +9,6 @@ import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 
 const importFrom = (tree, rel) => import(pathToFileURL(join(tree, rel)).href);
-const realSetTimeout = globalThis.setTimeout;
-const realDelay = (ms) => new Promise((resolve) => realSetTimeout(resolve, ms));
 
 export async function createPhoneWorld({ tree, dialect, random = () => 0.5, paired = true, registration = 200, hidden = false }) {
   const E2EE = await importFrom(tree, 'apps/desktop/src/shared/remote-e2ee.ts');
@@ -32,15 +30,44 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
 
   const legs = new Map();
   const accepted = new Set();
-  // The product's crypto and the desktop's end run on real asynchronous work, which no microtask count bounds. Settled means: nothing logged,
-  // no inbound frame still being handled, for three real turns in a row.
+  // The product's crypto and the desktop's end run on real asynchronous work (Web Crypto resolves on the thread pool), which no microtask
+  // count bounds. Every Web Crypto call is counted from its start to its settlement, and settled means: no call in flight, the desktop's
+  // frame queue empty, and a whole turn of the event loop (`setImmediate` runs after every microtask the last completion queued) in which
+  // neither started anything. There is no sleep and no wall-clock quantum: a completion is what ends the wait.
+  let cryptoInFlight = 0;
+  let cryptoDone = () => {};
+  const subtle = globalThis.crypto.subtle;
+  const subtleProto = Object.getPrototypeOf(subtle);
+  for (const name of Object.getOwnPropertyNames(subtleProto)) {
+    const original = subtleProto[name];
+    if (name === 'constructor' || typeof original !== 'function') continue;
+    Object.defineProperty(subtle, name, {
+      configurable: true,
+      writable: true,
+      value: (...callArgs) => {
+        cryptoInFlight += 1;
+        const settled = () => {
+          cryptoInFlight -= 1;
+          cryptoDone();
+        };
+        const result = original.apply(subtle, callArgs);
+        result.then(settled, settled);
+        return result;
+      },
+    });
+  }
+  const turn = () => new Promise((resolve) => setImmediate(resolve));
   const settle = async () => {
-    for (let stable = 0; stable < 3; ) {
-      const before = events.length;
-      await Promise.resolve();
-      await realDelay(1);
-      await Promise.all([...legs.values()].map((leg) => leg.queue));
-      stable = events.length === before ? stable + 1 : 0;
+    for (;;) {
+      await turn();
+      if (cryptoInFlight > 0) {
+        await new Promise((resolve) => (cryptoDone = resolve));
+        continue;
+      }
+      const queues = [...legs.values()].map((leg) => leg.queue);
+      await Promise.all(queues);
+      await turn();
+      if (cryptoInFlight === 0 && [...legs.values()].every((leg, i) => leg.queue === queues[i])) return;
     }
   };
 
@@ -139,6 +166,10 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
     static CLOSING = 2;
     static CLOSED = 3;
     constructor(url) {
+      if (world.throwNext > 0) {
+        world.throwNext -= 1;
+        throw new Error('socket constructor refused');
+      }
       this.url = url;
       this.readyState = 0;
       this.binaryType = '';
@@ -184,6 +215,10 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
     keys,
     store,
     sockets: [],
+    /** How many of the next socket constructions throw (a browser that refuses to open one). */
+    throwNext: 0,
+    /** The desktop reads each hello but never answers it: a handshake that does not finish. */
+    holdHello: false,
     events,
     advance,
     waitFor,
@@ -217,7 +252,7 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
         server: null,
         challenge: null,
         pings: 0,
-        core: { foreground: null, browserId: null, screen: [], panels: [], view: [], lanes: [] },
+        core: { foreground: null, browserId: null, screen: [], panels: [], view: [], lanes: [], resyncs: 0 },
         queue: Promise.resolve(),
         async toPhone(value) {
           ws.onmessage?.({ data: await leg.server.encryptJson(value) });
@@ -230,6 +265,10 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
             return;
           }
           leg.queue = leg.queue.then(async () => {
+            if (!leg.server && world.holdHello) {
+              log({ ev: 'hello', socket: world.sockets.indexOf(ws) + 1 });
+              return;
+            }
             if (!leg.server) {
               leg.server = await E2EE.acceptRelayE2EEClientHello(identity, leg.challenge, JSON.parse(String(data)));
               await leg.toPhone({ type: 'e2ee-ready', version: 1, ...dialect.readyFields });
@@ -247,7 +286,7 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
       const leg = legs.get(ws);
       leg.server = null;
       leg.challenge = { ...E2EE.createRelayE2EEChallenge(), ...flags };
-      leg.core = { foreground: null, browserId: null, screen: [], panels: [], view: [], lanes: [] };
+      leg.core = { foreground: null, browserId: null, screen: [], panels: [], view: [], lanes: [], resyncs: 0 };
       ws.onmessage({ data: JSON.stringify(leg.challenge) });
     },
     peerClose(ws, code, reason = '') {
@@ -261,6 +300,7 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
       return leg ? leg.core : null;
     },
     pongTo: (ws) => legs.get(ws).clear({ pong: 1 }),
+    stray: (ws) => legs.get(ws).toPhone(dialect.stray),
   };
   return world;
 }
@@ -273,6 +313,7 @@ export const effectiveCore = (core) => ({
   panels: [...core.panels].sort(),
   view: [...core.view].sort(),
   lanes: [...core.lanes].sort(),
+  resyncs: core.resyncs,
 });
 
 /** Node's desktop: call frames `{id?, method, params}`; `synchronizeViews` is answered, and the report calls set what the core knows. */
@@ -287,7 +328,9 @@ export const nodeDialect = {
   },
   /** Calls the script leaves unanswered, to see how a lost connection fails them. */
   unanswered: new Set(['deleteSession']),
-  onFrame(leg, frame) {
+  /** A reply to nothing the phone asked: traffic that proves a leg is delivering, whatever it carries. */
+  stray: { id: 424242, ok: true, value: null },
+  onFrame(leg, frame, log) {
     const [a] = frame.params ?? [];
     if (frame.method === 'setForeground') {
       leg.core.foreground = a;
@@ -296,7 +339,19 @@ export const nodeDialect = {
     else if (frame.method === 'setVisualizePanels') leg.core.panels = a;
     else if (frame.method === 'setRemoteLanes') leg.core.lanes = a;
     else if (frame.method === 'setVisibleSessions') leg.core.view = a;
-    else if (frame.method === 'synchronizeViews') leg.core.view = a;
+    else if (frame.method === 'synchronizeViews') {
+      // Synchronizing the view that is already held is a resync request (view-sync peers resync by synchronizing again); a different set is the page changing its view.
+      if (leg.core.synced && JSON.stringify([...a].sort()) === JSON.stringify([...leg.core.view].sort())) {
+        leg.core.resyncs += 1;
+        log({ ev: 'resync' });
+      }
+      leg.core.synced = true;
+      leg.core.view = a;
+    }
+    else if (frame.method === 'stateResync') {
+      leg.core.resyncs += 1;
+      log({ ev: 'resync' });
+    }
     if (frame.id !== undefined && !this.unanswered.has(frame.method)) {
       void leg.toPhone({ id: frame.id, ok: true, value: frame.method === 'synchronizeViews' ? {} : null });
     }
@@ -307,13 +362,21 @@ export const nodeDialect = {
 export function protocolDialect(initializeResult) {
   const subscription = { id: 's', mode: 'snapshot', epoch: 'e', startSeq: 1 };
   return {
+    // A server request the client does not know: it answers it and carries on (a response to nothing would end the connection).
+    stray: { id: 'stray-1', method: 'test/unknown', params: {} },
     readyFields: { hostName: 'Test PC', remoteOpenAccess: 1 },
-    onFrame(leg, frame) {
+    onFrame(leg, frame, log) {
       const reply = (result) => void leg.toPhone({ id: frame.id, result });
       switch (frame.method) {
         case 'initialize':
           return reply(initializeResult);
         case 'app/subscribe':
+          // The app feed is attached once per leg; asking again is the protocol's state resync (Node's stateResync).
+          if (leg.core.appAttached) {
+            leg.core.resyncs += 1;
+            log({ ev: 'resync' });
+          }
+          leg.core.appAttached = true;
           return reply({ subscription });
         case 'thread/resume':
           leg.core.view = [...new Set([...leg.core.view, frame.params.threadId])];

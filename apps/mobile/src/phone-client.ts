@@ -4,9 +4,7 @@
 import {
   connect,
   DEFAULT_LADDER,
-  ladderDelay,
   sessionReducer,
-  type LadderConfig,
   type ProtocolClient,
   type SessionFold,
   type ThreadReducer,
@@ -39,7 +37,7 @@ export interface PhoneClient {
   /** Page lifecycle hooks of the transport session. */
   readonly link: Pick<RelayConnector, 'hidden' | 'suspend' | 'suspended'> & {
     /** Foreground: releases a suspension, probes the live socket, and cuts a running redial wait short. */
-    wake(): void;
+    wake(): boolean;
   };
   /** Present when `PhoneClientOptions.screen` was given: call `refresh()` when the page or the shown threads change. */
   readonly screen?: ScreenReporter;
@@ -49,6 +47,48 @@ export interface PhoneClient {
 export const OFFLINE_LADDER_CAP_MS = 60_000;
 /** The first redial after the relay ended a live connection is spread over this window, so a relay restart does not meet every phone at once. */
 export const FLEET_SPREAD_MS = 1_500;
+/** The shortest wait of a redial that is not the first of an outage, and the longest while the relay does not say the PC is offline. */
+export const REDIAL_MIN_MS = 500;
+export const REDIAL_MAX_MS = 10_000;
+
+export interface RedialAsk {
+  /** The relay closed a connection that was live: every phone on it redials in this instant, so the first retry is spread. */
+  readonly fleet?: boolean;
+  /** The relay's latest answer is "PC offline". */
+  readonly offline?: boolean;
+  /** The page recycled the socket itself: one silent redial at full speed. */
+  readonly quiet?: boolean;
+}
+
+/**
+ * How long the phone waits before dialing again, as the relay web app always paced it: the first retry of an outage leaves at once
+ * (spread over FLEET_SPREAD_MS after a relay-side close of a live connection), and each later one is drawn from [step, next step]
+ * from REDIAL_MIN_MS up to the ceiling, which is REDIAL_MAX_MS (60 s while the PC is offline); at the ceiling the range stays
+ * [ceiling / 2, ceiling] so phones that reached it never line up again. Every ready connection and every wake starts over.
+ */
+export function createRedialSchedule(random: () => number): { next(ask: RedialAsk): number; reset(): void } {
+  let step = 0;
+  return {
+    reset: () => {
+      step = 0;
+    },
+    next: ({ fleet = false, offline = false, quiet = false }) => {
+      if (quiet) {
+        step = 0;
+        return 0;
+      }
+      const ceiling = offline ? OFFLINE_LADDER_CAP_MS : REDIAL_MAX_MS;
+      if (step === 0) {
+        step = REDIAL_MIN_MS;
+        return fleet ? Math.round(random() * FLEET_SPREAD_MS) : 0;
+      }
+      const high = Math.min(ceiling, step * 2);
+      const low = Math.min(step, high / 2);
+      step = Math.min(ceiling, step * 2);
+      return Math.round(low + random() * (high - low));
+    },
+  };
+}
 
 /**
  * Connects, retrying the first connection on the client library's ladder (the library itself only reconnects a connection
@@ -65,24 +105,23 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
     options.onConnection({ state });
     void client?.close();
   };
-  // Redial pacing on top of the library ladder, read by it on every delay.
+  // Redial pacing: the library asks for a wait before each dial; what the page knows of the last end decides how long (see createRedialSchedule).
   let offline = false;
   let spread = false;
   let quiet = false;
-  const ladder: LadderConfig = {
-    get baseMs() {
-      const first = spread;
-      spread = false;
-      return first ? FLEET_SPREAD_MS : DEFAULT_LADDER.baseMs;
-    },
-    get capMs() {
-      return offline ? OFFLINE_LADDER_CAP_MS : DEFAULT_LADDER.capMs;
-    },
+  let silent = false;
+  const schedule = createRedialSchedule(random);
+  const redialDelay = (): number => {
+    const ask = { fleet: spread, offline, quiet: silent };
+    spread = false;
+    silent = false;
+    return schedule.next(ask);
   };
   // A wake cuts the running redial wait short: waiting out a grown backoff after the user came back is the gap they watch.
   const sleepers = new Set<() => void>();
-  const sleep = (ms: number): Promise<void> =>
+  const sleep = (_libraryMs: number): Promise<void> =>
     new Promise((done) => {
+      const ms = redialDelay();
       const finish = (): void => {
         clearTimeout(timer);
         sleepers.delete(finish);
@@ -91,15 +130,31 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
       const timer = setTimeout(finish, ms);
       sleepers.add(finish);
     });
+  let last: PhoneConnection | undefined;
   const connector = createRelayConnector({
     ...options,
+    // Every dial states the indicator again, as the page always did: a wake that dials during an outage shows it anew.
+    dialing: () => {
+      if (!terminal && last && (last.state === 'connecting' || last.state === 'reconnecting')) options.onConnection(last);
+      options.dialing?.();
+    },
+    // The desktop came back to a socket the relay kept: the handshake starts over on it.
+    reused: () => {
+      if (!terminal && last?.state === 'reconnecting') {
+        last = { state: 'connecting' };
+        options.onConnection(last);
+      }
+      options.reused?.();
+    },
     closed: (code, reason, info) => {
       const state = terminalOfClose(code, reason);
-      if (state) settle(state);
       offline = code === CLOSE_DESKTOP_OFFLINE;
       spread = info.remote && info.ready;
       quiet = info.quiet;
+      silent = info.quiet;
+      // The failure is reported before a terminal state asks the user, as the page always did.
       options.onClose?.(code, reason, info);
+      if (state) settle(state);
     },
   });
   options.onConnection({ state: 'connecting' });
@@ -114,7 +169,7 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
         threadReducer: options.threadReducer ?? sessionReducer,
         clock: { sleep },
         random,
-        ladder,
+        ladder: DEFAULT_LADDER,
       });
     } catch (error) {
       if (terminal) throw error;
@@ -123,12 +178,11 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
         settle('update-required');
         throw error;
       }
-      await sleep(ladderDelay(attempt, random(), ladder));
+      await sleep(0);
       continue;
     }
     break;
   }
-  let last: PhoneConnection | undefined;
   const report = (shown: PhoneConnection): void => {
     if (terminal) return;
     // A redial the page chose (recycle, background) or one that has not yet had a connection is connecting, not an outage.
@@ -140,7 +194,10 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
   };
   client.on((event) => {
     if (event.type === 'status') {
-      if (event.status.state === 'ready') offline = false;
+      if (event.status.state === 'ready') {
+        offline = false;
+        schedule.reset();
+      }
       report(phoneConnectionOf(event.status));
       if (event.status.state === 'ready') quiet = false;
     }
@@ -155,8 +212,11 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
       return connector.suspended;
     },
     wake: () => {
-      connector.wake();
+      // A wake never inherits a grown backoff: the redial that follows it is the gap the user watches.
+      schedule.reset();
+      const probing = connector.wake();
       for (const finish of [...sleepers]) finish();
+      return probing;
     },
   };
   return { client, link, ...(screen ? { screen } : {}) };

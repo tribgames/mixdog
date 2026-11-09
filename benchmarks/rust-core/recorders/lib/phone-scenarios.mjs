@@ -134,6 +134,174 @@ export const SCENARIOS = {
     { op: 'check', name: 'returned', expect: { foreground: true } },
     { op: 'mark', name: 'after-return' },
   ],
+  // A wake after a long offline backoff redials at once and restarts the backoff from the minimum.
+  'wake-after-offline': [
+    { op: 'boot' },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'random', value: 1 },
+    { op: 'drop', code: 1006 },
+    { op: 'offline-redials', rounds: 8, name: 'offline-backed-off' },
+    { op: 'event', target: 'window', type: 'focus' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'wake-dials' },
+    { op: 'offline-redials', rounds: 3, name: 'offline-again' },
+  ],
+  // A failure that is not "PC offline" brings the 10 s ceiling back after a grown offline backoff.
+  'other-failure-after-offline': [
+    { op: 'boot' },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'random', value: 1 },
+    { op: 'drop', code: 1006 },
+    { op: 'offline-redials', rounds: 6, name: 'offline-backed-off' },
+    { op: 'offline-redials', rounds: 6, code: 1006, name: 'other-failures' },
+  ],
+  // The relay's older resync hint asks for a resync on a live leg.
+  'relay-resync-hint': [
+    { op: 'boot' },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'relay-hint' },
+    { op: 'mark', name: 'hint' },
+  ],
+  // Closes that are not a revoked pairing keep reconnecting by themselves and never ask the user.
+  'transient-closes': [
+    { op: 'boot' },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'random', value: 0.5 },
+    { op: 'drop', code: 1001 },
+    { op: 'advance', ms: 1500 },
+    { op: 'accept' },
+    { op: 'check', name: 'after-1001', expect: { foreground: true } },
+    { op: 'drop', code: 1011 },
+    { op: 'advance', ms: 1500 },
+    { op: 'accept' },
+    { op: 'check', name: 'after-1011', expect: { foreground: true } },
+    { op: 'drop', code: 1012 },
+    { op: 'advance', ms: 1500 },
+    { op: 'accept' },
+    { op: 'check', name: 'after-1012', expect: { foreground: true } },
+    { op: 'drop', code: 4004 },
+    { op: 'advance', ms: 1500 },
+    { op: 'mark', name: 'after-4004' },
+  ],
+  // A wake while the page is still frozen waits for resume before dialing.
+  'frozen-wake': [
+    { op: 'boot' },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'hide' },
+    { op: 'advance', ms: 30000 },
+    { op: 'mark', name: 'suspended' },
+    { op: 'event', target: 'document', type: 'freeze' },
+    { op: 'show' },
+    { op: 'event', target: 'window', type: 'focus' },
+    { op: 'advance', ms: 1000 },
+    { op: 'mark', name: 'frozen-no-dial' },
+    { op: 'event', target: 'document', type: 'resume' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'resumed-dials' },
+    { op: 'accept' },
+    { op: 'check', name: 'thawed', expect: { foreground: true } },
+  ],
+  // The resync a wake asks for leaves only once the relay has answered the probe.
+  'wake-late-pong': [
+    { op: 'boot' },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'hide' },
+    { op: 'advance', ms: 10000 },
+    { op: 'show' },
+    { op: 'advance', ms: 1000 },
+    { op: 'mark', name: 'probe-waiting' },
+    { op: 'pong' },
+    { op: 'mark', name: 'late-pong' },
+    { op: 'advance', ms: 5000 },
+    { op: 'mark', name: 'quiet-after' },
+  ],
+  // A backgrounded leg found dead on resume redials silently, even with a call in flight.
+  'dead-on-resume': [
+    { op: 'boot' },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'call' },
+    { op: 'hide' },
+    { op: 'advance', ms: 10000 },
+    { op: 'show' },
+    { op: 'stray' },
+    { op: 'advance', ms: 2500 },
+    { op: 'mark', name: 'recycled' },
+    { op: 'advance', ms: 1500 },
+    { op: 'accept' },
+    { op: 'check', name: 'redialed', expect: { foreground: true } },
+  ],
+  // A close delivered as the page thaws redials silently.
+  'close-on-thaw': [
+    { op: 'boot' },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'hide' },
+    { op: 'thaw' },
+    { op: 'drop', code: 1006 },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'thaw-close' },
+    { op: 'accept' },
+    { op: 'check', name: 'redialed', expect: { foreground: true } },
+  ],
+  // A leg still delivering its backlog well after the probe is kept, and its resync goes out.
+  'backlog-kept': [
+    { op: 'boot' },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'hide' },
+    { op: 'advance', ms: 10000 },
+    { op: 'show' },
+    { op: 'advance', ms: 1500 },
+    { op: 'stray' },
+    { op: 'advance', ms: 1000 },
+    { op: 'mark', name: 'kept' },
+  ],
+  // A proven leg that drops in view takes the visible reconnect path.
+  'proven-drop-visible': [
+    { op: 'boot' },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'hide' },
+    { op: 'advance', ms: 10000 },
+    { op: 'show' },
+    { op: 'pong' },
+    { op: 'random', value: 0 },
+    { op: 'drop', code: 1006 },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'dropped' },
+    { op: 'accept' },
+    { op: 'check', name: 'redialed', expect: { foreground: true } },
+  ],
+  // Handshake restarts on one joining socket are bounded: the first challenge and two more are answered, the fourth ends the socket.
+  'restarts-bounded': [
+    { op: 'boot' },
+    { op: 'hold-hello' },
+    { op: 'accept' },
+    { op: 'hello' },
+    { op: 'rechallenge' },
+    { op: 'hello' },
+    { op: 'rechallenge' },
+    { op: 'hello' },
+    { op: 'mark', name: 'three-answered' },
+    { op: 'rechallenge' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'fourth-refused' },
+  ],
+  // A browser that refuses to construct a socket does not pin the connection to the rejected attempt.
+  'socket-ctor-throws': [
+    { op: 'boot', socketThrows: 1 },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'refused' },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+  ],
 };
 
 const OUTAGE = new Set(['connecting', 'reconnecting']);
@@ -152,6 +320,8 @@ export async function play(world, driver, ops) {
   // A connection the script accepted counts as up for a check only once the indicator said connected since.
   let awaitingConnected = false;
   const calls = [];
+  let hellos = 0;
+  const refused = new Set();
   const checkpoint = (name, extra = {}) => {
     const slice = world.events.slice(cursor);
     cursor = world.events.length;
@@ -168,7 +338,7 @@ export async function play(world, driver, ops) {
       banner,
       offline: slice.some((e) => e.ev === 'state' && e.desktop === 'offline'),
       wire: slice
-        .filter((e) => e.ev === 'ping' || e.ev === 'close' || e.ev === 'socket')
+        .filter((e) => e.ev === 'ping' || e.ev === 'close' || e.ev === 'socket' || e.ev === 'resync')
         .map((e) => `${e.ev}${e.ev === 'close' ? `(${e.code},${e.reason})` : ''}@${e.at - since}`),
       pairingInvalid: slice.filter((e) => e.ev === 'pairing-invalid').map((e) => e.message),
       reconnected: slice.filter((e) => e.ev === 'reconnected').length,
@@ -182,6 +352,7 @@ export async function play(world, driver, ops) {
   for (const op of ops) {
     switch (op.op) {
       case 'boot':
+        world.throwNext = op.socketThrows ?? 0;
         if (op.visible) world.store.set('mixdog.remote-visible-sessions', JSON.stringify(op.visible));
         await driver.boot(world, op);
         break;
@@ -193,6 +364,8 @@ export async function play(world, driver, ops) {
       case 'check': {
         await world.until(() => world.core() !== null && deepMatch(effectiveCore(world.core()), op.expect) && (!awaitingConnected || world.events.slice(cursor).some((e) => e.ev === 'state' && e.state === 'connected')));
         awaitingConnected = false;
+        // What the product does in answer to the last thing it saw (its reply landing, the indicator following) happens before the checkpoint.
+        await world.advance(0);
         checkpoint(op.name);
         break;
       }
@@ -221,6 +394,33 @@ export async function play(world, driver, ops) {
         world.legOf(lastSocket).clear({ resync: 'desktop-gone' });
         await world.advance(0);
         break;
+      case 'event': {
+        const target = op.target === 'document' ? world.document : world.window;
+        target.dispatchEvent(new Event(op.type));
+        await world.advance(0);
+        break;
+      }
+      case 'thaw':
+        // The page thaws with its state already visible and the close queued while it was frozen runs before any visibility event.
+        world.document.visibilityState = 'visible';
+        break;
+      case 'stray':
+        await world.stray(lastSocket);
+        await world.advance(0);
+        break;
+      case 'relay-hint':
+        world.legOf(lastSocket).clear({ resync: 1 });
+        await world.advance(0);
+        break;
+      case 'hold-hello':
+        world.holdHello = true;
+        break;
+      case 'hello': {
+        hellos += 1;
+        const want = hellos;
+        await world.until(() => world.events.filter((e) => e.ev === 'hello').length >= want);
+        break;
+      }
       case 'pong':
         world.pongTo(lastSocket);
         await world.advance(0);
@@ -245,24 +445,25 @@ export async function play(world, driver, ops) {
         await world.advance(0);
         break;
       case 'offline-redials': {
-        // Each round: wait for the redial's socket, let the relay close it before the handshake with "PC offline" (4002).
+        // Each round: wait for the redial's socket, let the relay close it (by default before the handshake with "PC offline", 4002).
         const delays = [];
         let last = world.clock.now;
         for (let i = 0; i < op.rounds; i += 1) {
-          const before = world.sockets.length;
+          const pending = () => world.sockets.find((s) => !refused.has(s) && !world.accepted(s));
           let guard = 0;
-          while (world.sockets.length === before && guard++ < 200) await world.advance(1000);
-          const ws = world.sockets[world.sockets.length - 1];
+          while (!pending() && guard++ < 400) await world.advance(250);
+          const ws = pending();
+          refused.add(ws);
           // The delay is read from the socket's creation event, not from the polling step.
-          const created = world.events.findLast((e) => e.ev === 'socket' && e.n === world.sockets.length);
+          const created = world.events.findLast((e) => e.ev === 'socket' && e.n === world.sockets.indexOf(ws) + 1);
           delays.push(created.at - last);
           ws.readyState = 1;
           ws.onopen?.();
-          world.peerClose(ws, 4002);
+          world.peerClose(ws, op.code ?? 4002);
           last = world.clock.now;
           await world.advance(0);
         }
-        checkpoint('offline', { maxRedialDelayMs: Math.max(...delays), offlineSeen: true });
+        checkpoint(op.name ?? 'offline', { maxRedialDelayMs: Math.max(...delays), redialDelaysMs: delays });
         break;
       }
       default:

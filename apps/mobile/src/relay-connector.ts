@@ -58,6 +58,18 @@ export interface RelayConnectorDeps {
   ready?(hello: Readonly<Record<string, unknown>>): void;
   /** Whether the page is visible; the keepalive does not run while it is not. */
   visible?(): boolean;
+  /** A dial (or the takeover of a parked socket) is starting. */
+  dialing?(): void;
+  /** A parked socket is being re-keyed for the desktop's return. */
+  reused?(): void;
+  /** The connection entered a stage: the socket is open and the encryption handshake runs (a new challenge restarts it). */
+  encrypting?(): void;
+  /** The page gives up on a socket that stopped answering (keepalive or wake probe), just before it closes it. */
+  unresponsive?(): void;
+  /** The relay answered a wake probe (its pong, or traffic that proves the leg live): the page's wake recovery may go on. */
+  probeAnswered?(): void;
+  /** The relay's cleartext resync hint (any resync but desktop-gone). */
+  resyncHint?(): void;
   /** Present only where `RTCPeerConnection` exists: its absence is the transport opt-out. */
   webrtc?: {
     createPeer(configuration: RTCConfiguration): RTCPeerConnection;
@@ -70,8 +82,8 @@ export interface RelayConnectorDeps {
 export interface RelayConnector extends Connector {
   /** The page went hidden: no transport timer runs until `wake`. */
   hidden(): void;
-  /** Visible again: release a suspension and probe the live socket (and both transport paths) at once. */
-  wake(): void;
+  /** Visible again: release a suspension and probe the live socket (and both transport paths) at once. True when a socket was probed. */
+  wake(): boolean;
   /** The page stayed in the background: end the socket with 1000 `background` once what was handed to it is sent, and hold every open until `wake`. */
   suspend(): void;
   readonly suspended: boolean;
@@ -115,6 +127,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
 
   interface Session {
     probe(): void;
+    unprove(): void;
     recycle(code: number, reason: string): void;
     suspend(): void;
   }
@@ -127,7 +140,10 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
   };
 
   const connector: RelayConnector = {
-    hidden: () => active?.hidden(),
+    hidden: () => {
+      active?.hidden();
+      current?.unprove();
+    },
     wake: () => {
       if (suspended) {
         suspended = false;
@@ -135,10 +151,12 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
         release = null;
         held = null;
         resume?.();
-        return;
+        return false;
       }
+      const probing = current !== null;
       current?.probe();
       active?.wake();
+      return probing;
     },
     suspend: () => {
       suspended = true;
@@ -150,6 +168,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
     },
     open: async (target, sink) => {
       while (suspended) await hold();
+      deps.dialing?.();
       return new Promise<TransportWriter>((resolve, reject) => {
         const reuse = parked;
         parked = null;
@@ -164,6 +183,10 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
         let ready = false;
         let finished = false;
         let quiet = false;
+        // Hidden or probed since it last proved itself: its death is the cost of the background, not an outage.
+        let unproven = false;
+        // Requests sent and not yet answered: a keepalive recycle is invisible only while nothing waits on the socket.
+        const inflight = new Set<unknown>();
         let challengesSeen = 0;
         let generation = 0;
         let lastTrafficAt = Date.now();
@@ -192,6 +215,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
           finished = true;
           stopTimers();
           closePeer();
+          if (unproven) quiet = true;
           deps.closed?.(code, reason, { ready, remote, quiet });
           if (ready) sink.closed(code, reason);
           else reject(new Error(`relay socket closed before ready (${code}${reason ? ` ${reason}` : ''})`));
@@ -235,7 +259,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
           sink.closed(CLOSE_DESKTOP_LEG_GONE, reason);
         };
         const recycle = (code: number, reason: string): void => {
-          quiet = true;
+          if (inflight.size === 0) quiet = true;
           fail(code, reason, true);
         };
 
@@ -257,6 +281,8 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
             resolve(writer);
             return;
           }
+          const answered = message as { id?: unknown; method?: unknown } | null;
+          if (answered && answered.id !== undefined && answered.method === undefined) inflight.delete(answered.id);
           sink.frame(JSON.stringify(message));
         };
         // The relay's own cleartext words: a pong answers a probe, `resync: desktop-gone` says the desktop leg left.
@@ -266,14 +292,21 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
             if (wakeTimer !== undefined) {
               clearTimeout(wakeTimer);
               wakeTimer = undefined;
+              proven();
             }
             return true;
           }
           if ('resync' in word) {
             if (word.resync === 'desktop-gone') park([]);
+            else deps.resyncHint?.();
             return true;
           }
           return false;
+        };
+        // The leg answered a wake probe: it is live again.
+        const proven = (): void => {
+          unproven = false;
+          deps.probeAnswered?.();
         };
         const handle = async (data: unknown): Promise<void> => {
           let sealed: unknown = data;
@@ -300,6 +333,8 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
         };
         const answerChallenge = async (challenge: RelayE2EEChallenge): Promise<void> => {
           challengesSeen += 1;
+          if (reuse && challengesSeen === 1) deps.reused?.();
+          deps.encrypting?.();
           if (challengesSeen > MAX_HANDSHAKE_RESTARTS + 1) throw new Error('duplicate relay encryption challenge');
           const mine = ++generation;
           channel = null;
@@ -341,6 +376,8 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
               .then(async () => {
                 if (finished || !channel) return;
                 const value: unknown = JSON.parse(text);
+                const request = value as { id?: unknown; method?: unknown } | null;
+                if (request && request.id !== undefined && request.method !== undefined) inflight.add(request.id);
                 if (peer) {
                   await peer.send(value);
                   return;
@@ -369,6 +406,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
           if (awaitingPong) {
             if (now - pingSentAt >= PONG_DEADLINE_MS) {
               awaitingPong = false;
+              deps.unresponsive?.();
               recycle(CLOSE_NORMAL, 'keepalive timed out');
             }
             return;
@@ -380,8 +418,12 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
           }
         }, KEEPALIVE_TICK_MS);
         const session: Session = {
+          unprove: () => {
+            if (!finished) unproven = true;
+          },
           probe: () => {
             if (finished) return;
+            unproven = true;
             pingSentAt = Date.now();
             awaitingPong = true;
             sendPing();
@@ -390,8 +432,12 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
             wakeTimer = setTimeout(() => {
               wakeTimer = undefined;
               // A leg still delivering a backlog queues the pong behind it.
-              if (lastTrafficAt - sentAt >= WAKE_TRAFFIC_PROOF_MS) return;
+              if (lastTrafficAt - sentAt >= WAKE_TRAFFIC_PROOF_MS) {
+                proven();
+                return;
+              }
               awaitingPong = false;
+              deps.unresponsive?.();
               recycle(CLOSE_NORMAL, 'wake probe unanswered');
             }, WAKE_PROBE_MS);
           },
@@ -409,11 +455,14 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
 
         ws.onmessage = (event) => {
           lastTrafficAt = Date.now();
-          inbound = inbound.then(() => (finished ? undefined : handle(event.data))).catch(() => fail(CLOSE_PROTOCOL_ERROR, 'frame failed'));
+          inbound = inbound.then(() => (finished ? undefined : handle(event.data))).catch(() => fail(CLOSE_PROTOCOL_ERROR, 'frame failed', true));
         };
         ws.onclose = (event) => finish(event.code, event.reason, true);
         ws.onerror = () => {};
-        ws.onopen = () => arm(HANDSHAKE_DEADLINE_MS);
+        ws.onopen = () => {
+          arm(HANDSHAKE_DEADLINE_MS);
+          deps.encrypting?.();
+        };
         if (reuse) for (const data of reuse.inbox) ws.onmessage({ data });
       });
     },

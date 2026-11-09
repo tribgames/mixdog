@@ -15,6 +15,8 @@ export type ViewClient = Pick<ProtocolClient<SessionFold>, 'resumeThread' | 'uns
 export interface ViewManager {
   /** The page names the threads it shows. Resolves true once they are open; false asks the caller to ask again. */
   set(threadIds: readonly string[]): Promise<boolean>;
+  /** Asks the core again for the app feed and every open thread (they resume from where they were): the page doubts the stream, e.g. after a wake. */
+  resync(): Promise<boolean>;
   /** Resolves when the connection that is up has the app feed and every open thread attached. */
   synced(): Promise<void>;
   stop(): void;
@@ -25,8 +27,10 @@ export function createViewManager(
   options: {
     /** Threads of the last visit: opened with the first connection, whatever the panes name first. */
     restored: readonly string[];
-    /** Called each time a connection finished attaching (the first one included). */
+    /** Called each time everything asked of the core has been attached (the first connection included); reconnected when a new connection did it. */
     onSynced(reconnected: boolean): void;
+    /** A sync of the view began on the connection that is up (a change of the view, a resync): the indicator shows it until onSynced. */
+    syncing(): void;
   }
 ): ViewManager {
   const open = new Set<string>();
@@ -39,7 +43,16 @@ export function createViewManager(
     firstSynced = resolve;
   });
   let everSynced = false;
-
+  let running = 0;
+  const live = (): boolean => client.status.state === 'ready';
+  const begin = (): void => {
+    running += 1;
+    if (live()) options.syncing();
+  };
+  const end = (ok: boolean): void => {
+    running -= 1;
+    if (ok && running === 0 && live()) synced(false);
+  };
   const waitAttached = (): Promise<void> => {
     const pending = new Set<string>(['app', ...open]);
     return new Promise<void>((resolve) => {
@@ -71,6 +84,8 @@ export function createViewManager(
 
   const apply = async (): Promise<boolean> => {
     const target = new Set([...wanted, ...restored]);
+    const changed = !appOpen || target.size !== open.size || [...target].some((id) => !open.has(id));
+    if (changed) begin();
     try {
       if (!appOpen) {
         await client.subscribeApp();
@@ -87,10 +102,23 @@ export function createViewManager(
         open.add(id);
       }
     } catch {
+      if (changed) end(false);
       return false;
     }
     restored = [];
-    if (!everSynced) synced(false);
+    if (changed) end(true);
+    return true;
+  };
+  const resync = async (): Promise<boolean> => {
+    begin();
+    try {
+      await client.subscribeApp();
+      for (const id of [...open]) await client.resumeThread(id, VIEW_WINDOW);
+    } catch {
+      end(false);
+      return false;
+    }
+    end(true);
     return true;
   };
 
@@ -98,6 +126,11 @@ export function createViewManager(
     set(threadIds) {
       wanted = [...new Set(threadIds)];
       const run = chain.then(apply, apply);
+      chain = run;
+      return run;
+    },
+    resync() {
+      const run = chain.then(resync, resync);
       chain = run;
       return run;
     },
