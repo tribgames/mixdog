@@ -728,12 +728,22 @@ mod tests {
         assert_eq!(count().await, Ok(0));
     }
 
+    /// The ask goes to the surface's own gate (`Inner`, which answers `Unavailable`): its task finishes before any push is made. A held
+    /// ask pushes and then waits for its answer, so it ends the wait on the push instead of hanging.
+    async fn asked_of_the_surface(home: &Home, gate: Arc<dyn ApprovalGate>) -> ApprovalResolution {
+        let asking = tokio::spawn(async move { gate.request(ask()).await });
+        tokio::select! {
+            answered = asking => answered.expect("the ask settles"),
+            _ = home.pushed.acquire() => panic!("the ask was held, not asked of the surface's own gate"),
+        }
+    }
+
     #[tokio::test]
     async fn an_attached_ui_keeps_its_own_approval() {
         let (home, held, _) = setup();
         home.attached.store(true, Ordering::SeqCst);
         let gate = held.gate_for(ThreadId::from("sess_rmem_abcdef_ann"), Arc::new(Inner));
-        assert_eq!(gate.request(ask()).await, ApprovalResolution::Unavailable { at: 7 });
+        assert_eq!(asked_of_the_surface(&home, gate).await, ApprovalResolution::Unavailable { at: 7 });
         assert!(home.rows.lock().unwrap().is_empty());
     }
 
@@ -744,7 +754,7 @@ mod tests {
         home.attached.store(true, Ordering::SeqCst);
         let gate = held.gate_for(ThreadId::from("sess_rmem_abcdef_ann"), Arc::new(Inner));
         home.attached.store(false, Ordering::SeqCst);
-        assert_eq!(gate.request(ask()).await, ApprovalResolution::Unavailable { at: 7 });
+        assert_eq!(asked_of_the_surface(&home, gate).await, ApprovalResolution::Unavailable { at: 7 });
         assert!(home.rows.lock().unwrap().is_empty());
         assert!(held.pending().is_empty());
     }

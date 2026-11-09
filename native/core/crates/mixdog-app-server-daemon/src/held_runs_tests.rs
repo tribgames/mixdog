@@ -405,8 +405,28 @@ impl Scene {
         Self { now, grants, runs, ui_attached, card: Arc::default(), hook, home, approvals: Arc::new(HeldGates(held.clone())), held, policy, pushes, waiting, _dir: dir }
     }
 
-    /// The tool gate of one session, as the assembly builds it: the session's own facts, the policy, and the approvals that went through `RunApprovals::gate_for`.
+    /// The tool gate of one session over the scene's stand-in card.
     fn gate(&self, session: &str) -> Arc<PolicyGate> {
+        self.kit().gate_over(session, self.card.clone())
+    }
+
+    fn kit(&self) -> GateKit {
+        GateKit { runs: self.runs.clone(), policy: self.policy.clone(), approvals: self.approvals.clone() }
+    }
+}
+
+/// What assembles a session's tool gate, shareable into a run's script.
+#[derive(Clone)]
+struct GateKit {
+    runs: Arc<UnattendedRunRegistry>,
+    policy: Arc<ToolPolicy>,
+    approvals: Arc<dyn RunApprovals>,
+}
+
+impl GateKit {
+    /// The tool gate of one session, as the assembly builds it: the session's own facts, the policy, and the approvals that went through
+    /// `RunApprovals::gate_for` over `own`, the thread's own gate.
+    fn gate_over(&self, session: &str, own: Arc<dyn ApprovalGate>) -> Arc<PolicyGate> {
         let thread = ThreadId::from(session);
         let header: Arc<Header> = Arc::new(Header::new());
         let (_tx, surface) = watch::channel(Arc::new(SessionSurface::default()));
@@ -417,7 +437,7 @@ impl Scene {
             session: Arc::new(session_gate),
             tools: Arc::new(Tools),
             grants: Arc::new(SessionGrants::default()),
-            approvals: self.approvals.gate_for(&thread, self.card.clone()),
+            approvals: self.approvals.gate_for(&thread, own),
             observer: Arc::new(NullObserver),
             guards: Arc::new(NoGuards),
             thread_id: thread,
@@ -662,9 +682,27 @@ mod client_turns;
 struct Client {
     handle: mixdog_app_server::ConnectionHandle,
     wire: Arc<mixdog_core_api::mock::MockConnection>,
+    /// Every frame drained so far, so that a frame that arrived with a response is still there when it is looked for.
+    seen: Mutex<Vec<String>>,
 }
 
 impl Client {
+    fn new(handle: mixdog_app_server::ConnectionHandle, wire: Arc<mixdog_core_api::mock::MockConnection>) -> Self {
+        Self { handle, wire, seen: Mutex::default() }
+    }
+
+    /// The `item/tool/requestApproval` frame this connection is sent, once it is.
+    async fn approval_request(&self) -> Value {
+        let find = |texts: &[String]| texts.iter().find_map(|text| text.find('{').and_then(|at| serde_json::from_str::<Value>(&text[at..]).ok()).filter(|frame| frame["method"] == "item/tool/requestApproval"));
+        if let Some(frame) = find(&self.seen.lock().unwrap()) {
+            return frame;
+        }
+        let frames = self.wire.drain_text_until(|all| find(all).is_some()).await;
+        let frame = find(&frames).expect("the approval request frame");
+        self.seen.lock().unwrap().extend(frames);
+        frame
+    }
+
     fn request(&self, id: i64, method: &str, params: Value) {
         let message = serde_json::from_value(json!({ "id": id, "method": method, "params": params })).expect("a request");
         let _ = self.handle.on_message(message);
@@ -677,6 +715,7 @@ impl Client {
         let frame_of = |text: &String| text.find('{').and_then(|at| serde_json::from_str::<Value>(&text[at..]).ok()).filter(|frame| frame["id"] == json!(id));
         let frames = self.wire.drain_text_until(|all| all.iter().any(|text| frame_of(text).is_some())).await;
         let frame = frames.iter().find_map(frame_of).expect("the response frame");
+        self.seen.lock().unwrap().extend(frames);
         assert!(frame.get("result").is_some(), "request {id} failed: {frame}");
     }
 }
@@ -770,7 +809,7 @@ async fn a_member_is_held_exactly_when_no_client_can_show_its_card() {
         for (index, attendee) in case.attendees.iter().enumerate() {
             let id = index as u64 + 1;
             let wire = Arc::new(MockConnection::new(ConnectionId(id), MockLimits::default()));
-            let client = Client { handle: server.open(ConnectionId(id), wire.clone()), wire };
+            let client = Client::new(server.open(ConnectionId(id), wire.clone()), wire);
             client.request(
                 0,
                 "initialize",
@@ -817,7 +856,12 @@ async fn a_member_is_held_exactly_when_no_client_can_show_its_card() {
             // (the approval waits in the turn's own queue), and only the next turn, assembled with no client, is held.
             clients.clear();
             let call = GateCall::new("shell".to_owned(), json!({ "command": "echo later" }));
-            let decision = present(&call, turn_gate.check_call("call_c", &call).await);
+            let mut later = tokio::spawn(async move { present(&call, turn_gate.check_call("call_c", &call).await) });
+            // The card answers at once, so the call settles; a held ask pushes and waits, so it ends the wait on the push.
+            let decision = tokio::select! {
+                settled = &mut later => settled.expect("the call settles"),
+                push = scene.waiting.recv() => panic!("{}: the running turn's ask was held after the clients left: {push:?}", case.name),
+            };
             assert_eq!(decision["allowed"], true, "{}: the running turn asks its own card after the clients left", case.name);
             assert_eq!(scene.card.asked.lock().unwrap().len(), 2, "{}: asks on the card", case.name);
             assert!(scene.held.pending().is_empty(), "{}: nothing held for the running turn", case.name);
