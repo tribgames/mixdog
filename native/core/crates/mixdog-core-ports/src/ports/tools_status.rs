@@ -28,14 +28,27 @@ pub trait SurfaceHost: Send + Sync {
     async fn reconcile_empty(&self, thread: &ThreadId) -> Result<(), CoreError>;
 }
 
+/// The provider request a loaded thread's next send would carry, as the run host builds it.
+#[async_trait]
+pub trait RequestSnapshots: Send + Sync {
+    async fn snapshot(&self, thread: &ThreadId) -> Result<Value, CoreError>;
+}
+
 pub struct SessionToolStatus {
     threads: Arc<dyn ThreadState>,
     host: Arc<dyn SurfaceHost>,
+    snapshots: Option<Arc<dyn RequestSnapshots>>,
 }
 
 impl SessionToolStatus {
     pub fn new(threads: Arc<dyn ThreadState>, host: Arc<dyn SurfaceHost>) -> Self {
-        Self { threads, host }
+        Self { threads, host, snapshots: None }
+    }
+
+    /// The source `tools/toolsStatus` reads a thread's `requestSnapshot` from.
+    pub fn with_snapshots(mut self, snapshots: Arc<dyn RequestSnapshots>) -> Self {
+        self.snapshots = Some(snapshots);
+        self
     }
 }
 
@@ -103,6 +116,13 @@ impl ToolSurfaceStatus for SessionToolStatus {
         self.host.reconcile_empty(thread).await?;
         let header = self.threads.header(thread).await.map_err(|_| CoreError::ThreadNotFound { thread_id: thread.clone() })?;
         Ok(surface_of_header(self.host.mode(Some(&header)), &header))
+    }
+
+    async fn request_snapshot(&self, thread: &ThreadId) -> Result<Value, CoreError> {
+        match &self.snapshots {
+            Some(snapshots) => snapshots.snapshot(thread).await,
+            None => Err(CoreError::InvalidParams { path: "snapshot".into(), expected: "a core that builds the thread's provider request".into() }),
+        }
     }
 }
 
@@ -181,6 +201,25 @@ mod tests {
             let header = case["surface"].as_object().cloned().unwrap_or_default();
             assert_eq!(serde_json::json!(surface_of_header("full".into(), &header).listed), case["tools"], "case {}", case["name"]);
         }
+    }
+
+    struct Snapshots;
+
+    #[async_trait]
+    impl RequestSnapshots for Snapshots {
+        async fn snapshot(&self, thread: &ThreadId) -> Result<Value, CoreError> {
+            Ok(json!({ "thread": thread.as_str() }))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_snapshot_comes_from_the_bound_source_and_a_surface_without_one_refuses() {
+        let header = json!({ "tools": [{"name": "read"}] }).as_object().unwrap().clone();
+        let host = Arc::new(Host(Mutex::default()));
+        let without = SessionToolStatus::new(Arc::new(Headers(header.clone())), host.clone());
+        assert!(matches!(without.request_snapshot(&ThreadId::from("t1")).await, Err(CoreError::InvalidParams { .. })));
+        let with = SessionToolStatus::new(Arc::new(Headers(header)), host).with_snapshots(Arc::new(Snapshots));
+        assert_eq!(with.request_snapshot(&ThreadId::from("t1")).await.unwrap(), json!({ "thread": "t1" }));
     }
 
     #[test]
