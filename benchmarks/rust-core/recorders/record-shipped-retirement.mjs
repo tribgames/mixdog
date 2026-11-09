@@ -227,6 +227,10 @@ state('history-missing', { root: noHistory, data: merge(oldEvery(), currentEvery
 for (const [name, text] of [['truncated', world.get('defaults/shipped-history.json').toString('utf8').slice(0, 5000)], ['empty-object', '{}'], ['empty-file', ''], ['array', '[1,2]'], ['string', '"ab"'], ['number', '5'], ['null', 'null'], ['extra-keys', JSON.stringify({ ...history, extra: { a: [1] }, 10: 1, 2: 2 })], ['bom', `\ufeff${JSON.stringify(history)}`]]) {
   state(`history-${name}`, { root: new Map([['defaults/shipped-history.json', Buffer.from(text)]]), data: merge(oldEvery(), currentEvery(1)) });
 }
+// A string-valued history spreads into one key per UTF-16 unit, lone surrogates included; the marker carries the digest of that text.
+for (const [name, text] of [['string-supplementary', JSON.stringify('😀')], ['string-supplementary-raw', '"😀"'], ['string-lone-high', '"\\ud83d"'], ['string-lone-low', '"\\ude00x"'], ['string-mixed', JSON.stringify('a😀b\u00e9\u{f0000}"\\')], ['string-lone-high-then-low-escaped', '"\\ud83d\\u0041\\ude00"']]) {
+  state(`history-${name}`, { root: new Map([['defaults/shipped-history.json', Buffer.from(text)]]), data: oldEvery() });
+}
 const sk = picks.skills[0].name, ag = picks.agents[0].name, wf = picks.workflows[0].name;
 const shaped = (h) => new Map([['defaults/shipped-history.json', Buffer.from(JSON.stringify(h))]]);
 const editedAll = () => { const d = new Map(); everyKind(d, 'current', 0, (kind, item) => edited(kind, item)); return d; };

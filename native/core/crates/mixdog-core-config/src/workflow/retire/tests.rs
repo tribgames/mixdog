@@ -80,15 +80,63 @@ fn recorded(snapshot: &Value) -> Vec<(String, Option<Vec<u8>>)> {
     snapshot.as_array().expect("snapshot").iter().map(|entry| (entry["path"].as_str().expect("path").to_owned(), entry.get("content").map(bytes_of))).collect()
 }
 
+const CHILD: &str = "MIXDOG_RETIRE_REPLAY_CHILD";
+const THIS_TEST: &str = "workflow::retire::tests::every_recorded_state_leaves_the_data_dir_node_left";
+
+/// What Node's recorded `logs` of a state wrote to each stream: `console.log`/`info`/`debug` print a line to stdout,
+/// `warn`/`error` to stderr, `process.stdout/stderr.write` chunks as they are.
+fn recorded_streams(state: &Value) -> (String, String) {
+    let (mut out, mut err) = (String::new(), String::new());
+    for entry in state["logs"].as_array().expect("logs") {
+        let entry = entry.as_str().expect("log");
+        let (level, text) = entry.split_once(": ").expect("level");
+        match level {
+            "stdout" => out.push_str(text),
+            "stderr" => err.push_str(text),
+            "log" | "info" | "debug" => out.push_str(&format!("{text}\n")),
+            _ => err.push_str(&format!("{text}\n")),
+        }
+    }
+    (out, err)
+}
+
+/// The states replayed in a child process of this very test binary, so that everything the pass writes to the real stdout and
+/// stderr is captured: per state, between its `STATE`/`DONE` marker lines, must equal what Node wrote (recorded `logs`), and the
+/// child's whole stderr what Node wrote to stderr. The child itself asserts every tree, marker and error.
 #[tokio::test]
 async fn every_recorded_state_leaves_the_data_dir_node_left() {
+    if std::env::var_os(CHILD).is_some() {
+        return replay_all().await;
+    }
+    let child = std::process::Command::new(std::env::current_exe().expect("test binary"))
+        .args(["--exact", THIS_TEST, "--nocapture", "--test-threads=1"])
+        .env(CHILD, "1")
+        .output()
+        .expect("child");
+    let (stdout, stderr) = (String::from_utf8_lossy(&child.stdout).into_owned(), String::from_utf8_lossy(&child.stderr).into_owned());
+    assert!(child.status.success(), "child replay failed:\n{stdout}\n{stderr}");
+    let (mut expected_err, mut seen) = (String::new(), 0);
+    for state in twin()["states"].as_array().expect("states") {
+        let name = state["name"].as_str().expect("name");
+        let (begin, end) = (format!("\u{1}STATE {name}\n"), format!("\u{1}DONE {name}\n"));
+        let from = stdout.find(&begin).unwrap_or_else(|| panic!("{name}: no marker")) + begin.len();
+        let to = from + stdout[from..].find(&end).unwrap_or_else(|| panic!("{name}: no end marker"));
+        let (out, err) = recorded_streams(state);
+        assert_eq!(&stdout[from..to], out, "{name}: what the pass writes to stdout");
+        expected_err.push_str(&err);
+        seen += 1;
+    }
+    assert!(seen > 60, "{seen} states");
+    assert_eq!(stderr, expected_err, "what the pass writes to stderr");
+}
+
+async fn replay_all() {
     let twin = twin();
     let world = twin["world"].as_object().expect("world");
     let states = twin["states"].as_array().expect("states");
-    assert!(states.len() > 60, "{} states", states.len());
     for state in states {
         let name = state["name"].as_str().expect("name");
-        assert_eq!(state["logs"].as_array().expect("logs").len(), 0, "{name}: Node logs nothing");
+        println!("\u{1}STATE {name}");
         let dir = tempfile::tempdir().expect("dir");
         let (root, data) = (dir.path().join("package"), dir.path().join("data"));
         lay(&root, world);
@@ -115,5 +163,6 @@ async fn every_recorded_state_leaves_the_data_dir_node_left() {
         }
         let node = state["error"].as_str().map(|text| text.strip_prefix("TypeError: ").unwrap_or(text).to_owned());
         assert_eq!(error, node, "{name}: what the pass throws");
+        println!("\u{1}DONE {name}");
     }
 }

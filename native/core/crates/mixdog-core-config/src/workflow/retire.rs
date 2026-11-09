@@ -87,24 +87,62 @@ fn tree_hash_from_dir(dir: &Path) -> Option<String> {
 }
 
 /// `loadShippedHistory(rootDir)`: `{ ...EMPTY_HISTORY, ...parsed }`; a missing or unparsable file is the empty history.
-fn load_history(root: &Path) -> History {
+///
+/// A string-valued file spreads into one key per UTF-16 unit; such a unit may be a lone surrogate, which no Rust string holds, so
+/// the units come back beside the map and `history_stamp` writes them as `JSON.stringify` does. Only the stamp reads them.
+fn load_history(root: &Path) -> (History, Vec<u16>) {
     let mut history: History = HISTORY_SECTIONS.iter().map(|section| ((*section).to_owned(), Value::Object(Map::new()))).collect();
+    let mut spread = Vec::new();
     let parsed = std::fs::read(root.join("defaults").join("shipped-history.json")).ok().and_then(|bytes| mixdog_js::json_parse(&String::from_utf8_lossy(&bytes)).ok());
     match parsed {
         Some(Value::Object(map)) => history.extend(map),
         Some(Value::Array(items)) => history.extend(items.into_iter().enumerate().map(|(at, item)| (at.to_string(), item))),
-        Some(Value::String(text)) => {
-            let units: Vec<u16> = text.encode_utf16().collect();
-            history.extend(units.iter().enumerate().filter_map(|(at, unit)| Some((at.to_string(), Value::String(String::from_utf16(&[*unit]).ok()?)))));
-        }
+        Some(Value::String(text)) => spread = parsed_units(&text),
         _ => {}
     }
-    history
+    (history, spread)
 }
 
-/// `historyStamp(rootDir)`: the separation version and the digest of the history's text.
-fn history_stamp(history: &History) -> String {
-    format!("{SEPARATION_VERSION}:{}", digest32(mixdog_js::json_stringify(&Value::Object(history.clone())).as_bytes()))
+/// The UTF-16 units of parsed text (`mixdog_js::json_parse`): a lone surrogate travels as ESC (U+F0000) and four lowercase hex
+/// digits, a genuine ESC doubled.
+fn parsed_units(text: &str) -> Vec<u16> {
+    const ESC: char = '\u{f0000}';
+    let mut units = Vec::new();
+    let mut rest = text;
+    while let Some(character) = rest.chars().next() {
+        rest = &rest[character.len_utf8()..];
+        if character == ESC {
+            if let Some(after) = rest.strip_prefix(ESC) {
+                rest = after;
+            } else if let Some(unit) = rest.get(..4).and_then(|digits| u16::from_str_radix(digits, 16).ok()) {
+                units.push(unit);
+                rest = &rest[4..];
+                continue;
+            }
+        }
+        let mut buffer = [0u16; 2];
+        units.extend_from_slice(character.encode_utf16(&mut buffer));
+    }
+    units
+}
+
+/// `historyStamp(rootDir)`: the separation version and the digest of the history's text (`JSON.stringify`: a lone surrogate is
+/// written as a lowercase `\udXXX` escape).
+fn history_stamp(history: &History, spread: &[u16]) -> String {
+    let mut text = mixdog_js::json_stringify_indent_parsed(&Value::Object(history.clone()), 0);
+    if !spread.is_empty() {
+        // Integer-like keys come first in a JavaScript object, ahead of the sections.
+        let mut head = String::from("{");
+        for (at, unit) in spread.iter().enumerate() {
+            let value = match String::from_utf16(&[*unit]) {
+                Ok(character) => mixdog_js::json_stringify(&Value::String(character)),
+                Err(_) => format!("\"\\u{unit:04x}\""),
+            };
+            head.push_str(&format!("\"{at}\":{value},"));
+        }
+        text = format!("{head}{}", &text[1..]);
+    }
+    format!("{SEPARATION_VERSION}:{}", digest32(text.as_bytes()))
 }
 
 /// `history[section][name]` spread into the list of known hashes: `...(history[section][name] || [])`. A `null` section throws
@@ -230,8 +268,8 @@ pub fn retire_seeded_copies(lane: &InLane<MaintenanceIo>, paths: &WorkflowPaths,
     std::fs::create_dir_all(&paths.data).map_err(|error| error.to_string())?;
     let mut backup = Backup::new(&paths.data, now);
     let marker: PathBuf = paths.data.join(HISTORY_MARKER_FILE);
-    let history = load_history(&paths.root);
-    let stamp = history_stamp(&history);
+    let (history, spread) = load_history(&paths.root);
+    let stamp = history_stamp(&history, &spread);
     let recorded = std::fs::read(&marker).map(|bytes| js_trim(&String::from_utf8_lossy(&bytes)).to_owned()).unwrap_or_default();
     let include_history = recorded != stamp;
     // `EMPTY_HISTORY` when the historical comparison is not due.

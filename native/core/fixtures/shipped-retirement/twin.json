@@ -3002,6 +3002,450 @@
       "logs": []
     },
     {
+      "name": "history-string-supplementary",
+      "root": {
+        "defaults/shipped-history.json": "\"😀\""
+      },
+      "noDataDir": false,
+      "before": {
+        "skills/memory-management/SKILL.md": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+        "agents/maintainer/AGENT.md": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n",
+        "agents/maintainer/agent.json": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n",
+        "workflows/headless/WORKFLOW.md": "---\nid: headless\nname: Headless\ndescription: \"No user mid-run; requests are approved. Complete, then report.\"\nhidden: true\n---\n\n# Headless\n\nThe user does not intervene during the run. Treat the request as approved,\ncarry it out to the end, and report the result.\n",
+        "output-styles/simple.md": "---\nname: simple\ntitle: Simple\ndescription: Concise summary with the essential explanation\naliases: default, concise, handoff\n---\n\n## Depth\n\n- Give a self-contained summary: the answer first, then the core causal\n  sequence, the strongest evidence, and the direct consequence or next step.\n- Omit secondary evidence, implementation detail, and extended examples\n  unless requested.\n",
+        "orchestration/focused.md": "# Orchestration Mode: Focused\n\nLead executes the main scope directly. Delegate only substantial,\nself-contained supporting work, one agent per role; batch related tasks\nrather than splitting them for parallelism.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. At most two scopes running builds or tests run at\nonce.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.\n"
+      },
+      "runs": 1,
+      "after": [
+        [
+          {
+            "path": ".shipped-history-retired",
+            "content": "1:0bff81532b12a8ab082feff9d146e851\n"
+          },
+          {
+            "path": "agents/"
+          },
+          {
+            "path": "agents/maintainer/"
+          },
+          {
+            "path": "agents/maintainer/AGENT.md",
+            "content": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n"
+          },
+          {
+            "path": "agents/maintainer/agent.json",
+            "content": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n"
+          },
+          {
+            "path": "orchestration/"
+          },
+          {
+            "path": "orchestration/focused.md",
+            "content": "# Orchestration Mode: Focused\n\nLead executes the main scope directly. Delegate only substantial,\nself-contained supporting work, one agent per role; batch related tasks\nrather than splitting them for parallelism.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. At most two scopes running builds or tests run at\nonce.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.\n"
+          },
+          {
+            "path": "output-styles/"
+          },
+          {
+            "path": "output-styles/simple.md",
+            "content": "---\nname: simple\ntitle: Simple\ndescription: Concise summary with the essential explanation\naliases: default, concise, handoff\n---\n\n## Depth\n\n- Give a self-contained summary: the answer first, then the core causal\n  sequence, the strongest evidence, and the direct consequence or next step.\n- Omit secondary evidence, implementation detail, and extended examples\n  unless requested.\n"
+          },
+          {
+            "path": "skills/"
+          },
+          {
+            "path": "skills/memory-management/"
+          },
+          {
+            "path": "skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n"
+          },
+          {
+            "path": "workflows/"
+          },
+          {
+            "path": "workflows/headless/"
+          },
+          {
+            "path": "workflows/headless/WORKFLOW.md",
+            "content": "---\nid: headless\nname: Headless\ndescription: \"No user mid-run; requests are approved. Complete, then report.\"\nhidden: true\n---\n\n# Headless\n\nThe user does not intervene during the run. Treat the request as approved,\ncarry it out to the end, and report the result.\n"
+          }
+        ]
+      ],
+      "error": null,
+      "logs": []
+    },
+    {
+      "name": "history-string-supplementary-raw",
+      "root": {
+        "defaults/shipped-history.json": "\"😀\""
+      },
+      "noDataDir": false,
+      "before": {
+        "skills/memory-management/SKILL.md": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+        "agents/maintainer/AGENT.md": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n",
+        "agents/maintainer/agent.json": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n",
+        "workflows/headless/WORKFLOW.md": "---\nid: headless\nname: Headless\ndescription: \"No user mid-run; requests are approved. Complete, then report.\"\nhidden: true\n---\n\n# Headless\n\nThe user does not intervene during the run. Treat the request as approved,\ncarry it out to the end, and report the result.\n",
+        "output-styles/simple.md": "---\nname: simple\ntitle: Simple\ndescription: Concise summary with the essential explanation\naliases: default, concise, handoff\n---\n\n## Depth\n\n- Give a self-contained summary: the answer first, then the core causal\n  sequence, the strongest evidence, and the direct consequence or next step.\n- Omit secondary evidence, implementation detail, and extended examples\n  unless requested.\n",
+        "orchestration/focused.md": "# Orchestration Mode: Focused\n\nLead executes the main scope directly. Delegate only substantial,\nself-contained supporting work, one agent per role; batch related tasks\nrather than splitting them for parallelism.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. At most two scopes running builds or tests run at\nonce.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.\n"
+      },
+      "runs": 1,
+      "after": [
+        [
+          {
+            "path": ".shipped-history-retired",
+            "content": "1:0bff81532b12a8ab082feff9d146e851\n"
+          },
+          {
+            "path": "agents/"
+          },
+          {
+            "path": "agents/maintainer/"
+          },
+          {
+            "path": "agents/maintainer/AGENT.md",
+            "content": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n"
+          },
+          {
+            "path": "agents/maintainer/agent.json",
+            "content": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n"
+          },
+          {
+            "path": "orchestration/"
+          },
+          {
+            "path": "orchestration/focused.md",
+            "content": "# Orchestration Mode: Focused\n\nLead executes the main scope directly. Delegate only substantial,\nself-contained supporting work, one agent per role; batch related tasks\nrather than splitting them for parallelism.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. At most two scopes running builds or tests run at\nonce.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.\n"
+          },
+          {
+            "path": "output-styles/"
+          },
+          {
+            "path": "output-styles/simple.md",
+            "content": "---\nname: simple\ntitle: Simple\ndescription: Concise summary with the essential explanation\naliases: default, concise, handoff\n---\n\n## Depth\n\n- Give a self-contained summary: the answer first, then the core causal\n  sequence, the strongest evidence, and the direct consequence or next step.\n- Omit secondary evidence, implementation detail, and extended examples\n  unless requested.\n"
+          },
+          {
+            "path": "skills/"
+          },
+          {
+            "path": "skills/memory-management/"
+          },
+          {
+            "path": "skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n"
+          },
+          {
+            "path": "workflows/"
+          },
+          {
+            "path": "workflows/headless/"
+          },
+          {
+            "path": "workflows/headless/WORKFLOW.md",
+            "content": "---\nid: headless\nname: Headless\ndescription: \"No user mid-run; requests are approved. Complete, then report.\"\nhidden: true\n---\n\n# Headless\n\nThe user does not intervene during the run. Treat the request as approved,\ncarry it out to the end, and report the result.\n"
+          }
+        ]
+      ],
+      "error": null,
+      "logs": []
+    },
+    {
+      "name": "history-string-lone-high",
+      "root": {
+        "defaults/shipped-history.json": "\"\\ud83d\""
+      },
+      "noDataDir": false,
+      "before": {
+        "skills/memory-management/SKILL.md": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+        "agents/maintainer/AGENT.md": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n",
+        "agents/maintainer/agent.json": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n",
+        "workflows/headless/WORKFLOW.md": "---\nid: headless\nname: Headless\ndescription: \"No user mid-run; requests are approved. Complete, then report.\"\nhidden: true\n---\n\n# Headless\n\nThe user does not intervene during the run. Treat the request as approved,\ncarry it out to the end, and report the result.\n",
+        "output-styles/simple.md": "---\nname: simple\ntitle: Simple\ndescription: Concise summary with the essential explanation\naliases: default, concise, handoff\n---\n\n## Depth\n\n- Give a self-contained summary: the answer first, then the core causal\n  sequence, the strongest evidence, and the direct consequence or next step.\n- Omit secondary evidence, implementation detail, and extended examples\n  unless requested.\n",
+        "orchestration/focused.md": "# Orchestration Mode: Focused\n\nLead executes the main scope directly. Delegate only substantial,\nself-contained supporting work, one agent per role; batch related tasks\nrather than splitting them for parallelism.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. At most two scopes running builds or tests run at\nonce.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.\n"
+      },
+      "runs": 1,
+      "after": [
+        [
+          {
+            "path": ".shipped-history-retired",
+            "content": "1:02f1cddebc549952575357e6b215cc5e\n"
+          },
+          {
+            "path": "agents/"
+          },
+          {
+            "path": "agents/maintainer/"
+          },
+          {
+            "path": "agents/maintainer/AGENT.md",
+            "content": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n"
+          },
+          {
+            "path": "agents/maintainer/agent.json",
+            "content": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n"
+          },
+          {
+            "path": "orchestration/"
+          },
+          {
+            "path": "orchestration/focused.md",
+            "content": "# Orchestration Mode: Focused\n\nLead executes the main scope directly. Delegate only substantial,\nself-contained supporting work, one agent per role; batch related tasks\nrather than splitting them for parallelism.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. At most two scopes running builds or tests run at\nonce.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.\n"
+          },
+          {
+            "path": "output-styles/"
+          },
+          {
+            "path": "output-styles/simple.md",
+            "content": "---\nname: simple\ntitle: Simple\ndescription: Concise summary with the essential explanation\naliases: default, concise, handoff\n---\n\n## Depth\n\n- Give a self-contained summary: the answer first, then the core causal\n  sequence, the strongest evidence, and the direct consequence or next step.\n- Omit secondary evidence, implementation detail, and extended examples\n  unless requested.\n"
+          },
+          {
+            "path": "skills/"
+          },
+          {
+            "path": "skills/memory-management/"
+          },
+          {
+            "path": "skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n"
+          },
+          {
+            "path": "workflows/"
+          },
+          {
+            "path": "workflows/headless/"
+          },
+          {
+            "path": "workflows/headless/WORKFLOW.md",
+            "content": "---\nid: headless\nname: Headless\ndescription: \"No user mid-run; requests are approved. Complete, then report.\"\nhidden: true\n---\n\n# Headless\n\nThe user does not intervene during the run. Treat the request as approved,\ncarry it out to the end, and report the result.\n"
+          }
+        ]
+      ],
+      "error": null,
+      "logs": []
+    },
+    {
+      "name": "history-string-lone-low",
+      "root": {
+        "defaults/shipped-history.json": "\"\\ude00x\""
+      },
+      "noDataDir": false,
+      "before": {
+        "skills/memory-management/SKILL.md": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+        "agents/maintainer/AGENT.md": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n",
+        "agents/maintainer/agent.json": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n",
+        "workflows/headless/WORKFLOW.md": "---\nid: headless\nname: Headless\ndescription: \"No user mid-run; requests are approved. Complete, then report.\"\nhidden: true\n---\n\n# Headless\n\nThe user does not intervene during the run. Treat the request as approved,\ncarry it out to the end, and report the result.\n",
+        "output-styles/simple.md": "---\nname: simple\ntitle: Simple\ndescription: Concise summary with the essential explanation\naliases: default, concise, handoff\n---\n\n## Depth\n\n- Give a self-contained summary: the answer first, then the core causal\n  sequence, the strongest evidence, and the direct consequence or next step.\n- Omit secondary evidence, implementation detail, and extended examples\n  unless requested.\n",
+        "orchestration/focused.md": "# Orchestration Mode: Focused\n\nLead executes the main scope directly. Delegate only substantial,\nself-contained supporting work, one agent per role; batch related tasks\nrather than splitting them for parallelism.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. At most two scopes running builds or tests run at\nonce.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.\n"
+      },
+      "runs": 1,
+      "after": [
+        [
+          {
+            "path": ".shipped-history-retired",
+            "content": "1:6c5d33a5b5a89adb4734f771c70ae2d7\n"
+          },
+          {
+            "path": "agents/"
+          },
+          {
+            "path": "agents/maintainer/"
+          },
+          {
+            "path": "agents/maintainer/AGENT.md",
+            "content": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n"
+          },
+          {
+            "path": "agents/maintainer/agent.json",
+            "content": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n"
+          },
+          {
+            "path": "orchestration/"
+          },
+          {
+            "path": "orchestration/focused.md",
+            "content": "# Orchestration Mode: Focused\n\nLead executes the main scope directly. Delegate only substantial,\nself-contained supporting work, one agent per role; batch related tasks\nrather than splitting them for parallelism.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. At most two scopes running builds or tests run at\nonce.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.\n"
+          },
+          {
+            "path": "output-styles/"
+          },
+          {
+            "path": "output-styles/simple.md",
+            "content": "---\nname: simple\ntitle: Simple\ndescription: Concise summary with the essential explanation\naliases: default, concise, handoff\n---\n\n## Depth\n\n- Give a self-contained summary: the answer first, then the core causal\n  sequence, the strongest evidence, and the direct consequence or next step.\n- Omit secondary evidence, implementation detail, and extended examples\n  unless requested.\n"
+          },
+          {
+            "path": "skills/"
+          },
+          {
+            "path": "skills/memory-management/"
+          },
+          {
+            "path": "skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n"
+          },
+          {
+            "path": "workflows/"
+          },
+          {
+            "path": "workflows/headless/"
+          },
+          {
+            "path": "workflows/headless/WORKFLOW.md",
+            "content": "---\nid: headless\nname: Headless\ndescription: \"No user mid-run; requests are approved. Complete, then report.\"\nhidden: true\n---\n\n# Headless\n\nThe user does not intervene during the run. Treat the request as approved,\ncarry it out to the end, and report the result.\n"
+          }
+        ]
+      ],
+      "error": null,
+      "logs": []
+    },
+    {
+      "name": "history-string-mixed",
+      "root": {
+        "defaults/shipped-history.json": "\"a😀bé󰀀\\\"\\\\\""
+      },
+      "noDataDir": false,
+      "before": {
+        "skills/memory-management/SKILL.md": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+        "agents/maintainer/AGENT.md": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n",
+        "agents/maintainer/agent.json": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n",
+        "workflows/headless/WORKFLOW.md": "---\nid: headless\nname: Headless\ndescription: \"No user mid-run; requests are approved. Complete, then report.\"\nhidden: true\n---\n\n# Headless\n\nThe user does not intervene during the run. Treat the request as approved,\ncarry it out to the end, and report the result.\n",
+        "output-styles/simple.md": "---\nname: simple\ntitle: Simple\ndescription: Concise summary with the essential explanation\naliases: default, concise, handoff\n---\n\n## Depth\n\n- Give a self-contained summary: the answer first, then the core causal\n  sequence, the strongest evidence, and the direct consequence or next step.\n- Omit secondary evidence, implementation detail, and extended examples\n  unless requested.\n",
+        "orchestration/focused.md": "# Orchestration Mode: Focused\n\nLead executes the main scope directly. Delegate only substantial,\nself-contained supporting work, one agent per role; batch related tasks\nrather than splitting them for parallelism.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. At most two scopes running builds or tests run at\nonce.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.\n"
+      },
+      "runs": 1,
+      "after": [
+        [
+          {
+            "path": ".shipped-history-retired",
+            "content": "1:3ddb609cf8c30e97b5b1dd26f3b929b8\n"
+          },
+          {
+            "path": "agents/"
+          },
+          {
+            "path": "agents/maintainer/"
+          },
+          {
+            "path": "agents/maintainer/AGENT.md",
+            "content": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n"
+          },
+          {
+            "path": "agents/maintainer/agent.json",
+            "content": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n"
+          },
+          {
+            "path": "orchestration/"
+          },
+          {
+            "path": "orchestration/focused.md",
+            "content": "# Orchestration Mode: Focused\n\nLead executes the main scope directly. Delegate only substantial,\nself-contained supporting work, one agent per role; batch related tasks\nrather than splitting them for parallelism.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. At most two scopes running builds or tests run at\nonce.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.\n"
+          },
+          {
+            "path": "output-styles/"
+          },
+          {
+            "path": "output-styles/simple.md",
+            "content": "---\nname: simple\ntitle: Simple\ndescription: Concise summary with the essential explanation\naliases: default, concise, handoff\n---\n\n## Depth\n\n- Give a self-contained summary: the answer first, then the core causal\n  sequence, the strongest evidence, and the direct consequence or next step.\n- Omit secondary evidence, implementation detail, and extended examples\n  unless requested.\n"
+          },
+          {
+            "path": "skills/"
+          },
+          {
+            "path": "skills/memory-management/"
+          },
+          {
+            "path": "skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n"
+          },
+          {
+            "path": "workflows/"
+          },
+          {
+            "path": "workflows/headless/"
+          },
+          {
+            "path": "workflows/headless/WORKFLOW.md",
+            "content": "---\nid: headless\nname: Headless\ndescription: \"No user mid-run; requests are approved. Complete, then report.\"\nhidden: true\n---\n\n# Headless\n\nThe user does not intervene during the run. Treat the request as approved,\ncarry it out to the end, and report the result.\n"
+          }
+        ]
+      ],
+      "error": null,
+      "logs": []
+    },
+    {
+      "name": "history-string-lone-high-then-low-escaped",
+      "root": {
+        "defaults/shipped-history.json": "\"\\ud83d\\u0041\\ude00\""
+      },
+      "noDataDir": false,
+      "before": {
+        "skills/memory-management/SKILL.md": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n",
+        "agents/maintainer/AGENT.md": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n",
+        "agents/maintainer/agent.json": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n",
+        "workflows/headless/WORKFLOW.md": "---\nid: headless\nname: Headless\ndescription: \"No user mid-run; requests are approved. Complete, then report.\"\nhidden: true\n---\n\n# Headless\n\nThe user does not intervene during the run. Treat the request as approved,\ncarry it out to the end, and report the result.\n",
+        "output-styles/simple.md": "---\nname: simple\ntitle: Simple\ndescription: Concise summary with the essential explanation\naliases: default, concise, handoff\n---\n\n## Depth\n\n- Give a self-contained summary: the answer first, then the core causal\n  sequence, the strongest evidence, and the direct consequence or next step.\n- Omit secondary evidence, implementation detail, and extended examples\n  unless requested.\n",
+        "orchestration/focused.md": "# Orchestration Mode: Focused\n\nLead executes the main scope directly. Delegate only substantial,\nself-contained supporting work, one agent per role; batch related tasks\nrather than splitting them for parallelism.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. At most two scopes running builds or tests run at\nonce.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.\n"
+      },
+      "runs": 1,
+      "after": [
+        [
+          {
+            "path": ".shipped-history-retired",
+            "content": "1:b96dbcd7f84b01aee991c3b2e62faaa7\n"
+          },
+          {
+            "path": "agents/"
+          },
+          {
+            "path": "agents/maintainer/"
+          },
+          {
+            "path": "agents/maintainer/AGENT.md",
+            "content": "---\nname: Maintainer\ndescription: Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\npermission: read-write\n---\n\nMaintenance and cleanup agent.\n\nSmallest coherent change; no scope growth. Repeated read-only turns without\nan edit = stalling; patch or return blocked.\n"
+          },
+          {
+            "path": "agents/maintainer/agent.json",
+            "content": "{\n  \"id\": \"maintainer\",\n  \"name\": \"Maintainer\",\n  \"description\": \"Use for internal Git operations, memory upkeep, session naming, and other Mixdog background operations.\",\n  \"entry\": \"AGENT.md\"\n}\n"
+          },
+          {
+            "path": "orchestration/"
+          },
+          {
+            "path": "orchestration/focused.md",
+            "content": "# Orchestration Mode: Focused\n\nLead executes the main scope directly. Delegate only substantial,\nself-contained supporting work, one agent per role; batch related tasks\nrather than splitting them for parallelism.\n\nThe mode sets how work splits; an agent's description sets its role and when\nit runs. Splitting applies to every role alike — implementation, review,\ninvestigation, writing — by file, module, commit range or risk area.\n\nDelegation is for work whose size justifies a brief. When the brief would have\nto spell out the edits themselves — a few localized changes whose sites Lead\nalready holds — Lead makes them directly in every mode; the number of files or\nscopes does not change this.\n\nDispatch all ready independent scopes in one turn. Only a scope that requires\nanother's output waits. At most two scopes running builds or tests run at\nonce.\nA new independent need goes to a new agent. When scopes touch the same file, name one owner for\nthat file in each brief.\nUse only available agents; when none fits a role, Lead does that work itself\nand never changes settings to enable one.\n"
+          },
+          {
+            "path": "output-styles/"
+          },
+          {
+            "path": "output-styles/simple.md",
+            "content": "---\nname: simple\ntitle: Simple\ndescription: Concise summary with the essential explanation\naliases: default, concise, handoff\n---\n\n## Depth\n\n- Give a self-contained summary: the answer first, then the core causal\n  sequence, the strongest evidence, and the direct consequence or next step.\n- Omit secondary evidence, implementation detail, and extended examples\n  unless requested.\n"
+          },
+          {
+            "path": "skills/"
+          },
+          {
+            "path": "skills/memory-management/"
+          },
+          {
+            "path": "skills/memory-management/SKILL.md",
+            "content": "---\nname: memory-management\ndescription: Inspect and curate approved standing user preferences and constraints.\nwhen_to_use: 'Standing user preferences and constraints; not past sessions, repo state, settings, or task notes.'\ndependencies:\n  tools:\n    - type: tool\n      value: memory\n---\n\n# Memory management\n\nUse `memory` for curated preferences injected into future sessions. The tool\nschema owns arguments, scope selectors and index versioning; this guide owns\ncuration and approval policy.\n\n## Choose the source\n\nPast work, decisions, and resumes belong to the `history-recall` skill.\nLoad it only when historical evidence is needed for the requested change.\nCurrent repository state belongs to repository tools, not memory.\n\n## Curate standing memory\n\nStore only user-specific preferences and constraints, as compact English\nstatements. When the user asks you to remember something, save it and report\nthe exact text and scope you saved. An entry you propose yourself, or one\nwhose scope is unclear, waits for the user's approval first.\n\nNever turn inferred lessons into standing instructions or duplicate profile,\nsettings, rules, tool contracts, or skills. Do not save ordinary task outcomes\nas preferences; automatic history already preserves them.\n\nPick the scope by what the entry is about, not where the conversation is:\n`common` when it holds in any Project (how to address or answer the user,\napprovals, git and release habits, general working style); a Project only\nwhen it depends on that Project's code, paths, tools or conventions. Write\neach entry so it reads alone, without pointing at earlier conversation or\nentries.\n`agent_id: \"self\"` selects your own agent memory: it is the only pool an\nunattended run (schedule, webhook, group room, delegated agent) may write;\ncommon and Project memory change only while the user is chatting. Confirm the\ntarget before destructive changes.\n\nIndices are per scope. Edit or delete only from a fresh list; after a\nstale-version error, list again and re-identify the intended entry. A recall record ID or internal database key\nis never a memory index.\n\nConversation summaries found through `recall` never become standing\ninstructions automatically.\n\nDone when the tool reports the approved change in the intended scope.\nDo not reread a successful write merely to confirm it.\n"
+          },
+          {
+            "path": "workflows/"
+          },
+          {
+            "path": "workflows/headless/"
+          },
+          {
+            "path": "workflows/headless/WORKFLOW.md",
+            "content": "---\nid: headless\nname: Headless\ndescription: \"No user mid-run; requests are approved. Complete, then report.\"\nhidden: true\n---\n\n# Headless\n\nThe user does not intervene during the run. Treat the request as approved,\ncarry it out to the end, and report the result.\n"
+          }
+        ]
+      ],
+      "error": null,
+      "logs": []
+    },
+    {
       "name": "history-skills-null",
       "root": {
         "defaults/shipped-history.json": "{\"skills\":null}"
