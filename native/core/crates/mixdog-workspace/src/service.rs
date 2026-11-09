@@ -411,17 +411,17 @@ impl WorkspaceService {
     }
 
     /// The grant store and the paired device the request comes from.
-    fn phone_grants_for(&self, req: &CoreRequest) -> WsResult<(Arc<crate::grants::GrantStore>, String)> {
+    fn phone_grants_for(&self, req: &CoreRequest) -> WsResult<(Arc<crate::grants::GrantStore>, String, u64)> {
         let grants = self
             .phone_grants
             .get()
             .ok_or_else(|| WsError::new(Reason::Unsupported, "Paired-device file grants are not available."))?;
-        let credential = match &req.ctx.caller {
-            mixdog_core_api::call::Caller::Connection(id) => (grants.credential_of)(*id),
-            mixdog_core_api::call::Caller::Internal(_) => None,
+        let (credential, connection) = match &req.ctx.caller {
+            mixdog_core_api::call::Caller::Connection(id) => ((grants.credential_of)(*id), id.0),
+            mixdog_core_api::call::Caller::Internal(_) => (None, 0),
         };
         let credential = credential.filter(|id| !id.is_empty()).ok_or_else(|| WsError::denied("This connection is not a paired device."))?;
-        Ok((grants.store.clone(), credential))
+        Ok((grants.store.clone(), credential, connection))
     }
 
     /// One `host/*` request to the desktop's file capability, its failure mapped to the coded
@@ -450,6 +450,9 @@ impl WorkspaceService {
     pub fn connection_closed(&self, connection: &ConnectionId) {
         let owner = connection.to_string();
         self.transfers.end_owner(&owner);
+        if let Some(grants) = self.phone_grants.get() {
+            grants.store.release(connection.0);
+        }
         let watches: Vec<String> =
             self.watches.lock().expect("watches").iter().filter(|(_, w)| w.connection == owner).map(|(k, _)| k.clone()).collect();
         for id in watches {
@@ -541,9 +544,9 @@ impl WorkspaceService {
     /// by the connection's origin and `rel`.
     async fn file_target(&self, req: &CoreRequest, params: &Value) -> WsResult<(PathBuf, String)> {
         if let Some(token) = params.get("accessToken") {
-            let (grants, credential) = self.phone_grants_for(req)?;
+            let (grants, credential, connection) = self.phone_grants_for(req)?;
             let token = token.as_str().ok_or_else(|| WsError::invalid("accessToken is invalid."))?;
-            let granted = grants.redeem(&credential, token, s(params, "root")?, s(params, "rel")?).await?;
+            let granted = grants.redeem(&credential, connection, token, s(params, "root")?, s(params, "rel")?).await?;
             return Ok((granted.root, granted.rel));
         }
         Ok((self.root(req.ctx.origin, params).await?, s(params, "rel")?.to_owned()))
@@ -901,9 +904,9 @@ impl WorkspaceService {
                         run_fallible(self.lanes.interactive, &cancel, move || t.begin_project_read(&owner, &root, &rel)).await?
                     }
                     Some("granted") => {
-                        let (grants, credential) = self.phone_grants_for(req)?;
+                        let (grants, credential, connection) = self.phone_grants_for(req)?;
                         let granted = grants
-                            .redeem(&credential, s(source, "accessToken")?, s(source, "projectPath")?, s(source, "relPath")?)
+                            .redeem(&credential, connection, s(source, "accessToken")?, s(source, "projectPath")?, s(source, "relPath")?)
                             .await?;
                         let (root, rel) = (granted.root, granted.rel);
                         run_fallible(self.lanes.interactive, &cancel, move || t.begin_project_read(&owner, &root, &rel)).await?
@@ -1010,7 +1013,7 @@ impl WorkspaceService {
             "transfer/grant/mint" => {
                 // `resolveLocalPaths` / `attachmentOpen` of a paired device: the described path, with a one-file
                 // grant when it lies outside every project (a conversation's attachment always gets one).
-                let (grants, credential) = self.phone_grants_for(req)?;
+                let (grants, credential, connection) = self.phone_grants_for(req)?;
                 let path = s(params, "path")?.to_owned();
                 let session = params.get("sessionId").and_then(Value::as_str).unwrap_or_default().to_owned();
                 let entry = run_fallible(self.lanes.interactive, &cancel, move || fsops::stat_local(&path)).await?;
@@ -1027,7 +1030,7 @@ impl WorkspaceService {
                         None => {
                             row["projectPath"] = json!(absolute.parent().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default());
                             row["relPath"] = json!(absolute.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default());
-                            row["accessToken"] = json!(grants.mint(&credential, &absolute, &session).await?);
+                            row["accessToken"] = json!(grants.mint(&credential, connection, &absolute, &session).await?);
                         }
                     }
                 }

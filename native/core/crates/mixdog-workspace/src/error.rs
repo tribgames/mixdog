@@ -24,6 +24,8 @@ pub enum Reason {
     /// The file or folder changed under a transfer or a save.
     Changed,
     Expired,
+    /// A download the host no longer holds (Node's FileDownloadError('expired'), whose code is ile-download:expired).
+    DownloadExpired,
     Busy,
     /// An upload chunk that does not start where the received bytes end.
     OutOfOrder,
@@ -61,6 +63,7 @@ impl Reason {
             Self::TooLarge => "tooLarge",
             Self::Changed => "changed",
             Self::Expired => "expired",
+            Self::DownloadExpired => "file-download:expired",
             Self::Busy => "busy",
             Self::OutOfOrder => "outOfOrder",
             Self::GrantUnavailable => "SELECTED_FILE_GRANT_UNAVAILABLE",
@@ -108,7 +111,7 @@ impl WsError {
         Self::new(Reason::Changed, "The file changed on the host.")
     }
     pub fn expired() -> Self {
-        Self::new(Reason::Expired, "This download is no longer available.")
+        Self::new(Reason::DownloadExpired, "This download is no longer available.")
     }
     pub fn precondition(expected: &str, actual: &str) -> Self {
         Self::new(

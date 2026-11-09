@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 3912,
+      "bytes": 34097,
       "path": "unpair-access.json",
-      "sha256": "4c1027c3356f46e9ad35a103a446863efe95ee67cc4fc3cf343011211c8c2f6f"
+      "sha256": "3cb940465018ef292a57a239b405ec667afcf01144dd2972c86c42a0914738be"
     }
   ],
   "product": {
@@ -27,5 +27,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-unpair-access.mjs",
   "set": "unpair-access",
-  "totalBytes": 3912
+  "totalBytes": 34097
 }
