@@ -397,6 +397,38 @@ fn browser_permissions_follow_the_node_rules() {
     assert!(config.get("desktop.browserPermissions").is_none());
 }
 
+fn owner_only(path: &Path) -> bool {
+    let path = path.to_path_buf();
+    block_on(on_lane(lanes().read, move |lane| mixdog_statefile::is_owner_only(lane, &path))).unwrap().unwrap()
+}
+
+/// `writeJsonAtomicSync(configPath(), data, { mode: 0o600, secret: true })`: the published config is owner-only (Unix mode
+/// 0600, Windows the protected single-entry DACL Node's ACL helper sets on the temp file before it is renamed into place).
+#[test]
+fn the_config_file_written_through_write_is_owner_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let (config, _) = open(&dir, None);
+    config.write("desktop.keepAwake", json!(true), replace()).unwrap();
+    assert!(owner_only(&dir.path().join("mixdog-config.json")));
+    // A rewrite of the published file keeps it so.
+    config.write("desktop.keepAwake", json!(false), replace()).unwrap();
+    assert!(owner_only(&dir.path().join("mixdog-config.json")));
+}
+
+/// `mkdirSync(dirname(configPath()), { recursive: true, mode: 0o700 })` sets no ACL on Windows (the mode is advisory): a
+/// config folder the write creates inherits its parent's ACL and has no protected owner-only DACL of its own.
+#[cfg(windows)]
+#[test]
+fn a_config_folder_the_write_creates_has_no_owner_only_acl_of_its_own() {
+    let parent = tempfile::tempdir().unwrap();
+    let folder = parent.path().join("missing").join("data");
+    let (config, _) = Blocking::open(folder.join("mixdog-config.json"), Arc::new(MockStatePublisher::default())).unwrap();
+    config.write("desktop.keepAwake", json!(true), replace()).unwrap();
+    assert!(folder.join("mixdog-config.json").is_file());
+    assert!(!owner_only(&folder));
+    assert!(!owner_only(folder.parent().unwrap()));
+}
+
 #[test]
 fn writes_keep_the_users_key_order() {
     let dir = tempfile::tempdir().unwrap();

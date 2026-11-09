@@ -70,6 +70,16 @@ pub(super) struct Guard {
     persist_failed: Mutex<HashSet<PathBuf>>,
 }
 
+/// `mkdirSync(dirname(configPath()), { recursive: true, mode: 0o700 })`: mode 0700 where there are mode bits; on Windows the
+/// mode is advisory, so the folder takes the ACL it inherits (no owner-only DACL of its own, unlike `create_private_dir_all`).
+fn create_config_dir(lane: &InLane<DurabilityIo>, dir: &Path) -> Result<(), ConfigError> {
+    #[cfg(unix)]
+    let created = mixdog_statefile::create_private_dir_all(lane, dir);
+    #[cfg(windows)]
+    let created = mixdog_statefile::create_dir_all(lane, dir);
+    Ok(created?)
+}
+
 fn user_data_error(error: crate::user_data::GuardError) -> ConfigError {
     ConfigError::UserData { code: None, message: error.to_string() }
 }
@@ -206,7 +216,7 @@ impl Guard {
     /// marker, and a snapshot of what was written. A failed snapshot or marker never fails the write.
     pub(super) fn write(&self, lane: &InLane<DurabilityIo>, doc: &Doc, post_reason: &str) -> Result<(), ConfigError> {
         let dir = self.data_dir();
-        mixdog_statefile::create_private_dir_all(lane, dir)?;
+        create_config_dir(lane, dir)?;
         let _ = self.user_data.backup_user_data(lane, dir, "pre-config-write", &[]);
         write_file(lane, &self.path, doc)?;
         let _ = self.user_data.mark_initialized(lane, dir);
