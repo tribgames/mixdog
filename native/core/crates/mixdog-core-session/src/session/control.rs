@@ -41,8 +41,9 @@ pub(crate) enum Ctl {
     },
     /// The run's token is already cancelled; the actor resolves the run's own requests.
     Abort { turn: TurnId },
-    /// Steer entries were pushed into the active run's steer queue.
-    Steer,
+    /// `turn/steer`: the queued prompt is prioritized (front of the queue, priority `now`, a drain kicked), and the
+    /// entries pushed into the active run's steer queue are taken.
+    Prioritize { queued: QueuedId },
     Decide(Decision),
     RunEnded { turn: TurnId, outcome: RunOutcome },
     /// The user's "Retry storage" (SM §8 `PendingRollback`).
@@ -332,7 +333,7 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 /// `isQueuedEntryEditable` (`queue-helpers.mjs`): a prompt the user typed, as opposed to a task notification, a
 /// pending resume, a Goal entry or a meta entry.
-fn is_editable_entry(entry: &Value) -> bool {
+pub(super) fn is_editable_entry(entry: &Value) -> bool {
     let mode = entry.get("mode").and_then(Value::as_str).unwrap_or("prompt");
     mode != super::completions::MODE
         && mode != "pending-resume"
@@ -395,21 +396,19 @@ impl ControlCell {
     }
 
     /// `turn/steer{expectedTurnId, queuedId}` → `{accepted: true, queuedId}` (R10, R12). Node's
-    /// `prioritizeQueued` (`queue.mjs`) goes by queue membership alone and has no turn
-    /// precondition, so the entry is checked first; one that is queued while no run matches
-    /// (`expected` when named, else any) has nothing to steer into and stays queued for its own turn.
+    /// `prioritizeQueued` (`queue.mjs`) goes by queue membership alone and has no turn precondition: a queued
+    /// prompt moves to the front of the queue at priority `now` and a drain is kicked, whether or not a run
+    /// matches `expected`; the actor does it (`Ctl::Prioritize`). A run that matches (`expected` when named,
+    /// else any) also takes the entry at its next model-call boundary.
     pub fn steer(&self, expected: Option<&TurnId>, queued: QueuedId) -> Result<Value, CoreError> {
-        if !self.queued.load().contains(queued.as_str()) {
+        if !self.queue.load().iter().any(|entry| entry.qid == queued.as_str() && is_editable_entry(&entry.entry)) {
             return Err(CoreError::QueuedEntryNotFound {
                 thread_id: self.thread.clone(),
                 queued_id: queued,
             });
         }
         let run = self.run.load_full();
-        let Some(run) = run.filter(|run| expected.is_none_or(|expected| &run.turn == expected)) else {
-            return Ok(json!({ "accepted": true, "queuedId": queued }));
-        };
-        {
+        if let Some(run) = run.filter(|run| expected.is_none_or(|expected| &run.turn == expected)) {
             let mut steers = lock(&run.steers);
             if !steers.contains(&queued) {
                 if steers.len() >= self.steer_cap {
@@ -420,7 +419,7 @@ impl ControlCell {
                 steers.push_back(queued.clone());
             }
         }
-        self.send(Ctl::Steer)?;
+        self.send(Ctl::Prioritize { queued: queued.clone() })?;
         Ok(json!({ "accepted": true, "queuedId": queued }))
     }
 

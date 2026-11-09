@@ -1,83 +1,161 @@
 //! `turn/steer` against `fixtures/capability-refusals/golden.json`, recorded by `record-capability-refusals.mjs` from Node's
-//! real `prioritizeQueued` (`session-flow/queue.mjs`): Node goes by queue membership alone, whether a turn runs or not — an entry
-//! that is not queued answers a count of none, a queued one a count of one. The core answers the same whether the thread runs a
-//! turn, runs none, or runs another than the one the caller expected: `queuedEntryNotFound` for a count of none, accepted for one.
+//! real `prioritizeQueued` (`session-flow/queue.mjs`) and the batch its kicked drain takes (`dequeueQueueBatch`). Node goes by
+//! queue membership alone, whether a turn runs or not, and whatever turn the caller named: an entry that is not queued answers a
+//! count of none and changes nothing; a queued one moves to the front of the queue at priority `now`, answers a count of one and
+//! kicks the drain, which takes the recorded batch (at once when idle, when the running turn settles otherwise).
 
-use std::collections::HashSet;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use mixdog_core_api::CoreError;
 use mixdog_core_api::RunControl;
+use mixdog_core_api::call::CallContext;
 use mixdog_core_api::ids::OpId;
+use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::ids::TurnId;
+use mixdog_store::schema::record::QueueAction;
+use mixdog_store::schema::record::Record;
 use serde_json::Value;
 use serde_json::json;
 
 use super::SessionDirectory;
 use super::seams::RunOutcome;
+use super::state::Change;
+use super::state::Display;
+use super::state::SessionState;
 use super::testing::Rig;
+use super::testing::lock;
 use super::tests::eventually_on;
 use super::tests::idle;
-use super::tests::start_thread;
 use super::tests::turn;
 
 fn golden() -> Value {
     serde_json::from_str(include_str!("../../../../fixtures/capability-refusals/golden.json")).expect("golden.json")
 }
 
+fn enqueue(id: &str) -> Record {
+    serde_json::from_value(json!({
+        "k": "queue", "qid": id, "action": "enqueue",
+        "entry": { "inline": { "message": format!("text {id}"), "enqueuedAt": 1, "priority": "next" } },
+    }))
+    .expect("queue record")
+}
+
+/// The queue the durable log leaves, in Node's `pendingAfter` form: every queue record but the dequeues folded by the
+/// session's own state.
+fn pending(rig: &Rig, thread: &ThreadId) -> Value {
+    let mut state = SessionState::new(10);
+    for (ordinal, record) in rig.store.records(thread) {
+        if matches!(&record, Record::Queue(queue) if queue.action == QueueAction::Dequeue) {
+            continue;
+        }
+        state.apply(&Change::Record { record: Arc::new(record), display: Display::None }, Some(ordinal));
+    }
+    Value::Array(state.queue.iter().map(|queued| json!({ "id": queued.qid, "priority": queued.entry["priority"] })).collect())
+}
+
+fn dequeued(rig: &Rig, thread: &ThreadId) -> Value {
+    Value::Array(
+        rig.store
+            .records(thread)
+            .into_iter()
+            .filter_map(|(_, record)| match record {
+                Record::Queue(queue) if queue.action == QueueAction::Dequeue => Some(json!(queue.qid.as_str())),
+                _ => None,
+            })
+            .collect(),
+    )
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_steer_goes_by_queue_membership_as_nodes_prioritize_does() {
+async fn a_steer_prioritizes_as_nodes_prioritize_queued_does() {
     let golden = golden();
     let cases = golden["prioritize"].as_array().expect("prioritize");
     assert!(cases.iter().any(|case| case["busy"] == true) && cases.iter().any(|case| case["busy"] == false));
     for case in cases {
         let name = case["name"].as_str().expect("name");
         let busy = case["busy"] == true;
-        let rig = Rig::new();
-        let release: Arc<tokio::sync::Notify> = Arc::default();
-        let gate = release.clone();
-        rig.set_script(Arc::new(move |run| {
-            let gate = gate.clone();
-            Box::pin(async move {
-                run.port.input_durable().await.expect("input durable");
-                gate.notified().await;
-                RunOutcome::Completed(Default::default())
-            })
-        }));
-        let directory = SessionDirectory::new(rig.deps());
-        let handle = start_thread(&directory).await;
-        let mut expected: Vec<Option<TurnId>> = vec![None, Some(TurnId::from("another-turn"))];
+        let mut turns: Vec<Option<&str>> = vec![None, Some("another-turn")];
         if busy {
-            turn(&handle, "work", "op-turn").await;
-            eventually_on(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
-            expected.push(handle.active_turn());
+            turns.push(Some("the-running-turn"));
         }
-        let selected = case["selectedId"].as_str().expect("selectedId");
-        let queued: HashSet<String> = case["queued"].as_array().expect("queued").iter().map(|id| id.as_str().expect("id").to_owned()).collect();
-        for expected in &expected {
-            // The projection the actor publishes, set as the recorded queue holds it. The actor republishes its own (empty) queue on
-            // every step it takes, so a step landing between the store and the call is run again; the recorded count is never retried.
-            let mut got;
-            let mut tries = 0;
-            loop {
-                handle.cell.queued.store(Arc::new(queued.clone()));
-                got = handle.steer(expected.as_ref(), json!({ "queuedId": selected }), OpId::from("op-steer"));
-                tries += 1;
-                if tries >= 50 || !queued.contains(selected) || got.is_ok() {
-                    break;
-                }
-                tokio::task::yield_now().await;
+        for named in turns {
+            let rig = Rig::new();
+            let release: Arc<tokio::sync::Notify> = Arc::default();
+            let started: Arc<Mutex<Vec<String>>> = Arc::default();
+            let entered: Arc<tokio::sync::Notify> = Arc::default();
+            let (gate, seen, entry) = (release.clone(), started.clone(), entered.clone());
+            rig.set_script(Arc::new(move |run| {
+                let (gate, seen, entry) = (gate.clone(), seen.clone(), entry.clone());
+                Box::pin(async move {
+                    if let mixdog_protocol::PromptContent::Text(text) = &run.input.prompt {
+                        lock(&seen).push(text.clone());
+                    }
+                    run.port.input_durable().await.expect("input durable");
+                    entry.notify_one();
+                    gate.notified().await;
+                    RunOutcome::Completed(Default::default())
+                })
+            }));
+            // The thread is created, then loaded again by a second directory over the same log once the recorded queue is in it:
+            // an idle thread holding queued prompts.
+            let id = ThreadId::from("sess_prio");
+            let creator = SessionDirectory::new(rig.deps());
+            creator.create_with_id(id.clone(), json!({ "cwd": "/ws" }).as_object().cloned().expect("object"), json!({})).await.expect("create");
+            rig.store.seed(&id, case["queued"].as_array().expect("queued").iter().map(|qid| enqueue(qid.as_str().expect("id"))).collect());
+            let directory = SessionDirectory::new(rig.deps());
+            let handle = directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
+            let queued = case["queued"].as_array().expect("queued").len();
+            eventually_on(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == queued).then_some(())).await;
+            let mut running = None;
+            if busy {
+                turn(&handle, "work", "op-turn").await;
+                eventually_on(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
+                running = handle.active_turn();
+                entered.notified().await;
             }
+            let expected = named.map(|turn| if turn == "the-running-turn" { running.clone().expect("a running turn") } else { TurnId::from(turn) });
+            let selected = case["selectedId"].as_str().expect("selectedId");
+            let got = handle.steer(expected.as_ref(), json!({ "queuedId": selected }), OpId::from("op-steer"));
+            let want_after = &case["pendingAfter"];
+            let label = format!("{name}: busy={busy} turn={named:?}");
             match case["reply"]["count"].as_u64() {
-                Some(1) => assert_eq!(got.expect(name), json!({ "accepted": true, "queuedId": selected }), "{name}: busy={busy} expected={expected:?}"),
-                Some(0) => match got {
-                    Err(CoreError::QueuedEntryNotFound { queued_id, .. }) => assert_eq!(queued_id.as_str(), selected, "{name}"),
-                    other => panic!("{name}: busy={busy} expected={expected:?}: {other:?}"),
-                },
-                other => panic!("{name}: recorded count {other:?}"),
+                Some(0) => {
+                    match got {
+                        Err(CoreError::QueuedEntryNotFound { queued_id, .. }) => assert_eq!(queued_id.as_str(), selected, "{label}"),
+                        other => panic!("{label}: {other:?}"),
+                    }
+                    assert_eq!(case["kicked"], 0, "{label}");
+                    assert_eq!(&pending(&rig, &id), want_after, "{label}: nothing moved");
+                    assert_eq!(dequeued(&rig, &id), json!([]), "{label}: no drain");
+                }
+                Some(1) => {
+                    assert_eq!(got.expect(&label), json!({ "accepted": true, "queuedId": selected }), "{label}");
+                    assert_eq!(case["kicked"], 1, "{label}");
+                    let drained = case["drained"].clone();
+                    // Idle, the kicked drain runs at once; busy, it is deferred to the turn's settling.
+                    if busy {
+                        eventually_on(&[&handle.cell.stepped], || (pending(&rig, &id) == *want_after).then_some(())).await;
+                        assert_eq!(dequeued(&rig, &id), json!([]), "{label}: a busy thread defers the drain");
+                        assert_eq!(*lock(&started), vec!["work".to_owned()], "{label}");
+                        release.notify_one();
+                    }
+                    eventually_on(&[&handle.cell.stepped], || (dequeued(&rig, &id) == drained).then_some(())).await;
+                    if !busy {
+                        assert_eq!(pending(&rig, &id), *want_after, "{label}: the order the drain found");
+                    }
+                    let taken: Vec<String> = drained.as_array().expect("drained").iter().map(|qid| format!("text {}", qid.as_str().expect("id"))).collect();
+                    let mut runs = if busy { vec!["work".to_owned()] } else { Vec::new() };
+                    runs.extend(taken);
+                    eventually_on(&[&handle.cell.stepped], || (*lock(&started) == runs).then_some(())).await;
+                    release.notify_one();
+                }
+                other => panic!("{label}: recorded count {other:?}"),
             }
+            if busy && case["reply"]["count"] == 0 {
+                release.notify_one();
+            }
+            eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
         }
-        release.notify_one();
-        eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     }
 }

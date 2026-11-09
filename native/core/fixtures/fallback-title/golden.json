@@ -1,0 +1,343 @@
+{
+  "cases": [
+    {
+      "name": "a plain first turn",
+      "header": {},
+      "messages": [
+        {
+          "role": "user",
+          "content": "Fix the parser bug please"
+        }
+      ],
+      "changed": true,
+      "title": "Fix the parser bug please",
+      "titleUpdatedAtSet": true
+    },
+    {
+      "name": "the earliest usable human turn",
+      "header": {},
+      "messages": [
+        {
+          "role": "user",
+          "content": "Reference files: a"
+        },
+        {
+          "role": "user",
+          "content": "Fix the parser bug please"
+        },
+        {
+          "role": "user",
+          "content": "Second ask"
+        }
+      ],
+      "changed": true,
+      "title": "Fix the parser bug please",
+      "titleUpdatedAtSet": true
+    },
+    {
+      "name": "an injected turn never names it",
+      "header": {},
+      "messages": [
+        {
+          "role": "user",
+          "content": "goal text",
+          "meta": {
+            "source": "goal"
+          }
+        },
+        {
+          "role": "user",
+          "content": "Typed by the human"
+        }
+      ],
+      "changed": true,
+      "title": "Typed by the human",
+      "titleUpdatedAtSet": true
+    },
+    {
+      "name": "an imported turn is human",
+      "header": {},
+      "messages": [
+        {
+          "role": "user",
+          "content": "Imported prompt text",
+          "meta": {
+            "source": "import"
+          }
+        }
+      ],
+      "changed": true,
+      "title": "Imported prompt text",
+      "titleUpdatedAtSet": true
+    },
+    {
+      "name": "meta.source 0 is falsy",
+      "header": {},
+      "messages": [
+        {
+          "role": "user",
+          "content": "Typed with source zero",
+          "meta": {
+            "source": 0
+          }
+        }
+      ],
+      "changed": true,
+      "title": "Typed with source zero",
+      "titleUpdatedAtSet": true
+    },
+    {
+      "name": "meta.source empty is falsy",
+      "header": {},
+      "messages": [
+        {
+          "role": "user",
+          "content": "Typed with empty source",
+          "meta": {
+            "source": ""
+          }
+        }
+      ],
+      "changed": true,
+      "title": "Typed with empty source",
+      "titleUpdatedAtSet": true
+    },
+    {
+      "name": "meta.source 1 is set",
+      "header": {},
+      "messages": [
+        {
+          "role": "user",
+          "content": "Injected by one",
+          "meta": {
+            "source": 1
+          }
+        },
+        {
+          "role": "user",
+          "content": "Typed by the human"
+        }
+      ],
+      "changed": true,
+      "title": "Typed by the human",
+      "titleUpdatedAtSet": true
+    },
+    {
+      "name": "meta that is an array",
+      "header": {},
+      "messages": [
+        {
+          "role": "user",
+          "content": "Typed with array meta",
+          "meta": []
+        }
+      ],
+      "changed": true,
+      "title": "Typed with array meta",
+      "titleUpdatedAtSet": true
+    },
+    {
+      "name": "synthetic and internal turns",
+      "header": {},
+      "messages": [
+        {
+          "role": "user",
+          "content": "x",
+          "meta": {
+            "synthetic": true
+          }
+        },
+        {
+          "role": "user",
+          "content": "y",
+          "internal": true
+        },
+        {
+          "role": "user",
+          "content": "Real one"
+        }
+      ],
+      "changed": true,
+      "title": "Real one",
+      "titleUpdatedAtSet": true
+    },
+    {
+      "name": "nothing usable",
+      "header": {},
+      "messages": [
+        {
+          "role": "user",
+          "content": ""
+        }
+      ],
+      "changed": false,
+      "title": null,
+      "titleUpdatedAtSet": null
+    },
+    {
+      "name": "a usable title is kept",
+      "header": {
+        "title": "Kept"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "Other"
+        }
+      ],
+      "changed": false,
+      "title": null,
+      "titleUpdatedAtSet": null
+    },
+    {
+      "name": "an untitled placeholder is replaced",
+      "header": {
+        "title": "Untitled session"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "Replaces untitled"
+        }
+      ],
+      "changed": true,
+      "title": "Replaces untitled",
+      "titleUpdatedAtSet": true
+    },
+    {
+      "name": "title 0 is falsy",
+      "header": {
+        "title": 0
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "Replaces zero title"
+        }
+      ],
+      "changed": true,
+      "title": "Replaces zero title",
+      "titleUpdatedAtSet": true
+    },
+    {
+      "name": "title empty is falsy",
+      "header": {
+        "title": ""
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "Replaces empty title"
+        }
+      ],
+      "changed": true,
+      "title": "Replaces empty title",
+      "titleUpdatedAtSet": true
+    },
+    {
+      "name": "title 5 is the text 5",
+      "header": {
+        "title": 5
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "Other"
+        }
+      ],
+      "changed": false,
+      "title": null,
+      "titleUpdatedAtSet": null
+    },
+    {
+      "name": "a locked title",
+      "header": {
+        "titleLocked": true
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "Nope"
+        }
+      ],
+      "changed": false,
+      "title": null,
+      "titleUpdatedAtSet": null
+    },
+    {
+      "name": "generatedTitleStage first",
+      "header": {
+        "generatedTitleStage": "first"
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "Nope"
+        }
+      ],
+      "changed": false,
+      "title": null,
+      "titleUpdatedAtSet": null
+    },
+    {
+      "name": "generatedTitleStage 0 is falsy",
+      "header": {
+        "generatedTitleStage": 0
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "Stage zero names it"
+        }
+      ],
+      "changed": true,
+      "title": "Stage zero names it",
+      "titleUpdatedAtSet": true
+    },
+    {
+      "name": "generatedTitleStage empty is falsy",
+      "header": {
+        "generatedTitleStage": ""
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "Stage empty names it"
+        }
+      ],
+      "changed": true,
+      "title": "Stage empty names it",
+      "titleUpdatedAtSet": true
+    },
+    {
+      "name": "generatedTitleStage 1 is set",
+      "header": {
+        "generatedTitleStage": 1
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "Nope"
+        }
+      ],
+      "changed": false,
+      "title": null,
+      "titleUpdatedAtSet": null
+    },
+    {
+      "name": "generatedTitleStage null is falsy",
+      "header": {
+        "generatedTitleStage": null
+      },
+      "messages": [
+        {
+          "role": "user",
+          "content": "Stage null names it"
+        }
+      ],
+      "changed": true,
+      "title": "Stage null names it",
+      "titleUpdatedAtSet": true
+    }
+  ]
+}

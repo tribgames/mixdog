@@ -225,6 +225,15 @@ pub fn read_session(cx: &ItemContext<'_>, dir: &Path) -> Result<Folded, String> 
                             queued.1 = entry;
                         }
                     }
+                    QueueAction::Prioritize => {
+                        let entry = qr.entry.ok_or("prioritize without entry")?;
+                        let entry = resolve(cx, entry)?.0;
+                        if let Some(at) = folded.queue.iter().position(|q| q.0 == qr.qid.as_str()) {
+                            let mut queued = folded.queue.remove(at);
+                            queued.1 = entry;
+                            folded.queue.insert(0, queued);
+                        }
+                    }
                     QueueAction::Dequeue => folded.queue.retain(|q| q.0 != qr.qid.as_str()),
                 },
                 // Folded back into its anchor's `meta.modelSwitches`, where 1.4.5 kept it

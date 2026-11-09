@@ -2245,7 +2245,8 @@ impl SessionActor {
                     }
                 }
             }
-            Ctl::Steer => {
+            Ctl::Prioritize { queued } => {
+                self.prioritize(&queued);
                 if let Some(active) = self.cell.run.load_full() {
                     let mut steers = active
                         .steers
@@ -2724,6 +2725,31 @@ impl SessionActor {
             }
         });
         tx
+    }
+
+    /// `prioritizeQueued` (`session-flow/queue.mjs`): the queued prompt goes to the front of the queue at
+    /// priority `now`, then a drain is kicked (`kickDrain`: an idle thread starts it, a busy one takes it when
+    /// its turn settles). An entry no longer queued is left alone.
+    fn prioritize(&mut self, qid: &QueuedId) {
+        let Some(queued) = self
+            .projected
+            .queue
+            .iter()
+            .find(|q| q.qid == qid.as_str() && super::control::is_editable_entry(&q.entry))
+        else {
+            return;
+        };
+        let mut entry = queued.entry.clone();
+        entry["priority"] = json!("now");
+        let record = Record::Queue(QueueRecord {
+            qid: id(qid.as_str()),
+            action: QueueAction::Prioritize,
+            reason: None,
+            op: None,
+            entry: Some(Slot::Inline(entry)),
+        });
+        self.accept_record(record, Class::Control, Display::None, Vec::new(), Vec::new());
+        self.start_next_queued();
     }
 
     /// The next queued entry becomes a run (P X9: busy → queued, follow-ups run in order).
