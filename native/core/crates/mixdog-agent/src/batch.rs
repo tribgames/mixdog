@@ -257,7 +257,7 @@ impl Run {
         }
         if self.tools.dedup_eligible(&name) {
             let sig = call_signature(&name, &exec.arguments);
-            if !self.eager_sigs.insert(sig.clone()) || self.cross_turn.has(&sig) {
+            if !self.eager_sigs.insert(sig.clone()) {
                 return;
             }
             if let Some(reuse) = self.env.reuse.clone()
@@ -473,8 +473,8 @@ impl Run {
         let mut evaluated = vec![false; n];
         let mut finished = vec![false; n];
         let mut started = vec![false; n];
-        // Calls answered without running (here, or by a refusal on the way to the tool): they changed
-        // nothing a streamed read could have read.
+        // Calls answered without a run (a denial, a stub, a guard, a refused call_tool): Node records no mutation for them,
+        // so a read streamed ahead of one stays usable.
         let mut skipped = vec![false; n];
         let mut ready: Vec<bool> = vec![false; n];
         let mut recorded = 0usize;
@@ -579,6 +579,10 @@ impl Run {
                 // A streamed read-only result is only usable when no earlier
                 // call of the batch could have changed what it read.
                 let eager = self.eager.remove(&call.id);
+                // A streamed result thrown away is not announced again by its re-run: Node's serial path never notifies.
+                if eager.is_some() {
+                    streamed.insert(j);
+                }
                 let eager = eager.filter(|_| (0..j).all(|i| skipped[i] || specs[i].as_ref().is_none_or(|s| s.parallel_safe)));
                 if let Some(handle) = eager {
                     streamed.insert(j);
@@ -617,7 +621,6 @@ impl Run {
                     if !streamed.contains(&idx) {
                         self.emit(RunEvent::EarlyResult(early_result(&calls[idx].id, &result)));
                     }
-                    skipped[idx] = result.returned;
                     executed[idx] = Some(result);
                     finished[idx] = true;
                 }

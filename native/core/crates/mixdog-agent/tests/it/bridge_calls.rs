@@ -50,6 +50,8 @@ use mixdog_agent::message::AgentMessage;
 use mixdog_agent::message::ToolKind;
 use mixdog_agent::tools::ToolEnv;
 use mixdog_agent::tools::ToolSet;
+use mixdog_core_api::domain::approval::ApprovalAsk;
+use mixdog_core_api::domain::approval::ApprovalGate;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
 use mixdog_core_api::domain::mock::MockApprovalGate;
 use mixdog_core_api::domain::mock::MockCodec;
@@ -110,6 +112,16 @@ use tokio_util::sync::CancellationToken;
 
 const GOLDEN: &str = include_str!("../../../../fixtures/call-tool/golden.json");
 
+/// Everything observable, in the order it happened (the recording's 	imeline).
+#[derive(Clone, Default)]
+struct Timeline(Arc<Mutex<Vec<Value>>>);
+
+impl Timeline {
+    fn note(&self, entry: Value) {
+        self.0.lock().expect("timeline").push(entry);
+    }
+}
+
 fn strings(value: &Value) -> Vec<String> {
     value.as_array().map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect()).unwrap_or_default()
 }
@@ -121,10 +133,11 @@ struct Probe {
     spec: ToolSpec,
     leaf: String,
     executed: Arc<Mutex<Vec<Value>>>,
+    timeline: Timeline,
 }
 
 impl Probe {
-    fn new(name: &str, executed: &Arc<Mutex<Vec<Value>>>) -> Arc<dyn Tool> {
+    fn new(name: &str, executed: &Arc<Mutex<Vec<Value>>>, timeline: &Timeline) -> Arc<dyn Tool> {
         let read_only = matches!(name, "probe_read" | "read" | "find" | "glob" | "list" | "grep" | "code_graph");
         let annotations = ToolAnnotations {
             read_only_hint: Some(read_only),
@@ -144,11 +157,13 @@ impl Probe {
                 description: format!("{name} probe"),
                 input_schema: json!({ "type": "object" }),
                 annotations,
-                parallel_safe: true,
+                // Node's mutation tools (_isMutationTool): a read streamed ahead of one is run again.
+                parallel_safe: !matches!(name, "edit" | "apply_patch"),
                 exclusive_with: Vec::new(),
             },
             leaf: leaf.to_owned(),
             executed: executed.clone(),
+            timeline: timeline.clone(),
         })
     }
 }
@@ -160,6 +175,7 @@ impl Tool for Probe {
     }
     async fn call(&self, _: &ToolContext, args: JsonValue) -> ToolOutcome {
         self.executed.lock().expect("executed").push(json!({ "name": self.spec.name, "args": args }));
+        self.timeline.note(json!({ "ev": "ran", "name": self.spec.name, "args": args }));
         Ok(ToolOutput { parts: vec![ToolPart::Text(format!("ran {} {}", self.leaf, args))], ..ToolOutput::default() })
     }
 }
@@ -262,12 +278,14 @@ impl ConnectorPermissions for Connectors {
 struct ScriptHook {
     scenario: Value,
     seen: Mutex<Vec<Value>>,
+    timeline: Timeline,
 }
 
 #[async_trait]
 impl PreToolHook for ScriptHook {
     async fn pre_tool(&self, call: &HookCall<'_>) -> Result<Option<HookDecision>, HookFailure> {
         self.seen.lock().expect("seen").push(json!({ "name": call.name, "args": call.args }));
+        self.timeline.note(json!({ "ev": "pre", "name": call.name, "args": call.args }));
         let listed = |key: &str| strings(&self.scenario[key]).iter().any(|name| name == call.name);
         if let Some(rewrite) = self.scenario["hookRewrite"].get(call.name) {
             return Ok(Some(HookDecision {
@@ -312,24 +330,59 @@ impl GateSession for Session {
 
 /// PostToolUse: notes what each call ran as and answered.
 #[derive(Default)]
-struct PostHooks(Mutex<Vec<Value>>);
+struct PostHooks(Mutex<Vec<Value>>, Timeline);
 
 #[async_trait]
 impl ToolHooks for PostHooks {
     async fn after_tool(&self, call: &GateCall, result: &str) -> Option<String> {
         self.0.lock().expect("after").push(json!({ "name": call.name, "args": call.args, "result": result }));
+        self.1.note(json!({ "ev": "post", "name": call.name, "args": call.args }));
         None
+    }
+}
+
+/// The approval gate: answers the scenario's cards and notes each one as it is shown.
+struct Cards {
+    answers: MockApprovalGate,
+    timeline: Timeline,
+}
+
+#[async_trait]
+impl ApprovalGate for Cards {
+    async fn request(&self, ask: ApprovalAsk) -> ApprovalResolution {
+        self.timeline.note(json!({ "ev": "card", "name": ask.tool, "args": ask.payload["args"] }));
+        // A person answers later: the loop runs meanwhile, as it does while Node awaits the card.
+        let answer = self.answers.request(ask).await;
+        tokio::task::yield_now().await;
+        answer
     }
 }
 
 // ---- the run's host doubles ----------------------------------------------------------------------------------------------------------
 
-struct Steps(VecDeque<StreamEvent>);
+struct Steps {
+    events: VecDeque<StreamEvent>,
+    /// A streaming provider lets the loop run between its events; the response ends a moment after the last call.
+    streamed: bool,
+    timeline: Timeline,
+    request: usize,
+}
 
 #[async_trait]
 impl ModelStream for Steps {
     async fn next(&mut self) -> Option<Result<StreamEvent, ProviderError>> {
-        self.0.pop_front().map(Ok)
+        if self.streamed {
+            if matches!(self.events.front(), Some(StreamEvent::Completed { .. })) {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            } else {
+                tokio::task::yield_now().await;
+            }
+        }
+        let event = self.events.pop_front()?;
+        if matches!(event, StreamEvent::Completed { .. }) {
+            self.timeline.note(json!({ "ev": "answered", "n": self.request }));
+        }
+        Some(Ok(event))
     }
     fn delivery(&self) -> DeliveryState {
         DeliveryState::Accepted
@@ -344,6 +397,8 @@ struct Replies {
     codec: MockCodec,
     script: Mutex<VecDeque<Vec<StreamEvent>>>,
     requests: Mutex<Vec<Arc<ModelRequest>>>,
+    streamed: bool,
+    timeline: Timeline,
 }
 
 #[async_trait]
@@ -361,23 +416,37 @@ impl ProviderAdapter for Replies {
         &self.keepalive
     }
     async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
-        self.requests.lock().expect("requests").push(request);
+        let number = {
+            let mut requests = self.requests.lock().expect("requests");
+            requests.push(request);
+            requests.len()
+        };
+        self.timeline.note(json!({ "ev": "sent", "n": number }));
         let reply = self.script.lock().expect("script").pop_front().expect("the script ran out of replies");
-        Ok(Box::new(Steps(reply.into())))
+        Ok(Box::new(Steps { events: reply.into(), streamed: self.streamed, timeline: self.timeline.clone(), request: number }))
     }
 }
 
-fn replies(script: &Value) -> Vec<Vec<StreamEvent>> {
+/// The scripted replies. A whole-response provider returns its calls with the response (`ReturnedCalls`: no call is
+/// dispatched before the response ends); a streaming one hands each call over as it completes (`ToolCallDone`).
+fn replies(script: &Value, streamed: bool) -> Vec<Vec<StreamEvent>> {
     script
         .as_array()
         .expect("script")
         .iter()
         .map(|step| match step["calls"].as_array() {
-            Some(calls) => calls
-                .iter()
-                .map(|call| StreamEvent::ToolCallDone(ToolCall { id: call["id"].as_str().expect("id").into(), name: call["name"].as_str().expect("name").into(), arguments: call["arguments"].clone(), native_type: None }))
-                .chain([StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None }])
-                .collect(),
+            Some(calls) => {
+                let calls: Vec<ToolCall> = calls
+                    .iter()
+                    .map(|call| ToolCall { id: call["id"].as_str().expect("id").into(), name: call["name"].as_str().expect("name").into(), arguments: call["arguments"].clone(), native_type: None })
+                    .collect();
+                let done = StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None };
+                if streamed {
+                    calls.into_iter().map(StreamEvent::ToolCallDone).chain([done]).collect()
+                } else {
+                    vec![StreamEvent::ReturnedCalls(calls), done]
+                }
+            }
             None => vec![StreamEvent::TextDelta(step["text"].as_str().expect("text").into()), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }],
         })
         .collect()
@@ -412,10 +481,16 @@ impl SteerSource for NoSteer {
 }
 
 #[derive(Default)]
-struct Events(Mutex<Vec<RunEvent>>);
+struct Events(Mutex<Vec<RunEvent>>, Timeline);
 
 impl RunObserver for Events {
     fn event(&self, event: RunEvent) {
+        match &event {
+            RunEvent::ToolCalls { calls, .. } => self.1.note(json!({ "ev": "toolCall", "ids": calls.iter().map(|call| call.id.as_str()).collect::<Vec<_>>() })),
+            RunEvent::EarlyResult(message) => self.1.note(json!({ "ev": "toolResult", "id": message.tool_call_id(), "early": true })),
+            RunEvent::ToolResult { call_id, .. } => self.1.note(json!({ "ev": "toolResult", "id": call_id, "early": false })),
+            _ => {}
+        }
         self.0.lock().expect("events").push(event);
     }
     fn can_retract(&self) -> bool {
@@ -517,12 +592,13 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
     let deferred: Vec<String> = strings(&surface["catalog"]).into_iter().filter(|name| !eager.contains(name) && permitted(name)).collect();
     let live_mcp = if scenario["mcp"].as_bool() == Some(true) { vec!["mcp__mail__send".to_owned()] } else { Vec::new() };
     let executed = Arc::new(Mutex::new(Vec::new()));
+    let timeline = Timeline::default();
 
     // The registry holds every tool; the surface offers the eager ones (and the bridge's two).
     let everything: Vec<String> = eager.iter().chain(&deferred).chain(&strings(&surface["catalog"])).cloned().collect::<std::collections::BTreeSet<_>>().into_iter().collect();
-    let mut registry: Vec<Arc<dyn Tool>> = everything.iter().filter(|name| !matches!(name.as_str(), "load_tool" | "call_tool")).map(|name| Probe::new(name, &executed)).collect();
+    let mut registry: Vec<Arc<dyn Tool>> = everything.iter().filter(|name| !matches!(name.as_str(), "load_tool" | "call_tool")).map(|name| Probe::new(name, &executed, &timeline)).collect();
     if scenario["mcp"].as_bool() == Some(true) {
-        registry.push(Probe::new("mcp__mail__send", &executed));
+        registry.push(Probe::new("mcp__mail__send", &executed, &timeline));
     }
     let readonly = session["toolSpec"] == "readonly";
     let mcp_names = (scenario["mcp"].as_bool() == Some(true)).then(|| live_mcp.clone());
@@ -532,7 +608,7 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         match name.as_str() {
             "load_tool" => offered.push(Arc::new(LoadTool::new(catalog.clone()))),
             "call_tool" => offered.push(Arc::new(CallTool::new(catalog.clone(), Arc::new(Never)))),
-            other => offered.push(Probe::new(other, &executed)),
+            other => offered.push(Probe::new(other, &executed, &timeline)),
         }
     }
     let resolver: Arc<dyn ToolResolver> = Arc::new(Registry(registry));
@@ -551,10 +627,10 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         bridge: !non_bridge,
         ..SessionSurface::default()
     };
-    let observer = Arc::new(Events::default());
-    let approvals = Arc::new(MockApprovalGate::default());
+    let observer = Arc::new(Events(Mutex::default(), timeline.clone()));
+    let approvals = Arc::new(Cards { answers: MockApprovalGate::default(), timeline: timeline.clone() });
     for answer in scenario["answers"].as_array().expect("answers") {
-        approvals.script.lock().expect("script").push_back(ApprovalResolution::Decided {
+        approvals.answers.script.lock().expect("script").push_back(ApprovalResolution::Decided {
             decision: ToolApprovalDecision {
                 approved: answer["approved"].as_bool().expect("approved"),
                 reason: answer["reason"].as_str().map(str::to_owned),
@@ -570,7 +646,7 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
             at: 0,
         });
     }
-    let hook = Arc::new(ScriptHook { scenario: scenario.clone(), seen: Mutex::default() });
+    let hook = Arc::new(ScriptHook { scenario: scenario.clone(), seen: Mutex::default(), timeline: timeline.clone() });
     struct SharedHook(Arc<ScriptHook>);
     #[async_trait]
     impl PreToolHook for SharedHook {
@@ -593,14 +669,16 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         cwd: std::env::temp_dir(),
         cancel: CancellationToken::new(),
     });
-    let post = Arc::new(PostHooks::default());
+    let post = Arc::new(PostHooks(Mutex::default(), timeline.clone()));
     let provider = Arc::new(Replies {
         id: ProviderId::from("scripted"),
         policy: RetryPolicy::codex_default(),
         keepalive: KeepaliveSchedule::SPEC,
         codec: MockCodec,
-        script: Mutex::new(replies(&scenario["script"]).into()),
+        script: Mutex::new(replies(&scenario["script"], scenario["stream"].as_bool() == Some(true)).into()),
         requests: Mutex::new(Vec::new()),
+        streamed: scenario["stream"].as_bool() == Some(true),
+        timeline: timeline.clone(),
     });
     let tokens = mixdog_rt::testing::tokens();
     let env = RunEnv {
@@ -708,6 +786,7 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         })
         .collect();
     let cards: Vec<Value> = approvals
+        .answers
         .asks
         .lock()
         .expect("asks")
@@ -727,6 +806,7 @@ async fn observed(scenario: &Value, defined: &[Value]) -> Value {
         "cards": cards,
         "hooks": { "before": before, "after": after },
         "executed": executed,
+        "timeline": timeline.0.lock().expect("timeline").clone(),
     })
 }
 
@@ -766,31 +846,97 @@ fn recorded(scenario: &Value) -> Value {
         "cards": cards,
         "hooks": scenario["hooks"],
         "executed": scenario["executed"],
+        "timeline": scenario["timeline"],
     })
 }
 
-#[tokio::test(start_paused = true)]
-async fn every_recorded_call_tool_scenario_is_the_same_in_the_core() {
+/// What the order of a timeline fixes. The requests, the responses and the tool-call events are boundaries, and every
+/// entry stays between the same two of them (an early start, before the response ends, is a different segment from a
+/// start after it). Between two boundaries the calls of a batch run concurrently, and how their steps interleave
+/// depends on each runtime's scheduler, not on the product: there each call's own entries (its hooks, card, run and
+/// results) are compared in order, and the calls apart.
+fn settled(timeline: &Value) -> Value {
+    fn flush(segment: &mut std::collections::BTreeMap<String, Vec<Value>>, out: &mut Vec<Value>) {
+        // Two calls of one tool with the same arguments are told apart by nothing but their steps: in the order of a call's life.
+        for steps in segment.values_mut() {
+            steps.sort_by_key(|step| ["pre", "card", "ran", "post"].iter().position(|ev| step["ev"] == *ev));
+        }
+        if !segment.is_empty() {
+            out.push(json!(std::mem::take(segment)));
+        }
+    }
+    let mut out = Vec::new();
+    let mut segment = std::collections::BTreeMap::<String, Vec<Value>>::new();
+    for entry in timeline.as_array().expect("timeline") {
+        match entry["ev"].as_str().expect("ev") {
+            "sent" | "answered" | "toolCall" => {
+                flush(&mut segment, &mut out);
+                out.push(entry.clone());
+            }
+            "toolResult" => segment.entry(format!("result {}", entry["id"])).or_default().push(entry.clone()),
+            _ => segment.entry(format!("call {} {}", entry["name"], entry["args"])).or_default().push(entry.clone()),
+        }
+    }
+    flush(&mut segment, &mut out);
+    json!(out)
+}
+
+/// Replays the recorded scenarios `take` selects and returns the differences from Node's recording.
+async fn differences(take: impl Fn(&Value) -> bool, skip: &[&str]) -> (usize, Vec<String>) {
     let golden: Value = serde_json::from_str(GOLDEN).expect("golden parses");
     let scenarios = golden["scenarios"].as_array().expect("scenarios");
-    assert_eq!(scenarios.len(), 25, "the recorded scenario list");
+    assert_eq!(scenarios.len(), 38, "the recorded scenario list");
     let mut failures = Vec::new();
-    for scenario in scenarios {
+    let mut compared = 0;
+    for scenario in scenarios.iter().filter(|scenario| take(scenario)) {
+        compared += 1;
         let (mut got, mut want) = (observed(scenario, golden["tools"].as_array().expect("tools")).await, recorded(scenario));
-        // The calls of one batch run concurrently, and which of them starts first depends on when the
-        // provider hands it over (the loop starts a read-only call as it streams; Node's scripted
-        // provider streams none), so the order the hooks and the executors see them in is compared
-        // as a list, not as a sequence. Everything else, the transcript included, is compared in order.
         for view in [&mut got, &mut want] {
-            view["executed"].as_array_mut().expect("list").sort_by_key(Value::to_string);
-            view["hooks"]["before"].as_array_mut().expect("list").sort_by_key(Value::to_string);
-            view["hooks"]["after"].as_array_mut().expect("list").sort_by_key(Value::to_string);
+            view["timeline"] = settled(&view["timeline"]);
+            // The same concurrency decides the order of the executors and the hooks across the calls of a batch.
+            view["executed"].as_array_mut().expect("list").sort_by_key(|call| (call["name"].to_string(), call["args"].to_string()));
+            view["hooks"]["before"].as_array_mut().expect("list").sort_by_key(|call| (call["name"].to_string(), call["args"].to_string()));
+            view["hooks"]["after"].as_array_mut().expect("list").sort_by_key(|call| (call["name"].to_string(), call["args"].to_string()));
         }
-        for key in want.as_object().expect("view").keys() {
+        for key in want.as_object().expect("view").keys().filter(|key| !skip.contains(&key.as_str())) {
             if got[key] != want[key] {
                 failures.push(format!("{} / {key}\n  node: {}\n  core: {}", scenario["name"], want[key], got[key]));
             }
         }
     }
+    (compared, failures)
+}
+
+/// A streamed scenario in which Node starts a call that is not read-only while the response streams (its hook runs, its
+/// card is shown, it runs): `createEagerDispatcher` dispatches every executable call as the provider hands it over.
+fn starts_a_write_early(scenario: &Value) -> bool {
+    scenario["stream"] == true && scenario["timeline"].as_array().expect("timeline").iter().any(|entry| matches!(entry["ev"].as_str(), Some("card" | "pre" | "ran")) && (entry["ev"] == "card" || entry["name"] != "probe_read"))
+}
+
+#[tokio::test(start_paused = true)]
+async fn every_recorded_call_tool_scenario_is_the_same_in_the_core() {
+    let (compared, failures) = differences(|scenario| !starts_a_write_early(scenario), &[]).await;
+    assert!(compared > 0);
+    assert!(failures.is_empty(), "{} difference(s):\n{}", failures.len(), failures.join("\n"));
+}
+
+/// The scenarios in which Node starts a write while the response streams come out the same in everything the model and
+/// the transcript hold (the requests, the transcript, the results, the cards, the executors, the hook calls); only the
+/// moment of the start differs, see the next test.
+#[tokio::test(start_paused = true)]
+async fn the_scenarios_whose_writes_start_early_in_node_end_the_same_in_the_core() {
+    let (compared, failures) = differences(starts_a_write_early, &["timeline"]).await;
+    assert!(compared > 0);
+    assert!(failures.is_empty(), "{} difference(s):\n{}", failures.len(), failures.join("\n"));
+}
+
+/// Node dispatches every executable call while the provider streams it, a write, an MCP call or a call that
+/// needs approval included (`createEagerDispatcher`, `eager-dispatch.mjs`): its card is shown before the response ends.
+/// The core starts only read-only calls then, and the others after the response: open.
+#[tokio::test(start_paused = true)]
+#[ignore = "open difference: the core starts only read-only calls while the response streams"]
+async fn calls_that_are_not_read_only_start_while_the_response_streams_as_in_node() {
+    let (compared, failures) = differences(starts_a_write_early, &[]).await;
+    assert!(compared > 0);
     assert!(failures.is_empty(), "{} difference(s):\n{}", failures.len(), failures.join("\n"));
 }
