@@ -28,6 +28,7 @@ if (args.has('scenario')) {
     dialect: nodeDialect,
     paired: boot.paired ?? true,
     registration: boot.registration ?? 200,
+    mxt: boot.mxt ?? false,
   });
   const { VISUALIZE_PANELS_EVENT } = await importFrom(tree, 'apps/desktop/src/shared/visualize.ts');
   const driver = {

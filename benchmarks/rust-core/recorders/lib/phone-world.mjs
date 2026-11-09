@@ -10,8 +10,9 @@ import { join } from 'node:path';
 
 const importFrom = (tree, rel) => import(pathToFileURL(join(tree, rel)).href);
 
-export async function createPhoneWorld({ tree, dialect, random = () => 0.5, paired = true, registration = 200, hidden = false }) {
+export async function createPhoneWorld({ tree, dialect, random = () => 0.5, paired = true, registration = 200, hidden = false, mxt = false }) {
   const E2EE = await importFrom(tree, 'apps/desktop/src/shared/remote-e2ee.ts');
+  const Transport = await importFrom(tree, 'apps/desktop/src/shared/remote-transport.ts');
   const Recovery = await importFrom(tree, 'apps/desktop/src/renderer/remote-pairing-recovery.ts');
   const identity = await E2EE.generateRelayE2EEServerIdentity();
   const material = E2EE.relayE2EEPairingMaterial(identity);
@@ -187,6 +188,61 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
       log({ ev: 'close', socket: world.sockets.indexOf(this) + 1, code: code ?? null, reason: reason ?? null });
     }
   }
+  // The PC's end of the MXT transport (the shared stream core, as the transport peer's own tests use it): it seals and splits what the
+  // PC sends into records, and reads what the phone put on the relay lane (records, and controls: ack, ping, close...).
+  class Desk {
+    constructor(leg) {
+      this.leg = leg;
+      this.sender = new Transport.RemoteTransportSender();
+      this.receiver = new Transport.RemoteTransportReceiver();
+      this.assembler = new Transport.RemoteTransportMessageAssembler(new Transport.RemoteTransportAssemblyPool());
+      this.fragment = 0;
+    }
+    async send(payload) {
+      for (const part of Transport.splitRemoteTransportPayload(payload, ++this.fragment)) {
+        const box = await this.leg.server.encryptBinary(part);
+        this.sender.push(box);
+        for (const raw of [Transport.encodeRemoteTransportRecord(box)].flat(Infinity)) this.leg.ws.onmessage({ data: raw.slice().buffer });
+      }
+    }
+    async control(message) {
+      const sealed = Transport.encodeRemoteTransportControl(await this.leg.server.sealControl(message, E2EE.RELAY_E2EE_RELAY_LANE));
+      for (const raw of [sealed].flat(Infinity)) this.leg.ws.onmessage({ data: raw.slice().buffer });
+    }
+    async read(raw) {
+      const { leg } = this;
+      const message = Transport.decodeRemoteTransportMessage(raw);
+      if (message.kind === 'control') {
+        const control = Transport.readRemoteTransportControl(await leg.server.openControl(message.box, E2EE.RELAY_E2EE_RELAY_LANE), 'client');
+        if (!control) return;
+        // Acks answer however many records the two dialects make the PC send; every other control is the phone's own timing.
+        if (control.t !== 'ack') log({ ev: 'xcontrol', kind: control.t });
+        if (control.t === 'ping') await this.control({ v: 1, t: 'pong', id: control.id });
+        return;
+      }
+      this.receiver.accept(message, 0);
+      for (let next = this.receiver.next(); next; next = this.receiver.next()) {
+        const value = await leg.server.decryptJson(next.box);
+        this.receiver.commit(next.sequence, 0);
+        const result = this.assembler.accept(value, 0);
+        if (result.state === 'complete') {
+          leg.dialect.onFrame(leg, result.payload, log);
+          log({ ev: 'core' });
+        }
+      }
+    }
+  }
+  if (mxt) {
+    // A browser that can run WebRTC: the phone opts into a transport the PC offers. No carrier is ever offered here, so the relay lane carries it.
+    globalThis.RTCPeerConnection = class {
+      constructor() {
+        this.closed = false;
+      }
+      close() {
+        this.closed = true;
+      }
+    };
+  }
   const globals = {
     window,
     document,
@@ -219,6 +275,8 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
     throwNext: 0,
     /** The desktop reads each hello but never answers it: a handshake that does not finish. */
     holdHello: false,
+    /** How many of the next view syncs of a leg that is already synced the desktop refuses. */
+    failViewSync: 0,
     events,
     advance,
     waitFor,
@@ -248,13 +306,17 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
     },
     async leg(ws) {
       const leg = {
+        world,
+        dialect,
         ws,
         server: null,
+        desk: null,
         challenge: null,
         pings: 0,
         core: { foreground: null, browserId: null, screen: [], panels: [], view: [], lanes: [], resyncs: 0 },
         queue: Promise.resolve(),
         async toPhone(value) {
+          if (leg.desk) return leg.desk.send(value);
           ws.onmessage?.({ data: await leg.server.encryptJson(value) });
         },
         clear: (value) => ws.onmessage?.({ data: JSON.stringify(value) }),
@@ -264,6 +326,10 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
             log({ ev: 'ping', socket: world.sockets.indexOf(ws) + 1 });
             return;
           }
+          if (typeof data !== 'string') {
+            leg.queue = leg.queue.then(() => leg.desk.read(data));
+            return;
+          }
           leg.queue = leg.queue.then(async () => {
             if (!leg.server && world.holdHello) {
               log({ ev: 'hello', socket: world.sockets.indexOf(ws) + 1 });
@@ -271,7 +337,11 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
             }
             if (!leg.server) {
               leg.server = await E2EE.acceptRelayE2EEClientHello(identity, leg.challenge, JSON.parse(String(data)));
-              await leg.toPhone({ type: 'e2ee-ready', version: 1, ...dialect.readyFields });
+              const transport = leg.server.transportEnabled;
+              if (transport) leg.desk = new Desk(leg);
+              // A transport session's ready carries the handshake transcript; so does one whose offer the relay stripped (the phone must refuse it).
+              const confirmation = transport || leg.stripped ? leg.server.handshakeConfirmation() : {};
+              await leg.toPhone({ type: 'e2ee-ready', version: 1, ...dialect.readyFields, ...confirmation });
               return;
             }
             dialect.onFrame(leg, await leg.server.decryptJson(JSON.parse(String(data))), log);
@@ -285,9 +355,14 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
     async handshake(ws, flags = {}) {
       const leg = legs.get(ws);
       leg.server = null;
-      leg.challenge = { ...E2EE.createRelayE2EEChallenge(), ...flags };
+      const { stripOffer, ...offer } = flags;
+      leg.desk = null;
+      leg.stripped = Boolean(stripOffer);
+      leg.challenge = { ...E2EE.createRelayE2EEChallenge(), ...offer };
+      // What the relay shows the phone: with stripOffer the PC's transport offer is gone from it, though the PC still counts it.
+      const { transportWebrtc, binaryFrames, ...shown } = leg.challenge;
       leg.core = { foreground: null, browserId: null, screen: [], panels: [], view: [], lanes: [], resyncs: 0 };
-      ws.onmessage({ data: JSON.stringify(leg.challenge) });
+      ws.onmessage({ data: JSON.stringify(leg.stripped ? shown : leg.challenge) });
     },
     peerClose(ws, code, reason = '') {
       ws.readyState = 3;
@@ -341,12 +416,17 @@ export const nodeDialect = {
     else if (frame.method === 'setVisibleSessions') leg.core.view = a;
     else if (frame.method === 'synchronizeViews') {
       // Synchronizing the view that is already held is a resync request (view-sync peers resync by synchronizing again); a different set is the page changing its view.
-      if (leg.core.synced && JSON.stringify([...a].sort()) === JSON.stringify([...leg.core.view].sort())) {
+      const again = leg.core.synced && JSON.stringify([...a].sort()) === JSON.stringify([...leg.core.view].sort());
+      if (again) {
         leg.core.resyncs += 1;
         log({ ev: 'resync' });
       }
       leg.core.synced = true;
       leg.core.view = a;
+      if (again && leg.world.failViewSync > 0) {
+        leg.world.failViewSync -= 1;
+        return void leg.toPhone({ id: frame.id, ok: false, error: 'view sync refused' });
+      }
     }
     else if (frame.method === 'stateResync') {
       leg.core.resyncs += 1;
@@ -372,11 +452,16 @@ export function protocolDialect(initializeResult) {
           return reply(initializeResult);
         case 'app/subscribe':
           // The app feed is attached once per leg; asking again is the protocol's state resync (Node's stateResync).
-          if (leg.core.appAttached) {
+          const again = leg.core.appAttached;
+          if (again) {
             leg.core.resyncs += 1;
             log({ ev: 'resync' });
           }
           leg.core.appAttached = true;
+          if (again && leg.world.failViewSync > 0) {
+            leg.world.failViewSync -= 1;
+            return void leg.toPhone({ id: frame.id, error: { code: -32000, message: 'view sync refused' } });
+          }
           return reply({ subscription });
         case 'thread/resume':
           leg.core.view = [...new Set([...leg.core.view, frame.params.threadId])];

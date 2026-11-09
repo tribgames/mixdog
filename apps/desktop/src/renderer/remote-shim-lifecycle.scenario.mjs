@@ -18,6 +18,7 @@ const world = await createPhoneWorld({
   dialect: protocolDialect(initializeResult),
   paired: ops[0].paired ?? true,
   registration: ops[0].registration ?? 200,
+  mxt: ops[0].mxt ?? false,
 });
 const { VISUALIZE_PANELS_EVENT } = await import('../shared/visualize.ts');
 // What PH-2's group adapters will do, minimally: one call that stays pending (the script's in-flight call) and the terminal lane.

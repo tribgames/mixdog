@@ -87,6 +87,8 @@ export interface RelayConnector extends Connector {
   /** The page stayed in the background: end the socket with 1000 `background` once what was handed to it is sent, and hold every open until `wake`. */
   suspend(): void;
   readonly suspended: boolean;
+  /** The socket is alive but unusable (a view sync that keeps failing): close it without a status; the redial that follows is the ordinary, visible one. */
+  retire(): void;
 }
 
 /** Challenges a joining socket may answer again after its first one: each is one desktop leg replaced mid-handshake. */
@@ -129,6 +131,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
     probe(): void;
     unprove(): void;
     recycle(code: number, reason: string): void;
+    retire(): void;
     suspend(): void;
   }
 
@@ -158,6 +161,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
       active?.wake();
       return probing;
     },
+    retire: () => current?.retire(),
     suspend: () => {
       suspended = true;
       hold();
@@ -442,6 +446,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
             }, WAKE_PROBE_MS);
           },
           recycle,
+          retire: () => fail(CLOSE_NORMAL, 'view sync failed', true),
           // What was handed to the socket (the background report) leaves first, then the transport says it is suspended.
           suspend: () => {
             quiet = true;
