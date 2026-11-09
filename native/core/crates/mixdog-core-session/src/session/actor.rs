@@ -3213,15 +3213,7 @@ impl SessionActor {
                 // the compaction, `compactCount` included (`compaction-runner.mjs:505`). The pre-send pass states
                 // none: its count is the telemetry's (`rememberCompactTelemetry`, `compact-policy.mjs:877`), written
                 // once by the pass's own `pass_change`.
-                if let Some(change) = header {
-                    self.accept_record(
-                        Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) }),
-                        Class::Normal,
-                        Display::None,
-                        Vec::new(),
-                        Vec::new(),
-                    );
-                }                let cid = new_id();
+                let cid = new_id();
                 // The divider shows live where the compaction happened (`compactionDivider`).
                 let divider = super::transcript::divider_item(&cid, Some(compaction.at));
                 let note = Note::new(
@@ -3250,13 +3242,15 @@ impl SessionActor {
                             .collect(),
                     ),
                 });
-                self.accept_record(
-                    record,
-                    Class::Normal,
-                    Display::Items(vec![Shown::Item(divider)]),
-                    vec![note],
-                    vec![Effect::ItemAck(ack)],
-                );
+                // The header is computed after the replacement is in, as Node stamps `committedAt` after the transcript and
+                // provider-state mutations (`compaction-runner.mjs:695-749`); its record follows the compaction's, and the
+                // caller's ack rides the last record, so the header is durable when the commit answers.
+                let (compaction_ack, header_ack) = if header.is_some() { (Vec::new(), vec![Effect::ItemAck(ack)]) } else { (vec![Effect::ItemAck(ack)], Vec::new()) };
+                self.accept_record(record, Class::Normal, Display::Items(vec![Shown::Item(divider)]), vec![note], compaction_ack);
+                if let Some(header) = header {
+                    let change = header(&self.projected.header);
+                    self.accept_record(Record::Meta(MetaRecord { op: None, change: Slot::Inline(change) }), Class::Normal, Display::None, Vec::new(), header_ack);
+                }
             }
             ProducerMsg::ContextRewound { turn, replacement, ack } => {
                 if !self.active(&turn) {

@@ -183,6 +183,9 @@ pub struct ItemCommit {
     pub prompt: Option<String>,
 }
 
+/// What a compaction's header change is computed from: the header as the actor holds it.
+pub(crate) type DeferredHeader = Box<dyn FnOnce(&mixdog_store::schema::record::Header) -> mixdog_store::schema::record::HeaderChange + Send>;
+
 pub(crate) enum ProducerMsg {
     Section(Section),
     ItemStarted {
@@ -223,13 +226,16 @@ pub(crate) enum ProducerMsg {
         change: mixdog_store::schema::record::HeaderChange,
         ack: oneshot::Sender<Result<(), RunError>>,
     },
+    /// The header a compaction states, computed by the actor from the header as it stands once the compaction is applied
+    /// (the provider continuation reset, the replacement in), because Node stamps `committedAt` after those mutations
+    /// (`compaction-runner.mjs:695-749`).
     Compacted {
         turn: TurnId,
         compaction: Compaction,
         /// The header fields the compaction sets with it (a manual compaction's `compaction`
         /// record, its reset reading, its re-armed reminders), written in the one meta record
         /// that counts the compaction. `None`: the pass' own telemetry counts it.
-        header: Option<mixdog_store::schema::record::HeaderChange>,
+        header: Option<DeferredHeader>,
         ack: oneshot::Sender<Result<(), RunError>>,
     },
     ContextRewound {
