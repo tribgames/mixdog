@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { exportNodeTree } from '../components/status-line/footer-golden/node-tree.mjs';
-import { SCENARIOS } from './scenarios.mjs';
+import { SCENARIOS, themeLayout } from './scenarios.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = process.argv[2];
@@ -29,20 +29,11 @@ for (const scenario of SCENARIOS) {
   const root = mkdtempSync(join(tmpdir(), 'theme-record-'));
   try {
     const dataDir = join(root, 'data');
-    const backupRoot = join(root, 'backups');
-    scenario.setup({ dataDir, backupRoot });
-    const run = spawnSync(process.execPath, ['--input-type=module', '-e', child], {
-      cwd: tree,
-      encoding: 'utf8',
-      env: {
-        ...process.env,
-        NODE_TREE: tree,
-        MIXDOG_DATA_DIR: dataDir,
-        MIXDOG_HOME: join(root, 'home'),
-        MIXDOG_CONFIG_DIR: join(root, 'home'),
-        MIXDOG_USER_DATA_BACKUP_ROOT: backupRoot,
-      },
-    });
+    const layout = themeLayout(root, scenario);
+    scenario.setup({ dataDir, backupRoot: layout.backupRoot, legacyRoot: layout.legacyRoot });
+    const env = { ...process.env, NODE_TREE: tree, MIXDOG_DATA_DIR: dataDir, ...layout.env };
+    for (const name of layout.unset) delete env[name];
+    const run = spawnSync(process.execPath, ['--input-type=module', '-e', child], { cwd: tree, encoding: 'utf8', env });
     if (run.status !== 0) throw new Error(`${scenario.name}: ${run.stderr}`);
     recorded.push({ name: scenario.name, theme: JSON.parse(run.stdout) });
   } finally {
