@@ -205,7 +205,7 @@ pub(crate) fn rows(handle: &SessionHandle) -> Vec<(&'static str, String)> {
         .collect()
 }
 
-fn prompt_list(handle: &SessionHandle) -> Vec<String> {
+pub(crate) fn prompt_list(handle: &SessionHandle) -> Vec<String> {
     handle
         .cell
         .view

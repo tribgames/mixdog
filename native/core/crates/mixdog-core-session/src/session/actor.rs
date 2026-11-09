@@ -4157,7 +4157,7 @@ impl SessionActor {
     fn turn_start(&mut self, req: &CoreRequest) -> Result<Plan, CoreError> {
         let params: TurnStartParams = parse(&req.params, "TurnStartParams")?;
         let user_prompt = matches!(req.ctx.caller, Caller::Connection(_))
-            .then(|| prompt_text(&params.input));
+            .then(|| display_text(&params.input));
         if user_prompt.is_some() && params.input.options.as_ref().is_some_and(|o| o.context.is_some() || o.attachment_sizes.is_some()) {
             return Err(invalid("input.options", "context and attachmentSizes are host-only options"));
         }
