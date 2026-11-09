@@ -642,7 +642,9 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     let sections = Arc::new(mixdog_core_base::state::SectionFeedState::new(app_feed.clone()));
     let stop_reason: Arc<StopReasonCell> = Arc::default();
     let acquired = crate::acquired::Acquired::new(interrupt);
+    let host_media = HostMedia::new(Limits::default().max_media_frame_bytes);
     let built = crate::compose_flip::Built {
+        host_media: host_media.clone(),
         acquired: acquired.clone(),
         tokens: tokens.clone(),
         data_dir: data_dir.to_path_buf(),
@@ -713,7 +715,7 @@ pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, i
     let core = ComposedCore {
         real,
         state: watch::Sender::new(LifecycleState::Serving),
-        host_media: HostMedia::new(Limits::default().max_media_frame_bytes),
+        host_media,
         sections,
         app_feed,
         feed_index,
