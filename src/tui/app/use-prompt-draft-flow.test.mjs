@@ -4,7 +4,7 @@ import test from 'node:test';
 import React from 'react';
 import { Text, render } from 'ink';
 import { usePromptDraftFlow } from './use-prompt-draft-flow.mjs';
-import { waitUntil } from '../../runtime/shared/wait-until.test-support.mjs';
+import { waitUntil } from '../test-support/wait-until.test-support.mjs';
 
 // The prompt cancel paths and the slash-palette accept, mounted through the
 // real hook. App re-creates the pickers, setters and the slash dispatcher every

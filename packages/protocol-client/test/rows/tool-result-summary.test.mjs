@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { parseLineDelta, summarizeToolResult } from './tool-result-summary.mjs';
-import { formatAggregateDetail } from './tool-surface.mjs';
-import { renderAgentCompletionEnvelope, renderShellCompletionEnvelope } from './task-notification-envelope.mjs';
+import { parseLineDelta, summarizeToolResult } from '../../src/rows/tool-result-summary.mjs';
+import { formatAggregateDetail } from '../../src/rows/tool-surface.mjs';
+import { renderAgentCompletionEnvelope, renderShellCompletionEnvelope } from '../../src/rows/task-notification-envelope.mjs';
 
 test('ask_user summaries cover picks, and a composer reply compactly', () => {
   assert.equal(

@@ -5,7 +5,7 @@ import test from 'node:test';
 import React from 'react';
 import { Text, render } from 'ink';
 import { useMouseInput } from './use-mouse-input.mjs';
-import { waitUntil } from '../../runtime/shared/wait-until.test-support.mjs';
+import { waitUntil } from '../test-support/wait-until.test-support.mjs';
 
 // The button-gesture half of the SGR mouse channel, mounted through the real
 // hook: what each press / motion / release does to the selection in the

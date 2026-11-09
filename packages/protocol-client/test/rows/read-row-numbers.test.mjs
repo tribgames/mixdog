@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readRowsForDisplay, readRowsForModel } from './read-row-numbers.mjs';
+import { readRowsForDisplay, readRowsForModel } from '../../src/rows/read-row-numbers.mjs';
 
 const rows = (from, to, body = (n) => `  line ${n}`) =>
   Array.from({ length: to - from + 1 }, (_, i) => `${from + i}→${body(from + i)}`);
@@ -52,7 +52,7 @@ test('display rebuilds the numbered rows, including blank and row-like content',
 });
 
 test('read cards show numbered rows while the model-facing text has none', async () => {
-  const { deriveToolCardModel } = await import('./tool-card-model.mjs');
+  const { deriveToolCardModel } = await import('../../src/rows/tool-card-model.mjs');
   const card = deriveToolCardModel({
     name: 'read',
     args: { file_path: 'a.js' },

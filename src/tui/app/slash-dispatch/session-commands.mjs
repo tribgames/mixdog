@@ -2,7 +2,7 @@
 // Slash commands that act on the session itself: clear/new, compact, goal,
 // resume, fork (alias inherit), doctor and quit. Busy guards refuse the destructive ones
 // while a turn or session command is running.
-import { presentErrorText } from '../../../runtime/shared/err-text.mjs';
+import { presentErrorText } from '../../../../packages/protocol-client/src/rows/err-text.mjs';
 import { BTW_USAGE_HINT } from '../btw-controller.mjs';
 import { theme } from '../../theme.mjs';
 

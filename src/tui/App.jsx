@@ -19,7 +19,7 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useApp, useStdin, useStdout } from 'ink';
 import { useSession } from './hooks/useSession.mjs';
-import { pickFolder } from '../standalone/folder-dialog.mjs';
+import { pickFolder } from './lib/folder-dialog.mjs';
 import { useSlashPalette, useSlashPaletteState } from './app/use-slash-palette.mjs';
 import { useBtwPanel } from './app/use-btw-panel.mjs';
 import { useTuiReady } from './app/use-tui-ready.mjs';

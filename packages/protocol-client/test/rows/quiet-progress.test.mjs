@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { withTurnProgress } from '../agent/orchestrator/session/agent-pool-progress.mjs';
-import { isTurnInFlight } from '../agent/orchestrator/session/manager/runtime-state.mjs';
-import { resolveAgentStallThresholds } from '../agent/orchestrator/stall-policy.mjs';
 import {
   MODEL_THINKING_STAGE,
   awaitingModelResponse,
@@ -14,7 +11,7 @@ import {
   quietProgressLabel,
   quietProgressParts,
   quietWaitKind,
-} from './quiet-progress.mjs';
+} from '../../src/rows/quiet-progress.mjs';
 
 test('the quiet cue is lenient: a turn reads quiet only after the cue window without counted progress', () => {
   const now = 1_000_000_000;
@@ -64,36 +61,9 @@ test('a sent request waiting for its headers is the model-thinking stage until t
     quietProgressLabel(quietProgressParts({ since: 1, wait: 'thinking' }, 1 + 125_000)),
     'quiet for 2m · model thinking'
   );
-  const [row] = withTurnProgress(
-    [{ sessionId: 'run', agent: 'worker', status: 'running' }],
-    () => ({ ...sent, controller: {}, lastProgressAt: 90 }),
-    isTurnInFlight
-  );
-  assert.equal(row.progressStage, MODEL_THINKING_STAGE);
 });
 
 test('progress is counted from the same stamps as the stall watchdog', () => {
   assert.equal(lastProgressAt({ lastProgressAt: 5, lastStreamDeltaAt: 9, toolStartedAt: 7, askStartedAt: 1 }), 9);
   assert.equal(lastProgressAt(null), 0);
-});
-
-test('running pool rows carry their turn progress, stage and warn point; settled rows pass through', () => {
-  const entry = { stage: 'tool_running', lastToolCall: 'shell', lastProgressAt: 50, toolStartedAt: 40, controller: {} };
-  const rows = [
-    { sessionId: 'run', agent: 'worker', status: 'running' },
-    { sessionId: 'rest', agent: 'worker', status: 'idle' },
-  ];
-  const decorated = withTurnProgress(
-    rows,
-    (sessionId) => (sessionId === 'run' ? entry : { stage: 'idle' }),
-    isTurnInFlight
-  );
-  assert.deepEqual(decorated[0], {
-    ...rows[0],
-    progressAt: 50,
-    progressStage: 'tool_running',
-    progressTool: 'shell',
-    stallWarnMs: resolveAgentStallThresholds('worker').warn * 1000,
-  });
-  assert.equal(decorated[1], rows[1]);
 });

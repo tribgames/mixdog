@@ -8,7 +8,7 @@ import { createRoutePickers } from './route-pickers.mjs';
 import { createSettingsPicker } from './settings-picker.mjs';
 import { createSlashDispatch } from './slash-dispatch.mjs';
 import { createThemeEffortPickers } from './theme-effort-pickers.mjs';
-import { waitUntil } from '../../runtime/shared/wait-until.test-support.mjs';
+import { waitUntil } from '../test-support/wait-until.test-support.mjs';
 
 function deferred() {
   return Promise.withResolvers();

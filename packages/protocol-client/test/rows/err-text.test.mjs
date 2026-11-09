@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { backgroundTaskFailureStatusLabel, presentErrorText, retryTimeoutText } from './err-text.mjs';
+import { backgroundTaskFailureStatusLabel, presentErrorText, retryTimeoutText } from '../../src/rows/err-text.mjs';
 
 function timeout(message, fields) {
   return Object.assign(new Error(message), { name: 'ProviderTimeoutError', code: 'EPROVIDERTIMEOUT', ...fields });

@@ -12,7 +12,7 @@ import {
 } from './stream-fence.mjs';
 import { displayWidth } from '../display-width.mjs';
 import { touchLru } from './lru.mjs';
-import { healStreamingMarkdownTail } from '../../ui/streaming-markdown-heal.mjs';
+import { healStreamingMarkdownTail } from './streaming-markdown-heal.mjs';
 
 const stablePrefixByStreamKey = new Map();
 const markdownSyntaxByStreamKey = new Map();

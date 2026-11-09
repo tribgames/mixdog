@@ -2,7 +2,7 @@
 // The API-key action panel of one provider row: add/replace/delete a key and
 // open the key console. `flow` is the per-open picker state (surface claim,
 // paint, navigation) built by provider-setup-picker.mjs.
-import { openInBrowser } from '../../../runtime/shared/open-url.mjs';
+import { openInBrowser } from '../../lib/open-url.mjs';
 import { providerDetailText } from '../app-format.mjs';
 import { forgetProviderAuth, keyConsoleUrl, providerStatusFooter } from './provider-items.mjs';
 

@@ -4,7 +4,7 @@
 import { Box, Text } from 'ink';
 import stringWidth from 'string-width';
 import { theme } from '../theme.mjs';
-import { contextPercent, contextMeasurementLabel } from '../../runtime/shared/context-measurement.mjs';
+import { contextPercent, contextMeasurementLabel } from '../../../packages/protocol-client/src/rows/context-measurement.mjs';
 import { ContextInspector } from './ContextInspector.jsx';
 import { truncatePanelText as truncateText, padPanelCells as padCells } from './panel-cell-text.mjs';
 

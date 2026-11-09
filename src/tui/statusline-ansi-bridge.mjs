@@ -6,7 +6,7 @@
  * normalizes that at display time so `/theme` can re-tone without touching ui/.
  */
 
-import { rgbToAnsi256 } from '../runtime/shared/statusline/ansi.mjs';
+import { rgbToAnsi256 } from './lib/ansi.mjs';
 
 const RESET = '\x1b[0m';
 
