@@ -105,22 +105,47 @@ pub enum PageOutcome {
 }
 
 /// The flush of a held page: done once the page was written, or its connection went away. Waiting for it is bounded,
-/// as Node bounds the flush it awaits at a second (`oauth-callback.mjs` `settle`).
+/// as Node bounds the flush it awaits at a second (`oauth-callback.mjs` `settle`): one promise, so one deadline,
+/// fixed when the page is answered and shared by every waiter (the login's `settle` and the listener's shutdown).
 #[derive(Clone)]
 pub struct Flush {
     done: CancellationToken,
-    /// Node starts the bound's timer when the page is answered; a test that fires the bound counts from here.
-    #[cfg(feature = "test-support")]
-    seen: usize,
+    bound: Arc<std::sync::OnceLock<Bound>>,
+}
+
+/// The deadline of a flush's bound: a second after it was fixed. Under `test-support` it counts on the test's
+/// controlled clock ([`seam::CLOCK`]) instead of the wall clock.
+struct Bound(
+    #[cfg(not(feature = "test-support"))] tokio::time::Instant,
+    #[cfg(feature = "test-support")] u64,
+);
+
+impl Bound {
+    const MS: u64 = 1000;
+
+    fn from_now() -> Self {
+        #[cfg(not(feature = "test-support"))]
+        return Self(tokio::time::Instant::now() + Duration::from_millis(Self::MS));
+        #[cfg(feature = "test-support")]
+        return Self(seam::CLOCK.now() + Self::MS);
+    }
+
+    async fn passed(&self) {
+        #[cfg(not(feature = "test-support"))]
+        tokio::time::sleep_until(self.0).await;
+        #[cfg(feature = "test-support")]
+        seam::CLOCK.reached(self.0).await;
+    }
 }
 
 impl Flush {
     fn pending() -> Self {
-        Self {
-            done: CancellationToken::default(),
-            #[cfg(feature = "test-support")]
-            seen: seam::FLUSH_BOUND.count(),
-        }
+        Self { done: CancellationToken::default(), bound: Arc::default() }
+    }
+
+    /// Fixes the deadline of the bound now: the page is being answered (Node starts the timer in `respond`).
+    pub fn start(&self) {
+        self.bound.get_or_init(Bound::from_now);
     }
 
     /// A flush that is over already (no page is held).
@@ -136,9 +161,10 @@ impl Flush {
 
     /// Returns when the page is flushed, or when the bound passed.
     pub async fn wait(&self) {
+        let bound = self.bound.get_or_init(Bound::from_now);
         tokio::select! {
             () = self.done.cancelled() => {}
-            () = self.bound() => {}
+            () = bound.passed() => {}
         }
     }
 }
@@ -176,23 +202,13 @@ impl Callback {
     }
 }
 
-impl Flush {
-    #[cfg(not(feature = "test-support"))]
-    async fn bound(&self) {
-        tokio::time::sleep(Duration::from_secs(1)).await;
-    }
-
-    #[cfg(feature = "test-support")]
-    async fn bound(&self) {
-        seam::FLUSH_BOUND.after(self.seen).await;
-    }
-}
 /// Test seams (feature `test-support`): every wait that Node bounds by a timer is driven by the test instead, and the
 /// listener's lifecycle is recorded as the events Node's recorder observed.
 #[cfg(feature = "test-support")]
 pub mod seam {
     use std::sync::Mutex;
     use std::sync::atomic::AtomicBool;
+    use std::sync::atomic::AtomicU64;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
 
@@ -232,8 +248,41 @@ pub mod seam {
         }
     }
 
-    /// The 1 s bound of a page flush fires when the test fires this.
-    pub static FLUSH_BOUND: Tick = Tick::new();
+    /// The controlled clock of the 1 s bound of a page flush: it passes only when the test advances it.
+    pub struct Clock {
+        now_ms: AtomicU64,
+        notify: Notify,
+    }
+
+    impl Clock {
+        pub const fn new() -> Self {
+            Self { now_ms: AtomicU64::new(0), notify: Notify::const_new() }
+        }
+
+        pub fn now(&self) -> u64 {
+            self.now_ms.load(Ordering::SeqCst)
+        }
+
+        pub fn advance(&self, ms: u64) {
+            self.now_ms.fetch_add(ms, Ordering::SeqCst);
+            self.notify.notify_waiters();
+        }
+
+        /// Returns once the clock reached `at`.
+        pub async fn reached(&self, at: u64) {
+            loop {
+                let notified = self.notify.notified();
+                tokio::pin!(notified);
+                notified.as_mut().enable();
+                if self.now() >= at {
+                    return;
+                }
+                notified.await;
+            }
+        }
+    }
+
+    pub static CLOCK: Clock = Clock::new();
     /// The login deadline fires when the test fires this (unless `LOGIN_DEADLINE_MS` is set).
     pub static DEADLINE: Tick = Tick::new();
     /// The next held page waits, before it is written, until `PAGE_RELEASE` fires; `PAGE_HELD` fires when it waits.
@@ -580,5 +629,33 @@ mod tests {
         callback.flushed.wait().await;
         let body = page.await.unwrap();
         assert!(body.starts_with("HTTP/1.1 200") && body.contains("Acme"));
+    }
+
+    /// Node waits for a page's flush on one promise bounded at a second: the login's `settle` and the listener's
+    /// `stopListening` share it. A flush that never completes lets the connections live a second, not two.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_login_and_the_shutdown_share_one_flush_bound() {
+        let _runtime = mixdog_rt::testing::tokens();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let listener = listen(0, "st4te".into(), "Acme".into(), tx).await.unwrap();
+        let accepted = seam::CONNECTIONS.count();
+        let mut idle = TcpStream::connect(("127.0.0.1", listener.port)).await.unwrap();
+        seam::CONNECTIONS.after(accepted).await;
+
+        let flush = Flush::pending();
+        flush.start();
+        let login = tokio::spawn({
+            let flush = flush.clone();
+            async move { flush.wait().await }
+        });
+        // The bound passes once, and the login's wait ends with it.
+        seam::CLOCK.advance(Bound::MS);
+        login.await.unwrap();
+
+        // Shutting down now must not start a second bound: the connection is destroyed without the clock moving again.
+        listener.stopper().shutdown(Some(flush)).await;
+        let mut byte = [0u8; 1];
+        let read = tokio::time::timeout(Duration::from_secs(10), idle.read(&mut byte)).await;
+        assert!(matches!(read, Ok(Ok(0))), "the connection was not destroyed at the shared bound: {read:?}");
     }
 }

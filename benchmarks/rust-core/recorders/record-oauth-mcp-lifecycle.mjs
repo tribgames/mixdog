@@ -255,7 +255,7 @@ async function fixture() {
   };
 }
 
-const { createMcpOAuth, startMcpOAuthSwitch } = await importFrom(tree, 'src/runtime/agent/orchestrator/mcp/oauth.mjs');
+const { createMcpOAuth, startMcpOAuthSwitch, commitMcpOAuthSwitch } = await importFrom(tree, 'src/runtime/agent/orchestrator/mcp/oauth.mjs');
 
 // ---- one case ---------------------------------------------------------------------------------------------------
 const TOKEN_ERRORS = {
@@ -363,12 +363,13 @@ async function runCase(spec) {
   let caller;
   const timeoutOption = spec.action === 'timeout' ? { timeoutMs: 6000 } : {};
   let settled = false;
+  let resolvedSignIn = null;
   if (spec.mode === 'switch') {
     const sw = startMcpOAuthSwitch({ url: server.url, launch: opened, serverName: name, credentialStore: store, oauthClient: client, ...timeoutOption });
     abort = () => sw.cancel();
     paste = (url) => sw.answer(url);
     caller = sw.done.then(
-      (value) => ({ kind: 'resolved', accessToken: value.tokens?.access_token ?? null, refreshToken: value.tokens?.refresh_token ?? null, clientInformation: value.clientInformation ? normalize(JSON.stringify(value.clientInformation)) : null, identity: value.identity }),
+      (value) => (resolvedSignIn = value, { kind: 'resolved', accessToken: value.tokens?.access_token ?? null, refreshToken: value.tokens?.refresh_token ?? null, clientInformation: value.clientInformation ? normalize(JSON.stringify(value.clientInformation)) : null, identity: value.identity }),
       (error) => ({ kind: 'rejected', name: error.name, code: error.code ?? null, message: normalize(error.message) })
     );
   } else {
@@ -463,6 +464,13 @@ async function runCase(spec) {
   }
   const outcome = await within(caller, 30000, { kind: 'not settled within 30 s' });
   const settledWithoutRelease = settled;
+  // A switch stores nothing itself: its caller commits the resolved sign-in (`commitMcpOAuthSwitch`). The store and
+  // the writes before that boundary are recorded apart, so that the whole sequence, commit included, is compared.
+  let commitBoundary = null;
+  if (resolvedSignIn) {
+    commitBoundary = { store: snapshot(), ops: [...store.ops] };
+    await commitMcpOAuthSwitch({ url: server.url, signIn: resolvedSignIn, credentialStore: store });
+  }
   // The gate is released only now: the case observes what happened without it.
   const heldRequest = spec.at === 'exchange' ? tokenHold : server.state.holds[spec.at];
   let serverSawClose = null;
@@ -480,6 +488,7 @@ async function runCase(spec) {
     storeBefore: before,
     storeAfter: snapshot(),
     storeOps: store.ops,
+    commitBoundary,
     requests: server.log,
     outcome: outcomeOf(outcome),
     settledWithoutRelease,
@@ -520,6 +529,8 @@ for (const [errorName, error] of Object.entries(TOKEN_ERRORS)) {
     add({ title: `exchange ${errorName}, failed switch, ${client} client`, mode: 'switch', client, seed: true, script: [error, 'ok'], browser: 'code' });
   }
 }
+// A switch that signs in: nothing is stored until its caller commits it.
+for (const client of clients) add({ title: `successful switch, ${client} client`, mode: 'switch', client, seed: true, script: ['ok'], browser: 'code' });
 // A static client whose rejected grant is retried by the SDK: the second exchange fails, or succeeds.
 for (const client of ['static']) {
   add({ title: `exchange invalid_grant then invalid_grant again, first sign-in, ${client} client`, client, script: [{ error: 'invalid_grant' }, { error: 'invalid_grant' }], browser: 'code' });
