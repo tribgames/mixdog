@@ -45,7 +45,6 @@ const { DesktopSessionMetadata } = await load('main/desktop-session-metadata.ts'
 const { byActivityThenId } = await import(pathToFileURL(join(exportDir, 'src/runtime/agent/orchestrator/session/catalog-db/schema.mjs')).href);
 
 const plain = (value) => JSON.parse(JSON.stringify(value));
-const wait = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Raw rows as the store lists them (newest activity first); the core's row is the same row with the stored
 // desktopSession flattened (`classification`, `projectPath`).
@@ -92,10 +91,14 @@ const coreOf = ({ desktopSession, inheritedFromSessionId, working, agentWorking,
 function desktop(rows) {
   const listeners = new Set();
   let gate = null;
+  let reached = null;
   const host = {
     rows,
     listSessions: async () => {
-      if (gate) await gate;
+      if (gate) {
+        reached?.();
+        await gate;
+      }
       return roster(host.rows);
     },
     getSnapshot: () => ({ sessionId: null, status: 'idle', items: [], streamingTail: null }),
@@ -118,7 +121,13 @@ function desktop(rows) {
       for (const listener of [...listeners]) listener(roster(next));
       catalogs.publishSessions(roster(next));
     },
-    hold() { let release; gate = new Promise((r) => (release = r)); return () => { gate = null; release(); }; },
+    /** Holds the host's roster read; rrived resolves when a read has reached the hold. */
+    hold() {
+      let release;
+      gate = new Promise((r) => (release = r));
+      const arrived = new Promise((r) => (reached = r));
+      return { arrived, release: () => { gate = null; release(); } };
+    },
     connect(phone) {
       const clientId = `client-${++legs}`;
       const state = registry.open(clientId, {});
@@ -168,60 +177,81 @@ function phone() {
 const kind = (frames) => frames.filter((f) => f.event === 'sessions').map((f) => (f.payload.__listCatch ? 'catch-up' : f.payload.rows ? 'baseline' : 'delta'));
 
 const steps = [];
-const note = (name, core, p, frames) => steps.push({ name, coreRows: plain(ordered(core).map(coreOf)), frames: frames ? kind(frames) : undefined, published: p.published.splice(0), roster: plain(p.rows) });
-const settle = async () => { await wait(60); };
+// `edges` are the core's app-feed events for the scripted action of the step (what mixdogd announces for the same change), recorded beside
+// what Node's phone published for it: the replay feeds these, in this order, and compares the phone's catalog with Node's.
+const coreEdge = {
+  started: (row) => ({ method: 'thread/started', params: { thread: plain(coreOf(row)) } }),
+  updated: (row) => ({ method: 'thread/summary/updated', params: { thread: plain(coreOf(row)) } }),
+  deleted: (id) => ({ method: 'thread/deleted', params: { threadId: id } }),
+};
+const note = (name, core, p, frames, edges) => steps.push({ name, coreRows: plain(ordered(core).map(coreOf)), ...(edges ? { edges } : {}), frames: frames ? kind(frames) : undefined, published: p.published.splice(0), roster: plain(p.rows) });
+// Every frame a roster publication sends is delivered to the phone synchronously inside `publish` / `connect` (the relay's
+// `sendEncryptedFrame` is called, not queued, by remote-relay-catalog.ts publishRoster), so a step is complete when its call returns:
+// nothing here waits for time.
 
 const R1 = [0, 1, 2, 3, 4].map((n) => raw(n));
 let d = desktop(R1);
 let p = phone();
 note('attach-baseline', R1, p, await d.connect(p)(await p.claim()));
-await settle();
 
 // A live roster push (a row is worked on and moves to the top).
 const R1b = [raw(2, { updatedAt: 2000, messageCount: 6 }), ...R1.filter((r) => r.id !== 'sess_2')];
 d.publish(R1b);
-note('live-push', R1b, p);
-await settle();
+note('live-push', R1b, p, undefined, [coreEdge.updated(R1b[0])]);
+
+// The same roster published again: Node's catalog skips an unchanged roster, so the phone hears nothing.
+d.publish(R1b);
+note('live-push-unchanged', R1b, p, undefined, [coreEdge.updated(R1b[1])]);
 
 // The desktop restarts: another process (a fresh roster log epoch) with the same rows. The phone reconnects holding its persisted roster.
 d = desktop(R1b);
 p = phone();
 note('restart-same-roster', R1b, p, await d.connect(p)(await p.claim()));
-await settle();
 
 // The desktop restarts again after rows changed while it was away: one removed, one added, one renamed, one reordered.
 const R2 = [raw(7), raw(0, { title: 'Renamed 0', updatedAt: 3000 }), ...R1b.filter((r) => !['sess_0', 'sess_3'].includes(r.id))];
 d = desktop(R2);
 p = phone();
 note('restart-roster-changed', R2, p, await d.connect(p)(await p.claim()));
-await settle();
 
 // A change between the baseline's subscribe and its list: the host publishes while the read is held; the push outranks the listing.
 const R3 = [raw(8), ...R2];
 const R3b = R3.filter((r) => r.id !== 'sess_1');
 d = desktop(R2);
 p = phone();
-const release = d.hold();
+const { arrived, release } = d.hold();
 const syncing = d.connect(p)(await p.claim());
-await wait(20);
+await arrived;
 d.publish(R3b); // a new row appears and sess_1 is deleted while the listing is still being read
 release();
-note('change-between-subscribe-and-list', R3b, p, await syncing);
-await settle();
+note('change-between-subscribe-and-list', R3b, p, await syncing, [coreEdge.started(R3[0]), coreEdge.deleted('sess_1')]);
 
 // Live pushes keep applying after the baseline.
 const R4 = R3b.map((r) => (r.id === 'sess_4' ? { ...r, messageCount: 9 } : r));
 d.publish(R4);
-note('live-push-after-restart', R4, p);
-await settle();
+note('live-push-after-restart', R4, p, undefined, [coreEdge.updated(R4.find((r) => r.id === 'sess_4'))]);
 
 // Node's catalog order over ties, lastUsedAt over updatedAt, and rows with no activity at all (schema.mjs byActivityThenId).
 const tieRows = [
   raw(10, { updatedAt: 500 }), raw(11, { updatedAt: 500 }), raw(12, { updatedAt: 500, id: 'sess_09' }), raw(13, { updatedAt: 100, lastUsedAt: 900 }),
   raw(14, { updatedAt: 900 }), raw(15, { updatedAt: 0 }), raw(16, { updatedAt: 0, id: 'sess_A' }), raw(17, { updatedAt: 0, lastUsedAt: 0, id: 'sess_a' }),
 ];
-steps.push({ name: 'order-ties', coreRows: plain(tieRows.map(coreOf)), order: [...tieRows].sort(byActivityThenId).map((r) => r.id) });
+// Announced one at a time in the reverse of Node's order, after an empty list.
+steps.push({ name: 'order-ties', coreRows: plain(tieRows.map(coreOf)), edges: [...tieRows].reverse().map(coreEdge.started), order: [...tieRows].sort(byActivityThenId).map((r) => r.id) });
 
+// The same five sessions at rest (nothing working, no bot retired): the roster Node holds for a scenario a running core can reproduce
+// (archive, favorite, read cursor and fork set through its protocol). The live replay maps its rows onto this one.
+{
+  const idle = [0, 1, 2, 3, 4].map((n) => {
+    const { working, agentWorking, lastUsedAt, ...row } = raw(n);
+    // A row Node's store lists carries its compaction count, and the last message's preview once the session has had a turn.
+    return { ...row, compactCount: 0, ...(n < 2 ? { lastMessagePreview: `last ${n}` } : {}) };
+  });
+  const retired = meta.retiredMap;
+  meta.retiredMap = {};
+  steps.push({ name: 'idle-roster', coreRows: plain(ordered(idle).map(coreOf)), roster: plain(roster(idle)) });
+  meta.retiredMap = retired;
+}
 const manifest = { exact: true, commit: COMMIT, tree: execFileSync('git', ['-C', NODE_CHECKOUT, 'rev-parse', `${COMMIT}^{tree}`]).toString().trim(), filesCompared: checked, crlfOnlyDifferences: eolOnly, source: 'git archive of the whole tree, every file compared with its git blob id; remote-view-sync.ts, remote-relay-catalog.ts, view-synchronizer.ts, list-delta.ts, remote-roster-cache.ts run unchanged' };
 writeFileSync(outFile, `${JSON.stringify({ manifest, steps }, null, 2)}\n`);
 console.log(`recorded ${steps.length} steps over ${checked} verified files`);

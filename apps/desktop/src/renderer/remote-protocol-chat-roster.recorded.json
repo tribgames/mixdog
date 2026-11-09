@@ -288,6 +288,26 @@
           "agentDeleted": true
         }
       ],
+      "edges": [
+        {
+          "method": "thread/summary/updated",
+          "params": {
+            "thread": {
+              "id": "sess_2",
+              "preview": "preview 2",
+              "title": "Title 2",
+              "updatedAt": 2000,
+              "messageCount": 6,
+              "cwd": "C:\\proj\\b",
+              "classification": "project",
+              "projectPath": "C:\\proj\\b",
+              "forkedFromId": "sess_0",
+              "activityAt": 2000,
+              "favorite": true
+            }
+          }
+        }
+      ],
       "published": [
         [
           {
@@ -357,6 +377,165 @@
           }
         ]
       ],
+      "roster": [
+        {
+          "id": "sess_2",
+          "preview": "preview 2",
+          "title": "Title 2",
+          "updatedAt": 2000,
+          "activityAt": 2000,
+          "messageCount": 6,
+          "cwd": "C:\\proj\\b",
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "inheritedFromSessionId": "sess_0",
+          "favorite": true
+        },
+        {
+          "id": "sess_1",
+          "preview": "preview 1",
+          "title": "Title 1",
+          "updatedAt": 999,
+          "activityAt": 1500,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\a",
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "working": true,
+          "agentWorking": true,
+          "readMessageCount": 3,
+          "readRevision": 2
+        },
+        {
+          "id": "sess_0",
+          "preview": "preview 0",
+          "title": "Title 0",
+          "updatedAt": 1000,
+          "activityAt": 1000,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\b",
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "working": true,
+          "leadWorking": true
+        },
+        {
+          "id": "sess_3",
+          "preview": "preview 3",
+          "title": "Title 3",
+          "updatedAt": 997,
+          "activityAt": 997,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\a",
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "archived": true
+        },
+        {
+          "id": "sess_4",
+          "preview": "preview 4",
+          "title": "Title 4",
+          "updatedAt": 996,
+          "activityAt": 996,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\b",
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "agentDeleted": true
+        }
+      ]
+    },
+    {
+      "name": "live-push-unchanged",
+      "coreRows": [
+        {
+          "id": "sess_2",
+          "preview": "preview 2",
+          "title": "Title 2",
+          "updatedAt": 2000,
+          "messageCount": 6,
+          "cwd": "C:\\proj\\b",
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "forkedFromId": "sess_0",
+          "activityAt": 2000,
+          "favorite": true
+        },
+        {
+          "id": "sess_1",
+          "preview": "preview 1",
+          "title": "Title 1",
+          "updatedAt": 999,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\a",
+          "lastUsedAt": 1500,
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "activityAt": 1500,
+          "working": true,
+          "agentWorking": true,
+          "readMessageCount": 3,
+          "readRevision": 2
+        },
+        {
+          "id": "sess_0",
+          "preview": "preview 0",
+          "title": "Title 0",
+          "updatedAt": 1000,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\b",
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 1000,
+          "working": true,
+          "leadWorking": true
+        },
+        {
+          "id": "sess_3",
+          "preview": "preview 3",
+          "title": "Title 3",
+          "updatedAt": 997,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\a",
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "activityAt": 997,
+          "archived": true
+        },
+        {
+          "id": "sess_4",
+          "preview": "preview 4",
+          "title": "Title 4",
+          "updatedAt": 996,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\b",
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 996,
+          "agentDeleted": true
+        }
+      ],
+      "edges": [
+        {
+          "method": "thread/summary/updated",
+          "params": {
+            "thread": {
+              "id": "sess_0",
+              "preview": "preview 0",
+              "title": "Title 0",
+              "updatedAt": 1000,
+              "messageCount": 4,
+              "cwd": "C:\\proj\\b",
+              "classification": "project",
+              "projectPath": "C:\\proj\\b",
+              "activityAt": 1000,
+              "working": true,
+              "leadWorking": true
+            }
+          }
+        }
+      ],
+      "published": [],
       "roster": [
         {
           "id": "sess_2",
@@ -906,6 +1085,30 @@
           "activityAt": 992
         }
       ],
+      "edges": [
+        {
+          "method": "thread/started",
+          "params": {
+            "thread": {
+              "id": "sess_8",
+              "preview": "preview 8",
+              "title": "Title 8",
+              "updatedAt": 992,
+              "messageCount": 4,
+              "cwd": "C:\\proj\\b",
+              "classification": "project",
+              "projectPath": "C:\\proj\\b",
+              "activityAt": 992
+            }
+          }
+        },
+        {
+          "method": "thread/deleted",
+          "params": {
+            "threadId": "sess_1"
+          }
+        }
+      ],
       "frames": [
         "baseline"
       ],
@@ -1098,6 +1301,25 @@
           "classification": "project",
           "projectPath": "C:\\proj\\b",
           "activityAt": 992
+        }
+      ],
+      "edges": [
+        {
+          "method": "thread/summary/updated",
+          "params": {
+            "thread": {
+              "id": "sess_4",
+              "preview": "preview 4",
+              "title": "Title 4",
+              "updatedAt": 996,
+              "messageCount": 9,
+              "cwd": "C:\\proj\\b",
+              "classification": "project",
+              "projectPath": "C:\\proj\\b",
+              "activityAt": 996,
+              "agentDeleted": true
+            }
+          }
         }
       ],
       "published": [
@@ -1321,6 +1543,138 @@
           "activityAt": 0
         }
       ],
+      "edges": [
+        {
+          "method": "thread/started",
+          "params": {
+            "thread": {
+              "id": "sess_a",
+              "preview": "preview 17",
+              "title": "Title 17",
+              "updatedAt": 0,
+              "messageCount": 4,
+              "cwd": "C:\\proj\\a",
+              "lastUsedAt": 0,
+              "classification": "project",
+              "projectPath": "C:\\proj\\a",
+              "activityAt": 0
+            }
+          }
+        },
+        {
+          "method": "thread/started",
+          "params": {
+            "thread": {
+              "id": "sess_A",
+              "preview": "preview 16",
+              "title": "Title 16",
+              "updatedAt": 0,
+              "messageCount": 4,
+              "cwd": "C:\\proj\\b",
+              "classification": "project",
+              "projectPath": "C:\\proj\\b",
+              "activityAt": 0
+            }
+          }
+        },
+        {
+          "method": "thread/started",
+          "params": {
+            "thread": {
+              "id": "sess_15",
+              "preview": "preview 15",
+              "title": "Title 15",
+              "updatedAt": 0,
+              "messageCount": 4,
+              "cwd": "C:\\proj\\a",
+              "classification": "project",
+              "projectPath": "C:\\proj\\a",
+              "activityAt": 0
+            }
+          }
+        },
+        {
+          "method": "thread/started",
+          "params": {
+            "thread": {
+              "id": "sess_14",
+              "preview": "preview 14",
+              "title": "Title 14",
+              "updatedAt": 900,
+              "messageCount": 4,
+              "cwd": "C:\\proj\\b",
+              "classification": "project",
+              "projectPath": "C:\\proj\\b",
+              "activityAt": 900
+            }
+          }
+        },
+        {
+          "method": "thread/started",
+          "params": {
+            "thread": {
+              "id": "sess_13",
+              "preview": "preview 13",
+              "title": "Title 13",
+              "updatedAt": 100,
+              "messageCount": 4,
+              "cwd": "C:\\proj\\a",
+              "lastUsedAt": 900,
+              "classification": "project",
+              "projectPath": "C:\\proj\\a",
+              "activityAt": 900
+            }
+          }
+        },
+        {
+          "method": "thread/started",
+          "params": {
+            "thread": {
+              "id": "sess_09",
+              "preview": "preview 12",
+              "title": "Title 12",
+              "updatedAt": 500,
+              "messageCount": 4,
+              "cwd": "C:\\proj\\b",
+              "classification": "project",
+              "projectPath": "C:\\proj\\b",
+              "activityAt": 500
+            }
+          }
+        },
+        {
+          "method": "thread/started",
+          "params": {
+            "thread": {
+              "id": "sess_11",
+              "preview": "preview 11",
+              "title": "Title 11",
+              "updatedAt": 500,
+              "messageCount": 4,
+              "cwd": "C:\\proj\\a",
+              "classification": "project",
+              "projectPath": "C:\\proj\\a",
+              "activityAt": 500
+            }
+          }
+        },
+        {
+          "method": "thread/started",
+          "params": {
+            "thread": {
+              "id": "sess_10",
+              "preview": "preview 10",
+              "title": "Title 10",
+              "updatedAt": 500,
+              "messageCount": 4,
+              "cwd": "C:\\proj\\b",
+              "classification": "project",
+              "projectPath": "C:\\proj\\b",
+              "activityAt": 500
+            }
+          }
+        }
+      ],
       "order": [
         "sess_13",
         "sess_14",
@@ -1330,6 +1684,147 @@
         "sess_15",
         "sess_A",
         "sess_a"
+      ]
+    },
+    {
+      "name": "idle-roster",
+      "coreRows": [
+        {
+          "id": "sess_0",
+          "preview": "preview 0",
+          "title": "Title 0",
+          "updatedAt": 1000,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\b",
+          "compactCount": 0,
+          "lastMessagePreview": "last 0",
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 1000
+        },
+        {
+          "id": "sess_1",
+          "preview": "preview 1",
+          "title": "Title 1",
+          "updatedAt": 999,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\a",
+          "compactCount": 0,
+          "lastMessagePreview": "last 1",
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "activityAt": 999,
+          "readMessageCount": 3,
+          "readRevision": 2
+        },
+        {
+          "id": "sess_2",
+          "preview": "preview 2",
+          "title": "Title 2",
+          "updatedAt": 998,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\b",
+          "compactCount": 0,
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "forkedFromId": "sess_0",
+          "activityAt": 998,
+          "favorite": true
+        },
+        {
+          "id": "sess_3",
+          "preview": "preview 3",
+          "title": "Title 3",
+          "updatedAt": 997,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\a",
+          "compactCount": 0,
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "activityAt": 997,
+          "archived": true
+        },
+        {
+          "id": "sess_4",
+          "preview": "preview 4",
+          "title": "Title 4",
+          "updatedAt": 996,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\b",
+          "compactCount": 0,
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "activityAt": 996
+        }
+      ],
+      "roster": [
+        {
+          "id": "sess_0",
+          "preview": "preview 0",
+          "title": "Title 0",
+          "updatedAt": 1000,
+          "activityAt": 1000,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\b",
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "lastMessagePreview": "last 0",
+          "compactCount": 0
+        },
+        {
+          "id": "sess_1",
+          "preview": "preview 1",
+          "title": "Title 1",
+          "updatedAt": 999,
+          "activityAt": 999,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\a",
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "lastMessagePreview": "last 1",
+          "compactCount": 0,
+          "readMessageCount": 3,
+          "readRevision": 2
+        },
+        {
+          "id": "sess_2",
+          "preview": "preview 2",
+          "title": "Title 2",
+          "updatedAt": 998,
+          "activityAt": 998,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\b",
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "inheritedFromSessionId": "sess_0",
+          "compactCount": 0,
+          "favorite": true
+        },
+        {
+          "id": "sess_3",
+          "preview": "preview 3",
+          "title": "Title 3",
+          "updatedAt": 997,
+          "activityAt": 997,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\a",
+          "classification": "project",
+          "projectPath": "C:\\proj\\a",
+          "compactCount": 0,
+          "archived": true
+        },
+        {
+          "id": "sess_4",
+          "preview": "preview 4",
+          "title": "Title 4",
+          "updatedAt": 996,
+          "activityAt": 996,
+          "messageCount": 4,
+          "cwd": "C:\\proj\\b",
+          "classification": "project",
+          "projectPath": "C:\\proj\\b",
+          "compactCount": 0
+        }
       ]
     }
   ]
