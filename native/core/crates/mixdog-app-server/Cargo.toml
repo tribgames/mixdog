@@ -22,5 +22,7 @@ mixdog-workspace-hack = { version = "0.1", path = "../mixdog-workspace-hack" }
 
 [dev-dependencies]
 mixdog-core-api = { workspace = true, features = ["mock"] }
+mixdog-core-session = { workspace = true, features = ["test-support"] }
+mixdog-store = { workspace = true }
 mixdog-rt = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros", "time", "sync", "test-util"] }
