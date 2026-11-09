@@ -200,8 +200,12 @@ async function main() {
     process.exitCode = 1;
     return;
   }
+  // The root package loads TypeScript through tsx; apps/desktop passes its own loader, apps/relay has none.
+  const rootPackage = resolve(fileURLToPath(new URL('..', import.meta.url)));
+  const rootLoader = resolve(process.cwd()) === rootPackage ? ['--import', new URL('./test-tsx.mjs', import.meta.url).href] : [];
   await runNodeTests(
     [
+      ...rootLoader,
       ...options.nodeArgs,
       // node:test `mock.module` (module-boundary stubs such as the pinned fetch
       // in the browser-document live suite) is still flag-gated on 22/24.
