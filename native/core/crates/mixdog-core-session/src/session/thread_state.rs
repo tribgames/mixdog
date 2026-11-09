@@ -40,6 +40,21 @@ impl SessionDirectory {
         rx.await.map_err(|_| CoreError::Internal { incident_id: "header-update-dropped".into() })??;
         Ok(())
     }
+
+    /// [`Self::update_header`] over a step that awaits its outside reads on the actor: the actor handles nothing else
+    /// while it waits, so every other header write queues behind this one.
+    pub async fn update_header_awaiting(&self, thread: &ThreadId, update: super::actor::AwaitingHeaderUpdate) -> Result<(), CoreError> {
+        let ctx = CallContext::internal("ports");
+        let handle = self.open_handle(thread, &ctx).await?;
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        handle
+            .inbox
+            .send(super::actor::Inbox::UpdateHeaderAwaiting { update, tx })
+            .await
+            .map_err(|_| CoreError::Internal { incident_id: "header-update-closed".into() })?;
+        rx.await.map_err(|_| CoreError::Internal { incident_id: "header-update-dropped".into() })??;
+        Ok(())
+    }
 }
 
 /// [`ThreadState`] over the session directory.

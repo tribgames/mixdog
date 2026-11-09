@@ -35,17 +35,10 @@ pub trait RouteFacts: Send + Sync {
 
     /// The tool surface, rules variant and deferred-tool fields a new route rebuilds
     /// (`_prepareResumeTools`, `applyAgentToolExposure`, `_refreshSessionRuleVariantsForModel`).
-    /// Synchronous and pure, over the skill list [`RouteFacts::surface_lookup`] collected before the
+    /// Synchronous and pure, over the skill list [`RouteFacts::surface_lookup`] collected for the header on the session's actor, before the
     /// change ran. Nothing by default (facts that rebuild no surface).
     fn surface_change(&self, _header: &Header, _previous: &Route, _lookup: &SurfaceLookup) -> HeaderChange {
         HeaderChange { set: Map::new(), unset: Vec::new() }
-    }
-
-    /// Whether `lookup` was collected for the facts `header` and `previous` state now: Node reads the skill list
-    /// of the live session's folder inside the call, so a listing for another folder is never used. Always, by
-    /// default (facts that collect nothing).
-    fn surface_current(&self, _header: &Header, _previous: &Route, _lookup: &SurfaceLookup) -> bool {
-        true
     }
 
     /// The skill list the surface is resolved from, collected now (Node collects it inside the call):
@@ -210,20 +203,6 @@ impl RouteChange for RunHostRouteChange {
         }
         let lookup: SurfaceLookup = if route_changed(route, &previous) { self.facts.surface_lookup(header, &previous).await } else { None };
         Box::new(lookup)
-    }
-
-    fn lookups_hold(&self, header: &Header, route: &Route, lookups: &RouteLookups) -> bool {
-        let mut previous = Route::new();
-        for key in ["provider", "model"] {
-            if let Some(value) = header.get(key) {
-                previous.insert(key.to_owned(), value.clone());
-            }
-        }
-        if !route_changed(route, &previous) {
-            return true;
-        }
-        let none: SurfaceLookup = None;
-        self.facts.surface_current(header, &previous, lookups.downcast_ref::<SurfaceLookup>().unwrap_or(&none))
     }
 
     fn route_change(&self, header: &Header, route: &Route, previous: &Route, cross_provider: bool, lookups: &RouteLookups) -> HeaderChange {

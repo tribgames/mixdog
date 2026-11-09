@@ -181,6 +181,10 @@ fn suppressed_execution(entry: &Value) -> Option<String> {
     entry.pointer("/execution/id").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned)
 }
 
+/// A header change computed on the actor over a copy of the header as projected, awaiting its outside reads there.
+pub type AwaitingHeaderUpdate =
+    Box<dyn FnOnce(mixdog_store::schema::record::Header) -> futures::future::BoxFuture<'static, mixdog_store::schema::record::HeaderChange> + Send>;
+
 /// A request routed to the actor.
 pub(crate) enum Inbox {
     /// `onGoalStatusChange`: the thread's visible Goal changed.
@@ -238,6 +242,10 @@ pub(crate) enum Inbox {
     /// `HeaderUpdates::update_header`: `update` computes a header change on the actor, from the
     /// header as projected, and the change is written as the next record; answered once durable.
     UpdateHeader { update: mixdog_core_ports::ports::threads::HeaderUpdate, tx: Waiter },
+    /// [`Inbox::UpdateHeader`] whose change awaits an outside read (a route change's skill listing): the actor awaits
+    /// it with no other message handled, so every other writer queues behind it, as behind Node's one synchronous pass.
+    /// The step must not call the same session's actor.
+    UpdateHeaderAwaiting { update: AwaitingHeaderUpdate, tx: Waiter },
     /// A test's injected unwind of the actor.
     #[cfg(test)]
     Unwind(UnwindAt),
@@ -959,7 +967,10 @@ impl SessionActor {
                 _ = sleep_until(deadline), if deadline.is_some() => self.on_deadline(),
                 _ = sleep_until(self.idle_evict_at), if self.idle_evict_at.is_some() => self.on_idle_evict(),
                 Some(msg) = self.ch.prod_rx.recv(), if producers_open => self.on_producer(msg),
-                Some(msg) = self.ch.inbox_rx.recv() => self.on_inbox(msg),
+                Some(msg) = self.ch.inbox_rx.recv() => match msg {
+                    Inbox::UpdateHeaderAwaiting { update, tx } => self.update_header_awaiting(update, tx).await,
+                    msg => self.on_inbox(msg),
+                },
                 Some(announced) = settings_changed(&mut settings) => self.on_settings_changed(announced),
                 else => break,
             }
@@ -3703,6 +3714,8 @@ impl SessionActor {
             Inbox::QuotaResumeFire { generation, tx } => self.quota_fire(generation, tx),
             Inbox::Op { call, tx } => self.op_call(call, tx),
             Inbox::UpdateHeader { update, tx } => self.update_header(update, tx),
+            // Awaited by the run loop, which handles it before this match.
+            Inbox::UpdateHeaderAwaiting { .. } => unreachable!("the run loop awaits it"),
             #[cfg(test)]
             Inbox::Unwind(UnwindAt::Now) => panic!("the test's injected unwind"),
             #[cfg(test)]
@@ -3740,6 +3753,25 @@ impl SessionActor {
             let _ = tx.send(Err(CoreError::Internal { incident_id: "header-update-panicked".into() }));
             return;
         };
+        self.write_header_change(change, tx);
+    }
+
+    /// `Inbox::UpdateHeaderAwaiting`: as [`Self::update_header`], over a step that awaits its outside reads here.
+    async fn update_header_awaiting(&mut self, update: AwaitingHeaderUpdate, tx: Waiter) {
+        use futures::FutureExt;
+        if !self.outbox.has_room(Class::Normal) {
+            let _ = tx.send(Err(CoreError::WindowFull { thread_id: self.id.clone() }));
+            return;
+        }
+        let header = self.projected.header.clone();
+        let Ok(change) = std::panic::AssertUnwindSafe(update(header)).catch_unwind().await else {
+            let _ = tx.send(Err(CoreError::Internal { incident_id: "header-update-panicked".into() }));
+            return;
+        };
+        self.write_header_change(change, tx);
+    }
+
+    fn write_header_change(&mut self, change: mixdog_store::schema::record::HeaderChange, tx: Waiter) {
         if change.set.is_empty() && change.unset.is_empty() {
             let _ = tx.send(Ok(Reply::Value(json!({}))));
             return;
