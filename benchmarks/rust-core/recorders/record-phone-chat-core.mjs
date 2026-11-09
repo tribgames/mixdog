@@ -270,4 +270,4 @@ console.log(`${cases.length} cases -> ${out}`);
 Date.now = realDateNow;
 process.exit(0);
 // Both recorders write this set; whichever runs last lists every file in the manifest.
-writeSetManifest(join(FIXTURES_ROOT, 'phone-chat-core'), { set: 'phone-chat-core', recorder: 'benchmarks/rust-core/recorders/record-phone-chat-core.mjs + record-remote-session.mjs', command: 'node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-phone-chat-core.mjs --tree <tree>; same for record-remote-session.mjs', identity: exactProductIdentity(tree, 'b6f10295a2f698afc85332467192de28500bd146') });
+writeSetManifest(join(FIXTURES_ROOT, 'phone-chat-core'), { set: 'phone-chat-core', recorder: 'benchmarks/rust-core/recorders/record-phone-chat-core.mjs + record-remote-session.mjs + record-room-reset.mjs', command: 'node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/<recorder>.mjs --tree <tree>, for each of the three recorders', identity: exactProductIdentity(tree, 'b6f10295a2f698afc85332467192de28500bd146') });

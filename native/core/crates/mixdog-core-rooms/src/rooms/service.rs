@@ -395,6 +395,136 @@ mod tests {
         assert_eq!(Value::Object(route), json!({ "provider": "openai", "model": "m", "effort": "high", "fast": true }));
     }
 
+    use super::super::records::{RoomDoc, RoomRecord, RoomStore};
+    use std::sync::Mutex;
+
+    struct Mem(Mutex<RoomDoc>);
+    #[async_trait]
+    impl RoomStore for Mem {
+        async fn load(&self) -> Result<RoomDoc, RoomError> {
+            Ok(self.0.lock().unwrap().clone())
+        }
+        async fn save(&self, doc: &RoomDoc) -> Result<(), RoomError> {
+            *self.0.lock().unwrap() = doc.clone();
+            Ok(())
+        }
+    }
+
+    /// The scripted daemon of the recording: which sessions exist, which member clears fail, what the log's start-over answers.
+    struct Scripted {
+        existing: Vec<String>,
+        fail_members: Vec<String>,
+        start_over: Value,
+        calls: Mutex<Vec<(String, String)>>,
+    }
+    #[async_trait]
+    impl RoomHost for Scripted {
+        async fn agents(&self) -> Result<Vec<KnownAgent>, RoomError> {
+            Ok(vec![])
+        }
+        async fn mixy_route(&self) -> Value {
+            Value::Null
+        }
+        async fn task_workspace(&self) -> String {
+            String::new()
+        }
+        async fn session_exists(&self, id: &str) -> bool {
+            self.existing.iter().any(|s| s == id)
+        }
+        async fn create_session(&self, _: &str, _: &Value) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn rename_session(&self, _: &str, _: &str) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn set_archived(&self, _: &str, _: bool) -> Result<(), RoomError> {
+            Ok(())
+        }
+        async fn delete_sessions(&self, _: &[String]) -> usize {
+            0
+        }
+        fn republish_catalog(&self) {}
+        async fn start_over(&self, id: &str) -> Result<Option<String>, RoomError> {
+            self.calls.lock().unwrap().push(("startOver".into(), id.into()));
+            match &self.start_over {
+                Value::String(archived) => Ok(Some(archived.clone())),
+                Value::Null => Ok(None),
+                _ => Err(RoomError::Port("archive failed".into())),
+            }
+        }
+        async fn reset_member(&self, id: &str) -> Result<(), RoomError> {
+            self.calls.lock().unwrap().push(("resetMember".into(), id.into()));
+            if self.fail_members.iter().any(|who| id.ends_with(&format!("_{who}"))) {
+                return Err(RoomError::Port("could not clear".into()));
+            }
+            Ok(())
+        }
+    }
+
+    struct Runs(bool);
+    #[async_trait]
+    impl RoomRunner for Runs {
+        fn is_running(&self, _: &str) -> bool {
+            self.0
+        }
+        fn stop(&self, _: &str) {}
+        async fn start(&self, _: &str, _: Vec<String>) -> Result<(), RoomError> {
+            Ok(())
+        }
+        fn cancel_owed_to(&self, _: &str, _: &[String]) {}
+    }
+
+    /// Every recorded Node `room/reset` replays whole: the answer or error text, the clears asked of the host in order,
+    /// and the stored room afterwards (its cursors, last line and owed set restarted, members and limits kept).
+    #[tokio::test]
+    async fn room_reset_answers_every_recorded_case_as_nodes_reset_does() {
+        let recorded: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/room-reset.json")).unwrap();
+        let cases = recorded["cases"].as_array().unwrap();
+        assert_eq!(cases.len(), 8);
+        let dir = tempfile::tempdir().unwrap();
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let room_id = case["roomId"].as_str().unwrap();
+            let before: RoomRecord = serde_json::from_value(case["before"].clone()).unwrap();
+            let strings = |v: &Value| v.as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_owned()).collect::<Vec<_>>();
+            let mut existing = strings(&case["existing"]);
+            existing.push(case["logSession"].as_str().unwrap().to_owned());
+            let host = Arc::new(Scripted {
+                existing,
+                fail_members: strings(&case["inject"]["failMembers"]),
+                start_over: if case["inject"]["startOver"] == "throws" { json!(false) } else { case["inject"]["startOver"].clone() },
+                calls: Mutex::default(),
+            });
+            let rooms = Arc::new(Rooms::new(Mem(Mutex::new(RoomDoc::from([(room_id.to_owned(), before.clone())])))));
+            let ops = mixdog_core_base::support::testing::scopes(dir.path(), "room").await;
+            let service = RoomService::new(rooms.clone(), host.clone(), Arc::new(Runs(case["running"] == true)), ops);
+
+            // The unknown room is asked for by another id than the one the record sits under.
+            let asked = if name == "unknown room" { "nosuchroom" } else { room_id };
+            let answer = service.reset(&json!({ "roomId": asked })).await;
+            match (&case["outcome"]["ok"], answer) {
+                (Value::Bool(true), Ok(value)) => assert_eq!(value, case["outcome"]["value"], "{name}"),
+                (Value::Bool(false), Err(error)) => assert_eq!(error.to_string(), case["outcome"]["error"].as_str().unwrap(), "{name}"),
+                (_, other) => panic!("{name}: Node's outcome {} but Rust answered {other:?}", case["outcome"]),
+            }
+            let calls: Vec<Vec<String>> = host.calls.lock().unwrap().iter().map(|(kind, id)| vec![kind.clone(), id.clone()]).collect();
+            let want: Vec<Vec<String>> = case["calls"].as_array().unwrap().iter().map(strings).collect();
+            assert_eq!(calls, want, "{name}: the clears asked of the host");
+
+            let after = &case["after"];
+            let now = rooms.get(room_id).await.unwrap();
+            assert_eq!(now.cursors.len(), after["cursors"].as_object().unwrap().len(), "{name}: cursors");
+            assert_eq!(now.seen.len(), after.get("seen").map_or(0, |s| s.as_object().unwrap().len()), "{name}: seen");
+            assert_eq!(now.last_speaker.as_deref(), after["lastSpeaker"].as_str(), "{name}: lastSpeaker");
+            assert_eq!(now.last_preview.as_deref(), after["lastPreview"].as_str(), "{name}: lastPreview");
+            assert_eq!(now.owed, after["owed"].as_array().map(|list| strings(&Value::Array(list.clone()))), "{name}: owed");
+            assert_eq!(now.config.members, strings(&after["members"]), "{name}: members");
+            assert_eq!(now.config.max_rounds, after["maxRounds"].as_u64().unwrap() as u32, "{name}: maxRounds");
+            // Node stamps its own clock; a reset that ran moved `lastAt`, one that was refused left it.
+            assert_eq!(now.last_at > before.last_at, after["lastAt"] != case["before"]["lastAt"], "{name}: lastAt");
+        }
+    }
+
     #[test]
     fn a_room_id_is_a_valid_room_id() {
         let id = new_room_id(1_793_306_570_000);
