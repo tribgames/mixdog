@@ -221,6 +221,10 @@ export function filesScript(world = filesWorld()) {
       call('readEditorBackup', [P, 'src/a.ts', null]),
       call('writeEditorBackup', [P, 'src/a.ts', 'draft\n', 'export const a = 1;\n', null]),
       call('readEditorBackup', [P, 'src/a.ts', null]),
+      // Unsaved text outlives the app: a draft is written, the PC's app restarts, and the draft is read back (and stays on disk).
+      call('writeEditorBackup', [P, 'src/b.ts', 'unsaved draft\n', 'export const b = 2;\n', null]),
+      { op: 'restart' },
+      call('readEditorBackup', [P, 'src/b.ts', null]),
       call('writeEditorBackup', [P, 'src/a.ts', 5, '', null]),
       call('deleteEditorBackup', [P, 'src/a.ts', null]),
       call('deleteEditorBackup', [P, 'src/a.ts', null]),
@@ -427,6 +431,7 @@ export async function play(script, driver) {
     } else if (op.op === 'write') driver.write(op.path, op.text);
     else if (op.op === 'remove') driver.remove(op.path);
     else if (op.op === 'mkdir') driver.mkdir(op.path);
+    else if (op.op === 'restart') await driver.restart();
   }
   return { steps };
 }

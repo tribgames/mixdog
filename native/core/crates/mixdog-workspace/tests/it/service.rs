@@ -79,7 +79,7 @@ fn env_with(turn_review: Option<Arc<dyn mixdog_core_api::turn_review::TurnReview
     .unwrap();
     // Registered as a row: `project/create` also leaves `.mixdog/project.id` in the folder, which
     // the recorded folder listings of this project do not have.
-    let row = mixdog_store::state::ProjectRow { path: root.to_string_lossy().into_owned(), alias: None, hidden: false, hidden_rank: None, last_used_at: None };
+    let row = mixdog_store::state::ProjectRow { path: root.to_string_lossy().into_owned(), alias: None, hidden: false, hidden_rank: None, last_used_at: None, name: None };
     futures_block(state.write(move |tx| tx.put_project(&row))).unwrap();
     Env { _dir: dir, root, service, state, limits }
 }
@@ -446,6 +446,7 @@ async fn project_create_and_touch_leave_the_project_id_marker_node_leaves() {
                                 hidden: false,
                                 hidden_rank: None,
                                 last_used_at: None,
+                                name: None,
                             })
                         })
                         .await
@@ -973,7 +974,7 @@ async fn recorded_project_file_operations_replay_identically() {
         ],
     );
     // A row, not `project/create`: the recorded listing of this folder has no `.mixdog/project.id`.
-    let row = mixdog_store::state::ProjectRow { path: pf.to_string_lossy().into_owned(), alias: None, hidden: false, hidden_rank: None, last_used_at: None };
+    let row = mixdog_store::state::ProjectRow { path: pf.to_string_lossy().into_owned(), alias: None, hidden: false, hidden_rank: None, last_used_at: None, name: None };
     env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
     replay(&env, &corpus("files"), &pf.to_string_lossy(), "files").await;
 }
@@ -1323,7 +1324,7 @@ async fn recorded_start_calls_resolve_the_folder_node_did() {
         let registered: Vec<String> = setup["projects"].as_array().unwrap().iter().map(|p| at(p["path"].as_str().unwrap())).collect();
         for (rank, path) in registered.iter().chain(hidden.iter().filter(|h| !registered.contains(h))).enumerate() {
             let tombstone = hidden.contains(path);
-            let row = mixdog_store::state::ProjectRow { path: path.clone(), alias: None, hidden: tombstone, hidden_rank: tombstone.then_some(rank as i64), last_used_at: None };
+            let row = mixdog_store::state::ProjectRow { path: path.clone(), alias: None, hidden: tombstone, hidden_rank: tombstone.then_some(rank as i64), last_used_at: None, name: None };
             env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
         }
         if setup["worktrees"] == true {

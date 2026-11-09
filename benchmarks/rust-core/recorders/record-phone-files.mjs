@@ -48,6 +48,7 @@ async function record(make) {
   rmSync(process.env.MIXDOG_PROJECTS_FILE, { force: true });
   world.build();
   const sessionClient = { list: async () => ({ sessions: [] }), close: async () => {} };
+  const boot = async () => {
   const host = await SessionHost.create(
     { userDataPath: world.userData, resourcesPath: world.root, appPath: join(tree, 'apps', 'desktop'), packaged: false },
     {
@@ -60,6 +61,9 @@ async function record(make) {
   );
   const operations = createDesktopOperations({ userDataPath: world.userData, packaged: false, resourcesPath: '', appPath: join(tree, 'apps', 'desktop'), loadConfig: async () => ({}), loadDocumentPreview: () => importFrom(tree, 'src/runtime/office/pdf/document-preview.mjs'), emit() {} });
   host.invokeDesktopOperation = (name, operationArgs) => operations.invoke(name, operationArgs);
+  return { host, operations };
+  };
+  let { host, operations } = await boot();
 
   // The PC's window answers as the script scripts it (lib/phone-files-script.mjs); what it was asked is recorded.
   const hostLog = [];
@@ -68,10 +72,11 @@ async function record(make) {
     return windowAnswers[method](...requestArgs);
   };
   const grants = createSelectedFileGrants(() => false);
-  const tables = {
+  const tablesOf = () => ({
     without: createRemoteMethods({ host, userDataPath: world.userData, selectedFileGrants: grants }),
     with: createRemoteMethods({ host, userDataPath: world.userData, selectedFileGrants: grants, hostRequest }),
-  };
+  });
+  let tables = tablesOf();
   let windowUp = false;
   let frameId = 0;
   const driver = {
@@ -87,6 +92,13 @@ async function record(make) {
       const { id: _id, ...answer } = clone(frame);
       if (process.env.FILES_DEBUG) console.log(name, JSON.stringify(params).slice(0, 120), '=>', JSON.stringify(answer).slice(0, 300));
       return { frame: answer, hostCalls: hostLog.splice(0) };
+    },
+    // The PC's app quits and starts again over the same user data and the same registry file: what lives only in memory is gone.
+    restart: async () => {
+      await host.dispose();
+      await operations.dispose();
+      ({ host, operations } = await boot());
+      tables = tablesOf();
     },
     grant: (path) => grants.rememberFileGrant(path, ''),
     host: (on) => {
