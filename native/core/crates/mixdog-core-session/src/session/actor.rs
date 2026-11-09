@@ -1007,6 +1007,10 @@ impl SessionActor {
         self.cancel_toast_timers();
         self.deps.runtime_hooks.stopped(&self.id);
         self.deps.snapshots.runtime_stopped(&self.id);
+        // `settlePersistence`: the close lands the buffered gateway usage events (and their compaction)
+        // without holding the close.
+        let usage = self.deps.gateway_usage.clone();
+        tokio::spawn(async move { usage.settle().await });
     }
 
     /// `Ctl::Delete`: see its doc.
@@ -3544,8 +3548,22 @@ impl SessionActor {
             }
             RunShown::Settled(settled) => {
                 let books = self.deps.compaction.books(&self.id, &self.projected.header);
-                let change = super::usage_books::settled_change(&self.projected.header, &settled, self.usage_incremental, books.as_ref(), self.deps.clock.now_ms() as f64);
+                let now = self.deps.clock.now_ms();
+                let change = super::usage_books::settled_change(&self.projected.header, &settled, self.usage_incremental, books.as_ref(), now as f64);
                 self.accept_header(change);
+                // `recordStandaloneStatusTelemetry`: the gateway usage event of the completed ask.
+                let (estimated_tokens, turn_effort) = super::usage_books::gateway_facts(&self.projected.header, &settled, books.as_ref());
+                self.deps.gateway_usage.record_ask(&super::gateway_usage::Ask {
+                    header: &self.projected.header,
+                    usage: &settled.usage,
+                    response_model: &settled.response_model,
+                    tool_calls_total: settled.tool_calls_total,
+                    message_count: settled.transcript.len(),
+                    estimated_tokens,
+                    turn_effort,
+                    duration_ms: (now - settled.asked_at_ms) as f64,
+                    transport_timing: None,
+                });
             }
             RunShown::SearchUsage(usage) => {
                 let note = Note::new("thread/tokenUsage/updated", &mixdog_app_protocol::v2::thread::TokenUsageUpdatedParams { thread_id: self.id.clone(), usage });

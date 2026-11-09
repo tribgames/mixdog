@@ -1198,6 +1198,8 @@ async fn drive(
                 last_turn_usage: output.last_turn_usage.clone(),
                 tool_calls_total: output.tool_calls_total,
                 send_tools: lock(&closing.last_send_tools).clone(),
+                response_model: output.response.model.clone(),
+                asked_at_ms: asked_at,
             };
             let _ = port.settled(settled).await;
             sink.live.clear();

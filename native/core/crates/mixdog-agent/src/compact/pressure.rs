@@ -33,6 +33,7 @@ mod usage_metrics;
 pub use ask_usage::Books;
 pub use ask_usage::Settled;
 pub use ask_usage::check_change;
+pub use ask_usage::estimate_transcript_context_usage;
 pub use ask_usage::pass_change;
 pub use ask_usage::settled_change;
 pub use ask_usage::turn_started;

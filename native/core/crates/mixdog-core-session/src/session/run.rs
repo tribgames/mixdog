@@ -306,6 +306,10 @@ pub struct Settled {
     pub tool_calls_total: u64,
     /// `result.lastSendTools`: the tools of the last request.
     pub send_tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+    /// `result.model`: the model the last response named.
+    pub response_model: String,
+    /// `askStartedAt`, in wall-clock milliseconds.
+    pub asked_at_ms: i64,
 }
 
 /// Everything Node's `usageDeltaEvent` carries about one model call (`onUsageDelta`).
