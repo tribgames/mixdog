@@ -7,7 +7,9 @@
 // callback and the listing's; one at once while that listing is still pending; and one after the listing's callback
 // ran at the same virtual time and its settlement drained. Each read holds its entries (models, error, retryAt from
 // the virtual start), the provider calls so far and catalog-deadline's pending operations. Rust's `ProviderCatalog`
-// must publish the same models and state at each point and ask the same providers.
+// must publish the same models and state at each point and ask the same providers. `crossEpoch` records a listing
+// that overruns its deadline across an account change (`invalidateSharedProviderCatalog`): the new epoch's read fails
+// on the stalled operation without asking, and once it settles a read asks again.
 //
 //   node benchmarks/rust-core/recorders/record-catalog-deadline-tie.mjs --tree <export of b6f10295a with node_modules>
 //
@@ -72,7 +74,49 @@ const entryOf = (entry) => ({
   ...(Object.hasOwn(entry, 'error') ? { error: { code: entry.error.code, message: entry.error.message }, retryAt: entry.retryAt - NOW } : {}),
 });
 
+/** A provider whose listModels answers `[{ id: 'm' }]` on a timer of `answersAfterMs`, ignoring the abort. */
+const providerList = (specs, calls) =>
+  specs.map(({ name, answersAfterMs }) => [
+    name,
+    {
+      listModels() {
+        calls[name] += 1;
+        listingOf = name;
+        try {
+          return new Promise((resolve) => setTimeout(() => resolve([{ id: 'm' }]), answersAfterMs));
+        } finally {
+          listingOf = null;
+        }
+      },
+    },
+  ]);
+
+/** One unforced read: virtual time holds still until every listing it asked has armed its timer, then runs timer
+ *  callbacks one at a time until the read answers. `check(asked, armed)` vets the armed timers before any runs. */
+async function readOnce(registry, calls, log, check) {
+  const asked = { ...calls };
+  let answer = null;
+  const reading = cache.sharedProviderCatalog(registry).then((entries) => {
+    answer = entries;
+  });
+  await checkpoint();
+  const armed = timersView();
+  check(asked);
+  while (answer === null) await dispatchOne(log);
+  await reading;
+  return {
+    entries: answer.map(entryOf),
+    calls: { ...calls },
+    at: now - NOW,
+    armed,
+    pendingOps: deadlines.pendingProviderCatalogOps(),
+    stalled: deadlines.stalledProviderCatalogOps(),
+    timersLeft: timersView(),
+  };
+}
+
 const results = [];
+let crossEpoch = null;
 globalThis.setTimeout = virtualSetTimeout;
 globalThis.clearTimeout = virtualClearTimeout;
 Date.now = () => now;
@@ -81,52 +125,19 @@ try {
     // A new registry revision per scenario: nothing of the previous one is reused.
     const revision = results.length + 1;
     const calls = Object.fromEntries(scenario.providers.map((p) => [p.name, 0]));
-    const providers = scenario.providers.map(({ name, answersAfterMs }) => [
-      name,
-      {
-        listModels() {
-          calls[name] += 1;
-          listingOf = name;
-          try {
-            return new Promise((resolve) => setTimeout(() => resolve([{ id: 'm' }]), answersAfterMs));
-          } finally {
-            listingOf = null;
-          }
-        },
-      },
-    ]);
+    const providers = providerList(scenario.providers, calls);
     const registry = { providerCatalogRevision: () => revision, getAllProviders: () => providers };
     const log = [];
-
-    // One unforced read: virtual time holds still until every listing it asked has armed its timer, then runs timer
-    // callbacks one at a time until the read answers.
-    const read = async () => {
-      const asked = { ...calls };
-      let answer = null;
-      const reading = cache.sharedProviderCatalog(registry).then((entries) => {
-        answer = entries;
-      });
-      await checkpoint();
-      const armed = timersView();
-      if (calls.tie > asked.tie) {
-        const timers = pendingTimers();
-        const listing = timers.find((t) => t.kind === 'listing:tie');
-        if (!listing || !timers.some((t) => t.kind === 'deadline' && t.due === listing.due && t.seq < listing.seq)) {
-          throw new Error(`the tied listing's timer is not due with a deadline armed before it: ${JSON.stringify(armed)}`);
+    const read = () =>
+      readOnce(registry, calls, log, (asked) => {
+        if (calls.tie > asked.tie) {
+          const timers = pendingTimers();
+          const listing = timers.find((t) => t.kind === 'listing:tie');
+          if (!listing || !timers.some((t) => t.kind === 'deadline' && t.due === listing.due && t.seq < listing.seq)) {
+            throw new Error(`the tied listing's timer is not due with a deadline armed before it: ${JSON.stringify(timersView())}`);
+          }
         }
-      }
-      while (answer === null) await dispatchOne(log);
-      await reading;
-      return {
-        entries: answer.map(entryOf),
-        calls: { ...calls },
-        at: now - NOW,
-        armed,
-        pendingOps: deadlines.pendingProviderCatalogOps(),
-        stalled: deadlines.stalledProviderCatalogOps(),
-        timersLeft: timersView(),
-      };
-    };
+      });
 
     // 1. Answers after the deadline's callback, before the tied listing's.
     const first = await read();
@@ -143,6 +154,44 @@ try {
     if (deadlines.pendingProviderCatalogOps().length > 0) throw new Error('a listing is still pending at the end');
     results.push({ name: scenario.name, providers: scenario.providers, first, whilePending, settledOps, afterSettle, dispatched: log });
   }
+
+  // Cross-epoch: a listing overruns its deadline, an account change opens a new epoch and generation, and a read of
+  // the new epoch finds the old operation still unsettled; then that listing settles and a read asks again.
+  {
+    const spec = [{ name: 'stall', answersAfterMs: 6_000 }];
+    const calls = { stall: 0 };
+    const providers = providerList(spec, calls);
+    const registry = { providerCatalogRevision: () => results.length + 1, getAllProviders: () => providers };
+    const log = [];
+    const startedAt = now - NOW;
+    const asksAfterTheDeadline = (asked) => {
+      if (calls.stall > asked.stall) {
+        const timers = pendingTimers();
+        const listing = timers.find((t) => t.kind === 'listing:stall');
+        if (!listing || !timers.some((t) => t.kind === 'deadline' && t.due < listing.due)) {
+          throw new Error(`the stalling listing is not due after a deadline: ${JSON.stringify(timersView())}`);
+        }
+      }
+    };
+    // 1. The listing overruns the deadline; its own timer is still armed.
+    const first = await readOnce(registry, calls, log, asksAfterTheDeadline);
+    if (pendingTimers()[0]?.kind !== 'listing:stall') throw new Error(`the stalling listing already ran: ${JSON.stringify(first)}`);
+    // 2. The account change, then a read of the new epoch while the old operation is unsettled.
+    cache.invalidateSharedProviderCatalog();
+    const afterAccountChange = await readOnce(registry, calls, log, (asked) => {
+      if (calls.stall !== asked.stall) throw new Error('the new epoch asked the stalled provider again');
+    });
+    if (pendingTimers()[0]?.kind !== 'listing:stall') throw new Error('the stalled listing ran during the new-epoch read');
+    // 3. The old listing's callback runs and its settlement drains; then a read that asks again.
+    const fired = await dispatchOne(log);
+    if (fired !== 'listing:stall') throw new Error(`expected the stalled listing's callback, ran ${fired}`);
+    const settledOps = deadlines.pendingProviderCatalogOps();
+    const settledStalled = deadlines.stalledProviderCatalogOps();
+    const afterSettle = await readOnce(registry, calls, log, asksAfterTheDeadline);
+    while (pendingTimers().length > 0) await dispatchOne(log);
+    if (deadlines.pendingProviderCatalogOps().length > 0) throw new Error('a listing is still pending at the end');
+    crossEpoch = { name: 'stall-across-an-account-change', providers: spec, startedAt, first, afterAccountChange, settledOps, settledStalled, afterSettle, dispatched: log };
+  }
 } finally {
   globalThis.setTimeout = real.setTimeout;
   globalThis.clearTimeout = real.clearTimeout;
@@ -153,6 +202,6 @@ const identity = productIdentity(tree, NODE_COMMIT);
 if (!identity.refComparison.exact) throw new Error(`the tree is not an exact export of ${NODE_COMMIT}: ${JSON.stringify(identity.refComparison)}`);
 const finalDir = join(FIXTURES_ROOT, 'catalog-deadline-tie');
 const stage = stageSet(finalDir);
-writeJson(join(stage, 'golden.json'), { now: NOW, nodeVersion: process.version, scenarios: results });
+writeJson(join(stage, 'golden.json'), { now: NOW, nodeVersion: process.version, scenarios: results, crossEpoch });
 writeSetManifest(stage, { set: 'catalog-deadline-tie', recorder, command: `node ${recorder} --tree <tree>`, identity });
 commitStage(stage, finalDir);

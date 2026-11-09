@@ -310,5 +310,157 @@
         }
       ]
     }
-  ]
+  ],
+  "crossEpoch": {
+    "name": "stall-across-an-account-change",
+    "providers": [
+      {
+        "name": "stall",
+        "answersAfterMs": 6000
+      }
+    ],
+    "startedAt": 12000,
+    "first": {
+      "entries": [
+        {
+          "name": "stall",
+          "models": [],
+          "error": {
+            "code": "ETIMEDOUT",
+            "message": "provider \"stall\" catalog list did not finish within 4000ms"
+          },
+          "retryAt": 46000
+        }
+      ],
+      "calls": {
+        "stall": 1
+      },
+      "at": 16000,
+      "armed": [
+        {
+          "kind": "deadline",
+          "dueAt": 16000
+        },
+        {
+          "kind": "listing:stall",
+          "dueAt": 18000
+        }
+      ],
+      "pendingOps": [
+        "stall"
+      ],
+      "stalled": [
+        {
+          "name": "stall",
+          "kind": "list"
+        }
+      ],
+      "timersLeft": [
+        {
+          "kind": "listing:stall",
+          "dueAt": 18000
+        }
+      ]
+    },
+    "afterAccountChange": {
+      "entries": [
+        {
+          "name": "stall",
+          "models": [],
+          "error": {
+            "code": "ETIMEDOUT",
+            "message": "provider \"stall\" catalog list ignored its deadline and is still pending"
+          },
+          "retryAt": 46000
+        }
+      ],
+      "calls": {
+        "stall": 1
+      },
+      "at": 16000,
+      "armed": [
+        {
+          "kind": "listing:stall",
+          "dueAt": 18000
+        }
+      ],
+      "pendingOps": [
+        "stall"
+      ],
+      "stalled": [
+        {
+          "name": "stall",
+          "kind": "list"
+        }
+      ],
+      "timersLeft": [
+        {
+          "kind": "listing:stall",
+          "dueAt": 18000
+        }
+      ]
+    },
+    "settledOps": [],
+    "settledStalled": [],
+    "afterSettle": {
+      "entries": [
+        {
+          "name": "stall",
+          "models": [],
+          "error": {
+            "code": "ETIMEDOUT",
+            "message": "provider \"stall\" catalog list did not finish within 4000ms"
+          },
+          "retryAt": 52000
+        }
+      ],
+      "calls": {
+        "stall": 2
+      },
+      "at": 22000,
+      "armed": [
+        {
+          "kind": "deadline",
+          "dueAt": 22000
+        },
+        {
+          "kind": "listing:stall",
+          "dueAt": 24000
+        }
+      ],
+      "pendingOps": [
+        "stall"
+      ],
+      "stalled": [
+        {
+          "name": "stall",
+          "kind": "list"
+        }
+      ],
+      "timersLeft": [
+        {
+          "kind": "listing:stall",
+          "dueAt": 24000
+        }
+      ]
+    },
+    "dispatched": [
+      {
+        "fired": "deadline",
+        "at": 16000
+      },
+      {
+        "fired": "listing:stall",
+        "at": 18000
+      },
+      {
+        "fired": "deadline",
+        "at": 22000
+      },
+      {
+        "fired": "listing:stall",
+        "at": 24000
+      }
+    ]
+  }
 }
