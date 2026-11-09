@@ -174,6 +174,8 @@ mod turn_admission_tests;
 #[cfg(test)]
 mod delete_idle_tests;
 #[cfg(test)]
+mod steer_tests;
+#[cfg(test)]
 mod assembly_tests;
 #[cfg(test)]
 mod recorded_145_tests;

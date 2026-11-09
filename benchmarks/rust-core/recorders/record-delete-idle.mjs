@@ -6,15 +6,16 @@
 // raises it, in Node's own order.
 //
 //   node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs \
-//        benchmarks/rust-core/recorders/record-delete-idle.mjs --tree <tree>
+//        benchmarks/rust-core/recorders/record-delete-idle.mjs --tree <tree> --ref <commit>
 // Output: native/core/fixtures/delete-idle/golden.json
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { FIXTURES_ROOT, importFrom, parseArgs, resolveTree, writeJson, writeSetManifest } from './lib/common.mjs';
+import { FIXTURES_ROOT, commitStage, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
-const tree = resolveTree(parseArgs());
+const args = parseArgs();
+const tree = resolveTree(args);
 const root = mkdtempSync(join(tmpdir(), 'delete-idle-'));
 
 // An isolated environment, set before anything of the product loads.
@@ -241,6 +242,22 @@ await idleCase('busy-unsettled', 'runtime', 'a turn of the target is not yet dur
   forgetUnsettledTurn(id);
   return { reply, untouched: stillThere(id) };
 });
+// A turn that is in flight without holding the ask lock (Rust runs a completion wake that way): the archive
+// flag is read first, so an unarchived session answers `not-archived`; an archived one is busy.
+for (const archived of [false, true]) {
+  await idleCase(
+    archived ? 'in-flight-archived' : 'in-flight-not-archived',
+    'runtime',
+    `a turn of the target is in flight and holds no ask lock; the target is ${archived ? '' : 'not '}archived`,
+    async (id) => {
+      mgr.updateSessionStage(id, 'streaming');
+      const reply = await service(makeApi())(id);
+      mgr.markSessionDone(id);
+      return { reply, untouched: stillThere(id) };
+    },
+    { archived }
+  );
+}
 await idleCase('queued-pending', 'runtime', 'input waits in the target\'s pending queue', async (id) => {
   enqueuePendingMessage(id, 'typed');
   return { reply: await service(makeApi())(id), untouched: stillThere(id) };
@@ -293,9 +310,11 @@ await idleCase('deleted', 'runtime', 'archived, not a favorite, idle and unchang
 // --- write ----------------------------------------------------------------------------------------
 const rel = 'benchmarks/rust-core/recorders/record-delete-idle.mjs';
 const setDir = join(FIXTURES_ROOT, 'delete-idle');
-writeJson(join(setDir, 'golden.json'), { domain: 'delete-idle', recorder: rel, lastUsedAt: LAST_USED, idle: cases });
-const command = `node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs ${rel} --tree <tree>`;
-writeSetManifest(setDir, { set: 'delete-idle', recorder: rel, command });
+const stage = stageSet(setDir);
+writeJson(join(stage, 'golden.json'), { domain: 'delete-idle', recorder: rel, lastUsedAt: LAST_USED, idle: cases });
+const command = `node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs ${rel} --tree <tree> --ref <commit>`;
+writeSetManifest(stage, { set: 'delete-idle', recorder: rel, command, identityTree: tree, identityRef: args.get('ref') ?? 'HEAD' });
+commitStage(stage, setDir);
 console.log(`recorded ${cases.length} idle-delete cases`);
 releaseHeldSessionWriters();
 process.exit(0);

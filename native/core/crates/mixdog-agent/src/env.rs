@@ -446,6 +446,12 @@ pub struct CompactOutput {
     /// The pass found no token reduction (`freshContextResult.skipped`): nothing is adopted and no
     /// marker is shown.
     pub skipped: bool,
+    /// Whole milliseconds the pipeline took (`diagnostics.pipeline.totalMs` of `runFreshContextCompact`): the
+    /// summary decision, the summary itself and the rebuild, not the media preparation before them nor the
+    /// dropped-row summary after.
+    pub pipeline_ms: f64,
+    /// Whole milliseconds the summary request took (`pipeline.generated.durationMs`); none when no summary was written.
+    pub summary_ms: Option<f64>,
 }
 
 #[derive(Debug)]

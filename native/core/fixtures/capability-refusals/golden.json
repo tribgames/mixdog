@@ -1,0 +1,258 @@
+{
+  "rewind": [
+    {
+      "name": "an item the session does not have",
+      "busy": false,
+      "items": [
+        {
+          "kind": "user",
+          "id": "u1",
+          "text": "hello",
+          "messageId": "msg_1"
+        }
+      ],
+      "itemId": "no-such-item",
+      "reply": null
+    },
+    {
+      "name": "a busy session",
+      "busy": true,
+      "items": [
+        {
+          "kind": "user",
+          "id": "u1",
+          "text": "hello",
+          "messageId": "msg_1"
+        }
+      ],
+      "itemId": "u1",
+      "reply": null
+    }
+  ],
+  "prioritize": [
+    {
+      "name": "nothing is queued",
+      "busy": false,
+      "queued": [],
+      "selectedId": "q1",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [],
+      "kicked": 0
+    },
+    {
+      "name": "the entry is not among the queued ones",
+      "busy": false,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "selectedId": "q9",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0
+    },
+    {
+      "name": "a blank id",
+      "busy": false,
+      "queued": [
+        "q1"
+      ],
+      "selectedId": "",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0
+    },
+    {
+      "name": "the only queued entry",
+      "busy": false,
+      "queued": [
+        "q1"
+      ],
+      "selectedId": "q1",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q1"
+        ],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "now"
+        }
+      ],
+      "kicked": 1
+    },
+    {
+      "name": "a later queued entry",
+      "busy": false,
+      "queued": [
+        "q1",
+        "q2",
+        "q3"
+      ],
+      "selectedId": "q2",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q2"
+        ],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q2",
+          "priority": "now"
+        },
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q3",
+          "priority": "next"
+        }
+      ],
+      "kicked": 1
+    },
+    {
+      "name": "nothing is queued",
+      "busy": true,
+      "queued": [],
+      "selectedId": "q1",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [],
+      "kicked": 0
+    },
+    {
+      "name": "the entry is not among the queued ones",
+      "busy": true,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "selectedId": "q9",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0
+    },
+    {
+      "name": "a blank id",
+      "busy": true,
+      "queued": [
+        "q1"
+      ],
+      "selectedId": "",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0
+    },
+    {
+      "name": "the only queued entry",
+      "busy": true,
+      "queued": [
+        "q1"
+      ],
+      "selectedId": "q1",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q1"
+        ],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "now"
+        }
+      ],
+      "kicked": 1
+    },
+    {
+      "name": "a later queued entry",
+      "busy": true,
+      "queued": [
+        "q1",
+        "q2",
+        "q3"
+      ],
+      "selectedId": "q2",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q2"
+        ],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q2",
+          "priority": "now"
+        },
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q3",
+          "priority": "next"
+        }
+      ],
+      "kicked": 1
+    }
+  ]
+}

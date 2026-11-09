@@ -625,7 +625,7 @@ impl RunControl for SessionHandle {
     }
 
     /// R10: the input names the queued entry to steer (`{queuedId}`).
-    fn steer(&self, expected_turn: &TurnId, input: Value, _op: OpId) -> Result<Value, CoreError> {
+    fn steer(&self, expected_turn: Option<&TurnId>, input: Value, _op: OpId) -> Result<Value, CoreError> {
         let queued = input
             .get("queuedId")
             .and_then(Value::as_str)

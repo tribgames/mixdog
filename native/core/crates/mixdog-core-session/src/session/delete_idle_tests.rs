@@ -107,6 +107,23 @@ impl World {
         }
     }
 
+    /// A completion wakes the thread: its turn runs, until `release`.
+    async fn wake(&self) {
+        self.handle
+            .inbox
+            .send(super::actor::Inbox::TaskNotification {
+                surface: "agent".into(),
+                task_id: "task_agent_1".into(),
+                status: "failed".into(),
+                text: "failed".into(),
+                origin: None,
+                live: true,
+            })
+            .await
+            .expect("the actor runs");
+        eventually_on(&[&self.handle.cell.stepped], || self.handle.cell.run.load().is_some().then_some(())).await;
+    }
+
     /// The thread's turn runs, until `release`.
     async fn run_turn(&self) {
         turn(&self.handle, "work", "op-turn").await;
@@ -173,6 +190,16 @@ async fn replay(name: &str, world: &World) -> Value {
         "busy-lock-archived" | "busy-lock-not-archived" => {
             world.flags(name == "busy-lock-archived", false).await;
             world.run_turn().await;
+            let reply = world.ask(&id, same).await;
+            world.release.notify_one();
+            eventually_on(&[&world.handle.cell.stepped], || idle(&world.handle).then_some(())).await;
+            json!({ "reply": reply })
+        }
+        // A turn in flight that holds no ask lock: Rust wakes the idle thread for a completion with a turn Node would not
+        // run (it wakes only its current session), so the archive flag is read first and the turn still makes it busy.
+        "in-flight-archived" | "in-flight-not-archived" => {
+            world.flags(name == "in-flight-archived", false).await;
+            world.wake().await;
             let reply = world.ask(&id, same).await;
             world.release.notify_one();
             eventually_on(&[&world.handle.cell.stepped], || idle(&world.handle).then_some(())).await;
@@ -259,36 +286,6 @@ async fn each_refusal_of_the_idle_delete_is_nodes() {
         replayed += 1;
     }
     assert_eq!(replayed, cases.len() - 1);
-}
-
-/// A completion wakes the idle thread with a turn Node would not run (it wakes only its current session), so
-/// that turn holds no ask lock: an unarchived session answers `not-archived`, an archived one is still `busy`.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_completion_wake_holds_no_ask_lock_but_keeps_the_session_busy() {
-    let world = world().await;
-    let id = world.handle.id.as_str().to_owned();
-    let used = world.directory.session_meta(&world.handle.id).await.expect("meta").expect("listed").last_used_at;
-    let same = json!({ "lastUsedAt": used });
-    world
-        .handle
-        .inbox
-        .send(super::actor::Inbox::TaskNotification {
-            surface: "agent".into(),
-            task_id: "task_agent_1".into(),
-            status: "failed".into(),
-            text: "failed".into(),
-            origin: None,
-            live: true,
-        })
-        .await
-        .expect("the actor runs");
-    eventually_on(&[&world.handle.cell.stepped], || world.handle.cell.run.load().is_some().then_some(())).await;
-    world.flags(false, false).await;
-    assert_eq!(world.ask(&id, same.clone()).await, json!({ "deleted": false, "reason": "not-archived" }));
-    world.flags(true, false).await;
-    assert_eq!(world.ask(&id, same).await, json!({ "deleted": false, "reason": "busy" }));
-    world.release.notify_one();
-    eventually_on(&[&world.handle.cell.stepped], || idle(&world.handle).then_some(())).await;
 }
 
 /// The paths that start a turn behind Node's ask lock besides a submit — an approval answer that

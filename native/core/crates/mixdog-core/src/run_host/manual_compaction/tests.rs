@@ -1,8 +1,7 @@
 //! The header a manual compaction commits equals Node's session after `runSessionCompaction`
 //! (fixtures/compaction-commit/golden.json, `record-compaction-commit.mjs`): the usage totals, the
 //! `compaction` record, the invalidated baseline, the post-compaction usage snapshot and the
-//! cache-break intent, with the answer. The fallback title Node also sets is not ported (see the
-//! module doc), so `title` and `titleUpdatedAt` are left out of both sides.
+//! cache-break intent, the fallback title, with the answer: the whole header is compared, every key.
 
 use std::collections::HashMap;
 
@@ -47,8 +46,9 @@ fn text(value: &Value) -> Option<String> {
     value.as_str().map(str::to_owned)
 }
 
+/// The whole header, every key: `header_of` leaves out `messages` only because a header is the session without its transcript.
 fn comparable(header: &Header) -> Value {
-    Value::Object(header.iter().filter(|(key, _)| !matches!(key.as_str(), "messages" | "tools" | "title" | "titleUpdatedAt")).map(|(k, v)| (k.clone(), v.clone())).collect())
+    Value::Object(header.clone())
 }
 
 fn snapshot_of(case: &Value, header: &Header, messages: &[AgentMessage]) -> Arc<ContextSnapshot> {
@@ -133,6 +133,7 @@ fn a_plan_and_its_commit_count_the_system_blocks_of_the_request() {
             now,
             started_at: now,
             commit_started_at: now,
+            committed_at: now,
         };
         let (working, result) = committed_header(&facts, &header, &[]);
         assert_eq!(&result, value, "{name}: the reply");
@@ -196,6 +197,7 @@ fn a_committed_header_equals_nodes_session() {
             now,
             started_at: now,
             commit_started_at: now,
+            committed_at: now,
         };
         let appended: Vec<(ItemId, Value)> = appended_rows.iter().enumerate().map(|(n, row)| (ItemId::from(format!("late_{n}")), row.clone())).collect();
         let (working, result) = committed_header(&facts, &header, &appended);

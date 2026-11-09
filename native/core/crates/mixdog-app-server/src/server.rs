@@ -737,21 +737,16 @@ impl Shared {
         id: &RequestId,
         params: TurnSteerParams,
     ) -> Result<Reply, CoreError> {
-        // A request that names no turn steers the thread's active one, resolved here.
-        let (thread, turn) = match params.expected_turn_id {
-            Some(turn) => (self.loaded_thread(&params.thread_id, &turn)?, turn),
-            None => {
-                let not_active = || CoreError::TurnNotActive { thread_id: params.thread_id.clone(), turn_id: None };
-                let thread = self.core.threads().get(&params.thread_id).ok_or_else(not_active)?;
-                let turn = thread.active_turn().ok_or_else(not_active)?;
-                (thread, turn)
-            }
+        // A request that names no turn steers the thread's active one, if it has one.
+        let thread = match &params.expected_turn_id {
+            Some(turn) => self.loaded_thread(&params.thread_id, turn)?,
+            None => self.core.threads().get(&params.thread_id).ok_or_else(|| CoreError::TurnNotActive { thread_id: params.thread_id.clone(), turn_id: None })?,
         };
         // `RunControl::steer` still takes an input and an op id; the wire carries neither
         // (contract change request), so the entry is named and the call keyed by this request.
         let op = OpId::from(format!("steer:{from}:{id}"));
         thread.steer(
-            &turn,
+            params.expected_turn_id.as_ref(),
             json!({ "queuedId": params.queued_id }),
             op,
         )?;

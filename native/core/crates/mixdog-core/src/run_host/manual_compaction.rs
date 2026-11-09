@@ -8,10 +8,9 @@
 //! the header this module computes), the hook bus for PreCompact / PostCompact, and the thread's
 //! header port for the writes that have no commit (a failed pass, the re-armed reminders).
 //!
-//! Not carried over from Node (see `decisions.md`, "manual compaction"): the fallback title
-//! (`backfillFallbackSessionTitle`) and the staged working-folder re-root
-//! (`applyPendingWorkspaceReroot`) a changed pass applies, the write-ahead archive segment, the
-//! trace line, and the summary route's own facts (provider, model and timings of a maintenance or
+//! Not carried over from Node (see `decisions.md`, "manual compaction"): the staged working-folder
+//! re-root (`applyPendingWorkspaceReroot`) a changed pass applies, the write-ahead archive segment,
+//! the trace line, and the summary route's own facts (provider and model of a maintenance or
 //! lighter route): the session's route is reported.
 
 use std::collections::HashMap;
@@ -163,8 +162,12 @@ pub(crate) struct CommitFacts {
     pub fresh: SummaryFacts,
     pub archived: Option<Archived>,
     pub now: f64,
+    /// `compactStartedAt`: the pass began (before the stage hook and the summary).
     pub started_at: f64,
+    /// The start of `commitSessionCompaction`, once the summary pass returned.
     pub commit_started_at: f64,
+    /// `recordCompactionTiming`'s `Date.now()`: the end of the commit, when its header is computed.
+    pub committed_at: f64,
 }
 
 /// The header of `runSessionCompaction`'s commit (`commitSessionCompaction`): the summary's usage
@@ -195,7 +198,7 @@ pub(crate) fn committed_header(facts: &CommitFacts, header: &Header, appended: &
             now: facts.now,
             started_at: facts.started_at,
             commit_started_at: facts.commit_started_at,
-            committed_at: facts.now,
+            committed_at: facts.committed_at,
             fresh: &facts.fresh,
             before_rows: &facts.before_rows,
             compacted_rows: &facts.compacted_rows,
@@ -207,6 +210,11 @@ pub(crate) fn committed_header(facts: &CommitFacts, header: &Header, appended: &
     });
     working.insert("compaction".into(), Value::Object(committed.compaction));
     if committed.changed {
+        // `backfillFallbackSessionTitle(session, messages)`: a titleless session keeps a name before the transcript that carries
+        // its first prompt is replaced.
+        if let Some(change) = mixdog_core_session::session::session_title::fallback_title_change(&working, &facts.before_rows, None, facts.now as i64) {
+            working.extend(change.set);
+        }
         let transcript: Vec<AgentMessage> = compacted.iter().chain(&appended_messages).cloned().collect();
         invalidate_provider_context_baseline().apply(&mut working);
         if let Some(policy) = &committed.policy {
@@ -291,9 +299,9 @@ impl ManualCompaction for HostManualCompaction {
         if require && !compactor.reduces(&request(true)).await {
             return Ok(Some(plan.no_token_reduction()));
         }
-        // The manager's savings gate passed: PreCompact (`onStageChange('compacting')`).
-        parts.hooks.pre(thread, trigger).await;
+        // The manager's savings gate passed: `compactStartedAt`, then PreCompact (`onStageChange('compacting')`).
         let started_at = self.now();
+        parts.hooks.pre(thread, trigger).await;
         let output = match compactor.compact(request(require)).await {
             Ok(output) => output,
             Err(CompactError::Overflow(message) | CompactError::Failed(message)) => {
@@ -307,6 +315,7 @@ impl ManualCompaction for HostManualCompaction {
         if output.skipped {
             return Ok(Some(plan.no_token_reduction()));
         }
+        let commit_started_at = self.now();
 
         let usage = output.usage.as_ref().map(usage_value);
         let summarized = usage.is_some();
@@ -319,8 +328,8 @@ impl ManualCompaction for HostManualCompaction {
             pipeline_mode: Some(if summarized { "conversation-summary" } else { "rules" }.to_owned()),
             summary_route: summarized.then(|| "session".to_owned()),
             forked: false,
-            generated_ms: None,
-            total_ms: Some(self.now() - started_at),
+            generated_ms: output.summary_ms,
+            total_ms: Some(output.pipeline_ms),
         };
         let item_of: HashMap<String, ItemId> = context.iter().filter_map(|(iid, row)| Some((message_of(row).ok()?.message_id?, iid.clone()))).collect();
         let compacted_rows: Vec<Value> = output.messages.iter().map(row_of).collect();
@@ -345,11 +354,14 @@ impl ManualCompaction for HostManualCompaction {
             archived: Some(archived),
             now,
             started_at,
-            commit_started_at: now,
+            commit_started_at,
+            committed_at: now,
         };
         let answer = Arc::new(Mutex::new(None));
         let slot = answer.clone();
+        let clock = parts.clock.clone();
         let header: CompactionHeader = Box::new(move |header, appended| {
+            let facts = CommitFacts { committed_at: clock.now_ms() as f64, ..facts };
             let (mut working, result) = committed_header(&facts, header, appended);
             manual_tail(&mut working, facts.now);
             *slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(result);

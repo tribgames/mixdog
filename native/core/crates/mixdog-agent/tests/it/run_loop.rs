@@ -359,6 +359,8 @@ impl Compactor for Compactor100 {
             dropped_count: (request.messages.len() - 1) as u64,
             dropped: Some(Dropped { message_ids: vec!["gone".into()], call_ids: vec!["call-gone".into()] }),
             skipped: self.skip,
+            pipeline_ms: 0.0,
+            summary_ms: None,
         })
     }
 }
