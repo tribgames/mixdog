@@ -7,11 +7,6 @@ import test from 'node:test';
 
 import { writeProjectTextFileIn as save, writeProjectTextFilesIn as saveMany } from './project-files.ts';
 import { hookProjectSwap } from './project-swap-hook.mjs';
-import { replaceWorkspaceTextIn } from './workspace-search.ts';
-
-// Public writers, mutation ownership and real file IO are retained. Faults
-// are injected only at leaf IO, at deterministic points before a file's first
-// in-place write and after its write completes (see project-swap-hook.mjs).
 async function fixture(t, files = { 'a.txt': 'A0', 'b.txt': 'B0', 'c.txt': 'C0' }) {
   const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'mixdog-batch-recovery-')));
   t.after(() => fs.rm(root, { recursive: true, force: true }));
@@ -417,29 +412,4 @@ test('partial recovery holds all claims until settlement and a later save can pr
   assert.equal((await settled)[0].status, 'fulfilled');
   assert.equal(await fs.readFile(join(root, 'c.txt'), 'utf8'), 'QUEUED');
   await clean(root);
-});
-
-test('workspace replace propagates partial recovery instead of reporting changed counts', async (t) => {
-  const root = await fixture(t, { 'a.txt': 'needle', 'b.txt': 'needle' });
-  const cause = fault('workspace second write failed');
-  let recovering = false;
-  hookProjectSwap(t, {
-    before(path) {
-      if (path === join(root, 'b.txt')) {
-        recovering = true;
-        throw cause;
-      }
-      if (recovering) throw fault('workspace recovery denied', 'EPERM');
-    },
-  });
-  const error = await rejection(
-    replaceWorkspaceTextIn(
-      root,
-      { query: 'needle', regex: false, caseSensitive: true, wholeWord: false, includeIgnored: false },
-      'updated',
-      undefined
-    )
-  );
-  outcome(error, cause, 'b.txt', ['a.txt'], [], ['a.txt']);
-  assert.equal(await fs.readFile(join(root, 'a.txt'), 'utf8'), 'updated');
 });

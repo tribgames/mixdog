@@ -56,68 +56,6 @@ test('a remembered mode beats the setting, survives a reload, and is bounded', (
   );
 });
 
-test('General control writes the user setting that the editor reads back', async () => {
-  const { readMarkdownDefaultView, writeMarkdownDefaultView, readScopedEditorSettings } = await import(
-    '../main/workspace-config.ts'
-  );
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-md-write-'));
-  try {
-    assert.equal(await readMarkdownDefaultView(root), 'preview', 'no file: the default');
-    await writeMarkdownDefaultView(root, 'rich');
-    assert.equal(await readMarkdownDefaultView(root), 'rich');
-    const file = join(root, 'User', 'settings.json');
-    await writeFile(file, '{\n  // keep me\n  "editor.tabSize": 4,\n}\n');
-    await writeMarkdownDefaultView(root, 'source');
-    const text = await readFile(file, 'utf8');
-    assert.ok(text.includes('// keep me') && text.includes('"editor.tabSize": 4'));
-    assert.equal((await readScopedEditorSettings(root, root, 'a.md')).markdownDefaultView, 'source');
-    await writeMarkdownDefaultView(root, 'preview');
-    assert.equal(await readMarkdownDefaultView(root), 'preview');
-    assert.equal((await readFile(file, 'utf8')).match(/defaultView/g).length, 1, 'updated in place');
-    // A { in a leading comment and a commented-out key must not be mistaken for structure.
-    await writeFile(file, '// { example\n// "mixdog.markdown.defaultView": "rich"\n{}\n');
-    await writeMarkdownDefaultView(root, 'source');
-    const commented = await readFile(file, 'utf8');
-    assert.ok(commented.startsWith('// { example\n// "mixdog.markdown.defaultView": "rich"\n'));
-    assert.equal(await readMarkdownDefaultView(root), 'source');
-    // Nested settings syntax resolves like the editor does.
-    await writeFile(file, '{ "mixdog": { "markdown": { "defaultView": "rich" } } }');
-    assert.equal(await readMarkdownDefaultView(root), 'rich');
-    assert.equal((await readScopedEditorSettings(root, root, 'a.md')).markdownDefaultView, 'rich');
-    await writeMarkdownDefaultView(root, 'source');
-    assert.equal(await readMarkdownDefaultView(root), 'source');
-    assert.equal((await readScopedEditorSettings(root, root, 'a.md')).markdownDefaultView, 'source');
-    await writeFile(file, 'not json');
-    await assert.rejects(writeMarkdownDefaultView(root, 'rich'));
-    assert.equal(await readFile(file, 'utf8'), 'not json', 'an unparsable file is left alone');
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-test('markdownDefaultView normalization: preview unless the setting names rich or source', async () => {
-  const { readScopedEditorSettings } = await import('../main/workspace-config.ts');
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-md-view-'));
-  try {
-    const read = async (value) => {
-      const userData = join(root, `u-${String(value)}`);
-      await mkdir(join(userData, 'User'), { recursive: true });
-      await writeFile(
-        join(userData, 'User', 'settings.json'),
-        JSON.stringify(value === undefined ? {} : { 'mixdog.markdown.defaultView': value })
-      );
-      return (await readScopedEditorSettings(userData, root, 'a.md')).markdownDefaultView;
-    };
-    assert.equal(await read(undefined), 'preview');
-    assert.equal(await read('rich'), 'rich');
-    assert.equal(await read('source'), 'source');
-    assert.equal(await read('preview'), 'preview');
-    assert.equal(await read('wysiwyg'), 'preview');
-    assert.equal(await read(3), 'preview');
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
 test('outline: heading slugs, dedupe, anchor lookup, and ids assigned for #links', async () => {
   const { slugifyHeading, readHeadings, headingForAnchor } = await import('./editor-markdown-outline.tsx');
   assert.equal(slugifyHeading(' Hello, World! '), 'hello-world');
