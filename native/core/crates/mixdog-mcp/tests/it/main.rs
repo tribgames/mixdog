@@ -17,6 +17,7 @@ mod mcpapi_suite;
 mod mcpfault_suite;
 mod mcpinput_suite;
 mod mcpsecrets_suite;
+mod oauth_callback_page_suite;
 mod oauth_suite;
 mod permissions_suite;
 mod plugin_json_errors_suite;

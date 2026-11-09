@@ -147,6 +147,10 @@ async fn exchange(port: u16, request: &str) -> Result<Vec<u8>, std::io::ErrorKin
 
 /// `[statusLine, headers, body]` of an answer as the recorder reads it: header names lowercase, `Date` left out,
 /// and the framing (`Content-Length` here, `Transfer-Encoding: chunked` in Node's) replaced by the body itself.
+///
+/// This normalizes only equivalent HTTP representations, it is not a filter: chunked vs `Content-Length` framing,
+/// header-name case and header order are invisible to a browser, and `Date` is set by Node per request. Every other
+/// header name and value, the status line and the decoded body bytes are compared exactly (see `assert_answer`).
 fn read_answer(bytes: &[u8]) -> (String, Vec<(String, String)>, String) {
     let split = bytes.windows(4).position(|window| window == b"\r\n\r\n").expect("a complete head");
     let head = String::from_utf8(bytes[..split].to_vec()).unwrap();

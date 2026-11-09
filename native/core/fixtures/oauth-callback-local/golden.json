@@ -209,6 +209,104 @@
       ]
     },
     {
+      "title": "HEAD and OPTIONS of a sealed payload, then a GET",
+      "doc": {
+        "sk": "sk-live",
+        "uid": 7
+      },
+      "served": [],
+      "settled": "tokens",
+      "answers": [
+        {
+          "method": "HEAD",
+          "target": "/?u={sealed}",
+          "answer": {
+            "statusLine": "HTTP/1.1 302 Found",
+            "headers": [
+              [
+                "location",
+                "https://platform.xiaomimimo.com/authorize/callback?status=success"
+              ],
+              [
+                "connection",
+                "close"
+              ]
+            ],
+            "body": ""
+          }
+        },
+        {
+          "method": "OPTIONS",
+          "target": "/?u={sealed}",
+          "answer": {
+            "connection": "ECONNREFUSED"
+          }
+        },
+        {
+          "method": "GET",
+          "target": "/?u={sealed}",
+          "answer": {
+            "connection": "ECONNREFUSED"
+          }
+        }
+      ]
+    },
+    {
+      "title": "an unsealed payload first and a sealed one second",
+      "doc": {
+        "sk": "sk-live",
+        "uid": 7
+      },
+      "served": [],
+      "settled": "tokens",
+      "answers": [
+        {
+          "method": "GET",
+          "target": "/?u=AAAA&u={sealed}",
+          "answer": {
+            "statusLine": "HTTP/1.1 400 Bad Request",
+            "headers": [
+              [
+                "content-type",
+                "text/plain; charset=utf-8"
+              ],
+              [
+                "connection",
+                "close"
+              ],
+              [
+                "transfer-encoding",
+                "chunked"
+              ]
+            ],
+            "body": "Invalid authorization payload"
+          }
+        },
+        {
+          "method": "GET",
+          "target": "/?u={sealed}&u=AAAA",
+          "answer": {
+            "statusLine": "HTTP/1.1 302 Found",
+            "headers": [
+              [
+                "location",
+                "https://platform.xiaomimimo.com/authorize/callback?status=success"
+              ],
+              [
+                "connection",
+                "close"
+              ],
+              [
+                "transfer-encoding",
+                "chunked"
+              ]
+            ],
+            "body": ""
+          }
+        }
+      ]
+    },
+    {
       "title": "sealed payload, then once more after the login ended",
       "doc": {
         "sk": "sk-live",
@@ -1396,6 +1494,419 @@
             ]
           ],
           "body": "{\"state\":\"wrong\",\"apiKey\":\"ck-0123456789abcdef\",\"userId\":\"u1\",\"userName\":\"ann\",\"keyName\":\"key-1\"}",
+          "answer": {
+            "statusLine": "HTTP/1.1 400 Bad Request",
+            "headers": [
+              [
+                "access-control-allow-origin",
+                "https://commandcode.ai"
+              ],
+              [
+                "access-control-allow-methods",
+                "POST, OPTIONS"
+              ],
+              [
+                "access-control-allow-headers",
+                "Content-Type"
+              ],
+              [
+                "access-control-allow-private-network",
+                "true"
+              ],
+              [
+                "vary",
+                "Origin"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "connection",
+                "close"
+              ],
+              [
+                "transfer-encoding",
+                "chunked"
+              ]
+            ],
+            "body": "{\"success\":false,\"error\":\"callback state mismatch\"}"
+          }
+        },
+        {
+          "method": "POST",
+          "target": "/callback",
+          "headers": [
+            [
+              "Origin",
+              "https://commandcode.ai"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "body": "{\"state\":\"{state}\",\"apiKey\":\"ck-0123456789abcdef\",\"userId\":\"u1\",\"userName\":\"ann\",\"keyName\":\"key-1\"}",
+          "answer": {
+            "statusLine": "HTTP/1.1 200 OK",
+            "headers": [
+              [
+                "access-control-allow-origin",
+                "https://commandcode.ai"
+              ],
+              [
+                "access-control-allow-methods",
+                "POST, OPTIONS"
+              ],
+              [
+                "access-control-allow-headers",
+                "Content-Type"
+              ],
+              [
+                "access-control-allow-private-network",
+                "true"
+              ],
+              [
+                "vary",
+                "Origin"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "connection",
+                "close"
+              ],
+              [
+                "transfer-encoding",
+                "chunked"
+              ]
+            ],
+            "body": "{\"success\":true}"
+          }
+        }
+      ]
+    },
+    {
+      "title": "no state field, then the callback",
+      "served": [
+        {
+          "method": "GET",
+          "url": "https://api.commandcode.ai/alpha/whoami",
+          "status": 200,
+          "body": "{\"user\":{\"id\":\"U1\",\"userName\":\"ann\"}}"
+        }
+      ],
+      "settled": "tokens",
+      "answers": [
+        {
+          "method": "POST",
+          "target": "/callback",
+          "headers": [
+            [
+              "Origin",
+              "https://commandcode.ai"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "body": "{\"apiKey\":\"ck-0123456789abcdef\",\"userId\":\"u1\",\"userName\":\"ann\",\"keyName\":\"key-1\"}",
+          "answer": {
+            "statusLine": "HTTP/1.1 400 Bad Request",
+            "headers": [
+              [
+                "access-control-allow-origin",
+                "https://commandcode.ai"
+              ],
+              [
+                "access-control-allow-methods",
+                "POST, OPTIONS"
+              ],
+              [
+                "access-control-allow-headers",
+                "Content-Type"
+              ],
+              [
+                "access-control-allow-private-network",
+                "true"
+              ],
+              [
+                "vary",
+                "Origin"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "connection",
+                "close"
+              ],
+              [
+                "transfer-encoding",
+                "chunked"
+              ]
+            ],
+            "body": "{\"success\":false,\"error\":\"callback state mismatch\"}"
+          }
+        },
+        {
+          "method": "POST",
+          "target": "/callback",
+          "headers": [
+            [
+              "Origin",
+              "https://commandcode.ai"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "body": "{\"state\":\"{state}\",\"apiKey\":\"ck-0123456789abcdef\",\"userId\":\"u1\",\"userName\":\"ann\",\"keyName\":\"key-1\"}",
+          "answer": {
+            "statusLine": "HTTP/1.1 200 OK",
+            "headers": [
+              [
+                "access-control-allow-origin",
+                "https://commandcode.ai"
+              ],
+              [
+                "access-control-allow-methods",
+                "POST, OPTIONS"
+              ],
+              [
+                "access-control-allow-headers",
+                "Content-Type"
+              ],
+              [
+                "access-control-allow-private-network",
+                "true"
+              ],
+              [
+                "vary",
+                "Origin"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "connection",
+                "close"
+              ],
+              [
+                "transfer-encoding",
+                "chunked"
+              ]
+            ],
+            "body": "{\"success\":true}"
+          }
+        }
+      ]
+    },
+    {
+      "title": "empty state, then the callback",
+      "served": [
+        {
+          "method": "GET",
+          "url": "https://api.commandcode.ai/alpha/whoami",
+          "status": 200,
+          "body": "{\"user\":{\"id\":\"U1\",\"userName\":\"ann\"}}"
+        }
+      ],
+      "settled": "tokens",
+      "answers": [
+        {
+          "method": "POST",
+          "target": "/callback",
+          "headers": [
+            [
+              "Origin",
+              "https://commandcode.ai"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "body": "{\"state\":\"\",\"apiKey\":\"ck-0123456789abcdef\",\"userId\":\"u1\",\"userName\":\"ann\",\"keyName\":\"key-1\"}",
+          "answer": {
+            "statusLine": "HTTP/1.1 400 Bad Request",
+            "headers": [
+              [
+                "access-control-allow-origin",
+                "https://commandcode.ai"
+              ],
+              [
+                "access-control-allow-methods",
+                "POST, OPTIONS"
+              ],
+              [
+                "access-control-allow-headers",
+                "Content-Type"
+              ],
+              [
+                "access-control-allow-private-network",
+                "true"
+              ],
+              [
+                "vary",
+                "Origin"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "connection",
+                "close"
+              ],
+              [
+                "transfer-encoding",
+                "chunked"
+              ]
+            ],
+            "body": "{\"success\":false,\"error\":\"callback state mismatch\"}"
+          }
+        },
+        {
+          "method": "POST",
+          "target": "/callback",
+          "headers": [
+            [
+              "Origin",
+              "https://commandcode.ai"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "body": "{\"state\":\"{state}\",\"apiKey\":\"ck-0123456789abcdef\",\"userId\":\"u1\",\"userName\":\"ann\",\"keyName\":\"key-1\"}",
+          "answer": {
+            "statusLine": "HTTP/1.1 200 OK",
+            "headers": [
+              [
+                "access-control-allow-origin",
+                "https://commandcode.ai"
+              ],
+              [
+                "access-control-allow-methods",
+                "POST, OPTIONS"
+              ],
+              [
+                "access-control-allow-headers",
+                "Content-Type"
+              ],
+              [
+                "access-control-allow-private-network",
+                "true"
+              ],
+              [
+                "vary",
+                "Origin"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "connection",
+                "close"
+              ],
+              [
+                "transfer-encoding",
+                "chunked"
+              ]
+            ],
+            "body": "{\"success\":true}"
+          }
+        }
+      ]
+    },
+    {
+      "title": "state of another type, then the callback",
+      "served": [
+        {
+          "method": "GET",
+          "url": "https://api.commandcode.ai/alpha/whoami",
+          "status": 200,
+          "body": "{\"user\":{\"id\":\"U1\",\"userName\":\"ann\"}}"
+        }
+      ],
+      "settled": "tokens",
+      "answers": [
+        {
+          "method": "POST",
+          "target": "/callback",
+          "headers": [
+            [
+              "Origin",
+              "https://commandcode.ai"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "body": "{\"state\":7,\"apiKey\":\"ck-0123456789abcdef\",\"userId\":\"u1\",\"userName\":\"ann\",\"keyName\":\"key-1\"}",
+          "answer": {
+            "statusLine": "HTTP/1.1 400 Bad Request",
+            "headers": [
+              [
+                "access-control-allow-origin",
+                "https://commandcode.ai"
+              ],
+              [
+                "access-control-allow-methods",
+                "POST, OPTIONS"
+              ],
+              [
+                "access-control-allow-headers",
+                "Content-Type"
+              ],
+              [
+                "access-control-allow-private-network",
+                "true"
+              ],
+              [
+                "vary",
+                "Origin"
+              ],
+              [
+                "content-type",
+                "application/json"
+              ],
+              [
+                "connection",
+                "close"
+              ],
+              [
+                "transfer-encoding",
+                "chunked"
+              ]
+            ],
+            "body": "{\"success\":false,\"error\":\"callback state mismatch\"}"
+          }
+        },
+        {
+          "method": "POST",
+          "target": "/callback",
+          "headers": [
+            [
+              "Origin",
+              "https://commandcode.ai"
+            ],
+            [
+              "Content-Type",
+              "application/json"
+            ]
+          ],
+          "body": "{\"state\":null,\"apiKey\":\"ck-0123456789abcdef\",\"userId\":\"u1\",\"userName\":\"ann\",\"keyName\":\"key-1\"}",
           "answer": {
             "statusLine": "HTTP/1.1 400 Bad Request",
             "headers": [

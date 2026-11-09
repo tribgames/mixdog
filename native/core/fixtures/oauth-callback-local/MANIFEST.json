@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 51671,
+      "bytes": 65171,
       "path": "golden.json",
-      "sha256": "10b4cb11d39528fd8b38b14c1b241d1271c65e94a00aa5908aada4ad42018a96"
+      "sha256": "41268d7649ad1d2a2cce46f1042e998e7358e4dbeb7dfa032641d5ff6154767e"
     }
   ],
   "product": {
@@ -24,5 +24,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-oauth-callback-local.mjs",
   "set": "oauth-callback-local",
-  "totalBytes": 51671
+  "totalBytes": 65171
 }
