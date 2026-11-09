@@ -344,7 +344,7 @@ for (let i = 1; i < rosters.length; i += 1) {
   p = phone();
   const persisted = storage.nextSave();
   await d.connect(p)(await p.claim());
-  await persisted;
+  await deadline.race(persisted, `the phone to persist the roster of ${prev.name}`);
   d = desktop(withRows(name));
   p = phone();
   note(`restart:${prev.name}>${name}`, p, await d.connect(p)(await p.claim()));
@@ -354,10 +354,10 @@ for (let i = 1; i < rosters.length; i += 1) {
   p = phone();
   const { arrived, release } = d.hold();
   const syncing = d.connect(p)(await p.claim());
-  await arrived;
+  await deadline.race(arrived, `the host's roster read for ${name} to reach the hold`);
   d.publish(withRows(name));
   release();
-  note(`between:${prev.name}>${name}`, p, await syncing);
+  note(`between:${prev.name}>${name}`, p, await deadline.race(syncing, `the phone's baseline read of ${name} to finish`));
 }
 
 // Publishing a roster the phone already has: Node's catalog skips an unchanged roster, so nothing reaches the phone.
