@@ -59,11 +59,11 @@
       "triggerTokens": 128000,
       "bufferRatio": 0,
       "handoffTimeoutMs": 300000,
-      "lastCheckedAt": 1794177190544,
-      "lastBeforeTokens": 11612,
-      "lastAfterTokens": 11612,
-      "lastPressureTokens": 11612,
-      "currentEstimatedTokens": 11612,
+      "lastCheckedAt": 1794189719226,
+      "lastBeforeTokens": 11623,
+      "lastAfterTokens": 11623,
+      "lastPressureTokens": 11623,
+      "currentEstimatedTokens": 11623,
       "lastApiRequestTokens": null,
       "lastStage": "pre_send_check",
       "lastChanged": false,
@@ -77,10 +77,10 @@
       "singleShotConsumed": false,
       "recentChecks": [
         {
-          "at": 1794177190544,
+          "at": 1794189719226,
           "stage": "pre_send_check",
-          "pressure": 11612,
-          "est": 4746,
+          "pressure": 11623,
+          "est": 4757,
           "trigger": 128000,
           "baseline": null,
           "baselineAt": null
@@ -1199,17 +1199,17 @@
       "set_goal_tasks",
       "update_goal"
     ],
-    "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\ctx6\\tmp\\context-status-route-JhPZOp\\home\\.mixdog\\data\\scratch\\s.86db8dc07fbad120 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\ctx6\\tmp\\context-status-route-JhPZOp\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+    "bp3EnvironmentContext": "- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-emz7eN\\home\\.mixdog\\data\\scratch\\s.bdd3d2d78fff3ba8 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-emz7eN\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
     "bp3EnvSplit": true,
     "sessionStartMetaInjected": true,
-    "mcpPid": 29136,
-    "mcpScopeId": "499958cc-0cf5-4397-8059-88b5c73d725d",
+    "mcpPid": 6000,
+    "mcpScopeId": "60fd2a0f-1cd0-4058-bf58-3db3d8baf4a8",
     "scopeKey": null,
     "lane": "cli",
-    "cwd": "D:\\mixdog-build\\tmp\\ctx6\\tmp\\context-status-route-JhPZOp\\ws",
+    "cwd": "D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-emz7eN\\ws",
     "desktopSession": {
       "classification": "project",
-      "projectPath": "D:\\mixdog-build\\tmp\\ctx6\\tmp\\context-status-route-JhPZOp\\ws"
+      "projectPath": "D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-emz7eN\\ws"
     },
     "workflow": {
       "id": "default",
@@ -1233,13 +1233,13 @@
       "explore",
       "react"
     ],
-    "createdAt": 1794177190199,
-    "updatedAt": 1794177190425,
+    "createdAt": 1794189718833,
+    "updatedAt": 1794189718974,
     "lastHeartbeatAt": null,
     "totalInputTokens": 0,
     "totalOutputTokens": 0,
     "totalToolCalls": 0,
-    "lastUsedAt": 1794177190199,
+    "lastUsedAt": 1794189718833,
     "tokensCumulative": 0,
     "taskType": null,
     "agentTag": null,
@@ -1256,7 +1256,7 @@
     "parentSessionId": null,
     "ownerSessionId": null,
     "visibility": null,
-    "clientHostPid": 29136,
+    "clientHostPid": 6000,
     "providerCacheOptsOverride": false,
     "agentProfileRevision": "coding-lead",
     "agentRosterRevision": "b44300648a4b827c47d80e92",
@@ -5024,7 +5024,7 @@
       "tidy",
       "visualize"
     ],
-    "transcriptEpoch": "615dbf8e-0ada-4f1b-8c0a-ba502f706fe3",
+    "transcriptEpoch": "dcaa486f-f392-4e80-9a51-bda1cf6ed62d",
     "usageMetricsTurnId": 1,
     "turnHop": 0,
     "turnBotChain": [],
@@ -5034,10 +5034,10 @@
       "auditAsked": false
     },
     "title": "Seed the transcript.…",
-    "titleUpdatedAt": 1794177190503,
+    "titleUpdatedAt": 1794189719116,
     "deferredMcpToolNames": [],
     "deferredLateToolCatalog": [],
-    "turnCoverage": "ee48fedc-7011-408b-8978-ee2a7014cd2e",
+    "turnCoverage": "d0b8bfa3-3ae3-4ada-986f-3a524b78a7ef",
     "messages": [
       {
         "role": "system",
@@ -5054,7 +5054,7 @@
       },
       {
         "role": "system",
-        "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\ctx6\\tmp\\context-status-route-JhPZOp\\ws\nModel: Harness-Model\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\ctx6\\tmp\\context-status-route-JhPZOp\\home\\.mixdog\\data\\scratch\\s.86db8dc07fbad120 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\ctx6\\tmp\\context-status-route-JhPZOp\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
+        "content": "# Session\nCwd: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-emz7eN\\ws\nModel: Harness-Model\n\n---\n\n- Relative paths and shell commands resolve in the active Project shown by Session Cwd.\n- Shell: PowerShell. Use PowerShell syntax unless the user specifies otherwise.\n- Scratch: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-emz7eN\\home\\.mixdog\\data\\scratch\\s.bdd3d2d78fff3ba8 — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.\n- Shell tools at startup: python3 python py pip3 node npm jq curl; absent: gcc g++ make sqlite3 file xxd.\n- Git startup state: D:\\mixdog-build\\tmp\\control-materialize-tmp\\context-status-route-emz7eN\\ws was not inside a git repository at startup; git commands that require one fail until a repository exists.\n- Cwd entries at startup: none (empty directory).\n\n---\n\n# Language\n\n- Always respond in Korean, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.\n- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.\n- Keep technical terms in their established form, usually the original English (blocker, cache, commit); add a short plain explanation only when the reader may not know it. Never invent a literal translation.",
         "cacheTier": "env"
       },
       {
@@ -5062,21 +5062,21 @@
         "content": "Seed the transcript. HARNESS-CAP-SEED",
         "meta": {
           "transcript": {
-            "messageId": "msg_2d3a0916d36e4e60a5e96250045bee5f",
-            "attemptId": "823d8407-6edb-4b8c-b9e0-c5c8de85967e",
-            "at": 1794177190051,
+            "messageId": "msg_eb1c6ed9a53b4709ba4d8ecfa8c44460",
+            "attemptId": "570e2942-16ea-4792-85ad-be8564013272",
+            "at": 1794189718764,
             "modelId": "harness-model",
             "model": "harness-model",
             "provider": "custom-harness",
             "agent": "Default",
-            "checkpointId": "it_1be8ec15_1",
+            "checkpointId": "it_f4b53551_1",
             "completion": {
               "status": "failed",
-              "attemptId": "823d8407-6edb-4b8c-b9e0-c5c8de85967e",
-              "at": 1794177190051,
+              "attemptId": "570e2942-16ea-4792-85ad-be8564013272",
+              "at": 1794189718764,
               "verb": "Mapped",
-              "elapsedMs": 19778,
-              "checkpointId": "it_1be8ec15_1",
+              "elapsedMs": 17104,
+              "checkpointId": "it_f4b53551_1",
               "modelId": "harness-model",
               "model": "harness-model",
               "provider": "custom-harness",
@@ -5095,6 +5095,51 @@
         }
       }
     ]
+  },
+  "afterRoute": {
+    "compaction": {
+      "boundaryTokens": 128000,
+      "auto": true,
+      "onModelChange": true,
+      "summaryMode": "smart",
+      "bufferTokens": 0,
+      "contextWindow": 128000,
+      "rawContextWindow": 128000,
+      "effectiveContextWindowPercent": 100,
+      "autoCompactTokenLimit": null,
+      "requestReserveTokens": 6866,
+      "reserveTokens": 6866,
+      "triggerTokens": 128000,
+      "bufferRatio": 0,
+      "handoffTimeoutMs": 300000,
+      "lastCheckedAt": 1794189719226,
+      "lastBeforeTokens": 11623,
+      "lastAfterTokens": 11623,
+      "lastPressureTokens": 11623,
+      "currentEstimatedTokens": 11623,
+      "lastApiRequestTokens": null,
+      "lastStage": "pre_send_check",
+      "lastChanged": false,
+      "lastTrigger": null,
+      "lastFreshContext": false,
+      "lastFreshContextError": null,
+      "lastHandoffSource": null,
+      "lastError": null,
+      "lastDurationMs": null,
+      "compactCount": 0,
+      "singleShotConsumed": false,
+      "recentChecks": [
+        {
+          "at": 1794189719226,
+          "stage": "pre_send_check",
+          "pressure": 11623,
+          "est": 4757,
+          "trigger": 128000,
+          "baseline": null,
+          "baselineAt": null
+        }
+      ]
+    }
   },
   "steps": [
     {
@@ -5936,17 +5981,17 @@
         "effectiveContextWindow": 128000,
         "rawContextWindow": 128000,
         "effectiveContextWindowPercent": 100,
-        "usedTokens": 11612,
+        "usedTokens": 11623,
         "usedSource": "estimated",
         "measurement": {
           "tokens": null,
           "source": "pending",
           "updatedAt": null
         },
-        "currentEstimatedTokens": 11612,
+        "currentEstimatedTokens": 11623,
         "lastApiRequestTokens": 0,
         "lastApiRequestStale": false,
-        "freeTokens": 116388,
+        "freeTokens": 116377,
         "compaction": {
           "boundaryTokens": 128000,
           "auto": true,
@@ -5962,11 +6007,11 @@
           "triggerTokens": 128000,
           "bufferRatio": 0,
           "handoffTimeoutMs": 300000,
-          "lastCheckedAt": 1794177190544,
-          "lastBeforeTokens": 11612,
-          "lastAfterTokens": 11612,
-          "lastPressureTokens": 11612,
-          "currentEstimatedTokens": 11612,
+          "lastCheckedAt": 1794189719226,
+          "lastBeforeTokens": 11623,
+          "lastAfterTokens": 11623,
+          "lastPressureTokens": 11623,
+          "currentEstimatedTokens": 11623,
           "lastApiRequestTokens": 0,
           "lastStage": "pre_send_check",
           "lastChanged": false,
@@ -5980,25 +6025,25 @@
           "singleShotConsumed": false,
           "recentChecks": [
             {
-              "at": 1794177190544,
+              "at": 1794189719226,
               "stage": "pre_send_check",
-              "pressure": 11612,
-              "est": 4746,
+              "pressure": 11623,
+              "est": 4757,
               "trigger": 128000,
               "baseline": null,
               "baselineAt": null
             }
           ],
-          "pressureTokens": 11612,
+          "pressureTokens": 11623,
           "lastApiRequestStale": false
         },
         "messages": {
           "count": 5,
-          "estimatedTokens": 4746,
+          "estimatedTokens": 4757,
           "roles": {
             "system": {
               "count": 4,
-              "tokens": 4732
+              "tokens": 4743
             },
             "user": {
               "count": 1,
@@ -6020,7 +6065,7 @@
           "semantic": {
             "system": {
               "count": 4,
-              "tokens": 3990
+              "tokens": 4001
             },
             "chat": {
               "count": 1,
@@ -6163,17 +6208,17 @@
         "effectiveContextWindow": 128000,
         "rawContextWindow": 128000,
         "effectiveContextWindowPercent": 100,
-        "usedTokens": 11612,
+        "usedTokens": 11623,
         "usedSource": "estimated",
         "measurement": {
           "tokens": null,
           "source": "pending",
           "updatedAt": null
         },
-        "currentEstimatedTokens": 11612,
+        "currentEstimatedTokens": 11623,
         "lastApiRequestTokens": 0,
         "lastApiRequestStale": false,
-        "freeTokens": 116388,
+        "freeTokens": 116377,
         "compaction": {
           "boundaryTokens": 128000,
           "auto": true,
@@ -6189,11 +6234,11 @@
           "triggerTokens": 128000,
           "bufferRatio": 0,
           "handoffTimeoutMs": 300000,
-          "lastCheckedAt": 1794177190544,
-          "lastBeforeTokens": 11612,
-          "lastAfterTokens": 11612,
-          "lastPressureTokens": 11612,
-          "currentEstimatedTokens": 11612,
+          "lastCheckedAt": 1794189719226,
+          "lastBeforeTokens": 11623,
+          "lastAfterTokens": 11623,
+          "lastPressureTokens": 11623,
+          "currentEstimatedTokens": 11623,
           "lastApiRequestTokens": 0,
           "lastStage": "pre_send_check",
           "lastChanged": false,
@@ -6207,25 +6252,25 @@
           "singleShotConsumed": false,
           "recentChecks": [
             {
-              "at": 1794177190544,
+              "at": 1794189719226,
               "stage": "pre_send_check",
-              "pressure": 11612,
-              "est": 4746,
+              "pressure": 11623,
+              "est": 4757,
               "trigger": 128000,
               "baseline": null,
               "baselineAt": null
             }
           ],
-          "pressureTokens": 11612,
+          "pressureTokens": 11623,
           "lastApiRequestStale": false
         },
         "messages": {
           "count": 5,
-          "estimatedTokens": 4746,
+          "estimatedTokens": 4757,
           "roles": {
             "system": {
               "count": 4,
-              "tokens": 4732
+              "tokens": 4743
             },
             "user": {
               "count": 1,
@@ -6247,7 +6292,7 @@
           "semantic": {
             "system": {
               "count": 4,
-              "tokens": 3990
+              "tokens": 4001
             },
             "chat": {
               "count": 1,

@@ -1105,7 +1105,7 @@ pub struct ResetRouteChange;
 
 #[async_trait::async_trait]
 impl super::route_session::RouteChange for ResetRouteChange {
-    async fn route_change(&self, _: &Header, _: &mixdog_core_ports::ports::route::Route, _: &mixdog_core_ports::ports::route::Route, _: bool) -> mixdog_store::schema::record::HeaderChange {
+    fn route_change(&self, _: &Header, _: &mixdog_core_ports::ports::route::Route, _: &mixdog_core_ports::ports::route::Route, _: bool, _: &super::route_session::RouteLookups) -> mixdog_store::schema::record::HeaderChange {
         mixdog_store::schema::record::HeaderChange { set: serde_json::Map::new(), unset: Vec::new() }
     }
 

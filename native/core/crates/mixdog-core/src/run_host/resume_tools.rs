@@ -78,6 +78,11 @@ pub(super) fn reaction_disabled(session: &Value, owner_is_agent: bool) -> bool {
     owner_is_agent || !(agent_id_of_home_session(&id).is_some() || room_member_of_session(&id).is_some())
 }
 
+/// The session's working folder (empty when it has none).
+pub(super) fn header_cwd(header: &Header) -> PathBuf {
+    header.get("cwd").and_then(Value::as_str).map(PathBuf::from).unwrap_or_default()
+}
+
 fn strings(value: Option<&Value>) -> Option<Vec<String>> {
     value.and_then(Value::as_array).map(|items| items.iter().map(value_to_string).collect())
 }
@@ -109,10 +114,20 @@ impl ResumeTools {
     /// `_prepareResumeTools(session, session.preset || 'full')`, the call a route change makes. A
     /// skill list that cannot be collected is the error, never "no skills".
     pub async fn prepare_tools(&self, header: &Header) -> Result<PreparedTools, String> {
+        let skills_listed = self.skills_listed(&header_cwd(header)).await?;
+        self.prepare_tools_with(header, skills_listed)
+    }
+
+    /// `collectPromptSkillsCached(cwd).length > 0`: the one outside read of `prepare_tools_with`.
+    pub async fn skills_listed(&self, cwd: &std::path::Path) -> Result<bool, String> {
+        self.skills.any_for(cwd).await
+    }
+
+    /// `prepare_tools` over a skill listing already collected: synchronous and pure.
+    pub fn prepare_tools_with(&self, header: &Header, skills_listed: bool) -> Result<PreparedTools, String> {
         let session = Value::Object(header.clone());
         let owner_is_agent = is_agent_owner(&session);
-        let cwd = header.get("cwd").and_then(Value::as_str).map(PathBuf::from).unwrap_or_default();
-        let skills_listed = self.skills.any_for(&cwd).await?;
+        let cwd = header_cwd(header);
         // `ownerIsAgent ? 'full' : preset || session.preset || 'full'`, with `preset` itself
         // `session.preset || 'full'`.
         let tool_spec = match header.get("preset") {
@@ -154,17 +169,25 @@ impl ResumeTools {
     }
 }
 
+fn kept_on_error(prepared: Result<PreparedTools, String>) -> Option<PreparedTools> {
+    prepared
+        .inspect_err(|error| tracing::warn!(%error, "[session] route change kept the stored tools"))
+        .ok()
+}
+
 #[async_trait]
 impl PrepareTools for ResumeTools {
     /// A skill list that cannot be collected keeps the stored tools and says why.
     async fn prepare(&self, header: &Header) -> Option<PreparedTools> {
-        match self.prepare_tools(header).await {
-            Ok(prepared) => Some(prepared),
-            Err(error) => {
-                tracing::warn!(%error, "[session] route change kept the stored tools");
-                None
-            }
-        }
+        kept_on_error(self.prepare_tools(header).await)
+    }
+
+    async fn skills_listed(&self, cwd: &std::path::Path) -> Result<bool, String> {
+        ResumeTools::skills_listed(self, cwd).await
+    }
+
+    fn prepare_with(&self, header: &Header, skills_listed: bool) -> Option<PreparedTools> {
+        kept_on_error(self.prepare_tools_with(header, skills_listed))
     }
 }
 

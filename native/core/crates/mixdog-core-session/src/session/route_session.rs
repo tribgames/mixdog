@@ -33,6 +33,10 @@ use mixdog_core_ports::ports::domain_sessions::Obj;
 use mixdog_core_run::run_host::route_chain::owner_route_fallbacks;
 use mixdog_core_run::run_host::route_chain::resolve_session_mode;
 
+/// What a route change reads from outside the header, collected by [`RouteChange::lookups`] and
+/// handed to [`RouteChange::route_change`]; each implementation downcasts its own.
+pub type RouteLookups = Box<dyn std::any::Any + Send + Sync>;
+
 /// WP-RUN-HOST's route-change computation (one function, shared with the run's fallback hop):
 /// what a route change does to the session besides its route fields. Node's
 /// `applyRouteContextWindow`, `resetSessionForRouteChange` (cache key, cache options, token
@@ -40,11 +44,19 @@ use mixdog_core_run::run_host::route_chain::resolve_session_mode;
 /// (`cross_provider`, applied only when the route changed), and the pending workspace re-root
 /// with the `# Session` block rebuild. `header` already carries the new route fields; `previous`
 /// is the route (`provider`, `model`) the session ran before.
-/// Async: a new route's tool surface is resolved from a skill list collected at the change, as
-/// Node's `_prepareResumeTools` collects inside the call.
+/// The change itself is synchronous and pure, like Node's `updateSessionRoute`: it runs on the
+/// session's actor, on the header as it stands there (`HeaderUpdates`). What it reads from outside
+/// the header (a new route's tool surface is resolved from a skill list, which Node's
+/// `_prepareResumeTools` collects inside the call) is looked up first, by `lookups`.
 #[async_trait::async_trait]
 pub trait RouteChange: Send + Sync {
-    async fn route_change(&self, header: &Header, route: &Route, previous: &Route, cross_provider: bool) -> HeaderChange;
+    /// The outside reads of the change, collected before it runs. `header` is the header as last
+    /// acked; a header that moved since is the change's to notice, not this lookup's.
+    async fn lookups(&self, _header: &Header, _route: &Route) -> RouteLookups {
+        Box::new(())
+    }
+
+    fn route_change(&self, header: &Header, route: &Route, previous: &Route, cross_provider: bool, lookups: &RouteLookups) -> HeaderChange;
 
     /// A cleared conversation's environment reset (Node's resetSessionBp3Environment), as the header
     /// change the clear writes in its own patch.
@@ -245,7 +257,7 @@ impl RouteSession for SessionRouteAdapter {
     /// change does to the session, as one durable header change. `false` when the session is
     /// closed or gone.
     async fn update_route(&self, thread: &ThreadId, route: Route, cross_provider: bool) -> Result<bool, PortError> {
-        Ok(self.write_route(thread, &route, cross_provider, |_, _| {}).await?.is_some())
+        self.write_route(thread, &route, cross_provider, |_, _| {}).await
     }
 
     async fn record_boundary(&self, thread: &ThreadId, field: &str, boundary: Value) -> Result<bool, PortError> {
@@ -295,54 +307,19 @@ impl RouteSession for SessionRouteAdapter {
 }
 
 impl SessionRouteAdapter {
-    /// The one header change of `updateSessionRoute(id, route, { crossProvider })`: the route's
-    /// fields and what the route change does to the session. `None` when the session is closed
-    /// or gone. The header returned is the one the change was computed from.
-    pub(crate) async fn route_patch(&self, thread: &ThreadId, route: &Route, cross_provider: bool) -> Result<Option<(Header, HeaderChange)>, PortError> {
-        let header = match self.threads.header(thread).await {
-            Ok(header) => header,
-            Err(PortError::NotFound { .. }) => return Ok(None),
-            Err(error) => return Err(error),
-        };
-        if header.get("closed") == Some(&Value::Bool(true)) {
-            return Ok(None);
-        }
-        let mut previous = Route::new();
-        for key in ["provider", "model"] {
-            if let Some(value) = header.get(key) {
-                previous.insert(key.to_owned(), value.clone());
-            }
-        }
-        let mut change = route_fields(&header, &route);
-        let routed = applied(&header, &change);
-        let derived = self.change.route_change(&routed, &route, &previous, cross_provider).await;
-        // The prompt half: a staged workspace change applies on a new route, and the
-        // `# Session` block is rebuilt for the session's cwd.
-        let changed = route_changed(&route, &previous);
-        let prompt = super::worktree::route_prompt_refresh(&super::worktree::PromptView { header: &routed, tier3: None, env: None }, changed);
-        for part in [derived, prompt.change] {
-            for key in part.unset {
-                unset(&mut change, &key);
-            }
-            for (key, value) in part.set {
-                set(&mut change, &key, value);
-            }
-        }
-        set(&mut change, "updatedAt", json!(self.clock.now_ms()));
-        Ok(Some((header, change)))
-    }
 
     /// `advanceAgentRoute`'s one write: `updateSessionRoute(id, route, { crossProvider: true })`
     /// followed by the hop's fields, in the one header change. The route change leaves
     /// `wireRoute` null. The updated header; `None` when the session is closed or gone.
     pub(crate) async fn write_hop(&self, thread: &ThreadId, route: Route, hop: &mixdog_core_run::run_host::route_fallback::HopWrite) -> Result<Option<Header>, PortError> {
-        let hop_fields = |header: &Header, change: &mut HeaderChange| {
-            set(change, "routeFallbacks", Value::Array(hop.chain.clone()));
-            if let Some(primary) = &hop.primary {
-                set(change, "routeFallbackPrimary", primary.clone());
+        let hop = hop.clone();
+        let hop_fields = move |header: &Header, change: &mut HeaderChange| {
+            set(change, "routeFallbacks", Value::Array(hop.chain));
+            if let Some(primary) = hop.primary {
+                set(change, "routeFallbackPrimary", primary);
             }
             set(change, "routeFallbackIndex", json!(hop.index));
-            set(change, "routeFallbackFailures", Value::Array(hop.failures.clone()));
+            set(change, "routeFallbackFailures", Value::Array(hop.failures));
             if hop.checkpoint_route_changed
                 && let Some(Value::Object(checkpoint)) = header.get("activeTurnCheckpoint")
             {
@@ -351,35 +328,67 @@ impl SessionRouteAdapter {
                 set(change, "activeTurnCheckpoint", Value::Object(checkpoint));
             }
         };
-        if self.write_route(thread, &route, true, hop_fields).await?.is_none() {
+        if !self.write_route(thread, &route, true, hop_fields).await? {
             return Ok(None);
         }
         self.threads.header(thread).await.map(Some)
     }
 
-    /// `updateSessionRoute` as one read-modify-write: the change is computed from the acked header and lands only if every key it
-    /// writes still holds what it was computed from (Node computes on the live session, so a write that landed meanwhile - the
-    /// installation's compaction sync - is never overwritten by a stale copy of it). A moved header is read and computed again.
+    /// `updateSessionRoute` as one read-modify-write on the session's actor, the header's only writer
+    /// (`HeaderUpdates`): Node computes the change on the live session with no await between the read and
+    /// the write, so a write that landed before it (the installation's compaction sync) is part of what it
+    /// reads, a close is seen, and nothing is retried. `extra` adds the caller's own fields to the same
+    /// change. `false` when the session is closed or gone.
     async fn write_route(
         &self,
         thread: &ThreadId,
         route: &Route,
         cross_provider: bool,
-        extra: impl Fn(&Header, &mut HeaderChange),
-    ) -> Result<Option<()>, PortError> {
-        loop {
-            let Some((header, mut change)) = self.route_patch(thread, route, cross_provider).await? else { return Ok(None) };
-            extra(&header, &mut change);
-            let expect: Map<String, Value> = change
-                .set
-                .keys()
-                .chain(change.unset.iter())
-                .filter(|key| key.as_str() != "updatedAt")
-                .map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null)))
-                .collect();
-            if self.threads.patch_header_if(thread, expect, change.set, change.unset).await?.is_none() {
-                return Ok(Some(()));
+        extra: impl FnOnce(&Header, &mut HeaderChange) + Send + 'static,
+    ) -> Result<bool, PortError> {
+        let acked = match self.threads.header(thread).await {
+            Ok(header) => header,
+            Err(PortError::NotFound { .. }) => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        let lookups = self.change.lookups(&acked, route).await;
+        let (change, clock, route) = (self.change.clone(), self.clock.clone(), route.clone());
+        let written = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let seen = written.clone();
+        let update: mixdog_core_ports::ports::threads::HeaderUpdate = Box::new(move |header| {
+            if header.get("closed") == Some(&Value::Bool(true)) {
+                return HeaderChange { set: Map::new(), unset: Vec::new() };
             }
+            let mut previous = Route::new();
+            for key in ["provider", "model"] {
+                if let Some(value) = header.get(key) {
+                    previous.insert(key.to_owned(), value.clone());
+                }
+            }
+            let mut next = route_fields(header, &route);
+            let routed = applied(header, &next);
+            let derived = change.route_change(&routed, &route, &previous, cross_provider, &lookups);
+            // The prompt half: a staged workspace change applies on a new route, and the
+            // `# Session` block is rebuilt for the session's cwd.
+            let changed = route_changed(&route, &previous);
+            let prompt = super::worktree::route_prompt_refresh(&super::worktree::PromptView { header: &routed, tier3: None, env: None }, changed);
+            for part in [derived, prompt.change] {
+                for key in part.unset {
+                    unset(&mut next, &key);
+                }
+                for (key, value) in part.set {
+                    set(&mut next, &key, value);
+                }
+            }
+            set(&mut next, "updatedAt", json!(clock.now_ms()));
+            extra(header, &mut next);
+            seen.store(true, std::sync::atomic::Ordering::SeqCst);
+            next
+        });
+        match self.directory.update_header(thread, update).await {
+            Ok(()) => Ok(written.load(std::sync::atomic::Ordering::SeqCst)),
+            Err(mixdog_core_api::CoreError::ThreadNotFound { .. }) => Ok(false),
+            Err(error) => Err(mixdog_core_ports::ports::threads::port_error(error)),
         }
     }
 }
@@ -480,7 +489,7 @@ mod tests {
     struct Change(Mutex<Vec<(Value, Value, bool)>>);
     #[async_trait::async_trait]
     impl RouteChange for Change {
-        async fn route_change(&self, header: &Header, _route: &Route, previous: &Route, cross: bool) -> HeaderChange {
+        fn route_change(&self, header: &Header, _route: &Route, previous: &Route, cross: bool, _: &RouteLookups) -> HeaderChange {
             self.0.lock().unwrap().push((Value::Object(header.clone()), Value::Object(previous.clone()), cross));
             HeaderChange { set: obj(json!({ "contextWindow": 200_000 })), unset: vec!["contextUsageSnapshot".into()] }
         }
@@ -546,24 +555,20 @@ mod tests {
         assert!(!adapter.update_route(&ThreadId::from("sess_gone"), Route::new(), false).await.expect("gone"));
     }
 
-    /// `applyRouteContextWindow` spreads the session's own `compaction`: a route change on a session whose installation has
-    /// just synced the saved settings (`onModelChange`, `summaryMode`) keeps them, whichever write the change was computed before.
-    struct MergeCompaction {
+    /// A write that lands between the route change's outside reads and its run is part of what it reads: a close that
+    /// lands there ends the update (Node's `session.closed` check and its write have no await between them).
+    struct ClosesDuringLookup {
         threads: Arc<dyn ThreadState>,
         thread: ThreadId,
-        landed: Mutex<bool>,
     }
     #[async_trait::async_trait]
-    impl RouteChange for MergeCompaction {
-        async fn route_change(&self, header: &Header, _: &Route, _: &Route, _: bool) -> HeaderChange {
-            // The installation's sync lands while the first change is being computed from the header read before it.
-            if !std::mem::replace(&mut *self.landed.lock().unwrap(), true) {
-                let synced = obj(json!({ "compaction": { "auto": true, "onModelChange": true, "summaryMode": "smart" } }));
-                self.threads.patch_header(&self.thread, synced, Vec::new()).await.expect("sync");
-            }
-            let mut compaction = header.get("compaction").and_then(Value::as_object).cloned().unwrap_or_default();
-            compaction.insert("boundaryTokens".into(), json!(128_000));
-            HeaderChange { set: obj(json!({ "compaction": compaction })), unset: Vec::new() }
+    impl RouteChange for ClosesDuringLookup {
+        async fn lookups(&self, _: &Header, _: &Route) -> RouteLookups {
+            self.threads.patch_header(&self.thread, obj(json!({ "closed": true })), Vec::new()).await.expect("close");
+            Box::new(())
+        }
+        fn route_change(&self, _: &Header, _: &Route, _: &Route, _: bool, _: &RouteLookups) -> HeaderChange {
+            HeaderChange { set: obj(json!({ "contextWindow": 1 })), unset: Vec::new() }
         }
         fn environment_reset(&self, _: &Header) -> HeaderChange {
             HeaderChange { set: Map::new(), unset: Vec::new() }
@@ -571,25 +576,24 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_route_update_keeps_the_compaction_the_installation_synced() {
+    async fn a_close_that_lands_before_the_route_change_runs_ends_the_update() {
         use crate::session::thread_state::SessionThreads;
         let rig = crate::session::testing::Rig::new();
         let directory = Arc::new(SessionDirectory::new(rig.deps()));
-        let thread = ThreadId::from("sess_synced");
-        let header = obj(json!({ "provider": "openai", "model": "gpt-a" }));
-        directory.create_with_id(thread.clone(), header, json!({})).await.expect("create");
+        let thread = ThreadId::from("sess_closing");
+        directory.create_with_id(thread.clone(), obj(json!({ "provider": "openai", "model": "gpt-a" })), json!({})).await.expect("create");
         let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
-        let change = Arc::new(MergeCompaction { threads: threads.clone(), thread: thread.clone(), landed: Mutex::new(false) });
+        let change = Arc::new(ClosesDuringLookup { threads: threads.clone(), thread: thread.clone() });
         let adapter = SessionRouteAdapter::new(directory.clone(), threads.clone(), change, Arc::new(Quiet), Arc::new(Quiet), Arc::new(Quiet), rig.clock.clone());
-        assert!(adapter.update_route(&thread, obj(json!({ "provider": "anthropic", "model": "claude-x" })), true).await.expect("update"));
+        assert!(!adapter.update_route(&thread, obj(json!({ "provider": "anthropic", "model": "claude-x" })), true).await.expect("update"));
         let stored = threads.header(&thread).await.expect("header");
-        assert_eq!(stored["compaction"], json!({ "auto": true, "onModelChange": true, "summaryMode": "smart", "boundaryTokens": 128_000 }));
+        assert_eq!((stored["provider"].clone(), stored["model"].clone()), (json!("openai"), json!("gpt-a")));
+        assert!(!stored.contains_key("contextWindow"));
     }
-
     struct NullWire;
     #[async_trait::async_trait]
     impl RouteChange for NullWire {
-        async fn route_change(&self, _: &Header, _: &Route, _: &Route, _: bool) -> HeaderChange {
+        fn route_change(&self, _: &Header, _: &Route, _: &Route, _: bool, _: &RouteLookups) -> HeaderChange {
             HeaderChange { set: obj(json!({ "wireRoute": null })), unset: Vec::new() }
         }
         fn environment_reset(&self, _: &Header) -> HeaderChange {

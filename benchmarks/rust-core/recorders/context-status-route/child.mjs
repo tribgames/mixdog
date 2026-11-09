@@ -98,7 +98,14 @@ try {
   // The harness sends the control session's `open` hints with every call, the second session's included.
   await call('second', 'session.read', 'contextStatus', [{}], controlOpen);
   await call('second', 'session.configure', 'setRoute', [route], controlOpen);
-  await call('second', 'session.read', 'contextStatus', [{}], controlOpen);} catch (error) {
+  await call('second', 'session.read', 'contextStatus', [{}], controlOpen);
+
+  // The second session's `compaction` after the sequence: the installation's sync came first (at `session.create`), then the
+  // seed turn, then the route change above. The route change saves asynchronously: the store is read after a settle.
+  await new Promise((done) => setTimeout(done, 2000));
+  const settled = readSessionLogSync(join(process.env.MIXDOG_DATA_DIR, 'sessions', `${out.ids.second}.log.jsonl`));
+  if (!settled?.valid) throw new Error('the second session has no readable log after the route change');
+  out.afterRoute = { compaction: sessionFromLog(settled).compaction };} catch (error) {
   failure = error;
 }
 try {
