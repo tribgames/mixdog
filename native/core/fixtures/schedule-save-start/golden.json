@@ -1,26 +1,106 @@
 {
- "relayUrl": "ws://127.0.0.1:9",
- "timezone": "Asia/Seoul",
- "scenarios": {
-  "start-after-save": {
-   "entry": {
-    "name": "harness-schedule",
-    "description": "A schedule",
-    "time": "0 9 * * *",
-    "instructions": "Say hello."
-   },
-   "timezone": "Asia/Seoul",
-   "steps": [
-    {
-     "label": "start-pending",
-     "setup": {
-      "webhook": {
-       "enabled": true,
-       "port": 47311,
-       "publicUrl": null
+  "relayUrl": "ws://127.0.0.1:9",
+  "timezone": "Asia/Seoul",
+  "scenarios": {
+    "start-after-save": {
+      "entry": {
+        "name": "harness-schedule",
+        "description": "A schedule",
+        "time": "0 9 * * *",
+        "instructions": "Say hello."
       },
-      "schedules": [
-       {
+      "timezone": "Asia/Seoul",
+      "steps": [
+        {
+          "label": "start-pending",
+          "setup": {
+            "webhook": {
+              "enabled": true,
+              "port": 47311,
+              "publicUrl": null
+            },
+            "schedules": [
+              {
+                "name": "harness-schedule",
+                "description": "A schedule",
+                "time": "0 9 * * *",
+                "whenCron": "0 9 * * *",
+                "timezone": "Asia/Seoul",
+                "enabled": true,
+                "instructions": "Say hello.",
+                "owner": "lead",
+                "executorAgentId": null,
+                "consecutiveFailures": 0
+              }
+            ],
+            "webhooks": []
+          },
+          "identityFile": false,
+          "listening": false,
+          "virtualTimers": 1,
+          "attached": true
+        },
+        {
+          "label": "identity-persisted-stamp-pending",
+          "setup": {
+            "webhook": {
+              "enabled": true,
+              "port": 47311,
+              "publicUrl": "http://127.0.0.1:9/hook/6798636f-ef96-43ad-8a56-a1c82a73c89f"
+            },
+            "schedules": [
+              {
+                "name": "harness-schedule",
+                "description": "A schedule",
+                "time": "0 9 * * *",
+                "whenCron": "0 9 * * *",
+                "timezone": "Asia/Seoul",
+                "enabled": true,
+                "instructions": "Say hello.",
+                "owner": "lead",
+                "executorAgentId": null,
+                "consecutiveFailures": 0
+              }
+            ],
+            "webhooks": []
+          },
+          "identityFile": true,
+          "listening": true,
+          "virtualTimers": 0,
+          "attached": true
+        },
+        {
+          "label": "stamp-persisted",
+          "setup": {
+            "webhook": {
+              "enabled": true,
+              "port": 47311,
+              "publicUrl": "http://127.0.0.1:9/hook/6798636f-ef96-43ad-8a56-a1c82a73c89f"
+            },
+            "schedules": [
+              {
+                "name": "harness-schedule",
+                "description": "A schedule",
+                "time": "0 9 * * *",
+                "whenCron": "0 9 * * *",
+                "timezone": "Asia/Seoul",
+                "enabled": true,
+                "instructions": "Say hello.",
+                "owner": "lead",
+                "executorAgentId": null,
+                "nextFireAt": "2026-11-10T00:00:00.000Z",
+                "consecutiveFailures": 0
+              }
+            ],
+            "webhooks": []
+          },
+          "identityFile": true,
+          "listening": true,
+          "virtualTimers": 0,
+          "attached": true
+        }
+      ],
+      "saveReply": {
         "name": "harness-schedule",
         "description": "A schedule",
         "time": "0 9 * * *",
@@ -31,25 +111,87 @@
         "owner": "lead",
         "executorAgentId": null,
         "consecutiveFailures": 0
-       }
-      ],
-      "webhooks": []
-     },
-     "identityFile": false,
-     "listening": false,
-     "virtualTimers": 1,
-     "attached": true
+      },
+      "releasedAt": 1794219241963,
+      "persistedAt": 1794219242308,
+      "log": [
+        "mixdog: initProviders failed (non-fatal): [provider] all providers disabled in config — refusing to clear registry",
+        "mixdog scheduler: 1 schedules",
+        "mixdog scheduler: registered cron \"harness-schedule\" = \"0 9 * * *\" tz=Asia/Seoul",
+        "mixdog: automation runtime up",
+        "mixdog webhook: listening on 127.0.0.1:47311",
+        "mixdog webhook: public hook base: http://127.0.0.1:9/hook/<id>"
+      ]
     },
-    {
-     "label": "identity-persisted-stamp-pending",
-     "setup": {
-      "webhook": {
-       "enabled": true,
-       "port": 47311,
-       "publicUrl": "http://127.0.0.1:9/hook/6cbb7132-5041-4669-92c7-0da688aec613"
+    "stop-during-provider-init": {
+      "entry": {
+        "name": "harness-schedule",
+        "description": "A schedule",
+        "time": "0 9 * * *",
+        "instructions": "Say hello."
       },
-      "schedules": [
-       {
+      "timezone": "Asia/Seoul",
+      "steps": [
+        {
+          "label": "stop-issued-start-pending",
+          "setup": {
+            "webhook": {
+              "enabled": true,
+              "port": 47311,
+              "publicUrl": null
+            },
+            "schedules": [
+              {
+                "name": "harness-schedule",
+                "description": "A schedule",
+                "time": "0 9 * * *",
+                "whenCron": "0 9 * * *",
+                "timezone": "Asia/Seoul",
+                "enabled": true,
+                "instructions": "Say hello.",
+                "owner": "lead",
+                "executorAgentId": null,
+                "consecutiveFailures": 0
+              }
+            ],
+            "webhooks": []
+          },
+          "identityFile": false,
+          "listening": false,
+          "virtualTimers": 1,
+          "attached": true
+        },
+        {
+          "label": "after-stop",
+          "setup": {
+            "webhook": {
+              "enabled": true,
+              "port": 47311,
+              "publicUrl": null
+            },
+            "schedules": [
+              {
+                "name": "harness-schedule",
+                "description": "A schedule",
+                "time": "0 9 * * *",
+                "whenCron": "0 9 * * *",
+                "timezone": "Asia/Seoul",
+                "enabled": true,
+                "instructions": "Say hello.",
+                "owner": "lead",
+                "executorAgentId": null,
+                "consecutiveFailures": 0
+              }
+            ],
+            "webhooks": []
+          },
+          "identityFile": false,
+          "listening": false,
+          "virtualTimers": 1,
+          "attached": true
+        }
+      ],
+      "saveReply": {
         "name": "harness-schedule",
         "description": "A schedule",
         "time": "0 9 * * *",
@@ -60,25 +202,111 @@
         "owner": "lead",
         "executorAgentId": null,
         "consecutiveFailures": 0
-       }
-      ],
-      "webhooks": []
-     },
-     "identityFile": true,
-     "listening": true,
-     "virtualTimers": 0,
-     "attached": true
+      },
+      "stopSettledWhileInit": false,
+      "log": [
+        "mixdog: initProviders failed (non-fatal): [provider] all providers disabled in config — refusing to clear registry"
+      ]
     },
-    {
-     "label": "stamp-persisted",
-     "setup": {
-      "webhook": {
-       "enabled": true,
-       "port": 47311,
-       "publicUrl": "http://127.0.0.1:9/hook/6cbb7132-5041-4669-92c7-0da688aec613"
+    "save-during-provider-init": {
+      "entry": {
+        "name": "harness-schedule",
+        "description": "A schedule",
+        "time": "0 9 * * *",
+        "instructions": "Say hello."
       },
-      "schedules": [
-       {
+      "timezone": "Asia/Seoul",
+      "steps": [
+        {
+          "label": "saved-start-pending",
+          "setup": {
+            "webhook": {
+              "enabled": true,
+              "port": 47311,
+              "publicUrl": null
+            },
+            "schedules": [
+              {
+                "name": "harness-schedule",
+                "description": "A schedule",
+                "time": "0 9 * * *",
+                "whenCron": "0 9 * * *",
+                "timezone": "Asia/Seoul",
+                "enabled": true,
+                "instructions": "Say hello.",
+                "owner": "lead",
+                "executorAgentId": null,
+                "consecutiveFailures": 0
+              }
+            ],
+            "webhooks": []
+          },
+          "identityFile": false,
+          "listening": false,
+          "virtualTimers": 1,
+          "attached": true
+        },
+        {
+          "label": "started-stamp-pending",
+          "setup": {
+            "webhook": {
+              "enabled": true,
+              "port": 47311,
+              "publicUrl": "http://127.0.0.1:9/hook/e90f9d79-e678-457b-aaf3-62e187aadcfc"
+            },
+            "schedules": [
+              {
+                "name": "harness-schedule",
+                "description": "A schedule",
+                "time": "0 9 * * *",
+                "whenCron": "0 9 * * *",
+                "timezone": "Asia/Seoul",
+                "enabled": true,
+                "instructions": "Say hello.",
+                "owner": "lead",
+                "executorAgentId": null,
+                "consecutiveFailures": 0
+              }
+            ],
+            "webhooks": []
+          },
+          "identityFile": true,
+          "listening": true,
+          "virtualTimers": 1,
+          "attached": true
+        },
+        {
+          "label": "stamp-persisted",
+          "setup": {
+            "webhook": {
+              "enabled": true,
+              "port": 47311,
+              "publicUrl": "http://127.0.0.1:9/hook/e90f9d79-e678-457b-aaf3-62e187aadcfc"
+            },
+            "schedules": [
+              {
+                "name": "harness-schedule",
+                "description": "A schedule",
+                "time": "0 9 * * *",
+                "whenCron": "0 9 * * *",
+                "timezone": "Asia/Seoul",
+                "enabled": true,
+                "instructions": "Say hello.",
+                "owner": "lead",
+                "executorAgentId": null,
+                "nextFireAt": "2026-11-10T00:00:00.000Z",
+                "consecutiveFailures": 0
+              }
+            ],
+            "webhooks": []
+          },
+          "identityFile": true,
+          "listening": true,
+          "virtualTimers": 1,
+          "attached": true
+        }
+      ],
+      "saveReply": {
         "name": "harness-schedule",
         "description": "A schedule",
         "time": "0 9 * * *",
@@ -88,246 +316,18 @@
         "instructions": "Say hello.",
         "owner": "lead",
         "executorAgentId": null,
-        "nextFireAt": "2026-11-10T00:00:00.000Z",
         "consecutiveFailures": 0
-       }
-      ],
-      "webhooks": []
-     },
-     "identityFile": true,
-     "listening": true,
-     "virtualTimers": 0,
-     "attached": true
+      },
+      "releasedAt": 1794219270090,
+      "persistedAt": 1794219270613,
+      "log": [
+        "mixdog: initProviders failed (non-fatal): [provider] all providers disabled in config — refusing to clear registry",
+        "mixdog scheduler: 1 schedules",
+        "mixdog scheduler: registered cron \"harness-schedule\" = \"0 9 * * *\" tz=Asia/Seoul",
+        "mixdog: automation runtime up",
+        "mixdog webhook: listening on 127.0.0.1:47311",
+        "mixdog webhook: public hook base: http://127.0.0.1:9/hook/<id>"
+      ]
     }
-   ],
-   "saveReply": {
-    "name": "harness-schedule",
-    "description": "A schedule",
-    "time": "0 9 * * *",
-    "whenCron": "0 9 * * *",
-    "timezone": "Asia/Seoul",
-    "enabled": true,
-    "instructions": "Say hello.",
-    "owner": "lead",
-    "executorAgentId": null,
-    "consecutiveFailures": 0
-   },
-   "releasedAt": 1794214328441,
-   "persistedAt": 1794214330334,
-   "log": [
-    "mixdog: initProviders failed (non-fatal): [provider] all providers disabled in config — refusing to clear registry",
-    "mixdog scheduler: 1 schedules",
-    "mixdog scheduler: registered cron \"harness-schedule\" = \"0 9 * * *\" tz=Asia/Seoul",
-    "mixdog: automation runtime up",
-    "mixdog webhook: listening on 127.0.0.1:47311",
-    "mixdog webhook: public hook base: http://127.0.0.1:9/hook/<id>"
-   ]
-  },
-  "stop-during-provider-init": {
-   "entry": {
-    "name": "harness-schedule",
-    "description": "A schedule",
-    "time": "0 9 * * *",
-    "instructions": "Say hello."
-   },
-   "timezone": "Asia/Seoul",
-   "steps": [
-    {
-     "label": "stop-issued-start-pending",
-     "setup": {
-      "webhook": {
-       "enabled": true,
-       "port": 47311,
-       "publicUrl": null
-      },
-      "schedules": [
-       {
-        "name": "harness-schedule",
-        "description": "A schedule",
-        "time": "0 9 * * *",
-        "whenCron": "0 9 * * *",
-        "timezone": "Asia/Seoul",
-        "enabled": true,
-        "instructions": "Say hello.",
-        "owner": "lead",
-        "executorAgentId": null,
-        "consecutiveFailures": 0
-       }
-      ],
-      "webhooks": []
-     },
-     "identityFile": false,
-     "listening": false,
-     "virtualTimers": 1,
-     "attached": true
-    },
-    {
-     "label": "after-stop",
-     "setup": {
-      "webhook": {
-       "enabled": true,
-       "port": 47311,
-       "publicUrl": null
-      },
-      "schedules": [
-       {
-        "name": "harness-schedule",
-        "description": "A schedule",
-        "time": "0 9 * * *",
-        "whenCron": "0 9 * * *",
-        "timezone": "Asia/Seoul",
-        "enabled": true,
-        "instructions": "Say hello.",
-        "owner": "lead",
-        "executorAgentId": null,
-        "consecutiveFailures": 0
-       }
-      ],
-      "webhooks": []
-     },
-     "identityFile": false,
-     "listening": false,
-     "virtualTimers": 1,
-     "attached": true
-    }
-   ],
-   "saveReply": {
-    "name": "harness-schedule",
-    "description": "A schedule",
-    "time": "0 9 * * *",
-    "whenCron": "0 9 * * *",
-    "timezone": "Asia/Seoul",
-    "enabled": true,
-    "instructions": "Say hello.",
-    "owner": "lead",
-    "executorAgentId": null,
-    "consecutiveFailures": 0
-   },
-   "stopSettledWhileInit": false,
-   "log": [
-    "mixdog: initProviders failed (non-fatal): [provider] all providers disabled in config — refusing to clear registry"
-   ]
-  },
-  "save-during-provider-init": {
-   "entry": {
-    "name": "harness-schedule",
-    "description": "A schedule",
-    "time": "0 9 * * *",
-    "instructions": "Say hello."
-   },
-   "timezone": "Asia/Seoul",
-   "steps": [
-    {
-     "label": "saved-start-pending",
-     "setup": {
-      "webhook": {
-       "enabled": true,
-       "port": 47311,
-       "publicUrl": null
-      },
-      "schedules": [
-       {
-        "name": "harness-schedule",
-        "description": "A schedule",
-        "time": "0 9 * * *",
-        "whenCron": "0 9 * * *",
-        "timezone": "Asia/Seoul",
-        "enabled": true,
-        "instructions": "Say hello.",
-        "owner": "lead",
-        "executorAgentId": null,
-        "consecutiveFailures": 0
-       }
-      ],
-      "webhooks": []
-     },
-     "identityFile": false,
-     "listening": false,
-     "virtualTimers": 1,
-     "attached": true
-    },
-    {
-     "label": "started-stamp-pending",
-     "setup": {
-      "webhook": {
-       "enabled": true,
-       "port": 47311,
-       "publicUrl": "http://127.0.0.1:9/hook/c5e8a5f6-6c58-40ed-b12a-1d28202e9eb7"
-      },
-      "schedules": [
-       {
-        "name": "harness-schedule",
-        "description": "A schedule",
-        "time": "0 9 * * *",
-        "whenCron": "0 9 * * *",
-        "timezone": "Asia/Seoul",
-        "enabled": true,
-        "instructions": "Say hello.",
-        "owner": "lead",
-        "executorAgentId": null,
-        "consecutiveFailures": 0
-       }
-      ],
-      "webhooks": []
-     },
-     "identityFile": true,
-     "listening": true,
-     "virtualTimers": 1,
-     "attached": true
-    },
-    {
-     "label": "stamp-persisted",
-     "setup": {
-      "webhook": {
-       "enabled": true,
-       "port": 47311,
-       "publicUrl": "http://127.0.0.1:9/hook/c5e8a5f6-6c58-40ed-b12a-1d28202e9eb7"
-      },
-      "schedules": [
-       {
-        "name": "harness-schedule",
-        "description": "A schedule",
-        "time": "0 9 * * *",
-        "whenCron": "0 9 * * *",
-        "timezone": "Asia/Seoul",
-        "enabled": true,
-        "instructions": "Say hello.",
-        "owner": "lead",
-        "executorAgentId": null,
-        "nextFireAt": "2026-11-10T00:00:00.000Z",
-        "consecutiveFailures": 0
-       }
-      ],
-      "webhooks": []
-     },
-     "identityFile": true,
-     "listening": true,
-     "virtualTimers": 1,
-     "attached": true
-    }
-   ],
-   "saveReply": {
-    "name": "harness-schedule",
-    "description": "A schedule",
-    "time": "0 9 * * *",
-    "whenCron": "0 9 * * *",
-    "timezone": "Asia/Seoul",
-    "enabled": true,
-    "instructions": "Say hello.",
-    "owner": "lead",
-    "executorAgentId": null,
-    "consecutiveFailures": 0
-   },
-   "releasedAt": 1794214477894,
-   "persistedAt": 1794214478455,
-   "log": [
-    "mixdog: initProviders failed (non-fatal): [provider] all providers disabled in config — refusing to clear registry",
-    "mixdog scheduler: 1 schedules",
-    "mixdog scheduler: registered cron \"harness-schedule\" = \"0 9 * * *\" tz=Asia/Seoul",
-    "mixdog: automation runtime up",
-    "mixdog webhook: listening on 127.0.0.1:47311",
-    "mixdog webhook: public hook base: http://127.0.0.1:9/hook/<id>"
-   ]
   }
- }
 }

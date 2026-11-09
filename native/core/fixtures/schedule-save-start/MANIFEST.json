@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 13998,
+      "bytes": 10335,
       "path": "golden.json",
-      "sha256": "1fb94a40c85e141cd8c790bbe3ac0ee4a5d6bb4777852312a5ec9a61e07ab037"
+      "sha256": "ac7c1449795c1ad5111d32db1a91aa49c88c44ae9e615783deb59838e8f890b9"
     }
   ],
   "product": {
@@ -27,5 +27,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-schedule-save-start.mjs",
   "set": "schedule-save-start",
-  "totalBytes": 13998
+  "totalBytes": 10335
 }
