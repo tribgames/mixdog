@@ -50,6 +50,8 @@ pub mod domain_seams;
 pub mod js_runtime;
 pub mod event_pipeline;
 pub mod held_requests;
+#[cfg(test)]
+mod held_runs_tests;
 pub mod memory_callers;
 pub mod hook_rule_setup;
 pub mod setup_status;

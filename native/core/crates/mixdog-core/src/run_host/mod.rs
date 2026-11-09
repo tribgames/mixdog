@@ -41,6 +41,7 @@ pub mod agent_dispatch;
 pub mod dispatch_sessions;
 mod failed_turn_rewind;
 pub mod assemble;
+pub mod run_approvals;
 pub mod prewarm;
 pub mod message_row;
 pub mod rules_lead;

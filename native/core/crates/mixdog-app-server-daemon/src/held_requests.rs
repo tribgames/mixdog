@@ -8,9 +8,13 @@
 //! the agent (no tool, arguments or text), and the request waits until the user answers it with
 //! the held id (`resolve`) or the run is cancelled, which denies it. It never expires on a timer.
 //!
-//! The audit line and the remembered grant of an answered request are the policy gate's own
-//! (`ToolPolicy::record_decision` runs on the resolution this returns), so unlike Node's hook
-//! there is no separate record seam here.
+//! An answered request is audited twice, as in Node: `settle` records it under the held row's
+//! identity (`record_decision`, before the hold returns) and the policy gate records it again
+//! under the call's identity (`ToolPolicy::record_decision` on the resolution this returns).
+//!
+//! Which runs reach the hold is decided upstream, per ask: the policy gate never asks for a
+//! schedule or webhook run (`ToolPolicy::ask`, Node `isGrantedRun`), so only a room member's ask
+//! arrives, and `HeldApprovals::request` holds it when no approval UI is attached to its thread.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -32,6 +36,9 @@ use mixdog_protocol::HeldRunKind;
 use mixdog_protocol::HumanGateResponse;
 use mixdog_protocol::ThreadId;
 use mixdog_protocol::ToolApprovalDecision;
+use mixdog_tools::policy::AuditEntry;
+use mixdog_tools::policy::GrantKey;
+use mixdog_tools::policy::GrantStore;
 use serde_json::Value;
 
 /// The unattended run that owns a thread; `name` is the schedule or webhook name, or a room id.
@@ -59,6 +66,8 @@ pub trait HeldHome: Send + Sync {
     async fn agent_name(&self, agent_id: &str) -> Result<String, String>;
     /// A fresh id suffix; the id is `held_` + this.
     fn new_id(&self) -> String;
+    /// The store an answered request's audit line and grant are written to (`humanGateStore()`).
+    fn grants(&self) -> Arc<dyn GrantStore>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -194,7 +203,7 @@ impl HeldRequests {
         };
         let (reply, answer) = tokio::sync::oneshot::channel();
         let editable = held.editable.clone().unwrap_or_default();
-        self.lock().insert(id.clone(), Entry { held: held.clone(), remember: offered, editable, outbound, reply });
+        self.lock().insert(id.clone(), Entry { held: held.clone(), remember: offered.clone(), editable, outbound, reply });
         // The run being cancelled drops this future: that denies the request. An answered
         // request is already out of the table, so the guard finds nothing then.
         let _guard = CancelGuard { held: self, id: id.clone() };
@@ -205,7 +214,14 @@ impl HeldRequests {
             Ok(agent_name) => self.home.push(&HeldPush { session_id: home_agent, agent_id: run.agent_id.clone(), agent_name, request_id: id }),
             Err(error) => tracing::warn!(id, "held request push skipped, the agent name could not be read: {error}"),
         }
-        answer.await.unwrap_or(ApprovalResolution::Cancelled { at: (self.now_ms)() })
+        let resolution = answer.await.unwrap_or(ApprovalResolution::Cancelled { at: (self.now_ms)() });
+        if let ApprovalResolution::Decided { decision, device, .. } = &resolution {
+            let response = decision.response.and_then(|response| serde_json::to_value(response).ok());
+            let response = response.as_ref().and_then(Value::as_str).unwrap_or(if decision.approved { "approve" } else { "deny" });
+            // Before the run goes on to the policy gate's own record of the same answer, as `settle` starts this one first.
+            record_decision(self.home.grants().as_ref(), &held, &offered, decision.approved, response, decision.remember, device).await;
+        }
+        resolution
     }
 
     async fn post(&self, agent_id: &str, held: &HeldRequest) {
@@ -265,6 +281,48 @@ impl HeldRequests {
 
 }
 
+/// `recordHumanDecision(entry.gate, approval)` of `settle`: the audit line of an answered held
+/// request and the grant it may store, under the held row's own identity (the gate Node builds in
+/// `hold`: the run's agent, the row's kind, action, tool and target). The policy gate records the
+/// same answer once more under the call's identity, as `askApproval` does after the hold returns.
+/// A scope the row did not offer stores nothing, and neither does `session`: the gate has no
+/// session to keep it for.
+async fn record_decision(
+    store: &dyn GrantStore,
+    held: &HeldRequest,
+    offered: &[ApprovalRemember],
+    approved: bool,
+    response: &str,
+    remember: Option<ApprovalRemember>,
+    device: &str,
+) {
+    let entry = |decision: &str| AuditEntry {
+        agent_id: held.agent_id.clone(),
+        kind: held.kind.clone(),
+        action: held.action.clone().unwrap_or_default(),
+        tool: held.tool.clone(),
+        target: held.target.clone(),
+        decision: decision.to_owned(),
+        device: device.to_owned(),
+        at_ms: None,
+    };
+    let mut granted = false;
+    if let (true, Some(action), Some(scope)) = (approved, held.action.as_deref().and_then(GrantKey::parse), remember)
+        && matches!(scope, ApprovalRemember::Agent | ApprovalRemember::Always)
+        && offered.contains(&scope)
+    {
+        match store.grant(&held.agent_id, &action, scope, device).await {
+            Ok(stored) => granted = stored,
+            Err(error) => tracing::warn!(id = held.id, "held request grant failed: {error}"),
+        }
+    }
+    for decision in std::iter::once(response).chain(granted.then_some("granted")) {
+        if let Err(error) = store.record_audit(entry(decision)).await {
+            tracing::warn!(id = held.id, "held request audit failed: {error}");
+        }
+    }
+}
+
 fn string_list(value: Option<&Value>) -> Vec<String> {
     value.and_then(Value::as_array).map(|items| items.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default()
 }
@@ -286,6 +344,16 @@ fn allowed(outbound: bool, response: HumanGateResponse) -> bool {
 
 fn granting(response: HumanGateResponse) -> bool {
     matches!(response, HumanGateResponse::Approve | HumanGateResponse::EditAndApprove)
+}
+
+/// The composition's approval routing: every run's asks pass the held layer, which decides per ask
+/// (`HeldApprovals::request`) as `resolvePreToolAskApproval` does.
+pub struct HeldGates(pub Arc<HeldRequests>);
+
+impl mixdog_core::run_host::run_approvals::RunApprovals for HeldGates {
+    fn gate_for(&self, thread: &ThreadId, own: Arc<dyn ApprovalGate>) -> Arc<dyn ApprovalGate> {
+        self.0.gate_for(thread.clone(), own)
+    }
 }
 
 /// Mixy's heartbeat counts the held requests still waiting as approvals (`pendingHeldRequests`).
@@ -314,6 +382,8 @@ impl Drop for CancelGuard<'_> {
             if let Err(error) = home.deliver(&settled.agent_id, &settled).await {
                 tracing::warn!(id = settled.id, "held request could not be delivered: {error}");
             }
+            // The abort's own answer (`reason: 'run cancelled'`, no device) is audited as any other.
+            record_decision(home.grants().as_ref(), &settled, &entry.remember, false, "deny", None, "").await;
         }));
     }
 }
@@ -355,6 +425,7 @@ mod tests {
         ids: AtomicU64,
         /// Delivery of a settled row never completes (a slow or wedged home thread).
         stall_settled: AtomicBool,
+        store: Arc<mixdog_tools::policy::MemoryGrantStore>,
     }
 
     #[async_trait]
@@ -380,6 +451,9 @@ mod tests {
         }
         fn new_id(&self) -> String {
             self.ids.fetch_add(1, Ordering::SeqCst).to_string()
+        }
+        fn grants(&self) -> Arc<dyn GrantStore> {
+            self.store.clone()
         }
     }
 

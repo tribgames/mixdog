@@ -2292,6 +2292,16 @@ mod tests {
         let next = super::super::next_request_source::NextRequestSource::new();
         let (kept, side_store, side_next) = (store.clone(), store.clone(), next.clone());
         let liveness = mixdog_services::task_reports::runtime_state::RuntimeLiveness::new();
+        /// Notes every thread the assembly asks where its approvals go.
+        #[derive(Default)]
+        struct AskedFor(Mutex<Vec<String>>);
+        impl crate::run_host::run_approvals::RunApprovals for AskedFor {
+            fn gate_for(&self, thread: &ThreadId, own: Arc<dyn mixdog_core_api::domain::approval::ApprovalGate>) -> Arc<dyn mixdog_core_api::domain::approval::ApprovalGate> {
+                lock(&self.0).push(thread.as_str().to_owned());
+                own
+            }
+        }
+        let asked = Arc::new(AskedFor::default());
         let parts = super::super::turn_path::TurnPathParts {
             tokens: tokens.clone(),
             clock: clock.clone(),
@@ -2313,6 +2323,7 @@ mod tests {
             connectors,
             resolver: Arc::new(PoolResolver(pool.clone())),
             unattended: crate::run_host::unattended::UnattendedRunRegistry::new(Arc::new(NoStamps)),
+            approvals: asked.clone(),
             exclusions: Arc::default(),
             agents: Arc::new(mixdog_core_agents::agents::AgentDefinitions::new(workspace.path().join("shipped"), workspace.path().join("agents"), tokens.interactive_io, mixdog_core_config::config::AgentRoutes::new(compaction.config.clone(), workspace.path()), Arc::new(NoEvidence), Arc::new(|| json!({})), workspace.path())),
             allow_all: Arc::new(AllowNone),
@@ -2413,6 +2424,8 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         assert_eq!(roles(), ["user", "assistant", "tool", "assistant"]);
+        // The turn's two approval entry points (the policy gate and the tool environment a nested call is judged with) both went through the composition's choice.
+        assert_eq!(*lock(&asked.0), [id.as_str(), id.as_str()]);
         let requests = lock(&provider.requests).clone();
         assert_eq!(requests.len(), 2);
         assert_eq!(requests[1].messages.iter().map(|m| m.role).collect::<Vec<_>>(), [Role::User, Role::Assistant, Role::Tool]);
