@@ -300,11 +300,40 @@ impl HostRunParts {
         prior: Vec<(mixdog_core_api::ids::ItemId, Value)>,
         window: u64,
     ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
+        self.rebuild_request(thread, header, surface, prior, window, true).await
+    }
+
+    /// [`Self::next_request`] for a thread that has no conversation yet: the request its first send would
+    /// carry (the system prompt and the tools), which `tools/toolsStatus` with `snapshot` reads.
+    pub async fn first_request(
+        &self,
+        thread: &ThreadId,
+        header: &Header,
+        surface: &mixdog_tools::policy::SessionSurface,
+        prior: Vec<(mixdog_core_api::ids::ItemId, Value)>,
+        window: u64,
+    ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
+        let (provider, mut request) = self.rebuild_request(thread, header, surface, prior, window, false).await?;
+        // `snapshotProviderRequestTools` at the request boundary: the tools the provider is sent, with no native tool searches yet.
+        let owner = mixdog_js::js_trim(text(header, "provider")).to_lowercase();
+        request.tools = super::context_world::snapshot_tools(header, std::mem::take(&mut request.tools), Vec::new(), &owner);
+        Some((provider, request))
+    }
+
+    async fn rebuild_request(
+        &self,
+        thread: &ThreadId,
+        header: &Header,
+        surface: &mixdog_tools::policy::SessionSurface,
+        prior: Vec<(mixdog_core_api::ids::ItemId, Value)>,
+        window: u64,
+        conversation_required: bool,
+    ) -> Option<(Arc<dyn mixdog_core_api::domain::provider::ProviderAdapter>, mixdog_core_api::domain::provider::ModelRequest)> {
         if super::compaction_world::is_agent_owner(header) {
             return None;
         }
         let rows: Vec<Value> = prior.iter().map(|(_, body)| body.clone()).collect();
-        if !mixdog_core_session::session::route_session::has_user_conversation(&rows) {
+        if conversation_required && !mixdog_core_session::session::route_session::has_user_conversation(&rows) {
             return None;
         }
         let provider_state = header.get("providerState").and_then(|state| serde_json::from_value(state.clone()).ok());
