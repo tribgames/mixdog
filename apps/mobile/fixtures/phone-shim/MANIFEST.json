@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 3246,
+      "bytes": 4044,
       "path": "golden.json",
-      "sha256": "d490f5d5d02522ee6c7e082d2339b34e8bb4e665f5712287a978712054f71b99"
+      "sha256": "ab7c6c2a92b468fd0a06786bcfc90be1f71e8d94545aa7481cc335554b38bee6"
     }
   ],
   "product": {
@@ -28,5 +28,5 @@
   "recorder": "benchmarks/rust-core/recorders/record-phone-shim.mjs",
   "scenarios": 4,
   "set": "phone-shim",
-  "totalBytes": 3246
+  "totalBytes": 4044
 }

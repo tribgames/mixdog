@@ -29,6 +29,17 @@
     "observed": {
       "availableBeforeAdvertisement": false,
       "reasonBeforeAdvertisement": "host-too-old",
+      "outcomeBeforeAdvertisement": {
+        "error": {
+          "name": "FileDownloadError",
+          "message": "Update Mixdog on the PC to download its files.",
+          "fields": {
+            "code": "file-download:host-too-old",
+            "reason": "host-too-old",
+            "name": "FileDownloadError"
+          }
+        }
+      },
       "sentBeforeAdvertisement": 0,
       "availableAfterAdvertisement": true,
       "authorizeParams": [
@@ -42,6 +53,15 @@
         }
       ],
       "reasonAfterRefusal": "not-linked",
+      "outcomeAfterRefusal": {
+        "error": {
+          "name": "Error",
+          "message": "No reply in this conversation links that file.",
+          "fields": {
+            "code": "file-download:not-linked"
+          }
+        }
+      },
       "rangeParams": [
         "t",
         8,
@@ -49,7 +69,9 @@
         "v"
       ],
       "rangeResult": {
-        "length": 0
+        "value": {
+          "length": 0
+        }
       },
       "availableAfterOlderHost": false
     }
@@ -126,8 +148,9 @@
             "fresh"
           ],
           "result": {
-            "content": "linked report",
-            "code": null
+            "value": {
+              "content": "linked report"
+            }
           }
         }
       },
@@ -140,8 +163,13 @@
           "resolveParams": null,
           "retryParams": null,
           "result": {
-            "content": null,
-            "code": "EACCES"
+            "error": {
+              "name": "Error",
+              "message": "The selected-file permission is unavailable.",
+              "fields": {
+                "code": "EACCES"
+              }
+            }
           }
         }
       }
