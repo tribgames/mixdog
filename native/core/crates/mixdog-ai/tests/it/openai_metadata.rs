@@ -83,6 +83,7 @@ fn request(input: &Value) -> ModelRequest {
                 id: t["id"].as_str().unwrap().into(),
                 window: t["window"].as_u64().unwrap(),
                 turn: t["turn"].as_str().map(Into::into),
+                turn_started_at_ms: None,
             }),
             ..Default::default()
         },
@@ -99,22 +100,6 @@ fn the_frame_and_handshake_identity_equal_node_s() {
         let input = &scenario["input"];
         let codec = codec(installation, now, input["turnState"].as_str().map(str::to_owned));
         let request = request(input);
-        // `codexWireSendOpts` sends the window as `<thread>:0` whatever the compaction count; the golden
-        // calls the helper directly, so its window suffix is the one the wire never carries.
-        let window = input["thread"]["window"].as_u64();
-        // Likewise the session mints the turn id from the turn start, so a v7 turn id carries `turnStartedAtUnixMs`.
-        let v7_ms = |id: &str| u64::from_str_radix(&id.replace('-', "")[..12], 16).unwrap();
-        let started = input["sessionId"].as_str().zip(input["thread"]["turn"].as_str()).map(|(s, t)| (v7_ms(s), v7_ms(t)));
-        let golden_text = |v: &Value| match &window {
-            Some(w) => {
-                let text = serde_json::to_string(v).unwrap().replace(&format!(":{w}\\\""), ":0\\\"").replace(&format!(":{w}\""), ":0\"");
-                match started {
-                    Some((from, to)) => text.replace(&format!("unix_ms\\\":{from}"), &format!("unix_ms\\\":{to}")),
-                    None => text,
-                }
-            }
-            None => serde_json::to_string(v).unwrap(),
-        };
 
         let mut frame = Map::new();
         frame.insert("type".into(), "response.create".into());
@@ -122,7 +107,7 @@ fn the_frame_and_handshake_identity_equal_node_s() {
         let framed = codec.ws_frame(&request, frame);
         assert_eq!(
             serde_json::to_string(&framed["client_metadata"]).unwrap(),
-            golden_text(&scenario["clientMetadata"]),
+            serde_json::to_string(&scenario["clientMetadata"]).unwrap(),
             "{name}: client_metadata"
         );
 
@@ -136,13 +121,8 @@ fn the_frame_and_handshake_identity_equal_node_s() {
             })
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect();
-        let expected: Vec<(String, String)> = scenario["handshakeHeaders"]
-            .as_object()
-            .unwrap()
-            .iter()
-            .map(|(k, v)| (k.clone(), serde_json::from_str::<String>(&golden_text(v)).unwrap()))
-            .collect();
-        let identity: Vec<(String, String)> = identity.into_iter().map(|(k, v)| (k.to_owned(), v.to_owned())).collect();
+        let expected: Vec<(&str, &str)> =
+            scenario["handshakeHeaders"].as_object().unwrap().iter().map(|(k, v)| (k.as_str(), v.as_str().unwrap())).collect();
         assert_eq!(identity, expected, "{name}: handshake headers");
         assert!(wire.headers.iter().all(|(k, _)| k != "x-codex-turn-state"), "{name}: a socket opens without turn state");
     }

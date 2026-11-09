@@ -488,6 +488,9 @@ pub struct RequestThread {
     /// The turn this request serves, which scopes `x-codex-turn-state`;
     /// `None` for a request outside a turn (prewarm).
     pub turn: Option<TurnId>,
+    /// The turn's start (Node's `turnStartedAtUnixMs`), when the caller knows it; else the Codex metadata takes the
+    /// stamp of the session id.
+    pub turn_started_at_ms: Option<u64>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]

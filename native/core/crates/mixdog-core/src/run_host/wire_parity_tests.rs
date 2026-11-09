@@ -23,7 +23,7 @@ use mixdog_ai::transport::ws::{ConnectError, Message as WsMessage};
 use mixdog_ai::transport::{BodyStream, Exchange, HttpResponse, HttpSend, WsDial, WsSocket};
 use mixdog_core_api::domain::keepalive::{KeepaliveSchedule, LinkLiveness, TransportKeepalive, TransportKind};
 use mixdog_core_api::domain::provider::{
-    CacheTier, Content, DeliveryState, ErrorKind, Message, ModelRequest, ProviderError, RequestOptions, RequestThread, Role, ToolCall,
+    CacheTier, Content, DeliveryState, ErrorKind, Message, ModelRequest, ProviderError, RequestOptions, Role, ToolCall,
     ToolDefinition, TransportFault, WireRequest,
 };
 use mixdog_protocol::ProviderId;
@@ -163,17 +163,30 @@ impl WsSocket for Socket {
     }
 }
 
-/// The headers the WebSocket library itself writes into every upgrade (RFC 6455: Node's `ws` and tungstenite alike);
-/// Node's recording holds the headers its provider code handed `ws`, so these are not part of the comparison.
-const UPGRADE_MECHANICS: [&str; 5] = ["host", "connection", "upgrade", "sec-websocket-key", "sec-websocket-version"];
+/// The header names the websocket library puts on an upgrade request for `uri` on its own.
+fn bare_upgrade(uri: &tokio_tungstenite::tungstenite::http::Uri) -> Vec<String> {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    uri.to_string().into_client_request().unwrap().headers().keys().map(|n| n.as_str().to_owned()).collect()
+}
 
 #[async_trait]
 impl WsDial for Recorder {
     async fn dial(&self, request: Request) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
+        // The handshake as the provider code wrote it: the websocket library adds its own headers to the url's request
+        // (Node's `ws`: `initAsClient`, `websocket.js:773-779`; here `ws_request`'s `into_client_request`), so
+        // the library's share is what a bare request for the same url holds, one occurrence per name; everything else
+        // is the provider's and is compared whole.
+        let mut library = bare_upgrade(request.uri());
         let headers = request
             .headers()
             .iter()
-            .filter(|(name, _)| !UPGRADE_MECHANICS.contains(&name.as_str()))
+            .filter(|(name, _)| match library.iter().position(|n| n == name.as_str()) {
+                Some(at) => {
+                    library.swap_remove(at);
+                    false
+                }
+                None => true,
+            })
             .map(|(name, value)| (name.as_str().to_owned(), value.to_str().unwrap().to_owned()));
         self.0.record(json!({ "kind": "ws-handshake", "url": request.uri().to_string(), "headers": pairs(headers) }));
         match self.0.script.lock().unwrap().dials.pop_front().unwrap_or(Dial::Accept) {
@@ -235,7 +248,7 @@ fn request(session: &Value, scenario: &Value, model: &str) -> ModelRequest {
     let mut options = RequestOptions { session_id: Some(thread.clone()), ..RequestOptions::default() };
     if scenario["provider"] == "openai-oauth" {
         options.prompt_cache_key = Some("mixdog-codex".into());
-        options.thread = Some(RequestThread { id: thread.as_str().into(), window: scenario["window"].as_u64().unwrap_or(0), turn: Some(text(&scenario["turnId"]).as_str().into()) });
+        options.thread = Some(super::assemble::wire_thread(thread.as_str().into(), Some(text(&scenario["turnId"]).as_str().into())));
     }
     ModelRequest { model: model.into(), messages, tools, options }
 }
