@@ -14,21 +14,20 @@ import { App } from './App.jsx';
 import { cancelPendingMouseTrackingRestores } from './app/use-mouse-input.mjs';
 import { createSessionRuntime } from './session.mjs';
 import { registerRenderFrameSource, scheduleRenderFrameAck, TUI_RENDER_FPS } from './session/render-timing.mjs';
-import { installProcessSignalCleanup } from '../runtime/shared/process-shutdown.mjs';
-import { finishProcessLifecycle } from '../runtime/shared/process-lifecycle.mjs';
-import { rgbSgr } from '../runtime/shared/statusline/ansi.mjs';
+import { installProcessSignalCleanup } from './lib/process-shutdown.mjs';
+import { rgbSgr } from './lib/ansi.mjs';
 import {
   emitTerminalBackground,
   getThemeSetting,
   listThemes,
-  loadThemeSettingFromConfig,
+  applyStoredThemeSetting,
   setThemeSetting,
   theme,
 } from './theme.mjs';
 import { POP_KITTY, DISABLE_MODIFY_OTHER_KEYS } from './keyboard-protocol.mjs';
 import { displayWidth } from './display-width.mjs';
-import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
-import { localPackageVersion } from '../runtime/shared/update-checker.mjs';
+import { rotateBoundedLog, PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from './lib/rotate-log.mjs';
+import { localPackageVersion } from './lib/package-version.mjs';
 
 // Trailing `\x1b[>0s` restores XTSHIFTESCAPE (shift-to-select-extend) to its
 // terminal default; MOUSE_TRACKING_ON opts into `\x1b[>1s`, so every mouse/alt
@@ -499,15 +498,15 @@ function installTuiConsoleGuard() {
 }
 
 // The palette lives in THIS process: bind the three theme methods locally and
-// mirror the switch to the session runtime with persist:false, purely so its
-// themeEpoch bump re-renders this tree.
+// mirror the switch to the core, which stores `ui.theme` (unless persist is false)
+// and bumps its themeEpoch so this tree re-renders.
 function bindLocalThemeMethods(store) {
   const remoteSetTheme = store.setTheme;
   store.listThemes = () => listThemes();
   store.getTheme = () => getThemeSetting();
   store.setTheme = (id, options = {}) => {
-    const applied = setThemeSetting(id, options);
-    void Promise.resolve(remoteSetTheme?.(id, { ...options, persist: false })).catch(() => {
+    const applied = setThemeSetting(id);
+    void Promise.resolve(remoteSetTheme?.(id, options)).catch(() => {
       /* the local palette is already applied */
     });
     return applied;
@@ -649,15 +648,6 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     (error) => ({ store: null, error })
   );
 
-  // Apply the persisted UI theme (ui.theme in mixdog-config.json) before the
-  // first React frame so the whole tree paints in the chosen palette. Unknown
-  // or missing values leave the default Mixdog dark palette in place; a failed
-  // config read never blocks boot.
-  try {
-    await loadThemeSettingFromConfig();
-  } catch {
-    /* default theme stays */
-  }
   emitTerminalBackground(theme.background);
 
   // Static splash + loading spinner while createSessionRuntime() warms up
@@ -679,12 +669,21 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
     } catch {
       /* best-effort recency */
     }
+    // Apply the persisted UI theme (the core's `ui.theme`) before the first React
+    // frame so the whole tree paints in the chosen palette. Unknown or missing
+    // values leave the default Mixdog dark palette in place; a failed read never
+    // blocks boot.
+    try {
+      applyStoredThemeSetting(await store.getTheme?.());
+    } catch {
+      /* default theme stays */
+    }
+    emitTerminalBackground(theme.background);
     // The palette lives in THIS process: on a daemon-backed store the session runtime's
     // theme methods would run inside the daemon, so the picker saw a promise
     // instead of the list and a switch repainted nothing here. Bind the three
     // theme methods locally (same pattern as the ink selection helpers below)
-    // and mirror the switch to the session runtime with persist:false, purely so its
-    // themeEpoch bump re-renders this tree.
+    // and mirror the switch to the core, which stores it unless persist is false.
     if (store.isRemoteSession === true) bindLocalThemeMethods(store);
     bootProfile('store:ready', { ms: (performance.now() - startedAt).toFixed(1) });
   } catch (error) {
@@ -809,7 +808,6 @@ export async function runTui({ provider, model, toolMode, remote, forceOnboardin
       await disposeStoreOnce('cli-react-exit');
     } catch (error) {
       tuiExitDebug('store:dispose:failed', { error: error?.message || String(error) });
-      finishProcessLifecycle('forced-cleanup', 0);
     }
     restoreTerminal();
     dumpActiveHandles('after-restore');

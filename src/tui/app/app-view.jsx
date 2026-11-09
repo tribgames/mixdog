@@ -249,6 +249,7 @@ export function renderAppView(ctx) {
           agentWorkers={state.agentWorkers}
           agentJobs={state.agentJobs}
           activeTools={activeTools}
+          shellJobs={state.shellJobs}
           initialLine={initialStatusLine}
           workflow={state.workflow}
           themeEpoch={state.themeEpoch || 0}

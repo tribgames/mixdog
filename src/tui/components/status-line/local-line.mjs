@@ -2,16 +2,12 @@
  * components/status-line/local-line.mjs — the instant-local statusline (L1/L2)
  * built from store state, plus palette normalization for the full async line.
  */
-import { rgbSgr } from '../../../runtime/shared/statusline/ansi.mjs';
-import { measuredContextUsage, contextMeasurementLabel } from '../../../runtime/shared/context-measurement.mjs';
-import { displayModelName, effortDisplayLabel, shortenModelName } from '../../../runtime/shared/model-display.mjs';
+import { rgbSgr } from '../../lib/ansi.mjs';
+import { measuredContextUsage, contextMeasurementLabel } from '../../../../packages/protocol-client/src/rows/context-measurement.mjs';
+import { displayModelName, effortDisplayLabel, shortenModelName } from '../../../../packages/protocol-client/src/rows/model-display.mjs';
 import { theme } from '../../theme.mjs';
 import { normalizeStatuslineAnsi } from '../../statusline-ansi-bridge.mjs';
-// Cache-only synchronous read (never touches fs on the render path), so the
-// instant-local L2 can render the Shell segment itself instead of grafting it
-// out of the previous full line.
-import { shellJobsStatus, unconfirmedShellCount } from '../../../runtime/shared/statusline/statusline-segments.mjs';
-import { formatElapsed, num, terminalColumns, timeMs } from '../../../runtime/shared/statusline/statusline-format.mjs';
+import { formatElapsed, num, terminalColumns, timeMs } from '../../lib/statusline-format.mjs';
 import { isTerminalStatus } from './boot-schedule.mjs';
 
 const RESET = '\x1b[0m';
@@ -108,15 +104,27 @@ function localOldestWorkerStartMs(agentWorkers = [], agentJobs = []) {
   return Number.isFinite(oldest) ? oldest : 0;
 }
 
+// The thread's background-shell strip (`shellJobs` of the session state, published by the core):
+// the running count, the jobs held with an unconfirmed termination, and the oldest start for the
+// elapsed label (the strip carries no label of its own).
+function shellStripStatus(shellJobs, now) {
+  const jobs = Array.isArray(shellJobs?.jobs) ? shellJobs.jobs : [];
+  const unconfirmed = jobs.filter((job) => job?.terminationUnconfirmed === true).length;
+  let oldest = Infinity;
+  for (const job of jobs) {
+    const t = timeMs(job?.startedAt);
+    if (t > 0 && t < oldest) oldest = t;
+  }
+  const elapsedLabel = Number.isFinite(oldest) ? formatElapsed(now - oldest) : String(shellJobs?.elapsedLabel || '');
+  return { count: (Number(shellJobs?.count) || 0) - unconfirmed, unconfirmed, elapsedLabel };
+}
+
 // L2 assembly only — themed SGR (statusColors SUCCESS/STATUS/SUBTLE), already in
 // the active palette, so this must NOT be passed through normalizeStatusLine.
 // Returns the joined L2 string or '' when no active segment. Order:
-// Agents → Shells → Web Searching. shellJobsStatus() is a cache-only
-// synchronous read (its refresh runs in the background, never on the render
-// path), so the shell count is computed here directly instead of being grafted
-// out of the previously cached full line.
+// Agents → Shells → Web Searching.
 export function localStatusLineL2(
-  { agentWorkers = [], agentJobs = [], activeTools = null, sessionId = '', clientHostPid = 0 } = {},
+  { agentWorkers = [], agentJobs = [], activeTools = null, shellJobs = null } = {},
   now = Date.now()
 ) {
   const { STATUS, SUBTLE, SUCCESS } = statusColors();
@@ -131,19 +139,13 @@ export function localStatusLineL2(
     const elapsed = oldestStart > 0 ? formatElapsed(now - oldestStart) : '';
     l2Parts.push(`${spin} ${STATUS}${label}${RESET}${elapsedSuffix(elapsed)}`);
   }
-  // Session-scoped like the full path: one host process owns many sessions'
-  // jobs, so an owner-wide aggregate would light up every other pane.
-  const shellScope = String(sessionId ?? '').trim();
-  const shellStatus = shellScope
-    ? shellJobsStatus({ clientHostPid, sessionId: shellScope })
-    : shellJobsStatus({ clientHostPid });
+  // The thread's own strip, so one host's other sessions never light this one up.
   // A shell whose termination is unconfirmed is not "running": it is held,
   // with /shells as the way to inspect or release it.
-  const unconfirmed = unconfirmedShellCount(shellStatus);
-  const shellCount = (Number(shellStatus?.count) || 0) - unconfirmed;
+  const { count: shellCount, unconfirmed, elapsedLabel: shellElapsed } = shellStripStatus(shellJobs, now);
   if (shellCount > 0) {
     const label = `Running ${shellCount} Shell${shellCount === 1 ? '' : 's'}`;
-    l2Parts.push(`${spin} ${STATUS}${label}${RESET}${elapsedSuffix(shellStatus.elapsedLabel || '')}`);
+    l2Parts.push(`${spin} ${STATUS}${label}${RESET}${elapsedSuffix(shellElapsed)}`);
   }
   if (unconfirmed > 0) {
     const { WARNING } = statusColors();

@@ -2,8 +2,6 @@
 // The boolean rows of Settings: each write goes through the store, reports the
 // outcome as a notice, and refreshes Settings through the deferred refresh
 // bound to the keypress that started it.
-import { toggleVoice, isVoiceInstallBusy } from '../../../../runtime/channels/lib/voice-setup.mjs';
-
 export function createStoreToggles({ store, view, formatDuration, deferredSettingsRefresh }) {
   const applyAutoClear = (patch = {}) => {
     void Promise.resolve(store.setAutoClear?.(patch))
@@ -34,14 +32,30 @@ export function createStoreToggles({ store, view, formatDuration, deferredSettin
       .finally(deferredSettingsRefresh());
   };
 
-  // Voice toggle: enabling installs the managed whisper/ffmpeg runtime first
-  // time, then flips voice.enabled. toggleVoice owns all notices/progress.
-  const applyVoice = () => {
-    if (isVoiceInstallBusy()) {
-      store.pushNotice('Voice install is already running', 'warn');
-      return;
+  // Voice toggle: the core's `voice/toggleVoice` flips voice.enabled, installing the managed
+  // whisper/ffmpeg runtime the first time it is turned on, and shows the install's progress on the
+  // thread's hint line. Its reply carries the outcome; the notices are the client's.
+  const voiceNotice = (turningOn, result) => {
+    if (result?.ok === false) {
+      if (!result.error) return store.pushNotice('Voice install is already running', 'warn');
+      const failure = /^Voice setup failed/.test(result.error) ? result.error : `Voice OFF failed: ${result.error}`;
+      return store.pushNotice(failure, 'error');
     }
-    void Promise.resolve(toggleVoice({ pushNotice: store.pushNotice, setProgressHint: store.setProgressHint }))
+    if (!turningOn) return store.pushNotice('Voice OFF', 'info');
+    // `enabled: false` on an ON request: a later OFF superseded the install, which says nothing.
+    if (result?.enabled === true) store.pushNotice('Voice ON — channel voice messages will be transcribed', 'info');
+  };
+  const applyVoice = () => {
+    void (async () => {
+      const status = await store.getVoiceStatus();
+      if (status?.busy === true) {
+        store.pushNotice('Voice install is already running', 'warn');
+        return;
+      }
+      const turningOn = status?.enabled !== true;
+      const reply = await store.toggleVoice(turningOn);
+      voiceNotice(turningOn, reply?.result);
+    })()
       .catch((e) => store.pushNotice(`voice setup failed: ${e?.message || e}`, 'error'))
       .finally(deferredSettingsRefresh());
   };
