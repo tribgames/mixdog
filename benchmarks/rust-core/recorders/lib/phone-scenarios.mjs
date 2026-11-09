@@ -335,6 +335,9 @@ export const SCENARIOS = {
     { op: 'advance', ms: 7000 },
     { op: 'mark', name: 'quiet-visible' },
     { op: 'hide' },
+    { op: 'stray' },
+    { op: 'stray' },
+    { op: 'stray' },
     { op: 'advance', ms: 10000 },
     { op: 'mark', name: 'hidden' },
     { op: 'show' },
@@ -411,6 +414,8 @@ export async function play(world, driver, ops) {
       pairingInvalid: slice.filter((e) => e.ev === 'pairing-invalid').map((e) => e.message),
       reconnected: slice.filter((e) => e.ev === 'reconnected').length,
       calls: calls.splice(0),
+      pcRecords: world.pcRecords(),
+      pcRequests: world.pcRequests(),
       core: world.core() ? effectiveCore(world.core()) : null,
       ...extra,
     };
