@@ -10375,6 +10375,24 @@
     },
     {
       "class": "C2",
+      "method": "browser/screenDisplays",
+      "mutation": {
+        "kind": "none"
+      },
+      "opScope": {
+        "kind": "none"
+      },
+      "origins": [
+        "relay"
+      ],
+      "params": "v2::host::ScreenDisplaysParams",
+      "result": "JsonValue",
+      "scope": {
+        "kind": "none"
+      }
+    },
+    {
+      "class": "C2",
       "method": "modelProxy/run",
       "mutation": {
         "kind": "none"
@@ -10988,6 +11006,18 @@
     {
       "method": "host/browser/command",
       "params": "HostCommandParams",
+      "requires": "host.browser",
+      "result": "JsonValue"
+    },
+    {
+      "method": "host/browser/liveControl",
+      "params": "HostBrowserLiveControlParams",
+      "requires": "host.browser",
+      "result": "JsonValue"
+    },
+    {
+      "method": "host/screen/displays",
+      "params": "ScreenDisplaysParams",
       "requires": "host.browser",
       "result": "JsonValue"
     },

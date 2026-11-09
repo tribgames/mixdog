@@ -735,7 +735,7 @@ pub static INVENTORY: &[(InventoryList, &str, Target)] = &[
     (
         InventoryList::Operations,
         "browserRemoteWebrtcSignal",
-        Target::Internal("WebRTC runs in mixdog-remote (SPEC R36)"),
+        Target::Method("browser/webrtcSignal"),
     ),
     (
         InventoryList::Operations,

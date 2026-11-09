@@ -130,6 +130,24 @@
       ],
       "type": "object"
     },
+    "HostBrowserLiveControlParams": {
+      "description": "Params of `host/browser/liveControl` (core → host): a live-view control that is not page input. The page input itself goes as `host/browser/command{action:\"input\"}`. The result is null; a failure is a JSON-RPC error.",
+      "properties": {
+        "kind": {
+          "$ref": "#/definitions/LiveControlKind"
+        },
+        "request": true,
+        "sessionId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "request",
+        "sessionId"
+      ],
+      "type": "object"
+    },
     "HostCommandParams": {
       "properties": {
         "action": {
@@ -263,6 +281,25 @@
         "sessionId"
       ],
       "type": "object"
+    },
+    "LiveControlKind": {
+      "description": "What `host/browser/liveControl` carries to the viewed page.",
+      "oneOf": [
+        {
+          "description": "A phone's `resize-request`: `request` is its `resize` object (`{mode: \"page\"}` or `{mode: \"fit-client\", cssWidth, cssHeight, deviceScaleFactor}`); the host resizes the page (Node's `remote.resize(sessionId, request)`).",
+          "enum": [
+            "resize"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "A phone's `ready.videoLimit`: `request` is `{maxWidth, maxHeight}`; the host may capture larger than its frame bound, up to it, and lock a new geometry (Node's `remote.widenVideo(sessionId, limit)`).",
+          "enum": [
+            "videoLimit"
+          ],
+          "type": "string"
+        }
+      ]
     },
     "LocalPageScope": {
       "description": "What a `host/localPage/url` lease covers; absent means `project`.",
@@ -1228,6 +1265,11 @@
         }
       ]
     },
+    "ScreenDisplaysParams": {
+      "additionalProperties": false,
+      "description": "Params of `browser/screenDisplays` (a granted phone's request, Node's `browserRemoteScreenDisplays`) and of `host/screen/displays` (core → host): none. Both answer `RemoteScreenDisplaySummary[]` (`apps/desktop/src/shared/remote-webrtc.ts`), unchanged.",
+      "type": "object"
+    },
     "ToolApprovalKind": {
       "oneOf": [
         {
@@ -1539,6 +1581,52 @@
         },
         "params": {
           "$ref": "#/definitions/HostCommandParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "A phone's live-view resize or video limit for a viewed browser page.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/browser/liveControl"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/HostBrowserLiveControlParams"
+        }
+      },
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "type": "object"
+    },
+    {
+      "description": "The displays of this PC's screen, for the phone's remote-screen picker.",
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "enum": [
+            "host/screen/displays"
+          ],
+          "type": "string"
+        },
+        "params": {
+          "$ref": "#/definitions/ScreenDisplaysParams"
         }
       },
       "required": [

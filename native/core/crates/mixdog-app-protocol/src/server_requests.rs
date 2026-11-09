@@ -45,6 +45,18 @@ crate::server_request_definitions! {
         result: JsonValue,
         requires: Some("host.browser"),
     },
+    /// A phone's live-view resize or video limit for a viewed browser page.
+    HostBrowserLiveControl => "host/browser/liveControl" {
+        params: HostBrowserLiveControlParams,
+        result: JsonValue,
+        requires: Some("host.browser"),
+    },
+    /// The displays of this PC's screen, for the phone's remote-screen picker.
+    HostScreenDisplays => "host/screen/displays" {
+        params: ScreenDisplaysParams,
+        result: JsonValue,
+        requires: Some("host.browser"),
+    },
     HostVisualizeCommand => "host/visualize/command" {
         params: HostVisualizeCommandParams,
         result: Option<JsonValue>,

@@ -557,6 +557,41 @@ pub struct HostBrowserPageParams {
     pub geometry: Option<JsonValue>,
 }
 
+/// Params of `browser/screenDisplays` (a granted phone's request, Node's
+/// `browserRemoteScreenDisplays`) and of `host/screen/displays` (core → host): none. Both answer
+/// `RemoteScreenDisplaySummary[]` (`apps/desktop/src/shared/remote-webrtc.ts`), unchanged.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(deny_unknown_fields)]
+pub struct ScreenDisplaysParams {}
+
+/// What `host/browser/liveControl` carries to the viewed page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub enum LiveControlKind {
+    /// A phone's `resize-request`: `request` is its `resize` object (`{mode: "page"}` or
+    /// `{mode: "fit-client", cssWidth, cssHeight, deviceScaleFactor}`); the host resizes the page
+    /// (Node's `remote.resize(sessionId, request)`).
+    Resize,
+    /// A phone's `ready.videoLimit`: `request` is `{maxWidth, maxHeight}`; the host may capture
+    /// larger than its frame bound, up to it, and lock a new geometry (Node's
+    /// `remote.widenVideo(sessionId, limit)`).
+    VideoLimit,
+}
+
+/// Params of `host/browser/liveControl` (core → host): a live-view control that is not page
+/// input. The page input itself goes as `host/browser/command{action:"input"}`. The result is null;
+/// a failure is a JSON-RPC error.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
+#[serde(rename_all = "camelCase")]
+pub struct HostBrowserLiveControlParams {
+    pub session_id: String,
+    pub kind: LiveControlKind,
+    pub request: JsonValue,
+}
+
 /// `host/browser/surface` (host → core notification): the window process's browser host asked its
 /// window to reveal or hide a session's browser surface (`browserRemoteOpen`). The core publishes
 /// it as `ui/openRequested { kind: "browser" }` so every attached client, paired phones included,

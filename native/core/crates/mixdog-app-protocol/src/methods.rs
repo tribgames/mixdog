@@ -4224,6 +4224,16 @@ crate::client_request_definitions! {
         mutation: none,
         origins: [Relay],
     },
+    /// The displays a granted phone may choose for the remote screen (Node's
+    /// `browserRemoteScreenDisplays`): `RemoteScreenDisplaySummary[]` from the host.
+    BrowserScreenDisplays => "browser/screenDisplays" {
+        params: v2::host::ScreenDisplaysParams,
+        result: JsonValue,
+        scope: none,
+        class: C2,
+        mutation: none,
+        origins: [Relay],
+    },
     /// Run a proxied model call for a server core; events as `modelProxy/run/event`.
     ModelProxyRun => "modelProxy/run" {
         params: v2::host::ModelProxyRunParams,
