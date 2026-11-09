@@ -223,7 +223,17 @@ export function createFooterInputs({
         return roster;
       },
     };
+    // A provider's roster file, read on first use (Node read it on each lookup).
+    const rosters = new Map();
+    const rosterRows = (fileName) => {
+      if (!rosters.has(fileName)) {
+        const raw = readJson(join(dataDir, fileName));
+        rosters.set(fileName, [raw?.models, raw].find(Array.isArray) ?? []);
+      }
+      return rosters.get(fileName);
+    };
     return {
+      rosterRows,
       usageCache: readJson(join(dataDir, 'gateway-oauth-usage-cache.json')),
       accountId: accounts?.providers?.[provider]?.selectedId || 'default',
       config,

@@ -16,7 +16,7 @@ const { createFooterRenderer } = await import('./footer-render.mjs');
 const golden = JSON.parse(readFileSync(new URL('./footer-golden/node-footer.golden.json', import.meta.url), 'utf8'));
 
 test('the golden covers every scenario, recorded from b6f10295a', () => {
-  assert.equal(golden.recordedFrom, 'b6f10295a');
+  assert.match(golden.recordedFrom, /^b6f10295a[0-9a-f]{31}$/);
   assert.deepEqual(
     golden.scenarios.map((s) => s.name),
     SCENARIOS.map((s) => s.name)

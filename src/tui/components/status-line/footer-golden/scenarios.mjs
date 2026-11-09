@@ -183,6 +183,49 @@ export const SCENARIOS = [
     args: base('zai', 'glm-4.6-very-long-custom-fine-tune-identifier-v2', { effort: 'low', fast: true, ultra: true }),
     files: {},
   },
+  // The catalog's display name of the model (Node's getModelMetadataSync hint).
+  {
+    name: 'catalog display name: a cached roster row names the model',
+    cols: 120,
+    args: base('openai-oauth', 'review-model-123', { effort: '' }),
+    files: { 'openai-oauth-models.json': JSON.stringify({ models: [{ id: 'review-model-123', displayName: 'Review Display Name' }] }) },
+  },
+  {
+    name: 'catalog display name: a roster row found through a dated alias, labelled by display',
+    cols: 120,
+    args: base('openai-oauth', 'gpt-5.5-2026-01-01', { effort: 'low' }),
+    files: { 'openai-oauth-models.json': JSON.stringify([{ id: 'gpt-5.5', display: 'GPT Five Point Five' }]) },
+  },
+  {
+    name: 'catalog display name: a hand-verified override model ignores the roster row',
+    cols: 120,
+    args: base('gemini', 'gemini-3.1-pro', { effort: '' }),
+    files: { 'gemini-models.json': JSON.stringify({ models: [{ id: 'gemini-3.1-pro', displayName: 'Roster Gemini Name' }] }) },
+  },
+  {
+    name: 'catalog display name: the Muse seed names a model, the roster name wins over it',
+    cols: 120,
+    args: base('muse-code-oauth', 'muse-spark-1.3-contributor', { effort: '' }),
+    files: {},
+  },
+  {
+    name: 'catalog display name: a revisioned Muse id takes the lineage name',
+    cols: 120,
+    args: base('muse-code-oauth', 'muse-spark-1.4.2', { effort: '' }),
+    files: {},
+  },
+  {
+    name: 'catalog display name: the roster name wins over the Muse seed',
+    cols: 120,
+    args: base('muse-code-oauth', 'muse-spark-1.2', { effort: '' }),
+    files: { 'muse-code-oauth-models.json': JSON.stringify({ models: [{ id: 'muse-spark-1.2', name: 'Roster Muse' }] }) },
+  },
+  {
+    name: 'catalog display name: a custom provider has none',
+    cols: 120,
+    args: base('custom-lab', 'lab-model-9', { effort: '' }),
+    files: {},
+  },
   // The route the footer's primary status belongs to (Node's configuredGatewayStatus).
   {
     name: 'gateway default of another provider drops the primary status, the cached snapshot still shows',

@@ -1,5 +1,5 @@
 {
- "recordedFrom": "b6f10295a",
+ "recordedFrom": "b6f10295a2f698afc85332467192de28500bd146",
  "T0": 1800000000000,
  "scenarios": [
   {
@@ -61,6 +61,34 @@
   {
    "name": "model names: GLM and a long custom id at 60 columns",
    "expected": "\u001b[1mGLM-4.6-Very-Long…\u001b[0m \u001b[38;2;136;136;136m·\u001b[0m \u001b[1mLow\u001b[0m \u001b[38;2;136;136;136m·\u001b[0m \u001b[1mUltrafast\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m26%\u001b[0m"
+  },
+  {
+   "name": "catalog display name: a cached roster row names the model",
+   "expected": "\u001b[1mReview Display Name\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+  },
+  {
+   "name": "catalog display name: a roster row found through a dated alias, labelled by display",
+   "expected": "\u001b[1mGPT Five Point Five\u001b[0m \u001b[38;2;136;136;136m·\u001b[0m \u001b[1mLow\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+  },
+  {
+   "name": "catalog display name: a hand-verified override model ignores the roster row",
+   "expected": "\u001b[1mGemini 3.1 Pro\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+  },
+  {
+   "name": "catalog display name: the Muse seed names a model, the roster name wins over it",
+   "expected": "\u001b[1mMuse Spark 1.3 (C)\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+  },
+  {
+   "name": "catalog display name: a revisioned Muse id takes the lineage name",
+   "expected": "\u001b[1mMuse Spark 1.4.2\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+  },
+  {
+   "name": "catalog display name: the roster name wins over the Muse seed",
+   "expected": "\u001b[1mRoster Muse\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
+  },
+  {
+   "name": "catalog display name: a custom provider has none",
+   "expected": "\u001b[1mlab-model-9\u001b[0m \u001b[38;2;136;136;136m│\u001b[0m \u001b[38;2;0;170;75m▓▓▓\u001b[0m\u001b[38;2;136;136;136m░░░░░░░░░░░\u001b[0m 26%"
   },
   {
    "name": "gateway default of another provider drops the primary status, the cached snapshot still shows",
