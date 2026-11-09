@@ -81,9 +81,24 @@ async function begin(ctx: ReturnType<typeof createRemoteShimContext>): Promise<v
   }
   setRemoteConnectionState('connecting');
   if (!ctx.backgroundSuspended && shouldRunRemoteHeartbeat(document.visibilityState)) {
-    void ctx.phone.start().catch(() => {
-      /* the client's own ladder keeps running; a refused registration already showed the pairing screen */
-    });
+    void ctx.phone
+      .start()
+      .then(() =>
+        // The app's first screen waits on these; they ride the connection that is already syncing instead of following the app's
+        // chunk download and evaluation. Only here: a redial or a wake never prefetches again.
+        ctx.phone.prefetchBootReads([
+          ['getSnapshot', []],
+          ...(ctx.peerRemoteParity === true ? [['getUpdaterState', []] satisfies [string, unknown[]]] : []),
+          ['listProjects', []],
+          ['readSettings', []],
+          ['readHostDisplayPreferences', []],
+          ['readActivityRailPins', []],
+          ['viewerDevice', []],
+        ])
+      )
+      .catch(() => {
+        /* the client's own ladder keeps running; a refused registration already showed the pairing screen */
+      });
   }
 }
 

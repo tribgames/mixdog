@@ -319,6 +319,8 @@ export interface PhoneLink {
   setVisibleSessions(threadIds: readonly string[]): Promise<boolean>;
   refreshScreen(): void;
   recycle(): void;
+  /** Starts the app's mount-time reads beside the first view sync (Node's prefetchBootReads). */
+  prefetchBootReads(reads: ReadonlyArray<readonly [string, unknown[]]>): void;
 }
 export type RemoteShimContext = RemoteShimState & RemoteShimCollaborators & RemoteShimServices;
 
