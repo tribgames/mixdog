@@ -1893,6 +1893,12 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         catalog: b.catalog_warmup.clone(),
         models: model_warmup.clone(),
         statusline: statusline_warmup.clone(),
+        channel_admin: channel_admin.clone(),
+    });
+    // The deferred channel start parks on the same busy probe (`channel-start.mjs:50-56`) and is woken with the warm-ups.
+    channel_admin.bind_busy({
+        let (liveness, late) = (liveness.clone(), late.clone());
+        Arc::new(move || crate::prewarm_world::busy_reason(&liveness, &late))
     });
     // The third wake source: a provider catalog refresh settling (failed or not) wakes every parked background warm-up
     // (`provider-readiness.mjs` `settle` -> `rt.wakeDeferredWarmups()`), the same wake the sessions' busy-state changes give.
@@ -2159,7 +2165,7 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         .map_err(|_| ComposeError::AlreadyBound("setup ui"))?;
     model_warmup.start(); // the boot's scheduleProviderModelWarmup() (session.mjs:121): after the model list, the gates and the wakes exist
     // The boot's scheduleAutomationAutostart() (session.mjs:126) without its 1.5 s timer: the compose has finished, so probe once and start enabled automation now.
-    channel_admin.schedule_automation_start();
+    channel_admin.schedule_automation_autostart();
     setup_warmup.schedule_default(); // the boot's scheduleProviderSetupWarmup() (session.mjs:122), default 300 ms
     // The pool's directory-side cells (true cycles, bound once, in `verify_bound`): the dispatcher is built from the very values the turn's own gate takes (`policy`, `connectors`, the resolver, `HostGateEnv`, the bus dispatch).
     late_dispatcher

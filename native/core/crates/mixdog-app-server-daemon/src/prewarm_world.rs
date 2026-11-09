@@ -49,6 +49,7 @@ pub struct WarmupSignals {
     pub catalog: Arc<crate::catalog::CatalogWarmup>,
     pub models: Arc<mixdog_core_domains::domains::ai_admin::model_warmup::ModelWarmup>,
     pub statusline: Arc<mixdog_core_domains::domains::ai_admin::statusline_warmup::StatuslineWarmup>,
+    pub channel_admin: Arc<mixdog_services::channels::ChannelAdmin>,
 }
 
 impl CodeGraphPrewarmSignals for WarmupSignals {
@@ -61,6 +62,7 @@ impl CodeGraphPrewarmSignals for WarmupSignals {
         self.catalog.wake();
         self.models.wake();
         self.statusline.wake();
+        self.channel_admin.wake_deferred_start();
     }
 
     fn turn_settled(&self) {
