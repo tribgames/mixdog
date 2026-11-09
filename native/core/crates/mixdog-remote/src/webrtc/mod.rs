@@ -11,6 +11,7 @@ pub mod config;
 pub mod convert;
 pub mod encoder;
 pub mod input_order;
+pub mod host;
 pub mod liveview;
 mod outbound;
 mod peer;
