@@ -1,6 +1,9 @@
 // The footer scenarios recorded from Node (b6f10295a `src/ui/statusline.mjs` `renderStatusline`) into
 // node-footer.golden.json by record.mjs, and replayed against the TUI-side renderer by footer-render.test.mjs.
 // `files` are written under the data dir; `args` are renderStatusline's arguments.
+import { appendFileSync, renameSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 export const T0 = 1_800_000_000_000;
 const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
@@ -34,6 +37,43 @@ const catalogFile = (data) => JSON.stringify({ fetchedAt: T0, data });
 const events = (rows) => ({
   'gateway-usage.local.jsonl': rows.map((row) => JSON.stringify(row)).join('\n') + '\n',
 });
+
+const BUDGET_90D = JSON.stringify({ gateway: { balance: { budgetUsd: 1000, period: 'quarter', days: 90 } } });
+const EVENT_STORE = 'gateway-usage.local.jsonl';
+const spend = (costUsd) => `${JSON.stringify({ ts: T0 - HOUR, provider: 'deepseek', model: 'deepseek-chat', costUsd })}\n`;
+
+// Changes to the event store between renders of one footer (the stage clock is T0 + 1000 per stage): stage 0 renders the
+// files as written; every later stage first applies its `op` to the store and then renders.
+//   append   adds to the end of the same file (the reader takes the new complete lines only)
+//   write    rewrites the same file in place (shorter than what was read: reloaded in full)
+//   replace  swaps in a new file (another inode: reloaded in full)
+export const STORE_STAGES = [
+  {
+    name: 'events: appended lines are read incrementally, a torn line waits for its end, a replaced or truncated file reloads',
+    cols: 120,
+    args: base('deepseek', 'deepseek-chat', { effort: '' }),
+    files: { 'mixdog-config.json': BUDGET_90D, [EVENT_STORE]: spend(1) + spend(2) },
+    stages: [
+      {},
+      { op: 'append', text: spend(4) },
+      { op: 'append', text: spend(8).slice(0, 30) },
+      { op: 'append', text: `${spend(8).slice(30)}` },
+      // Longer than what was read, so only the new inode makes the reader start over.
+      { op: 'replace', text: spend(16) + spend(16) + spend(16) + spend(16) + spend(16) },
+      { op: 'write', text: spend(32) },
+    ],
+  },
+];
+
+export function applyStage(dir, stage) {
+  const file = join(dir, EVENT_STORE);
+  if (stage.op === 'append') appendFileSync(file, stage.text);
+  else if (stage.op === 'write') writeFileSync(file, stage.text);
+  else if (stage.op === 'replace') {
+    writeFileSync(`${file}.next`, stage.text);
+    renameSync(`${file}.next`, file);
+  }
+}
 
 // The warm lifecycle: the footer rendered before any model list was asked for, right after a quick list resolved
 // (its background load still running) and after the full list — which awaits that load — resolved.
@@ -491,6 +531,44 @@ export const SCENARIOS = [
     args: base('deepseek', 'deepseek-chat', { effort: '' }),
     files: {
       'gateway-usage.local.jsonl': `${JSON.stringify({ ts: T0 + 500, provider: 'deepseek', model: 'deepseek-chat', costUsd: 0.5 })}\n{"ts":${T0 + 600},"provider":"deepseek","mod`,
+    },
+  },
+  // The event store's age cutoff (35 days, applied after the 5000 cap) and cap. A 90-day budget keeps the budget's own
+  // period out of the way, so the spent amount is exactly the sum of the events the reader kept.
+  {
+    name: 'events: one just older than 35 days is dropped, the rest are spent',
+    cols: 120,
+    args: base('deepseek', 'deepseek-chat', { effort: '' }),
+    files: {
+      'mixdog-config.json': BUDGET_90D,
+      ...events([
+        { ts: T0 - 35 * DAY - 1, provider: 'deepseek', model: 'deepseek-chat', costUsd: 1 },
+        { ts: T0 - 34 * DAY, provider: 'deepseek', model: 'deepseek-chat', costUsd: 2 },
+      ]),
+    },
+  },
+  {
+    name: 'events: one exactly 35 days old is kept',
+    cols: 120,
+    args: base('deepseek', 'deepseek-chat', { effort: '' }),
+    files: {
+      'mixdog-config.json': BUDGET_90D,
+      ...events([
+        { ts: T0 - 35 * DAY - 1, provider: 'deepseek', model: 'deepseek-chat', costUsd: 2 },
+        { ts: T0 - 35 * DAY, provider: 'deepseek', model: 'deepseek-chat', costUsd: 1 },
+      ]),
+    },
+  },
+  {
+    name: 'events: only the last 5000 of 5003 are read',
+    cols: 120,
+    args: base('deepseek', 'deepseek-chat', { effort: '' }),
+    files: {
+      'mixdog-config.json': BUDGET_90D,
+      ...events([
+        ...[1, 2, 3].map(() => ({ ts: T0 - HOUR, provider: 'deepseek', model: 'deepseek-chat', costUsd: 1 })),
+        ...Array.from({ length: 5000 }, () => ({ ts: T0 - HOUR, provider: 'deepseek', model: 'deepseek-chat', costUsd: 0.01 })),
+      ]),
     },
   },
   // The first renders of a footer: what Node shows before its caches have been refreshed.

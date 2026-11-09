@@ -16,7 +16,32 @@ const settle = async () => {
   await new Promise((resolve) => setTimeout(resolve, 100));
 };
 
-if (steps) {
+const stages = process.env.FOOTER_STAGES ? JSON.parse(process.env.FOOTER_STAGES) : null;
+
+if (stages) {
+  // One footer across changes to the event store: each stage applies its change, moves the clock on and renders the settled text.
+  const { applyStage } = await import(new URL('./scenarios.mjs', import.meta.url).href);
+  const meta = await import(pathToFileURL(join(process.env.FOOTER_TREE, 'src', 'runtime', 'agent', 'orchestrator', 'providers', 'statusline-route-meta.mjs')).href);
+  try {
+    meta.buildGatewayLimits({});
+  } catch {
+    /* loading */
+  }
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const texts = [];
+  for (const [index, stage] of stages.entries()) {
+    applyStage(process.env.MIXDOG_DATA_DIR, stage);
+    globalThis.__footerSetNow(T0 + 1000 * index);
+    let text = '';
+    for (let i = 0; i < 6; i += 1) {
+      text = await renderStatusline(args);
+      await new Promise((resolve) => setImmediate(resolve));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    texts.push(text);
+  }
+  process.stdout.write(JSON.stringify(texts));
+} else if (steps) {
   // The first renders of a footer: what it shows at each of the clock offsets, refreshes running between them.
   const texts = [];
   for (const advance of steps) {
