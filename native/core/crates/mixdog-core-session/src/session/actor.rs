@@ -241,7 +241,7 @@ pub(crate) enum Inbox {
     },
     /// `pushNotice(text, tone)` of the hosted runtime with no `transcript` option: the polished
     /// text as a toast of the session. Answered once the toast is in the session's state.
-    PushToast { text: String, tone: String, tx: oneshot::Sender<()> },
+    PushToast { text: String, tone: String, tx: oneshot::Sender<Result<(), CoreError>> },
     /// `HeaderUpdates::update_header`: `update` computes a header change on the actor, from the
     /// header as projected, and the change is written as the next record; answered once durable.
     UpdateHeader { update: mixdog_core_ports::ports::threads::HeaderUpdate, tx: Waiter },
@@ -586,7 +586,7 @@ pub(crate) struct SessionActor {
     /// The expiry timer of each toast in the queue (`toastTimers`), by toast id: `thread/clear` and the thread's close cancel them.
     toast_timers: std::collections::HashMap<String, tokio::task::AbortHandle>,
     /// Callers released by this pump's entries ([`Effect::AfterPublish`]), told once its frames are published.
-    after_publish: Vec<oneshot::Sender<()>>,
+    after_publish: Vec<oneshot::Sender<Result<(), CoreError>>>,
     /// The surfaced tool calls running now (`createActiveToolTracker`'s `activeToolCalls`), by call id: category, count and start.
     active_calls: std::collections::BTreeMap<String, (&'static str, i64, i64)>,
     /// How many settings changes this thread announced (`setupChangeSeq`).
@@ -1192,9 +1192,7 @@ impl SessionActor {
         let Some(directory) = self.ch.directory.upgrade() else {
             return;
         };
-        if directory.unload(&self.id, &self.cell) {
-            tokio::spawn(self.close_ingest());
-        }
+        directory.unload(&self.id, &self.cell, self.close_ingest());
     }
 
     /// Today's `ingestSessionIntoMemory(session)` over the model context.
@@ -1786,7 +1784,7 @@ impl SessionActor {
             self.publish(notes);
         }
         for released in self.after_publish.drain(..) {
-            let _ = released.send(());
+            let _ = released.send(Ok(()));
         }
         self.publish_cell();
     }
@@ -2081,8 +2079,10 @@ impl SessionActor {
                     tracing::error!("the failed turn {} was not recorded, so its end is not shown and its quota is not settled: {error:?}", turn.as_str());
                     self.settle_goal(settle);
                 }
-                // Its change was never shown: the waiter learns it by the dropped sender.
-                Effect::AfterPublish(_) => {}
+                // Its change was never shown: the waiter learns the failure that dropped it.
+                Effect::AfterPublish(tx) => {
+                    let _ = tx.send(Err(error.clone()));
+                }
             }
         }
     }

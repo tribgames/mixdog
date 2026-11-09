@@ -44,9 +44,14 @@ use tokio_util::sync::CancellationToken;
 /// The recorded steps carry no session (`threadId`), so no notice is posted.
 struct NoToasts;
 
-#[async_trait]
 impl mixdog_mcp::mcp_service::SessionToasts for NoToasts {
-    async fn toast(&self, _: &str, _: &str, _: &str) {}
+    fn closed(&self) -> bool {
+        false
+    }
+
+    fn incarnation(&self, _: &str) -> Option<Arc<dyn mixdog_mcp::mcp_service::Incarnation>> {
+        None
+    }
 }
 
 struct NoGit;

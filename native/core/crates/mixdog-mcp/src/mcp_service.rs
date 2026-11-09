@@ -146,14 +146,28 @@ pub trait McpRuntime: Send + Sync {
     fn tools(&self) -> Vec<Value>;
 }
 
-/// Where the session a request addresses shows its transient notices (the `pushNotice` of the
-/// session extensions API, `tui/session/session-api/extensions.mjs`).
-#[async_trait]
+/// The sessions a request addresses, as the session service and its extensions API see them
+/// (`session-action.mjs`, `tui/session/session-api/extensions.mjs`).
 pub trait SessionToasts: Send + Sync {
-    /// `pushNotice(text, tone)` of the runtime hosting `thread`: a toast of that session, in its
-    /// state when this returns. A thread no loaded session hosts shows nothing.
-    async fn toast(&self, thread: &str, text: &str, tone: &str);
+    /// The session service is closed (`isClosed()`): the daemon's shutdown began.
+    fn closed(&self) -> bool;
+    /// The runtime now hosting `thread`, which the call addresses from its start to its end (`entryForSession`'s entry). `None` for
+    /// a session no runtime hosts: a cold session is not disposed, Node reopens it.
+    fn incarnation(&self, thread: &str) -> Option<Arc<dyn Incarnation>>;
 }
+
+/// One runtime of a session (Node's service entry).
+#[async_trait]
+pub trait Incarnation: Send + Sync {
+    /// `pushNotice(text, tone)` of this runtime: a toast of its session, published to its clients when this returns. A runtime
+    /// that ended accepts it and shows it to no one. The error is the cause that dropped the toast from a live runtime.
+    async fn toast(&self, text: &str, tone: &str) -> Result<(), String>;
+    /// This runtime ended (`entry.disposed`).
+    fn disposed(&self) -> bool;
+}
+
+const SERVICE_CLOSED: &str = "session service is closed";
+const RUNTIME_DISPOSED: &str = "session runtime is disposed";
 
 type Failure = String;
 
@@ -217,12 +231,27 @@ impl McpService {
         Self { config, host, runtime, secrets, home, adds: mixdog_rt::KeyedGate::new(), toasts }
     }
 
-    /// The notice a session extensions API call posts to the session it was made on (`pushNotice(text, 'info')`).
-    /// A call with no session (the control session) shows it to no one.
-    async fn post_notice(&self, params: &Value, text: String) {
-        if let Some(thread) = params.get("threadId").and_then(Value::as_str) {
-            self.toasts.toast(thread, &text, "info").await;
+    /// One session-addressed call that announces its result (`pushNotice(text, 'info')` after the runtime action), in Node's
+    /// order: the service must be open (`assertAvailable()`, `session-action.mjs:56`) before anything runs; the addressed runtime
+    /// is taken at the call's start; the action runs; its notice is posted to that runtime, a failure of the post rejecting the
+    /// call (the action's effect stands); then the service and the runtime are checked again (`:111`). A failed action rejects
+    /// before the notice and the check. A call with no session, or one no runtime hosts, posts nothing and is never disposed.
+    async fn announced(&self, params: &Value, action: impl Future<Output = Result<Value, Failure>>, notice: impl FnOnce(&Value) -> Option<String>) -> Result<Value, Failure> {
+        if self.toasts.closed() {
+            return Err(SERVICE_CLOSED.to_owned());
         }
+        let session = params.get("threadId").and_then(Value::as_str).and_then(|thread| self.toasts.incarnation(thread));
+        let result = action.await?;
+        if let (Some(session), Some(text)) = (&session, notice(&result)) {
+            session.toast(&text, "info").await?;
+        }
+        if self.toasts.closed() {
+            return Err(SERVICE_CLOSED.to_owned());
+        }
+        if session.is_some_and(|session| session.disposed()) {
+            return Err(RUNTIME_DISPOSED.to_owned());
+        }
+        Ok(result)
     }
 
     fn agent(&self) -> Value {
@@ -1011,21 +1040,15 @@ impl McpService {
             "mcp/enablePluginMcp" => self.enable_plugin_mcp(field(p, "plugin")).await,
             // Only a start that waits for the browser is announced; one that stored tokens settled, or that failed, is not.
             "mcp/beginMcpOAuthLogin" => {
-                let begun = self.begin_oauth_login(&text(field(p, "name")), field(p, "options")).await;
-                if begun.as_ref().is_ok_and(|result| field(result, "state") == "pending") {
-                    self.post_notice(p, format!("mcp sign-in started: {}", mixdog_js::value_to_string(field(p, "name")))).await;
-                }
-                begun
+                let started = |result: &Value| (field(result, "state") == "pending").then(|| format!("mcp sign-in started: {}", mixdog_js::value_to_string(field(p, "name"))));
+                self.announced(p, self.begin_oauth_login(&text(field(p, "name")), field(p, "options")), started).await
             }
             "mcp/getMcpOAuthLoginStatus" => self.runtime.login_status(&text(field(p, "flowId")), field(p, "options")).await,
             "mcp/cancelMcpOAuthLogin" => self.runtime.cancel_login(&text(field(p, "flowId"))).await,
             "mcp/completeMcpOAuthLogin" => self.runtime.complete_login(&text(field(p, "flowId")), &text(field(p, "callbackUrl"))).await,
             "mcp/signOutMcpServer" => {
-                let signed_out = self.sign_out_mcp_server(&text(field(p, "name"))).await;
-                if signed_out.is_ok() {
-                    self.post_notice(p, format!("mcp signed out: {}", mixdog_js::value_to_string(field(p, "name")))).await;
-                }
-                signed_out
+                let signed_out = |_: &Value| Some(format!("mcp signed out: {}", mixdog_js::value_to_string(field(p, "name"))));
+                self.announced(p, self.sign_out_mcp_server(&text(field(p, "name"))), signed_out).await
             }
             "mcp/probeMcpServerAuth" => self.probe_mcp_server_auth(field(p, "cfg")).await,
             "connector/addConnectorAccount" => self.add_connector_account(field(p, "input"), &req.ctx.cancel).await.map_err(|_| cancelled())?,

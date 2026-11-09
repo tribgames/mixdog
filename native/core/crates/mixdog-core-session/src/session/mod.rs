@@ -79,6 +79,8 @@ mod agent_activity_tests;
 #[cfg(test)]
 mod toast_tests;
 #[cfg(test)]
+mod mcp_failure_tests;
+#[cfg(test)]
 mod route_config_tests;
 pub mod dispatch_sessions;
 pub mod search_backfill;
