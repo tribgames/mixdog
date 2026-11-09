@@ -20,6 +20,14 @@ const golden = JSON.parse(readFileSync(fixture('golden.json'), 'utf8'));
 const calls = readFileSync(fixture('calls.txt'), 'utf8').split(/\s+/).filter(Boolean);
 const clone = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
 
+// A wait that never ends is a defect to name, not a hang: every wait on the queue is raced with a bound that only ever fails it.
+const WAIT_BOUND_MS = 20_000;
+function within(promise, message) {
+  let timer;
+  const stalled = new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(message)), WAIT_BOUND_MS)));
+  return Promise.race([promise, stalled]).finally(() => clearTimeout(timer));
+}
+
 /** Node announced a changed git identity to the desktop's windows (`notifySettingsChanged('git')`) after `setGitGlobalConfig`;
  *  the core now publishes that event itself after `git/globalConfig/set`, so the adapter sends no request for it. */
 const NOT_SENT = new Set(['notifySettingsChanged']);
@@ -144,11 +152,14 @@ test('phone-scm keeps Node\'s barrier: a read submitted behind a slow write star
   const answers = ordering.calls.map(({ call, params }) => runQueued(ctx, call, clone(params), () => adapter.calls[call](clone(params), { ctx, client: () => core })).then((value) => ({ ok: true, value: value === undefined ? null : clone(value) })));
   // The write signals from inside the operation, held: that is when Node's recording took the same snapshot.
   // A write that never started leaves nothing to signal: then every call finishes without reaching it, and that is the failure to name.
-  const outcome = await Promise.race([reached.then(() => 'held'), Promise.allSettled(answers).then(() => 'every call finished')]);
+  const outcome = await within(
+    Promise.race([reached.then(() => 'held'), Promise.allSettled(answers).then(() => 'every call finished')]),
+    `the write ${ordering.heldStarts[0]} did not start: the queue stalled before reaching it`,
+  );
   assert.equal(outcome, 'held', `the write ${ordering.heldStarts[0]} never started: every call finished without reaching it`);
   assert.deepEqual(log.map((entry) => entry.started), ordering.heldStarts);
   release();
-  assert.deepEqual(await Promise.all(answers), ordering.answers);
+  assert.deepEqual(await within(Promise.all(answers), `the calls behind the held write ${ordering.heldStarts[0]} never finished`), ordering.answers);
   assert.deepEqual(log, ordering.order);
   callQueueFor(ctx).close();
 });

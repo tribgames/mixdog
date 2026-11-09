@@ -13,10 +13,16 @@
 //        benchmarks/rust-core/recorders/record-phone-scm.mjs --tree <git archive of b6f10295a with node_modules>
 //
 // Scratch repositories live under D:\mixdog-build\tmp\phone-ph2-scm-rec and are deleted when the run ends.
+//
+// With `--replay <mixdogd.exe>` the same scenario is driven through the phone's adapter against a built daemon and everything the
+// recording holds is compared with what the core did, in the recorded order: the frame the phone got, every desktop operation's
+// request and result, every program the core tried to start (started or not, and how it ended), the settings events, the virtual
+// clock's steps, and the ordering scenario.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import fs, { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
+import net from 'node:net';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
@@ -28,11 +34,11 @@ const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const WORK = process.env.PHONE_SCM_WORK ?? 'D:\\mixdog-build\\tmp\\phone-ph2-scm-rec';
 const FIXTURES = join(REPO_ROOT, 'apps', 'desktop', 'src', 'renderer', 'fixtures', 'phone-scm');
 const args = parseArgs();
-// `--replay <mixdogd.exe>`: the same scripted scenario, but each call goes through the phone's adapter to a built `mixdogd` and its
-// answer is compared in full with the recording (fixtures/phone-scm/golden.json) instead of being recorded. Only the calls that
-// ran no scripted process (`gh`, `winget`, `soffice.com`, `git --version`) are replayed: the core spawns its own tools, and no
-// scripted `gh` is put on its PATH. The replay ends where the scenario's GitHub half begins.
-const REPLAY = args.get('replay') ?? null;const tree = resolveTree(args);
+// `--replay <mixdogd.exe>`: the same scripted scenario, but each call goes through the phone's adapter to a built `mixdogd` and
+// what happens is compared in full with the recording (fixtures/phone-scm/golden.json) instead of being recorded. The core spawns
+// its own tools: they are the executables of lib/scripted-tool.rs on its PATH, answered by the same script as Node's.
+const REPLAY = args.get('replay') ?? null;
+const tree = resolveTree(args);
 const identity = exactProductIdentity(tree, REF);
 const script = JSON.parse(readFileSync(join(FIXTURES, 'gh-script.json'), 'utf8'));
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -78,22 +84,54 @@ const realGit = MACHINE_PATH.split(';').filter((dir) => dir !== join(WORK, 'bin'
 process.env.PHONE_SCM_REAL_GIT = realGit;
 if (!REPLAY) fs.copyFileSync(shimExe, join(WORK, 'bin', 'git.exe'));
 
-// Node's clock, driven by the recorder: time passes only when the recording says so.
-let clockSkew = 0;
-const realNow = Date.now;
-Date.now = () => realNow() + clockSkew;
-// A deadline Node's runner would wait 60 s for is shortened to `runLimitMs`, and Node's clock is skewed by `clockSkewMs`: the same
-// two changes are made to a built core through its debug-build seam file (mixdog-scm src/seam.rs), so the replay compares the
-// core's own timeout and its own 60 s remote-list cache with Node's, not a stand-in.
-const seam = { runLimitMs: 0, runLimitFor: '', clockSkewMs: 0 };
-const SEAM_FILE = join(WORK, 'seam.json');
-// Every attempt of the core to start a program, started or not, one JSON line each (debug seam, mixdog-scm src/seam.rs).
-const ATTEMPTS_FILE = join(WORK, 'attempts.jsonl');
-function setSeam(change) {
-  Object.assign(seam, change);
-  clockSkew = seam.clockSkewMs;
-  if (REPLAY) writeFileSync(SEAM_FILE, JSON.stringify({ clockSkewMs: seam.clockSkewMs, ...(seam.runLimitMs ? { runLimitMs: seam.runLimitMs, runLimitFor: seam.runLimitFor } : {}) }));
+// A wait that never ends is a defect to name, not a hang: every wait of this recorder is raced with a bound that only ever fails it.
+// It is the real timer, taken before the virtual clock below replaces `setTimeout`.
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
+const WAIT_BOUND_MS = 90_000;
+function withDeadline(promise, message) {
+  let timer;
+  const stalled = new Promise((_, reject) => (timer = realSetTimeout(() => reject(new Error(message)), WAIT_BOUND_MS)));
+  return Promise.race([promise, stalled]).finally(() => realClearTimeout(timer));
 }
+
+// Node's clock is virtual: `Date.now` stays where it is until `advance` moves it, and so does Node's 60 s run limit of a git read
+// (run-child.mjs arms it with `setTimeout(kill, 60000)`). While `limit` is set, a timer of exactly that many ms is on this
+// clock: it fires when the clock reaches it, never by waiting. The built core gets the same clock through its debug-build seam
+// (mixdog-scm src/seam.rs), advanced over one connection the recorder listens on, so the replay compares the core's own remote-list
+// cache and run limit with Node's at the same instants.
+const EPOCH_MS = 1_793_588_645_000;
+const clock = {
+  now: EPOCH_MS,
+  limit: 0,
+  tag: null,
+  timers: new Set(),
+  listeners: [],
+  advance(ms) {
+    clock.now += ms;
+    const due = [...clock.timers].filter((timer) => timer.at <= clock.now).sort((a, b) => a.at - b.at);
+    for (const timer of due) clock.timers.delete(timer);
+    const fired = due.map((timer) => timer.child);
+    const armed = [...clock.timers].map((timer) => timer.child);
+    for (const timer of due) timer.fire();
+    return { fired, armed };
+  },
+};
+Date.now = () => clock.now;
+globalThis.setTimeout = (fire, delay, ...rest) => {
+  if (!(clock.limit > 0 && delay === clock.limit)) return realSetTimeout(fire, delay, ...rest);
+  const timer = { at: clock.now + delay, child: clock.tag, fire: () => fire(...rest), unref() {}, ref() {} };
+  clock.timers.add(timer);
+  for (const listener of clock.listeners.splice(0)) listener();
+  return timer;
+};
+globalThis.clearTimeout = (handle) => (clock.timers.delete(handle) ? undefined : realClearTimeout(handle));
+// The attempts the core logs for programs of its JS workers (the LibreOffice probe, an installer): lib/spawn-log.cjs.
+const JS_ATTEMPTS_FILE = join(WORK, 'js-attempts.jsonl');
+// The shim's "git hangs" switch: while the file names a word, a git given that word as an argument never answers (the scripted
+// world's git status that does not return), for Node's git and the core's alike.
+const HANG_FILE = join(WORK, 'git-hangs.txt');
+process.env.PHONE_SCM_HANG_FILE = HANG_FILE;
 
 // `ghlogin_<pid>_<n>` (github-cli.ts): the scripted host has a fixed pid.
 Object.defineProperty(process, 'pid', { value: 4242 });
@@ -124,24 +162,60 @@ const { createRemoteMethods, executeRemoteFrame } = await main('remote-methods')
 const { createDesktopOperations } = await main('desktop-operations');
 // The daemon that answers the phone starts git on its process-runner worker (desktop-service.ts:1052), so a failed command's text is\n// git-runner.ts gitFailure's (`Command failed: git commit ...`), not execFile's (which names the resolved git.exe).
 const { setGitProcessRunner } = await main('git-runner');
-const { runProcessOffThread } = await importFrom(tree, 'src/runtime/shared/process-runner.mjs');
-// A deadline Node's runner would wait 60 s for is shortened to the seam's runLimitMs while a case sets it: the same code kills the child and words the failure.
-// A git that could not start (spawn ENOENT) is an attempt Node made and failed: it is recorded with the scripted tools' attempts.
+// The runner the daemon's process pool runs in a worker thread (process-runner.mjs), here on the calling thread - the path its own comment
+// gives for a bundle with no worker file - so that its run limit is a timer of this thread, on the virtual clock.
+const { runChild } = await importFrom(tree, 'src/runtime/shared/run-child.mjs');
+// Every git child of the host is an attempt, recorded at the moment it is issued (the order Node's code issues them in; the spawn
+// itself is synchronous in the runner) with how it ended: its exit code, the runner's error code (ETIMEDOUT, EMAXBUFFER), or
+// `code: -1` for a program that could not start (spawn ENOENT). The run limit is Node's own: no option is changed here.
 // The git children of a call that are still running when it answers (a read that failed early leaves its siblings behind) are
-// tracked, so the recorder waits for each one's own completion, not for a fixed time, before it takes the call's attempts.
+// tracked, so the recorder waits for each one's own settling, not for a fixed time, before it takes the call's attempts.
 const gitInFlight = new Set();
+let inRunner = false;
 setGitProcessRunner((command, runArgs, options) => {
-  const limited = seam.runLimitMs && options.timeoutMs > 0 && runArgs.includes(seam.runLimitFor);
-  const run = runProcessOffThread(command, runArgs, limited ? { ...options, timeoutMs: seam.runLimitMs } : options).catch((error) => {
-    if (error?.code === 'ENOENT') processes.push({ tool: 'git', argv: clone(runArgs), cwd: options.cwd ?? null, reply: { code: -1, stderr: 'ENOENT' } });
-    throw error;
-  });
-  const settled = run.then(() => gitInFlight.delete(settled), () => gitInFlight.delete(settled));
-  gitInFlight.add(settled);
+  const attempt = { tool: 'git', argv: clone(runArgs), cwd: options.cwd ?? null };
+  processes.push(attempt);
+  // A virtual run limit armed while this child is started belongs to it.
+  clock.tag = { tool: 'git', argv: clone(runArgs) };
+  inRunner = true;
+  const run = runChild({ command, args: runArgs, cwd: options.cwd, input: options.input ?? '', env: options.env ?? null, timeoutMs: options.timeoutMs, maxBytes: options.maxBytes });
+  inRunner = false;
+  clock.tag = null;
+  run.then(
+    (result) => (attempt.reply = { code: result.code }),
+    (error) => (attempt.reply = error?.code === 'ENOENT' ? { code: -1, stderr: 'ENOENT' } : { error: error?.code ?? 'error' }),
+  );
+  const entry = { settled: run.then(() => gitInFlight.delete(entry), () => gitInFlight.delete(entry)), argv: runArgs };
+  gitInFlight.add(entry);
   return run;
 });
-async function drainGit() {
-  while (gitInFlight.size) await Promise.all([...gitInFlight]);
+// A git that Node starts without the runner above (a config read, a review's temporary index, ...) is an attempt too: it is taken
+// where every child process starts, with how it ended. The runner's own children are recorded by the runner (with its limit's end).
+{
+  const { ChildProcess } = await import('node:child_process');
+  const start = ChildProcess.prototype.spawn;
+  ChildProcess.prototype.spawn = function spawn(options) {
+    const result = start.call(this, options);
+    if (!inRunner && /(^|[\\/])git(\.exe)?$/i.test(String(options.file))) {
+      const attempt = { tool: 'git', argv: (options.args ?? []).slice(1).map(String), cwd: options.cwd ?? null };
+      processes.push(attempt);
+      if (this.pid === undefined) attempt.reply = { code: -1, stderr: 'ENOENT' };
+      else {
+        const entry = { settled: new Promise((settle) => this.once('close', settle)), argv: attempt.argv };
+        gitInFlight.add(entry);
+        entry.settled.then(() => gitInFlight.delete(entry));
+        this.once('exit', (code) => (attempt.reply = { code }));
+      }
+    }
+    return result;
+  };
+}/** Waits for the git children still running, except those `keep` says to leave (the one a scenario holds). */
+async function drainGit(keep = () => false) {
+  for (;;) {
+    const waiting = [...gitInFlight].filter((entry) => !keep(entry.argv));
+    if (!waiting.length) return;
+    await withDeadline(Promise.all(waiting.map((entry) => entry.settled)), `git children of the call never settled: ${waiting.map((entry) => entry.argv.join(' ')).join(' | ')}`);
+  }
 }
 const githubCli = await main('github-cli');
 githubCli.githubCliLoginTestHooks.pty = pty.module;
@@ -232,6 +306,69 @@ const cases = [];
 const covered = new Set();
 
 // ── replay: a built mixdogd, driven by the phone's adapter ──
+/**
+ * The listener the core's debug seam connects to (mixdog-scm src/seam.rs). Everything the core tells arrives as one JSON line per
+ * event, in the order it happened; `advance <ms>` moves its virtual clock, `sync` is answered after every event the core had
+ * written before it, so what a finished call did is all here once the answer arrives.
+ */
+async function listenWire() {
+  const events = [];
+  let waiting = [];
+  let socket = null;
+  let connect;
+  const connected = new Promise((resolve) => (connect = resolve));
+  const server = net.createServer((peer) => {
+    socket = peer;
+    let received = '';
+    peer.on('error', () => {});
+    peer.on('data', (chunk) => {
+      received += chunk.toString('utf8');
+      const lines = received.split('\n');
+      received = lines.pop();
+      for (const line of lines) events.push(JSON.parse(line));
+      const recheck = waiting;
+      waiting = [];
+      for (const check of recheck) check();
+    });
+    connect();
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const until = (find, message) =>
+    withDeadline(
+      new Promise((resolve) => {
+        const check = () => {
+          const found = find();
+          if (found) resolve(found);
+          else waiting.push(check);
+        };
+        check();
+      }),
+      message,
+    );
+  return {
+    address: `127.0.0.1:${server.address().port}`,
+    events,
+    connected,
+    until,
+    /** Everything the core wrote before this call is in `events` when it resolves. */
+    async sync() {
+      const from = events.length;
+      socket.write('sync\n');
+      await until(() => events.slice(from).some((event) => event.event === 'synced'), 'the core never answered sync');
+    },
+    /** The virtual clock moves by `ms`; the children whose run limit that reached, and those still counting. */
+    async advance(ms) {
+      const from = events.length;
+      socket.write(`advance ${ms}\n`);
+      const advanced = await until(() => events.slice(from).find((event) => event.event === 'advanced'), `the core never answered advance ${ms}`);
+      const child = ({ program, args }) => ({ tool: toolName(program), argv: args });
+      return { advance: ms, fired: advanced.fired.map(child), armed: advanced.armed.map(child) };
+    },
+  };
+}
+/** The program's own name: no folder, no `.exe`. */
+const toolName = (program) => basename(program).toLowerCase().replace(/\.exe$/, '');
+
 let replay = null;
 const settingsChanges = [];
 let settingsWaiting = [];
@@ -240,6 +377,8 @@ if (REPLAY) {
   const here = (path) => import(pathToFileURL(join(REPO_ROOT, path)).href);
   if (process.env.PHONE_SCM_VERBOSE) console.error('stage: imports');
   const { adapter } = await here('apps/desktop/src/renderer/remote-protocol-scm.ts');
+  const { runQueued, callQueueFor } = await here('apps/desktop/src/renderer/remote-protocol-queue.ts');
+  const { SCM_OPERATION_ROUTES } = await here('apps/desktop/src/shared/scm-operation-route.ts');
   const { connect, sessionReducer } = await here('packages/protocol-client/src/index.ts');
   const { scopeClient } = await here('apps/mobile/src/phone-send-scope.ts');
   const { createWsConnector } = await here('apps/desktop/src/main/protocol/ws-connector.ts');
@@ -267,6 +406,7 @@ if (REPLAY) {
     },
   });
   shims.sync();
+  const wire = await listenWire();
   // Nothing the core spawns may reach this machine's own tools (an installer, an account tool, a browser). The environment is built,
   // not inherited: one Path (a second PATH key beside the inherited Path left the real one in force once), holding only this
   // world's bin folder and the Windows system folders; every install place the product probes is a folder of this world.
@@ -285,8 +425,11 @@ if (REPLAY) {
     MIXDOG_HOME: join(WORK, 'home', '.mixdog'),
     MIXDOG_CONFIG_DIR: join(WORK, 'config'),
     MIXDOG_RUNTIME_ROOT: runtimeRoot,
-    MIXDOG_SCM_DEBUG_SEAM: SEAM_FILE,
-    MIXDOG_SCM_DEBUG_ATTEMPTS: ATTEMPTS_FILE,
+    // The core's debug seam (mixdog-scm src/seam.rs): the connection its virtual clock and attempt events travel over, and the
+    // scratch folder whose files have the scripted identity of the recording.
+    MIXDOG_SCM_DEBUG_CLOCK: wire.address,
+    MIXDOG_SCM_DEBUG_IDENTITY_ROOT: WORK,
+    MIXDOG_SCM_DEBUG_ATTEMPTS: JS_ATTEMPTS_FILE,
     // The core's JS workers run Node's own code for some tools (the LibreOffice probe and install): their attempts go to the same log.
     NODE_OPTIONS: `--require ${join(REPO_ROOT, 'benchmarks', 'rust-core', 'recorders', 'lib', 'spawn-log.cjs').replaceAll('\\', '/')}`,
   });
@@ -308,22 +451,26 @@ if (REPLAY) {
     if (process.env.PHONE_SCM_VERBOSE) console.error('[core]', String(chunk).trimEnd());
   });
   // The daemon publishes daemon.json when it serves: wait for that file to appear (a watch on its folder), or for the daemon to exit.
-  const endpoint = await new Promise((resolve, reject) => {
-    const watcher = fs.watch(runtimeRoot);
-    const done = (fn, value) => (watcher.close(), fn(value));
-    const look = () => {
-      try {
-        done(resolve, parseDiscovery(readFileSync(join(runtimeRoot, 'daemon.json'), 'utf8')));
-      } catch (error) {
-        if (process.env.PHONE_SCM_VERBOSE) console.error('look', error.message);
-      }
-    };
-    watcher.on('change', look);
-    core.once('exit', (code) => done(reject, new Error(`mixdogd exited ${code}:\n${stderr}`)));
-    look();
-  });
+  const endpoint = await withDeadline(
+    new Promise((resolve, reject) => {
+      const watcher = fs.watch(runtimeRoot);
+      const done = (fn, value) => (watcher.close(), fn(value));
+      const look = () => {
+        try {
+          done(resolve, parseDiscovery(readFileSync(join(runtimeRoot, 'daemon.json'), 'utf8')));
+        } catch (error) {
+          if (process.env.PHONE_SCM_VERBOSE) console.error('look', error.message);
+        }
+      };
+      watcher.on('change', look);
+      core.once('exit', (code) => done(reject, new Error(`mixdogd exited ${code}:\n${stderr}`)));
+      look();
+    }),
+    'the daemon never published daemon.json',
+  );
+  await withDeadline(wire.connected, 'the core never connected its debug seam (is mixdogd a debug build?)');
   if (process.env.PHONE_SCM_VERBOSE) console.error('endpoint', JSON.stringify(endpoint));
-  const client = await connect({
+  const client = await withDeadline(connect({
     target: { id: 'core' },
     connector: createWsConnector(async () => endpoint),
     clientInfo: { name: 'mixdog-phone', title: 'Mixdog Phone', version: '1.4.5', kind: 'phone' },
@@ -331,7 +478,7 @@ if (REPLAY) {
     threadReducer: sessionReducer,
     clock: { sleep: (ms) => new Promise((done) => setTimeout(done, ms)) },
     random: Math.random,
-  });
+  }), 'the core never accepted the phone connection');
   // Node told the desktop's windows `settings-changed {scope: 'git'}` after a global git setting was written. The core publishes
   // that change itself, as the `hostState` section `gitConfig` of the app feed (service.rs GIT_CONFIG_KEY): the one thing a phone
   // watching the app feed can compare. Changes of the snapshot that subscribing folds are not events: the store announces the
@@ -345,35 +492,56 @@ if (REPLAY) {
     settingsChanges.push({ name: 'settings-changed', value: { scope: 'git' } });
     settingsWaiting = settingsWaiting.filter((waiter) => !waiter());
   });
-  await client.subscribeApp();
-  await appSnapshot;
+  await withDeadline(client.subscribeApp(), 'the core never answered the app subscription');
+  await withDeadline(appSnapshot, 'the core never sent the app snapshot');
   appLive = true;
+  // Every request the adapter makes of the core, and what the core answered, in order: the desktop operations of the call, compared
+  // with the ones Node ran. `hold`, when set, is told each request first and may keep it back (the ordering scenario's slow write).
+  const wires = [];
+  const holder = { hold: null };
+  const traced = new Proxy(client, {
+    get(target, key) {
+      if (key !== 'call') return Reflect.get(target, key, target);
+      return async (method, params, options) => {
+        const entry = { method, ...(params === undefined ? {} : { params: clone(params) }) };
+        wires.push(entry);
+        await holder.hold?.(entry);
+        try {
+          const value = await target.call(method, params, options);
+          entry.result = value === undefined ? null : clone(value);
+          return value;
+        } catch (error) {
+          entry.error = { message: error?.detail?.data?.message ?? error?.message ?? String(error) };
+          throw error;
+        } finally {
+          holder.ended?.(entry);
+        }
+      };
+    },
+  });
   // As the router gives it: the client scoped to the call, so every request frame carries the call's `sent` claim.
-  const host = { ctx: {}, client: () => scopeClient(client, () => {}) };
+  const host = { ctx: {}, client: () => scopeClient(traced, () => {}) };
   const byName = new Map(golden.cases.map((entry) => [entry.name, entry]));
-  replay = { core, client, host, adapter, byName, shims, compared: [], differences: [], ptySeen: 0 };
+  replay = { core, client, host, adapter, runQueued, callQueueFor, routes: SCM_OPERATION_ROUTES, golden, byName, shims, wire, wires, holder, compared: [], differences: [], ptySeen: 0, jsSeen: 0 };
 }
 
 /** The phone's adapter against the core: the frame the relay would carry. */
-async function replayCall(call, params) {
-  try {
-    // A call that never answers is a defect to name, not a hang to wait out.
-    let timer;
-    const stalled = new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(`the core never answered ${call}`)), 120_000)));
-    const value = await Promise.race([replay.adapter.calls[call](params, replay.host), stalled]).finally(() => clearTimeout(timer));
-    return { ok: true, value: value === undefined ? null : clone(value) };
-  } catch (error) {
-    return { ok: false, error: error.message, ...(typeof error.code === 'string' && error.code ? { errorCode: error.code } : {}), ...(error.details === undefined ? {} : { errorParams: error.details }) };
-  }
+const frameOf = (value) => ({ ok: true, value: value === undefined ? null : clone(value) });
+const failureFrame = (error) => ({ ok: false, error: error.message, ...(typeof error.code === 'string' && error.code ? { errorCode: error.code } : {}), ...(error.details === undefined ? {} : { errorParams: error.details }) });
+/** One phone call the way the router runs it: through the connection's one shared queue. */
+function replayCall(call, params) {
+  const answered = replay.runQueued(replay.host.ctx, call, params, async () => replay.adapter.calls[call](params, replay.host));
+  return withDeadline(answered.then(frameOf, failureFrame), `the core never answered ${call}`);
 }
 
 async function finishReplay() {
   replay.client.close?.();
   const exited = new Promise((resolve) => replay.core.once('exit', resolve));
   execFileSync('taskkill', ['/T', '/F', '/PID', String(replay.core.pid)], { stdio: 'ignore' });
-  await exited;
-  rmSync(WORK, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
-  console.log(`phone-scm replay over ${REPLAY}: ${replay.compared.length} compared, ${replay.differences.length} differ, ${replay.byName.size - replay.compared.length} of the recording not replayed`);
+  await withDeadline(exited, 'the core did not exit after taskkill');
+  rmSync(WORK, { recursive: true, force: true });
+  const cases = replay.compared.filter((name) => name !== 'ordering');
+  console.log(`phone-scm replay over ${REPLAY}: ${cases.length} cases and the ordering scenario compared (${replay.compared.includes('ordering') ? 'replayed' : 'NOT replayed'}), ${replay.differences.length} differ, ${replay.byName.size - cases.length} of the recording not replayed`);
   for (const difference of replay.differences) console.log(`DIFF ${difference.name}\n  node: ${JSON.stringify(difference.node)}\n  core: ${JSON.stringify(difference.core)}`);
   process.exit(replay.differences.length ? 1 : 0);
 }
@@ -381,11 +549,6 @@ async function finishReplay() {
 // so the core's answer is read with that pid as the recording's. Nothing else is rewritten.
 const coreParams = (params) => JSON.parse(JSON.stringify(params).replaceAll('ghlogin_4242_', `ghlogin_${replay.core.pid}_`));
 const flowOf = (n) => (replay ? withDeadline(replay.shims.flow(n), `the core never ran gh auth login (flow ${n})`) : pty.spawned[n]);
-function withDeadline(promise, message) {
-  let timer;
-  const stalled = new Promise((_, reject) => (timer = setTimeout(() => reject(new Error(message)), 60_000)));
-  return Promise.race([promise, stalled]).finally(() => clearTimeout(timer));
-}
 // The core reads the gh output on its own time (Node's scripted pty is synchronous). Its sign-in flow is a scoped feed
 // (`login:<flowId>`, service.rs login_start): the snapshot at subscription and every `login/updated` that follows carry the flow's
 // state, so the replay learns what gh printed from the core's own notification rather than by asking again.
@@ -403,7 +566,7 @@ async function watchFlow(flowId) {
     feed.state = params.state;
     feed.waiting = feed.waiting.filter((waiter) => !waiter(feed.state));
   });
-  await replay.client.call('feed/subscribe', { feedId });
+  await withDeadline(replay.client.call('feed/subscribe', { feedId }), `the core never answered the subscription to `);
 }
 function settled(flowId, ready) {
   if (!replay) return Promise.resolve();
@@ -416,38 +579,202 @@ function settled(flowId, ready) {
     `flow ${flowId} never showed what gh printed`,
   );
 }
-/** The attempts the core logged since the last call, as `{tool, argv, started}` (the program's own name, without folder or `.exe`). */
-let attemptsRead = 0;
-function coreAttemptsSince() {
-  const lines = existsSync(ATTEMPTS_FILE) ? readFileSync(ATTEMPTS_FILE, 'utf8').split('\n').filter(Boolean) : [];
-  const fresh = lines.slice(attemptsRead).map((line) => JSON.parse(line));
-  attemptsRead = lines.length;
-  return fresh.map(({ program, args, pty: terminal, started }) => ({
-    tool: terminal ? 'pty' : basename(program).toLowerCase().replace(/\.exe$/, ''),
-    argv: args,
-    started,
-  }));
+// ── what the core did, as the replay sees it ──
+/** An attempt as it is compared: the program's own name, its arguments, whether it started, and (a program that started, not the
+ *  sign-in's terminal) how it ended: its exit code, or the error the runner reports (ETIMEDOUT, EMAXBUFFER). */
+const attemptOf = ({ tool, argv, started, ended }) => ({ tool, argv, started, ...(started && ended ? ended : {}) });
+/** The attempts Node recorded for a call, in the order Node made them. */
+const nodeAttempts = (list) =>
+  (list ?? []).map(({ tool, argv, reply }) =>
+    attemptOf({
+      tool,
+      argv,
+      started: reply?.code !== -1,
+      ended: tool === 'pty' ? null : reply?.error !== undefined ? { error: reply.error } : reply?.code !== undefined ? { code: reply.code } : null,
+    }),
+  );
+/** The attempts of the core's own spawns since `mark`, in the order it issued them (the seam tells each at the moment it is made). */
+function coreAttempts(mark) {
+  const attempts = new Map();
+  const order = [];
+  for (const event of replay.wire.events.slice(mark)) {
+    if (event.event === 'begin') {
+      const attempt = { tool: event.pty ? 'pty' : toolName(event.program), argv: event.args };
+      attempts.set(event.seq, attempt);
+      order.push(attempt);
+    } else if (event.event === 'spawned' && attempts.has(event.seq)) attempts.get(event.seq).started = event.started;
+    else if (event.event === 'done' && attempts.has(event.seq)) attempts.get(event.seq).ended = event.result;
+  }
+  return order.map(attemptOf);
+}
+/** The attempts of the core's JS workers (the LibreOffice probe, the winget installs) since the last look: lib/spawn-log.cjs. */
+let jsRead = 0;
+function jsAttempts() {
+  const lines = existsSync(JS_ATTEMPTS_FILE) ? readFileSync(JS_ATTEMPTS_FILE, 'utf8').split('\n').filter(Boolean) : [];
+  const fresh = lines.slice(jsRead).map((line) => JSON.parse(line));
+  jsRead = lines.length;
+  const attempts = new Map();
+  const order = [];
+  for (const line of fresh) {
+    if (line.program !== undefined) {
+      const attempt = { tool: toolName(line.program), argv: line.args, started: line.started };
+      attempts.set(line.id, attempt);
+      order.push(attempt);
+    } else if (attempts.has(line.id)) attempts.get(line.id).ended = { code: line.exit };
+  }
+  return order.map(attemptOf);
 }
 function mapFlowIds(frame) {
   return JSON.parse(JSON.stringify(frame).replaceAll(`ghlogin_${replay.core.pid}_`, 'ghlogin_4242_'));
 }
-const LIVE_NODE = new Set(['gitReview', 'gitReview-uncommitted']);
-async function nodeFrame(call, params) {
-  const frame = await executeRemoteFrame(methods, JSON.stringify({ id: 1, method: call, params }));
-  const { id: _id, ...answer } = JSON.parse(JSON.stringify(frame));
-  return answer;
+
+/** The desktop operations of a recording as the wire requests and outcomes the adapter must make of the core. */
+function expectedWires(ops) {
+  return ops
+    .filter((op) => op.name !== 'notifySettingsChanged')
+    .map((op) => {
+      const spawn = op.error?.code === 'ENOENT' ? /^spawn (\S+) ENOENT$/.exec(op.error.message) : null;
+      const outcome = op.error
+        ? { failed: spawn ? { capability: spawn[1] } : { message: op.error.message } }
+        : { result: op.name === 'githubCliLoginStart' ? { flowId: op.result.flowId } : op.result === undefined ? null : op.result };
+      return { ...clone(replay.routes[op.name](op.args)), outcome };
+    });
 }
-/** One phone call through the relay's frame executor. */
-async function rec(name, call, params, note) {
+/** What the core answered each request of the adapter: its result, or its failure (a missing program is a missing capability). */
+function actualWires(wires) {
+  return mapFlowIds(
+    wires.map((wire) => {
+      const outcome = wire.error
+        ? { failed: wire.error.capability ? { capability: wire.error.capability } : { message: wire.error.message } }
+        : { result: wire.method === 'github/login/start' ? { flowId: wire.result.flowId } : wire.result };
+      return { method: wire.method, ...(wire.params === undefined ? {} : { params: wire.params }), outcome };
+    }),
+  );
+}
+// The sign-in start answers the flow's id; the adapter then reads the flow itself with `github/login/status` requests (DS 5.4), which no
+// desktop operation of Node's recording stands for.
+const loginReads = (wires) => wires.every((wire) => wire.method === 'github/login/status');
+function opsDifference(ops, wires) {
+  const expected = expectedWires(ops);
+  const actual = actualWires(wires);
+  const asked = actual.slice(0, expected.length);
+  return isDeepStrictEqual(asked, expected) && loginReads(actual.slice(expected.length)) ? null : { node: expected, core: actual };
+}
+
+// The clock steps taken since the last call: they belong to the next call recorded (a status after the remote-list minute went by).
+const pendingClock = [];
+async function advanceClock(ms) {
+  pendingClock.push(replay ? await replay.wire.advance(ms) : { advance: ms, ...clock.advance(ms) });
+}
+/** What a scenario waits for while a call is still running, with a bound on each wait: the same for Node (its virtual timers and
+ *  git children) and for the core (its seam's events). */
+const timeline = {
+  /** A run limit of a child `match` accepts is counting. */
+  armed(match, message) {
+    if (!replay) {
+      return withDeadline(
+        new Promise((resolve) => {
+          const check = () => ([...clock.timers].some((timer) => match(timer.child)) ? resolve() : clock.listeners.push(check));
+          check();
+        }),
+        message,
+      );
+    }
+    const { mark } = replay.current;
+    return replay.wire.until(() => replay.wire.events.slice(mark).some((event) => event.event === 'armed' && match({ tool: toolName(event.child.program), argv: event.child.args })), message);
+  },
+  /** Every child of the call that `match` does not accept has ended (the one held is left running). */
+  others(match, message) {
+    if (!replay) return drainGit((argv) => match({ tool: 'git', argv }));
+    const { mark, recorded } = replay.current;
+    const expected = (recorded.processes ?? []).filter((entry) => !match({ tool: entry.tool, argv: entry.argv })).length;
+    return replay.wire.until(() => {
+      const begun = new Map();
+      let ended = 0;
+      for (const event of replay.wire.events.slice(mark)) {
+        if (event.event === 'begin') begun.set(event.seq, { tool: toolName(event.program), argv: event.args });
+        else if (event.event === 'done' && !match(begun.get(event.seq))) ended += 1;
+      }
+      return ended >= expected;
+    }, message);
+  },
+};
+
+/**
+ * The ordering scenario against the core: the calls enter the connection's one shared queue together, the slow write is held
+ * before its request reaches the core, and what the recording kept is compared: the calls that had started while it was held, for
+ * every request what had ended before it started, the frames, and the desktop operations the adapter requested.
+ */
+async function replayOrdering(scenario, heldWrite) {
+  const { ordering } = replay.golden;
+  const WRITES = new Set(['gitStage', 'gitUnstage']);
+  const known = ordering.ops.map((op) => ({ name: op.name, ...clone(replay.routes[op.name](op.args)) }));
+  const nameOf = (entry) => known.find((wire) => wire.method === entry.method && JSON.stringify(wire.params) === JSON.stringify(entry.params))?.name;
+  const order = [];
+  const ended = [];
+  let release;
+  let held;
+  const gate = new Promise((resolve) => (release = resolve));
+  const reached = new Promise((resolve) => (held = resolve));
+  replay.wires.length = 0;
+  replay.holder.hold = async (entry) => {
+    const name = nameOf(entry);
+    assert.ok(name, `the adapter requested ${entry.method} ${JSON.stringify(entry.params)}, which no operation of the ordering recording stands for`);
+    order.push({ started: name, endedBefore: WRITES.has(name) ? [...ended].sort() : ended.filter((done) => WRITES.has(done)).sort() });
+    if (name === heldWrite) {
+      held();
+      await gate;
+    }
+  };
+  replay.holder.ended = (entry) => ended.push(nameOf(entry));
+  const answers = [];
+  const ctx = {};
+  const calls = scenario.map(([call, params], index) =>
+    replay
+      .runQueued(ctx, call, clone(params), async () => replay.adapter.calls[call](clone(params), { ctx, client: replay.host.client }))
+      .then(frameOf, failureFrame)
+      .then((frame) => (answers[index] = frame)),
+  );
+  const outcome = await withDeadline(
+    Promise.race([reached.then(() => 'held'), Promise.allSettled(calls).then(() => 'every call finished')]),
+    `the write ${heldWrite} did not start: the shared queue stalled before reaching it`,
+  );
+  assert.equal(outcome, 'held', `the write ${heldWrite} never started: every call finished without reaching it`);
+  const heldStarts = order.map((entry) => entry.started);
+  if (!isDeepStrictEqual(heldStarts, ordering.heldStarts)) replay.differences.push({ name: 'ordering (started while the write was held)', node: ordering.heldStarts, core: heldStarts });
+  release();
+  await withDeadline(Promise.all(calls), `the calls behind the held write ${heldWrite} never finished`);
+  replay.holder.hold = null;
+  replay.holder.ended = null;
+  replay.callQueueFor(ctx).close();
+  if (!isDeepStrictEqual(order, ordering.order)) replay.differences.push({ name: 'ordering (order of starts and ends)', node: ordering.order, core: order });
+  if (!isDeepStrictEqual(answers, ordering.answers)) replay.differences.push({ name: 'ordering (frames)', node: ordering.answers, core: answers });
+  const operations = opsDifference(ordering.ops, replay.wires);
+  if (operations) replay.differences.push({ name: 'ordering (operations)', node: operations.node, core: operations.core });
+  replay.compared.push('ordering');
+}
+
+/**
+ * One phone call through the relay's frame executor (the recording) or the phone's adapter to the core (the replay). `during`, when
+ * given, runs while the call is still going, with the list the call's clock steps are added to.
+ */
+async function rec(name, call, params, note, during) {
   if (replay) {
     const recorded = replay.byName.get(name);
     assert.ok(recorded, `${name} is not in the recording`);
     if (process.env.PHONE_SCM_VERBOSE) console.error('replay', name);
     replay.shims.sync();
     processes.length = 0;
-    coreAttemptsSince();
+    const mark = replay.wire.events.length;
+    replay.current = { mark, recorded };
+    replay.wires.length = 0;
+    jsAttempts();
     const settingsBefore = settingsChanges.length;
-    const core = mapFlowIds(await replayCall(call, coreParams(params)));
+    const steps = [...pendingClock];
+    pendingClock.length = 0;
+    const answered = replayCall(call, coreParams(params));
+    if (during) await during(steps);
+    const core = mapFlowIds(await answered);
     // The core starts gh on its own time (Node's scripted pty is synchronous): wait for each sign-in the recording started.
     replay.ptySeen += (recorded.processes ?? []).filter((entry) => entry.tool === 'pty').length;
     if (replay.ptySeen) await withDeadline(replay.shims.flow(replay.ptySeen - 1), `the core never ran gh auth login for ${name}`);
@@ -464,33 +791,36 @@ async function rec(name, call, params, note) {
         `the core never published the ${wantEvents} settings change(s) of ${name}`,
       );
     }
+    // Everything the core told about the call is in by now.
+    await replay.wire.sync();
+    const differ = (what, node, coreSide) => replay.differences.push({ name: `${name} (${what})`, node, core: coreSide });
     const events = settingsChanges.slice(settingsBefore);
-    if (!isDeepStrictEqual(events, recorded.events ?? [])) replay.differences.push({ name: `${name} (events)`, node: recorded.events ?? [], core: events });
-    // The programs the core tried to start, as Node tried them: the same program, arguments and outcome (started, or could not
-    // start: spawn ENOENT), in the same order, one for one. The core logs each attempt itself (debug seam), a failed one too.
-    // Node's recording lists the tools its host scripts (gh, winget, soffice, the sign-in's terminal child, `git --version`) and
-    // every git it could not start; a git that ran is a real git on a scratch repository, which Node's recording does not list.
-    // `ghPrList` starts its four category queries at once (Promise.all there, join_all in the core): which process the OS starts
-    // first is not defined, so for that call alone the attempts are compared as a set. Every other call is ordered.
-    // `gitStatus` likewise reads its four git outputs side by side (Promise.all there, try_join in the core).
-    const concurrent = call === 'ghPrList' || call === 'gitStatus';
-    const order = (list) => (concurrent ? [...list].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))) : list);
-    const nodeAttempts = (recorded.processes ?? []).map(({ tool, argv, reply }) => ({ tool, argv, started: reply?.code !== -1 }));
-    const coreAttempts = coreAttemptsSince().filter((entry) => entry.tool !== 'git' || !entry.started || entry.argv.join(' ') === '--version');
-    if (!isDeepStrictEqual(order(coreAttempts), order(nodeAttempts))) replay.differences.push({ name: `${name} (attempts)`, node: order(nodeAttempts), core: order(coreAttempts) });
-    // A revision is the file system's own identity (size, times, inode): it differs per machine and per run, so Node answers these
-    // again on the very files the core just read instead of the golden's scripted ones.
-    const expected = LIVE_NODE.has(name) ? await nodeFrame(call, params) : recorded.frame;
+    if (!isDeepStrictEqual(events, recorded.events ?? [])) differ('events', recorded.events ?? [], events);
+    if (!isDeepStrictEqual(steps, recorded.clock ?? [])) differ('clock', recorded.clock ?? [], steps);
+    // Every program the core tried to start, as Node tried them, one for one and in the order they were issued: the same
+    // program, arguments and outcome (started, or could not start: spawn ENOENT) and the same end (exit code or runner error).
+    const rust = coreAttempts(mark);
+    const js = jsAttempts();
+    assert.ok(!(rust.length && js.length), `${name}: attempts of both the core's own spawns and its JS workers are not told apart in order`);
+    const wanted = nodeAttempts(recorded.processes);
+    if (!isDeepStrictEqual([...rust, ...js], wanted)) differ('attempts', wanted, [...rust, ...js]);
+    const operations = opsDifference(recorded.ops, replay.wires);
+    if (operations) differ('operations', operations.node, operations.core);
     replay.compared.push(name);
-    if (!isDeepStrictEqual(core, expected)) replay.differences.push({ name, node: expected, core });
+    if (!isDeepStrictEqual(core, recorded.frame)) replay.differences.push({ name, node: recorded.frame, core });
     return core;
   }
+  if (process.env.PHONE_SCM_VERBOSE) console.error('record', name);
   covered.add(call);
   trace.length = 0;
   events.length = 0;
   processes.length = 0;
+  const steps = [...pendingClock];
+  pendingClock.length = 0;
   const wire = JSON.parse(JSON.stringify(params));
-  const frame = await executeRemoteFrame(methods, JSON.stringify({ id: 1, method: call, params }));
+  const answered = executeRemoteFrame(methods, JSON.stringify({ id: 1, method: call, params }));
+  if (during) await during(steps);
+  const frame = await withDeadline(answered, `the call ${name} never answered`);
   await drainGit();
   const { id: _id, ...answer } = JSON.parse(JSON.stringify(frame));
   if (process.env.PHONE_SCM_VERBOSE) console.log(name, JSON.stringify(answer).slice(0, 300));
@@ -503,11 +833,11 @@ async function rec(name, call, params, note) {
     ops: clone(trace),
     ...(events.length ? { events: clone(events) } : {}),
     ...(processes.length ? { processes: clone(processes) } : {}),
+    ...(steps.length ? { clock: clone(steps) } : {}),
     world: clone(world),
   });
   return answer;
 }
-
 // ═══ 1. status and diff ═══
 write(R, 'a.txt', 'one\nTWO\nthree\nfour\nfive\n');
 write(R, 'src/b.mjs', 'export const b = 2;\n');
@@ -700,7 +1030,7 @@ git(R, 'clean', '-q', '-fd');
 // The repository without a remote: Node answers 'remote' from a read it keeps for 60 s per directory and never drops earlier
 // (git-status.ts:179-207, TTL git-read-utils.ts:6), so a remote added right after a status shows only once that minute has
 // passed. Node's clock is virtual: the recorder moves Date.now past the TTL, and moves the built core's cache clock by the same
-// skew through its debug seam (setSeam). These cases have a repository of their own, so nothing else's status depends on the minute.
+// amount through its debug seam. These cases have a repository of their own, so nothing else's status depends on the minute.
 const TEMP = join(WORK, 'bare-repo');
 mkdirSync(TEMP, { recursive: true });
 git(TEMP, 'init', '-q', '-b', 'main');
@@ -714,9 +1044,22 @@ await rec('gitSync-no-remote', 'gitSync', [TEMP]);
 await rec('gitStatus-before-remote-add', 'gitStatus', [TEMP]);
 git(TEMP, 'remote', 'add', 'origin', ORIGIN);
 await rec('gitStatus-remote-just-added', 'gitStatus', [TEMP]);
-setSeam({ clockSkewMs: 61_000 });
-await rec('gitStatus-remote-after-ttl', 'gitStatus', [TEMP]);
-setSeam({ clockSkewMs: 0 });
+// Node keeps a remote list while `expiresAt > Date.now()`: one ms short of the minute it is still the old list, at the minute it is read again.
+await advanceClock(59_999);
+await rec('gitStatus-remote-before-ttl', 'gitStatus', [TEMP]);
+await advanceClock(1);
+await rec('gitStatus-remote-at-ttl', 'gitStatus', [TEMP]);
+// And past it, on a repository whose first read is that far behind.
+const LATE = join(WORK, 'late-remote');
+mkdirSync(LATE, { recursive: true });
+git(LATE, 'init', '-q', '-b', 'main');
+write(LATE, 't.txt', 't\n');
+git(LATE, 'add', '.');
+git(LATE, 'commit', '-q', '-m', 'first');
+await rec('gitStatus-late-before-remote-add', 'gitStatus', [LATE]);
+git(LATE, 'remote', 'add', 'origin', ORIGIN);
+await advanceClock(60_001);
+await rec('gitStatus-remote-after-ttl', 'gitStatus', [LATE]);
 await rec('gitPush-no-upstream', 'gitPush', [R]);
 git(R, 'push', '-q', '-u', 'origin', 'main');
 await rec('gitPush-up-to-date', 'gitPush', [R]);
@@ -817,7 +1160,7 @@ const setupDone = new Promise((resolve) => {
 });
 secondFlow.exit(0);
 if (replay) await settled(second.value.flowId, (state) => !['pending', 'code'].includes(state?.state));
-else await setupDone;
+else await withDeadline(setupDone, 'the sign-in never finished gh auth setup-git');
 await rec('githubCliLoginStatus-success', 'githubCliLoginStatus', [second.value.flowId]);
 const third = await rec('githubCliLoginStart-third', 'githubCliLoginStart', []);
 await watchFlow(third.value.flowId);
@@ -862,7 +1205,7 @@ await rec('githubRequest-gate-off', 'githubRequest', [R, { action: 'pr.list', re
 config = { builtins: { git: { installed: true } } };
 if (replay) {
   // The same document, written through the core's own config call (a file write waits on a file watch the core may not have).
-  await replay.client.call('config/setBuiltinToolEnabled', { name: 'git', enabled: true });
+  await withDeadline(replay.client.call('config/setBuiltinToolEnabled', { name: 'git', enabled: true }), 'the core never answered the git gate switch');
   assert.ok(!/Enable Git & GitHub/.test((await replayCall('githubRequest', [R, { action: 'pr.list', repo: 'octo/demo' }])).error ?? ''), 'the core kept the Git & GitHub gate shut');
 }
 await rec('githubRequest-pr-list', 'githubRequest', [R, { action: 'pr.list', repo: 'octo/demo', state: 'open', limit: 5 }]);
@@ -925,14 +1268,39 @@ git(BIG, 'add', '.');
 git(BIG, 'commit', '-q', '-m', 'first');
 write(BIG, 'big.txt', bigText('after'));
 await rec('gitDiff-output-too-large', 'gitDiff', [BIG, 'big.txt', false]);
-// Only the status listing gets the shortened deadline: its siblings (numstat, remote) run to their ends, so which read times out
-// first is not a race.
-setSeam({ runLimitMs: 1, runLimitFor: 'status' });
-await rec('gitStatus-git-timeout', 'gitStatus', [FAILING]);
-setSeam({ runLimitMs: 0, runLimitFor: '' });
+// Node's production limit (GIT_READ_TIMEOUT_MS, 60 s) on its virtual clock. The status listing is the one git that never answers
+// (the shim hangs while HANG_FILE names `status`); its siblings (numstat, remote, the work-tree root) run to their ends first, so
+// the only child the limit can reach is the hung one. The clock stops one ms short of the limit (still running), then passes it.
+const RUN_LIMIT_MS = 60_000;
+const isStatusListing = (child) => child.argv.includes('status');
+writeFileSync(HANG_FILE, 'status');
+clock.limit = RUN_LIMIT_MS;
+await rec('gitStatus-git-timeout', 'gitStatus', [FAILING], null, async (steps) => {
+  await timeline.armed(isStatusListing, 'the run limit of the hung git status never started counting');
+  await timeline.others(isStatusListing, 'the siblings of the hung git status never ended');
+  steps.push(replay ? await replay.wire.advance(RUN_LIMIT_MS - 1) : { advance: RUN_LIMIT_MS - 1, ...clock.advance(RUN_LIMIT_MS - 1) });
+  assert.deepEqual(steps.at(-1).fired, [], 'the limit fired one ms before it was reached');
+  assert.equal(steps.at(-1).armed.filter(isStatusListing).length, 1, 'the hung status is not counting');
+  steps.push(replay ? await replay.wire.advance(2) : { advance: 2, ...clock.advance(2) });
+  assert.equal(steps.at(-1).fired.filter(isStatusListing).length, 1, 'the limit did not fire past the boundary');
+});
+clock.limit = 0;
+rmSync(HANG_FILE, { force: true });
 
-if (replay) await finishReplay();
 // ═══ 11. ordering: a read behind a slow write ═══
+const scenario = [
+  ['gitStage', [R, ['ordering.txt']]],
+  ['gitStatus', [R]],
+  ['gitLog', [R]],
+  ['gitUnstage', [R, ['ordering.txt']]],
+  ['gitDiff', [R, 'a.txt', false]],
+];
+write(R, 'ordering.txt', 'staged behind a slow write\n');
+const HELD_WRITE = 'gitStage';
+if (replay) {
+  await replayOrdering(scenario, HELD_WRITE);
+  await finishReplay();
+}
 // Node's per-connection barrier (remote-call-queue.ts): the calls ride the queue the relay clients use. The write is held on a
 // gate until every later call was submitted and the write signalled that it is inside the operation; the recording keeps which calls had started while it was
 // held, and for each operation what had ended before it started (reads: only the writes among them, readers overlap).
@@ -951,33 +1319,28 @@ host.invokeDesktopOperation = async (name, operationArgs) => {
     ended.push(name);
   }
 };
-const scenario = [
-  ['gitStage', [R, ['ordering.txt']]],
-  ['gitStatus', [R]],
-  ['gitLog', [R]],
-  ['gitUnstage', [R, ['ordering.txt']]],
-  ['gitDiff', [R, 'a.txt', false]],
-];
-write(R, 'ordering.txt', 'staged behind a slow write\n');
 trace.length = 0;
 let release;
 let held;
 const reached = new Promise((resolve) => (held = resolve));
-hold = { name: 'gitStage', gate: new Promise((resolve) => (release = resolve)), reached: held };
+hold = { name: HELD_WRITE, gate: new Promise((resolve) => (release = resolve)), reached: held };
 const answers = [];
 const running = scenario.map(([call, params], index) => queue.run(call, async () => {
   const frame = await executeRemoteFrame(methods, JSON.stringify({ id: 1, method: call, params }));
   const { id: _id, ...answer } = JSON.parse(JSON.stringify(frame));
   answers[index] = answer;
 }));
-// Every call is submitted: the write is the one the queue ran. It signals when it is inside the operation and held.
-// A write that never started leaves nothing to signal: then every call finishes without reaching it, and that is the failure to name.
-const outcome = await Promise.race([reached.then(() => 'held'), Promise.allSettled(running).then(() => 'every call finished')]);
-if (outcome !== 'held') throw new Error('the write gitStage never started: every call finished without reaching it');
+// Every call is submitted: the write is the one the queue ran. It signals when it is inside the operation and held. A write that
+// never started leaves nothing to signal: then every call finishes without reaching it, or the queue stalls and the bound fails the wait.
+const outcome = await withDeadline(
+  Promise.race([reached.then(() => 'held'), Promise.allSettled(running).then(() => 'every call finished')]),
+  `the write ${HELD_WRITE} did not start: the queue stalled before reaching it`,
+);
+if (outcome !== 'held') throw new Error(`the write ${HELD_WRITE} never started: every call finished without reaching it`);
 const heldStarts = orderLog.map((entry) => entry.started);
-if (heldStarts.join() !== 'gitStage') throw new Error(`calls started while the write was held: ${heldStarts}`);
+if (heldStarts.join() !== HELD_WRITE) throw new Error(`calls started while the write was held: ${heldStarts}`);
 release();
-await Promise.all(running);
+await withDeadline(Promise.all(running), `the calls behind the held write ${HELD_WRITE} never finished`);
 queue.close();
 const ordering = {
   name: 'read-behind-a-slow-write',
@@ -987,7 +1350,6 @@ const ordering = {
   answers,
   ops: clone(trace),
 };
-
 // ── every one of the 62 calls was recorded ──
 const PH2_SCM_CALLS = readFileSync(join(FIXTURES, 'calls.txt'), 'utf8').split(/\s+/).filter(Boolean);
 const missing = PH2_SCM_CALLS.filter((call) => !covered.has(call));

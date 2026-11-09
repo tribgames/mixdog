@@ -26,6 +26,16 @@ fn main() {
     let tool = name.strip_suffix(".exe").unwrap_or(&name).to_owned();
     let args: Vec<String> = std::env::args_os().skip(1).map(|arg| arg.to_string_lossy().into_owned()).collect();
     if tool == "git" && args != ["--version"] {
+        // PHONE_SCM_HANG_FILE names a file holding one word: a git given that word as an argument never answers, until it is killed
+        // (the scripted world's `git status` that does not return).
+        if let Ok(word) = std::fs::read_to_string(std::env::var("PHONE_SCM_HANG_FILE").unwrap_or_default()) {
+            let word = word.trim();
+            if !word.is_empty() && args.iter().any(|arg| arg == word) {
+                loop {
+                    std::thread::park();
+                }
+            }
+        }
         let status = Command::new(std::env::var("PHONE_SCM_REAL_GIT").unwrap()).args(&args).status().unwrap();
         exit(status.code().unwrap_or(1));
     }

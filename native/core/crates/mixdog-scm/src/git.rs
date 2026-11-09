@@ -100,7 +100,17 @@ pub async fn start_git(exec: &Exec, lane: MaintenanceIo, spec: ExecSpec, cancel:
 async fn launch_once(exec: &Exec, lane: MaintenanceIo, mut spec: ExecSpec, cancel: &CancellationToken) -> Result<ExecOutput, ScmFailure> {
     if cfg!(windows) {
         let base = child_base(&spec, git_launch::process_env());
-        let launch = on_lane(lane, cancel, move || git_launch::launch_for(&base)).await?;
+        // Git children started side by side are started in the order they were asked for (git-status.ts starts its reads in code order):
+        // a resolved PATH is taken at once, and the first resolution of a PATH (a file-system read on the lane) is taken one at a time, in
+        // the order callers arrive at the gate, so the lane's threads cannot reorder them.
+        let launch = match git_launch::launch_if_resolved(&base) {
+            Some(launch) => launch,
+            None => {
+                static FIRST_RESOLUTION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+                let _turn = FIRST_RESOLUTION.lock().await;
+                on_lane(lane, cancel, move || git_launch::launch_for(&base)).await?
+            }
+        };
         apply_launch(&mut spec, launch);
     }
     exec.run(spec, cancel).await

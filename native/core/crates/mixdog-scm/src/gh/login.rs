@@ -259,9 +259,9 @@ impl LoginFlow for GithubLogin {
             time_limit: None,
         };
         let CommandSpec::Argv { program: attempted, args: attempted_args } = &request.command else { unreachable!("built above") };
-        let (attempted, attempted_args) = (attempted.clone(), attempted_args.clone());
+        let attempt = crate::seam::attempt_begin(attempted, attempted_args, true);
         let spawned = self.processes.spawn(request).await;
-        crate::seam::attempt(&attempted, &attempted_args, true, spawned.is_ok());
+        attempt.spawned(spawned.is_ok());
         match spawned {
             Ok(_) => {}
             Err(ProcessError::ProgramNotFound { .. }) => {
