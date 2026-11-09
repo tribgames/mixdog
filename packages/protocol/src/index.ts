@@ -827,9 +827,10 @@ export type ConfigValueWriteParams = { opId: OpId, path: ConfigPath, value: Json
 export type ConfigWriteMode = "replace" | "initializeIfMissing" | "mergePatch" | "mergePatchBots" | "setConversation";
 
 /**
- * The stored value after the write (`initializeIfMissing` returns the kept value).
+ * The stored value after the write (`initializeIfMissing` returns the kept value), and the `agent` and `desktop`
+ * subtrees of the config that same locked update saved (what Node's `updateConfigAsync` returned to the desktop).
  */
-export type ConfigWriteResponse = { revision: number, values: Array<JsonValue>, };
+export type ConfigWriteResponse = { revision: number, values: Array<JsonValue>, config: JsonValue, };
 
 /**
  * What the core knows about this connection.

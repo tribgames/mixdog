@@ -484,6 +484,36 @@ impl Config {
         .await
     }
 
+    /// `batch_write`, answering also the named top-level subtrees of the document it saved (those present), read
+    /// inside the same locked update.
+    pub async fn batch_write_saved(
+        &self,
+        edits: &[ConfigEdit],
+        subtrees: &'static [&'static str],
+    ) -> Result<(Applied, serde_json::Map<String, Value>), ConfigError> {
+        let shared = self.shared.clone();
+        let edits = edits.to_vec();
+        on_lane(self.lanes.write, move |lane| {
+            let applying = shared.clone();
+            shared.update_viewed(
+                lane,
+                move |doc| {
+                    for edit in &edits {
+                        applying.apply_edit(doc, edit)?;
+                    }
+                    Ok(())
+                },
+                |doc| {
+                    subtrees
+                        .iter()
+                        .filter_map(|name| doc.get(*name).map(|v| ((*name).to_owned(), v.clone())))
+                        .collect()
+                },
+            )
+        })
+        .await?
+    }
+
     /// A typed in-process writer (catalog, accounts, …) edits the full document under the same
     /// transaction as the wire writes; `change` sees and keeps every key.
     pub async fn update(
@@ -519,6 +549,17 @@ impl Shared {
         lane: &InLane<DurabilityIo>,
         change: impl FnOnce(&mut Doc) -> Result<(), ConfigError>,
     ) -> Result<Applied, ConfigError> {
+        self.update_viewed(lane, change, |_| ()).map(|(applied, ())| applied)
+    }
+
+    /// `update_on`, plus `view` of the document the update left, taken under the same writer lock: Node's
+    /// `updateConfigAsync` returned the saved config from the locked update itself.
+    fn update_viewed<T>(
+        &self,
+        lane: &InLane<DurabilityIo>,
+        change: impl FnOnce(&mut Doc) -> Result<(), ConfigError>,
+        view: impl FnOnce(&Doc) -> T,
+    ) -> Result<(Applied, T), ConfigError> {
         let mut raised = lock(&self.writer);
         let current = self.doc.load_full();
         let fresh = current.is_empty();
@@ -531,10 +572,11 @@ impl Shared {
             next.insert(separation::DEFAULTS_VERSION_KEY.into(), Value::from(2));
         }
         if next == *current {
-            return Ok(Applied::default());
+            return Ok((Applied::default(), view(&current)));
         }
         persist(lane, &self.path, &next)?;
-        Ok(self.install(&mut raised, &current, next))
+        let seen = view(&next);
+        Ok((self.install(&mut raised, &current, next), seen))
     }
 
     /// `None` when a document was installed since `seen`, so `next` may be stale.
@@ -631,7 +673,10 @@ impl Shared {
         }
         let remove = edit.value.is_null() && matches!(key.kind, schema::Kind::Any);
         if !remove && !schema::accepts(key.kind, &edit.value) {
-            return Err(invalid(schema::expected(key.kind)));
+            return Err(invalid(match key.kind {
+                schema::Kind::CookieAutoImport => schema::cookie_auto_import_error(&edit.value).into(),
+                kind => schema::expected(kind),
+            }));
         }
         if matches!(key.kind, schema::Kind::Pins) {
             return write_pins(doc, &edit.value, edit.mode, path);
@@ -647,7 +692,7 @@ impl Shared {
         }
         if matches!(key.kind, schema::Kind::BrowserPermissions) {
             let stored = browser_permissions::storable(&edit.value, get_in(doc, &parts))
-                .map_err(|max| invalid(format!("at most {max} site exceptions")))?;
+                .map_err(|max| invalid(format!("Site permissions hold at most {max} exceptions. Remove some sites first.")))?;
             match stored {
                 Some(stored) => set_in(doc, &parts, stored),
                 None => remove_in(doc, &parts),
@@ -757,7 +802,7 @@ fn write_pins(
     if revision > (1 << 53) - 1 {
         return Err(ConfigError::InvalidParams {
             path: path.to_owned(),
-            expected: "a revision below 2^53".into(),
+            expected: "Activity rail pin revision is exhausted.".into(),
         });
     }
     let is_default = pins == schema::DEFAULT_ACTIVITY_RAIL_PINS;
