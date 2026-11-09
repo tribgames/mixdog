@@ -3,9 +3,9 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 127014,
+      "bytes": 155826,
       "path": "twin.json",
-      "sha256": "1f8336a0b4ba376d21ab90efdbfa7dc8aab428ca568eb85f974aabcda10f396d"
+      "sha256": "43e415ee34f7fea6b5c6a422aa029d6bbbc6b5018237ff07d15764e8e67671e9"
     }
   ],
   "product": {
@@ -24,5 +24,5 @@
   },
   "recorder": "benchmarks/rust-core/recorders/record-shipped-retirement.mjs",
   "set": "shipped-retirement-linux",
-  "totalBytes": 127014
+  "totalBytes": 155826
 }
