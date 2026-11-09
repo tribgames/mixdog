@@ -145,17 +145,28 @@ pub struct ThreadEdgePublisher {
     list: Arc<ThreadListService>,
     app: Arc<SectionFeedState>,
     task_workspace: Arc<dyn TaskWorkspace>,
+    /// The path of the last lookup of the task workspace that succeeded (Node's `canonicalTaskWorkspace`).
+    known_workspace: std::sync::Mutex<String>,
 }
 
 impl ThreadEdgePublisher {
     pub fn new(list: Arc<ThreadListService>, app: Arc<SectionFeedState>, task_workspace: Arc<dyn TaskWorkspace>) -> Self {
-        Self { list, app, task_workspace }
+        Self { list, app, task_workspace, known_workspace: std::sync::Mutex::new(String::new()) }
     }
 
     pub async fn publish(&self, edge: RowEdge) {
         let id = ThreadId::from(edge.id.clone());
-        // The host's task workspace as of this write; unknown (it could not be resolved) matches nothing, as Node's `''`.
-        let workspace = self.task_workspace.path().await.unwrap_or_default();
+        // Node asks the host for the task workspace before each catalog refresh and keeps the path of the last lookup that
+        // succeeded (`canonicalTaskWorkspace`, `session-host.ts:519-523`: a failing lookup leaves it as it was); the roster reads that
+        // cache, `''` (nothing matches) before any success.
+        let looked_up = self.task_workspace.path().await;
+        let workspace = {
+            let mut cache = self.known_workspace.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Ok(path) = looked_up {
+                *cache = path;
+            }
+            cache.clone()
+        };
         let workspace = workspace.as_str();
         // Each side is judged with the name the user had given at its own write (the index keeps it with the row), as Node's
         // summaries read `names` as of each roster: a rename that makes a meaningless title count is a start.

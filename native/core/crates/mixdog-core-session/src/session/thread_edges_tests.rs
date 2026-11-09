@@ -34,11 +34,14 @@ fn golden() -> Value {
     serde_json::from_str(include_str!("../../../../fixtures/thread-edges/golden.json")).expect("golden json")
 }
 
-struct Workspace(String);
+/// The host's task workspace lookup, answering what Node's lookup answered at the step (`lookup` of the recording): the resolved
+/// path, or its failure.
+#[derive(Default)]
+struct Workspace(Mutex<Option<String>>);
 #[async_trait::async_trait]
 impl super::TaskWorkspace for Workspace {
     async fn path(&self) -> Result<String, String> {
-        Ok(self.0.clone())
+        self.0.lock().unwrap().clone().ok_or_else(|| "the task workspace could not be resolved".to_owned())
     }
 }
 
@@ -123,14 +126,18 @@ async fn the_notifications_are_the_changes_of_nodes_roster_for_every_trigger() {
     let mut published = 0;
     for trigger in golden["triggers"].as_array().expect("triggers") {
         let name = trigger["name"].as_str().expect("name");
-        // The task workspace the host reported for this trigger (Node's `taskWorkspace` input of the roster).
-        let publisher = ThreadEdgePublisher::new(list.clone(), section.clone(), Arc::new(Workspace(trigger["taskWorkspace"].as_str().expect("task workspace").to_owned())));
+        // A host that has resolved nothing yet, as Node's `canonicalTaskWorkspace` starts.
+        let workspace = Arc::new(Workspace::default());
+        let publisher = ThreadEdgePublisher::new(list.clone(), section.clone(), workspace.clone());
         let mut roster: Vec<Value> = Vec::new();
         let mut seen = String::new();
         for step in trigger["steps"].as_array().expect("steps") {
             let mut header = step["record"].as_object().expect("record").clone();
             header.shift_remove("messages");
             let id = header["id"].as_str().expect("id").to_owned();
+            // The lookup of the task workspace Node made for this catalog refresh: its path, or its failure.
+            let lookup = &step["lookup"];
+            *workspace.0.lock().unwrap() = if lookup["ok"] == true { Some(lookup["path"].as_str().expect("resolved path").to_owned()) } else { None };
             store.upsert(CatalogHead { session: id.clone(), log_id: "L".into(), base_session: None, header }, DirtyMark::Clear).await.expect("upsert");
             let written: Vec<RowEdge> = std::mem::take(&mut *edges.0.lock().unwrap());
             for edge in written {
@@ -153,6 +160,11 @@ async fn the_notifications_are_the_changes_of_nodes_roster_for_every_trigger() {
         }
     }
     assert!(published >= 10, "the replay compared {published} notifications");
+    // The lookups that failed after one succeeded, and a host whose lookup never succeeded, are both in the recording.
+    let lookups = |trigger: &Value| trigger["steps"].as_array().unwrap().iter().map(|step| step["lookup"]["ok"] == true).collect::<Vec<_>>();
+    let all: Vec<Vec<bool>> = golden["triggers"].as_array().unwrap().iter().map(lookups).collect();
+    assert!(all.iter().any(|steps| steps.windows(2).any(|pair| pair[0] && !pair[1])), "a lookup that fails after one succeeded");
+    assert!(all.iter().any(|steps| steps.iter().all(|ok| !ok)), "a lookup that never succeeds");
 }
 
 /// `compactedSessionTitle` on handoffs of every shape, each against Node's answer, and the roster's preview title (compacted first, then

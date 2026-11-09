@@ -3,7 +3,6 @@
   "triggers": [
     {
       "name": "create",
-      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_new",
@@ -13,6 +12,10 @@
             "createdAt": 500,
             "cwd": "C:/w",
             "messages": []
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [],
           "published": false
@@ -26,6 +29,10 @@
             "cwd": "C:/w",
             "messages": [],
             "title": "First prompt"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -48,7 +55,6 @@
     },
     {
       "name": "fork",
-      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_base",
@@ -59,6 +65,10 @@
             "cwd": "C:/w",
             "messages": [],
             "title": "Base"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -87,6 +97,10 @@
             "messages": [],
             "title": "Base (fork)",
             "inheritedFromSessionId": "s_base"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -123,7 +137,6 @@
     },
     {
       "name": "inherit",
-      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_old",
@@ -134,6 +147,10 @@
             "cwd": "C:/w",
             "messages": [],
             "title": "Old"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -162,6 +179,10 @@
             "messages": [],
             "title": "Heir",
             "inheritedFromSessionId": "s_old"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -204,6 +225,10 @@
             "messages": [],
             "title": "Heir",
             "inheritedFromSessionId": "s_old"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -240,7 +265,6 @@
     },
     {
       "name": "import",
-      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_imp",
@@ -253,6 +277,10 @@
             "title": "Imported",
             "sourceType": "import"
           },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
+          },
           "roster": [],
           "published": false
         }
@@ -260,7 +288,6 @@
     },
     {
       "name": "schedule",
-      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_sch",
@@ -273,6 +300,10 @@
             "title": "Nightly",
             "sourceType": "schedule",
             "sourceName": "nightly"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -297,7 +328,6 @@
     },
     {
       "name": "webhook",
-      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_web",
@@ -310,6 +340,10 @@
             "title": "Hook",
             "sourceType": "webhook",
             "sourceName": "hook"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -334,7 +368,6 @@
     },
     {
       "name": "agent-session",
-      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_ag",
@@ -348,6 +381,10 @@
             "owner": "agent",
             "agent": "worker",
             "ownerSessionId": "s_a"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -371,7 +408,6 @@
     },
     {
       "name": "never-listed",
-      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_exec",
@@ -383,6 +419,10 @@
             "messages": [],
             "title": "exec run",
             "sourceType": "exec"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [],
           "published": false
@@ -399,6 +439,10 @@
             "sourceType": "bot",
             "sourceName": "newsbot"
           },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
+          },
           "roster": [],
           "published": false
         },
@@ -413,6 +457,10 @@
             "title": "foreign",
             "owner": "importer"
           },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
+          },
           "roster": [],
           "published": false
         }
@@ -420,7 +468,6 @@
     },
     {
       "name": "update-and-quiet",
-      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_u",
@@ -431,6 +478,10 @@
             "cwd": "C:/w",
             "messages": [],
             "title": "Before"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -459,6 +510,10 @@
             "messages": [],
             "title": "After"
           },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
+          },
           "roster": [
             {
               "id": "s_u",
@@ -486,6 +541,10 @@
             "messages": [],
             "title": "After"
           },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
+          },
           "roster": [
             {
               "id": "s_u",
@@ -507,7 +566,6 @@
     },
     {
       "name": "stops-being-listed",
-      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_gone",
@@ -518,6 +576,10 @@
             "cwd": "C:/w",
             "messages": [],
             "title": "Here"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -545,6 +607,10 @@
             "cwd": "C:/w",
             "messages": []
           },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
+          },
           "roster": [],
           "published": true
         }
@@ -552,7 +618,6 @@
     },
     {
       "name": "two-sessions",
-      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_x",
@@ -563,6 +628,10 @@
             "cwd": "C:/w",
             "messages": [],
             "title": "X"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -590,6 +659,10 @@
             "cwd": "C:/w",
             "messages": [],
             "title": "Y"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -631,6 +704,10 @@
             "messages": [],
             "title": "X2"
           },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
+          },
           "roster": [
             {
               "id": "s_x",
@@ -665,7 +742,6 @@
     },
     {
       "name": "rename-makes-a-meaningless-title-count",
-      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_r",
@@ -676,6 +752,10 @@
             "cwd": "C:/w",
             "messages": [],
             "title": "---"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [],
           "published": false
@@ -691,6 +771,10 @@
             "title": "---",
             "titleSource": "user",
             "titleLocked": true
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -721,6 +805,10 @@
             "titleSource": "user",
             "titleLocked": true
           },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
+          },
           "roster": [
             {
               "id": "s_r",
@@ -742,7 +830,6 @@
     },
     {
       "name": "already-renamed-session",
-      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_n",
@@ -755,6 +842,10 @@
             "title": "---",
             "titleSource": "user",
             "titleLocked": true
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -785,6 +876,10 @@
             "titleSource": "user",
             "titleLocked": true
           },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
+          },
           "roster": [
             {
               "id": "s_n",
@@ -806,7 +901,6 @@
     },
     {
       "name": "blank-name-keeps-nothing",
-      "taskWorkspace": "",
       "steps": [
         {
           "id": "s_b",
@@ -820,6 +914,10 @@
             "titleSource": "user",
             "titleLocked": true
           },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
+          },
           "roster": [],
           "published": false
         }
@@ -827,7 +925,6 @@
     },
     {
       "name": "legacy-task-workspace",
-      "taskWorkspace": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
       "steps": [
         {
           "id": "s_in",
@@ -835,9 +932,13 @@
             "id": "s_in",
             "updatedAt": 3100,
             "createdAt": 500,
-            "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
             "messages": [],
             "title": "In the task workspace"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -847,7 +948,7 @@
               "updatedAt": 3100,
               "activityAt": 3100,
               "messageCount": 0,
-              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -862,9 +963,13 @@
             "id": "s_in_spelled",
             "updatedAt": 3200,
             "createdAt": 500,
-            "cwd": "c:/users/u/appdata/roaming/mixdog/workspace/unclassified/",
+            "cwd": "c:/users/tempe/.mixdog/data/scratch/s.13b5382c7fdae94b/mixdog-rs5-thread-edges/workspace/unclassified/",
             "messages": [],
             "title": "Spelled otherwise"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -874,7 +979,7 @@
               "updatedAt": 3100,
               "activityAt": 3100,
               "messageCount": 0,
-              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -887,7 +992,7 @@
               "updatedAt": 3200,
               "activityAt": 3200,
               "messageCount": 0,
-              "cwd": "c:/users/u/appdata/roaming/mixdog/workspace/unclassified/",
+              "cwd": "c:/users/tempe/.mixdog/data/scratch/s.13b5382c7fdae94b/mixdog-rs5-thread-edges/workspace/unclassified/",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -906,6 +1011,10 @@
             "messages": [],
             "title": "Outside"
           },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
+          },
           "roster": [
             {
               "id": "s_in",
@@ -914,7 +1023,7 @@
               "updatedAt": 3100,
               "activityAt": 3100,
               "messageCount": 0,
-              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -927,7 +1036,7 @@
               "updatedAt": 3200,
               "activityAt": 3200,
               "messageCount": 0,
-              "cwd": "c:/users/u/appdata/roaming/mixdog/workspace/unclassified/",
+              "cwd": "c:/users/tempe/.mixdog/data/scratch/s.13b5382c7fdae94b/mixdog-rs5-thread-edges/workspace/unclassified/",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -955,9 +1064,13 @@
             "id": "s_in_untitled",
             "updatedAt": 3400,
             "createdAt": 500,
-            "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
             "messages": [],
             "title": ""
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -967,7 +1080,7 @@
               "updatedAt": 3100,
               "activityAt": 3100,
               "messageCount": 0,
-              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -980,7 +1093,7 @@
               "updatedAt": 3200,
               "activityAt": 3200,
               "messageCount": 0,
-              "cwd": "c:/users/u/appdata/roaming/mixdog/workspace/unclassified/",
+              "cwd": "c:/users/tempe/.mixdog/data/scratch/s.13b5382c7fdae94b/mixdog-rs5-thread-edges/workspace/unclassified/",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -1012,6 +1125,10 @@
             "messages": [],
             "title": ""
           },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
+          },
           "roster": [
             {
               "id": "s_in",
@@ -1020,7 +1137,7 @@
               "updatedAt": 3100,
               "activityAt": 3100,
               "messageCount": 0,
-              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -1033,7 +1150,7 @@
               "updatedAt": 3200,
               "activityAt": 3200,
               "messageCount": 0,
-              "cwd": "c:/users/u/appdata/roaming/mixdog/workspace/unclassified/",
+              "cwd": "c:/users/tempe/.mixdog/data/scratch/s.13b5382c7fdae94b/mixdog-rs5-thread-edges/workspace/unclassified/",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -1061,11 +1178,15 @@
             "id": "s_in_untitled",
             "updatedAt": 3600,
             "createdAt": 500,
-            "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
             "messages": [],
             "title": "---",
             "titleSource": "user",
             "titleLocked": true
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -1075,7 +1196,7 @@
               "updatedAt": 3100,
               "activityAt": 3100,
               "messageCount": 0,
-              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -1088,7 +1209,7 @@
               "updatedAt": 3200,
               "activityAt": 3200,
               "messageCount": 0,
-              "cwd": "c:/users/u/appdata/roaming/mixdog/workspace/unclassified/",
+              "cwd": "c:/users/tempe/.mixdog/data/scratch/s.13b5382c7fdae94b/mixdog-rs5-thread-edges/workspace/unclassified/",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -1114,7 +1235,7 @@
               "updatedAt": 3600,
               "activityAt": 3600,
               "messageCount": 0,
-              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -1135,6 +1256,10 @@
             "titleSource": "user",
             "titleLocked": true
           },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
+          },
           "roster": [
             {
               "id": "s_in",
@@ -1143,7 +1268,7 @@
               "updatedAt": 3100,
               "activityAt": 3100,
               "messageCount": 0,
-              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -1156,7 +1281,7 @@
               "updatedAt": 3200,
               "activityAt": 3200,
               "messageCount": 0,
-              "cwd": "c:/users/u/appdata/roaming/mixdog/workspace/unclassified/",
+              "cwd": "c:/users/tempe/.mixdog/data/scratch/s.13b5382c7fdae94b/mixdog-rs5-thread-edges/workspace/unclassified/",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -1182,7 +1307,7 @@
               "updatedAt": 3600,
               "activityAt": 3600,
               "messageCount": 0,
-              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -1210,13 +1335,17 @@
             "id": "s_in_project",
             "updatedAt": 3800,
             "createdAt": 500,
-            "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
             "messages": [],
             "title": "Stored project",
             "desktopSession": {
               "classification": "project",
-              "projectPath": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified"
+              "projectPath": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
             }
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
@@ -1226,7 +1355,7 @@
               "updatedAt": 3100,
               "activityAt": 3100,
               "messageCount": 0,
-              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -1239,7 +1368,7 @@
               "updatedAt": 3200,
               "activityAt": 3200,
               "messageCount": 0,
-              "cwd": "c:/users/u/appdata/roaming/mixdog/workspace/unclassified/",
+              "cwd": "c:/users/tempe/.mixdog/data/scratch/s.13b5382c7fdae94b/mixdog-rs5-thread-edges/workspace/unclassified/",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -1265,7 +1394,7 @@
               "updatedAt": 3600,
               "activityAt": 3600,
               "messageCount": 0,
-              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
               "classification": "task",
               "projectPath": null,
               "createdAt": 500,
@@ -1291,9 +1420,9 @@
               "updatedAt": 3800,
               "activityAt": 3800,
               "messageCount": 0,
-              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
               "classification": "project",
-              "projectPath": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "projectPath": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
               "createdAt": 500,
               "compactCount": 0
             }
@@ -1303,30 +1432,268 @@
       ]
     },
     {
-      "name": "legacy-unknown-task-workspace",
-      "taskWorkspace": "",
+      "name": "legacy-workspace-lookup-fails-later",
       "steps": [
         {
-          "id": "s_unk",
+          "id": "s_l",
           "record": {
-            "id": "s_unk",
-            "updatedAt": 3900,
+            "id": "s_l",
+            "updatedAt": 4000,
             "createdAt": 500,
-            "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
             "messages": [],
-            "title": "Anywhere"
+            "title": "Before"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
           },
           "roster": [
             {
-              "id": "s_unk",
+              "id": "s_l",
               "preview": "",
-              "title": "Anywhere",
-              "updatedAt": 3900,
-              "activityAt": 3900,
+              "title": "Before",
+              "updatedAt": 4000,
+              "activityAt": 4000,
               "messageCount": 0,
-              "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_l",
+          "record": {
+            "id": "s_l",
+            "updatedAt": 4100,
+            "createdAt": 500,
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
+            "messages": [],
+            "title": "After the lookup failed"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [
+            {
+              "id": "s_l",
+              "preview": "",
+              "title": "After the lookup failed",
+              "updatedAt": 4100,
+              "activityAt": 4100,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_l2",
+          "record": {
+            "id": "s_l2",
+            "updatedAt": 4200,
+            "createdAt": 500,
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
+            "messages": [],
+            "title": "Written while it fails"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [
+            {
+              "id": "s_l",
+              "preview": "",
+              "title": "After the lookup failed",
+              "updatedAt": 4100,
+              "activityAt": 4100,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_l2",
+              "preview": "",
+              "title": "Written while it fails",
+              "updatedAt": 4200,
+              "activityAt": 4200,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_l2",
+          "record": {
+            "id": "s_l2",
+            "updatedAt": 4300,
+            "createdAt": 500,
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
+            "messages": [],
+            "title": "Written after it recovered"
+          },
+          "lookup": {
+            "ok": true,
+            "path": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified"
+          },
+          "roster": [
+            {
+              "id": "s_l",
+              "preview": "",
+              "title": "After the lookup failed",
+              "updatedAt": 4100,
+              "activityAt": 4100,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_l2",
+              "preview": "",
+              "title": "Written after it recovered",
+              "updatedAt": 4300,
+              "activityAt": 4300,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
+              "classification": "task",
+              "projectPath": null,
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        }
+      ]
+    },
+    {
+      "name": "legacy-workspace-never-resolves",
+      "steps": [
+        {
+          "id": "s_n1",
+          "record": {
+            "id": "s_n1",
+            "updatedAt": 4400,
+            "createdAt": 500,
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
+            "messages": [],
+            "title": "Folder of the task workspace"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [
+            {
+              "id": "s_n1",
+              "preview": "",
+              "title": "Folder of the task workspace",
+              "updatedAt": 4400,
+              "activityAt": 4400,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
               "classification": "project",
-              "projectPath": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+              "projectPath": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_n1",
+          "record": {
+            "id": "s_n1",
+            "updatedAt": 4500,
+            "createdAt": 500,
+            "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
+            "messages": [],
+            "title": "Renamed by the work"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [
+            {
+              "id": "s_n1",
+              "preview": "",
+              "title": "Renamed by the work",
+              "updatedAt": 4500,
+              "activityAt": 4500,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
+              "classification": "project",
+              "projectPath": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
+              "createdAt": 500,
+              "compactCount": 0
+            }
+          ],
+          "published": true
+        },
+        {
+          "id": "s_n2",
+          "record": {
+            "id": "s_n2",
+            "updatedAt": 4600,
+            "createdAt": 500,
+            "cwd": "C:/elsewhere",
+            "messages": [],
+            "title": "Elsewhere"
+          },
+          "lookup": {
+            "ok": false,
+            "path": null,
+            "error": "ENOTDIR"
+          },
+          "roster": [
+            {
+              "id": "s_n1",
+              "preview": "",
+              "title": "Renamed by the work",
+              "updatedAt": 4500,
+              "activityAt": 4500,
+              "messageCount": 0,
+              "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
+              "classification": "project",
+              "projectPath": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
+              "createdAt": 500,
+              "compactCount": 0
+            },
+            {
+              "id": "s_n2",
+              "preview": "",
+              "title": "Elsewhere",
+              "updatedAt": 4600,
+              "activityAt": 4600,
+              "messageCount": 0,
+              "cwd": "C:/elsewhere",
+              "classification": "project",
+              "projectPath": "C:/elsewhere",
               "createdAt": 500,
               "compactCount": 0
             }
@@ -1750,12 +2117,12 @@
         "id": "g_legacy_in_task_workspace",
         "title": "A title",
         "preview": "",
-        "cwd": "c:/users/u/appdata/roaming/mixdog/workspace/unclassified/",
+        "cwd": "c:/users/tempe/.mixdog/data/scratch/s.13b5382c7fdae94b/mixdog-rs5-thread-edges/workspace/unclassified/",
         "updatedAt": 1000,
         "createdAt": 500,
         "messageCount": 0
       },
-      "taskWorkspace": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+      "taskWorkspace": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
       "kept": true
     },
     {
@@ -1763,12 +2130,12 @@
         "id": "g_legacy_in_task_workspace_untitled",
         "title": "",
         "preview": "",
-        "cwd": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+        "cwd": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
         "updatedAt": 1000,
         "createdAt": 500,
         "messageCount": 0
       },
-      "taskWorkspace": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+      "taskWorkspace": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
       "kept": false
     },
     {
@@ -1781,7 +2148,7 @@
         "createdAt": 500,
         "messageCount": 0
       },
-      "taskWorkspace": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+      "taskWorkspace": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
       "kept": true
     },
     {
@@ -1794,7 +2161,7 @@
         "createdAt": 500,
         "messageCount": 0
       },
-      "taskWorkspace": "C:\\Users\\u\\AppData\\Roaming\\mixdog\\workspace\\unclassified",
+      "taskWorkspace": "C:\\Users\\tempe\\.mixdog\\data\\scratch\\s.13b5382c7fdae94b\\mixdog-rs5-thread-edges\\workspace\\unclassified",
       "kept": false
     }
   ],
