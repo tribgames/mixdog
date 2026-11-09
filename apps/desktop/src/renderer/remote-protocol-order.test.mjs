@@ -18,9 +18,21 @@ const nameOf = Object.fromEntries(Object.entries(orderCalls).map(([name, call]) 
 // What the files adapter asks the core for each of its calls the script uses.
 const coreMethods = { 'projectFs/writeText': 'writeProjectFile', 'projectFs/listDir': 'listProjectDir', 'projectFs/stat': 'statProjectFile' };
 
-for (const [scenario, steps] of Object.entries(orderScenarios)) {
-  test(`order of calls across groups: ${scenario}`, async () => {
+// The phone's connection may or may not be ready when a call arrives (Node has no such step): ready before the first call, or only after
+// every call of the scenario has arrived. Node's order is the same for both.
+const readiness = {
+  'ready before the calls': (steps) => [['ready'], ...steps],
+  'ready only after the calls arrived': (steps) => {
+    const first = steps.findIndex(([op]) => op === 'settle');
+    return [...steps.slice(0, first), ['ready'], ...steps.slice(first)];
+  },
+};
+
+for (const [scenario, recordedSteps] of Object.entries(orderScenarios)) for (const [when, withReady] of Object.entries(readiness)) {
+  const steps = withReady(recordedSteps);
+  test(`order of calls across groups: ${scenario} (${when})`, async () => {
     let hooks;
+    const ready = Promise.withResolvers();
     const ran = (method) => async () => {
       hooks.started(nameOf[method]);
       await hooks.gate(nameOf[method]);
@@ -31,10 +43,12 @@ for (const [scenario, steps] of Object.entries(orderScenarios)) {
     };
     // The core: a call of the files adapter reaches it under a protocol method name; it is the Node call by that name.
     const host = { ctx: {}, client: () => ({ call: async (method) => (await ran(coreMethods[method])(), {}) }), declareLane() {} };
-    const router = createProtocolRouter([filesAdapter, chat], { host, started: async () => {}, synced: async () => {}, probe() {} });
+    const router = createProtocolRouter([filesAdapter, chat], { host, started: () => ready.promise, synced: () => ready.promise, probe() {} });
     const trace = await play(steps, {
       begin: (given) => (hooks = given),
       send: (name) => router.call(orderCalls[name].method, orderCalls[name].params),
+      fire: (name) => router.fire(orderCalls[name].method, orderCalls[name].params),
+      ready: () => ready.resolve(),
     });
     assert.deepEqual(trace, { events: golden.scenarios[scenario].events, answers: golden.scenarios[scenario].answers });
   });

@@ -131,7 +131,9 @@ export function createProtocolRouter(
         // Node's send(): the call waits for the connection and the view sync first (remote-shim-calls.ts:298-303), and its deadline starts only
         // when it is handed on (invoke, :239). A call held by the gate cannot time out, so one that timed out was always run.
         let settle = (): void => undefined;
-        (async () => {
+        // Enqueued on receipt, as Node's relay does (remote-relay-client-calls.ts:481): readiness is awaited inside the queued job, so a
+        // call whose connection is not ready yet still keeps its place before every call that arrives after it.
+        runQueued(link.host.ctx, method, params, async () => {
           if (!gated || UNGATED_CALLS.has(method)) await link.started();
           else await link.synced();
           onGate?.();
@@ -147,8 +149,8 @@ export function createProtocolRouter(
           // the client the handler reaches hands that frame to this call's claim. A call that fails before sending claims nothing.
           const claim = firstFrame((sent) => void sent.then(watch.transmitted));
           const host: PhoneProtocolHost = { ...link.host, client: () => scopeClient(link.host.client(), claim) };
-          return runQueued(link.host.ctx, method, params, () => handler(params, host));
-        })().then(
+          return handler(params, host);
+        }).then(
           (value) => {
             settle();
             resolve(value as T);
@@ -203,10 +205,10 @@ export function createProtocolRouter(
       // not for the sync (remote-shim-calls.ts:354-359), and a failure is nobody's to hear.
       const handler = fires.get(method) ?? calls.get(method);
       if (!handler) throw new UnclaimedNodeMethodError(method);
-      void link
-        .started()
-        .then(() => runQueued(link.host.ctx, method, params, () => handler(params, link.host)))
-        .catch(() => undefined);
+      void runQueued(link.host.ctx, method, params, async () => {
+        await link.started();
+        return handler(params, link.host);
+      }).catch(() => undefined);
     },
     install(): void {
       for (const adapter of adapters) adapter.install?.(link.host);

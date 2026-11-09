@@ -384,6 +384,176 @@
         "write": "ok"
       }
     },
+    "a call, then a fire, of chat mutations": {
+      "steps": [
+        [
+          "send",
+          "rename"
+        ],
+        [
+          "fire",
+          "archive"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "rename"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "archive"
+        ],
+        [
+          "settle"
+        ]
+      ],
+      "events": [
+        [
+          "start",
+          "rename"
+        ],
+        [
+          "end",
+          "rename"
+        ],
+        [
+          "start",
+          "archive"
+        ],
+        [
+          "end",
+          "archive"
+        ]
+      ],
+      "answers": {
+        "rename": "ok"
+      }
+    },
+    "a fire, then a call, of chat mutations": {
+      "steps": [
+        [
+          "fire",
+          "archive"
+        ],
+        [
+          "send",
+          "rename"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "archive"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "rename"
+        ],
+        [
+          "settle"
+        ]
+      ],
+      "events": [
+        [
+          "start",
+          "archive"
+        ],
+        [
+          "end",
+          "archive"
+        ],
+        [
+          "start",
+          "rename"
+        ],
+        [
+          "end",
+          "rename"
+        ]
+      ],
+      "answers": {
+        "rename": "ok"
+      }
+    },
+    "a file write call, then a chat mutation fire, then a read call": {
+      "steps": [
+        [
+          "send",
+          "write"
+        ],
+        [
+          "fire",
+          "archive"
+        ],
+        [
+          "send",
+          "snapshot"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "write"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "archive"
+        ],
+        [
+          "settle"
+        ],
+        [
+          "release",
+          "snapshot"
+        ],
+        [
+          "settle"
+        ]
+      ],
+      "events": [
+        [
+          "start",
+          "write"
+        ],
+        [
+          "end",
+          "write"
+        ],
+        [
+          "start",
+          "archive"
+        ],
+        [
+          "end",
+          "archive"
+        ],
+        [
+          "start",
+          "snapshot"
+        ],
+        [
+          "end",
+          "snapshot"
+        ]
+      ],
+      "answers": {
+        "write": "ok",
+        "snapshot": "ok"
+      }
+    },
     "a slow capability read observes the earlier file write, a later chat mutation waits for the write": {
       "steps": [
         [

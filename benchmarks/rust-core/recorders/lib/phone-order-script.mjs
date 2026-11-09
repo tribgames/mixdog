@@ -5,7 +5,8 @@
 //
 // A call is a Node method with params; its handler does nothing but note that it started, wait for the script to release it, and note
 // that it ended. A step is `['send', name]` (the call arrives), `['release', name]` (the script lets that call's handler finish) or
-// `['settle']` (everything that can start has started: the world has no timer or I/O, so every continuation is a microtask and one turn
+// `['fire', name]` (the call arrives and the page does not wait for its answer), `['ready']` (the phone's connection becomes ready: a
+// step only the replay has, Node has no readiness, so the recorder never receives it), `['settle']` (everything that can start has started: the world has no timer or I/O, so every continuation is a microtask and one turn
 // of the event loop runs them all - the turn is a barrier, not a duration).
 const P = 'D:\\proj';
 
@@ -21,6 +22,7 @@ export const orderCalls = {
 };
 
 const send = (name) => ['send', name];
+const fire = (name) => ['fire', name];
 const release = (name) => ['release', name];
 const settle = ['settle'];
 
@@ -39,6 +41,20 @@ export const orderScenarios = {
   'reads of both groups overlap, a mutation waits for them': [
     send('list'), send('snapshot'), send('stat'), send('archive'), send('write'), settle,
     release('list'), settle, release('snapshot'), release('stat'), settle, release('archive'), settle, release('write'), settle,
+  ],
+  // A call the page waits for, then one it does not (`fire`): the later one does not overtake the earlier. Node receives both as frames
+  // and queues each on receipt; the phone's router may still be waiting for its connection (readiness), which Node has no step for.
+  'a call, then a fire, of chat mutations': [
+    send('rename'), fire('archive'), settle,
+    release('rename'), settle, release('archive'), settle,
+  ],
+  'a fire, then a call, of chat mutations': [
+    fire('archive'), send('rename'), settle,
+    release('archive'), settle, release('rename'), settle,
+  ],
+  'a file write call, then a chat mutation fire, then a read call': [
+    send('write'), fire('archive'), send('snapshot'), settle,
+    release('write'), settle, release('archive'), settle, release('snapshot'), settle,
   ],
   // A usage sweep (a slow read, named by its capability) observes the file write before it, not the chat mutation after it.
   'a slow capability read observes the earlier file write, a later chat mutation waits for the write': [
@@ -71,7 +87,11 @@ export async function play(steps, driver) {
           (error) => (answers[name] = error.message)
         )
       );
-    } else if (op === 'release') gates[name].resolve();
+    } else if (op === 'fire') {
+      // The page does not wait for a fired call's answer: the trace holds its events only.
+      running.push(Promise.resolve(driver.fire(name)).catch(() => undefined));
+    } else if (op === 'ready') driver.ready?.();
+    else if (op === 'release') gates[name].resolve();
     else await new Promise((done) => setImmediate(done));
   }
   await Promise.all(running);

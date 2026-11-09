@@ -49,19 +49,17 @@ async function record(steps) {
   });
   const client = { callQueue: queue, pendingFrames: 0 };
   const executions = [];
-  const trace = await play(steps, {
-    begin: (given) => (hooks = given),
-    // The call's answer is the frame Node's dispatch sent for it.
-    send: async (name) => {
-      const id = nextId++;
-      const answered = new Promise((resolve) => frames.set(id, resolve));
-      const { execution } = await dispatch('phone', client, { id, ...orderCalls[name] }, 0);
-      executions.push(execution);
-      const frame = await answered;
-      if (!frame.ok) throw new Error(frame.error);
-      return frame.value;
-    },
-  });
+  // The call's answer is the frame Node's dispatch sent for it. Node's relay gets a fired call as the same frame as any other.
+  const send = async (name) => {
+    const id = nextId++;
+    const answered = new Promise((resolve) => frames.set(id, resolve));
+    const { execution } = await dispatch('phone', client, { id, ...orderCalls[name] }, 0);
+    executions.push(execution);
+    const frame = await answered;
+    if (!frame.ok) throw new Error(frame.error);
+    return frame.value;
+  };
+  const trace = await play(steps, { begin: (given) => (hooks = given), send, fire: send });
   await Promise.all(executions);
   queue.close();
   return trace;
