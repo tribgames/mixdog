@@ -15,7 +15,7 @@ arc-swap = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true }
 bytes = { workspace = true }
-futures = { workspace = true, features = ["alloc", "async-await"] }
+futures = { workspace = true, features = ["alloc", "async-await", "executor"] }
 mixdog-agent = { workspace = true }
 mixdog-ai = { workspace = true }
 mixdog-app-protocol = { workspace = true }
