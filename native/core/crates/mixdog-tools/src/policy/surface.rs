@@ -66,9 +66,22 @@ fn readonly_tool_spec(spec: Option<&Value>) -> bool {
     }
 }
 
+/// `resolveDeferredSelectMode(session) !== null`: the session's `toolSpec` names a tool mode.
+fn tool_mode_resolved(spec: Option<&Value>) -> bool {
+    match spec {
+        Some(Value::String(spec)) => matches!(spec.as_str(), "readonly" | "full" | "mcp"),
+        Some(Value::Array(items)) => !items.is_empty(),
+        _ => false,
+    }
+}
+
 /// The session's tool policy as the session actor holds it.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct SessionSurface {
+    /// The session's `toolSpec` names a tool mode (`resolveDeferredSelectMode` is not null).
+    pub mode_resolved: bool,
+    /// The last MCP snapshot of the connected tools (`deferredMcpToolNames`); none before the first.
+    pub mcp_names: Option<Vec<String>>,
     /// The persisted schema allowlist (also the execution allowlist).
     pub schema_allowed: Option<Vec<String>>,
     /// Tools the session denies.
@@ -256,6 +269,8 @@ impl SessionSurface {
         let text = |key: &str| header.get(key).and_then(Value::as_str).unwrap_or("");
         let overlay = header.get("workflowOverlay");
         Self {
+            mode_resolved: tool_mode_resolved(header.get("toolSpec")),
+            mcp_names: names("deferredMcpToolNames"),
             schema_allowed: names("schemaAllowedTools"),
             disallowed,
             feature_denied: names("featureDeniedTools").unwrap_or_default(),
@@ -280,6 +295,29 @@ impl SessionSurface {
             project_disabled: false,
             mcp_scope: Some(mixdog_js::js_trim(&text("mcpScopeId")).to_owned()).filter(|scope| !scope.is_empty()),
         }
+    }
+
+    /// `prepareDeferredToolCallThrough` on a bridge session, which runs after the hooks and the
+    /// approval and before the tool: a connector tool outside the last MCP snapshot is unavailable, and
+    /// a deferred catalog tool that is not read-only selectable never runs without a tool mode or in a
+    /// read-only one. `annotations` are the called tool's own.
+    pub fn deferred_call_refusal(&self, name: &str, annotations: &ToolAnnotations) -> Option<String> {
+        if !self.bridge {
+            return None;
+        }
+        if name.starts_with("mcp__") && self.mcp_names.as_ref().is_some_and(|names| !names.iter().any(|known| known == name)) {
+            return Some(format!("Error: MCP tool \"{name}\" is unavailable in the current session catalog; no call was sent."));
+        }
+        if !listed(&self.catalog_tools, name) || listed(&self.active_tools, name) || INACTIVE_INFRA.contains(&name) {
+            return None;
+        }
+        if readonly_selectable(name, annotations) {
+            return None;
+        }
+        if !self.mode_resolved {
+            return Some(format!("Error: tool \"{name}\" is deferred and cannot be auto-loaded without a resolved tool mode; no call was sent."));
+        }
+        self.readonly.then(|| format!("Error: tool \"{name}\" is not available in readonly mode"))
     }
 
     /// A read-only session runs only what its surfaces offer: active tools,

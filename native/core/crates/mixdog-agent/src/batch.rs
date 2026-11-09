@@ -36,6 +36,7 @@ use crate::run::Run;
 use crate::tools::CallEnv;
 use crate::tools::CallFuture;
 use crate::tools::Executed;
+use crate::tools::Projection;
 use crate::tools::arg_shape;
 use crate::tools::call_signature;
 use crate::tools::conflicts;
@@ -238,17 +239,24 @@ impl Run {
         {
             return;
         }
-        let name = self.tools.canonical(&call.name);
+        let canonical = ToolCall { name: self.tools.canonical(&call.name), ..call.clone() };
+        // A streamed `call_tool` is admitted, ordered and run as its target; one that names no tool is
+        // answered by the serial batch.
+        let exec = match self.tools.project(&self.tool_env.thread_id, &canonical) {
+            Projection::Plain => canonical,
+            Projection::Target(target) => target,
+            Projection::Refused(_) => return,
+        };
+        let name = exec.name.clone();
         if !self.tools.read_only(&name) {
             return;
         }
-        let exec = ToolCall { name: name.clone(), ..call.clone() };
-        let gate_call = GateCall::new(name.clone(), call.arguments.clone());
+        let gate_call = GateCall::new(name.clone(), exec.arguments.clone());
         if self.env.gate.pre_dispatch_deny(&gate_call).is_some() || self.carry.repeat.could_fire(0) {
             return;
         }
         if self.tools.dedup_eligible(&name) {
-            let sig = call_signature(&name, &call.arguments);
+            let sig = call_signature(&name, &exec.arguments);
             if !self.eager_sigs.insert(sig.clone()) || self.cross_turn.has(&sig) {
                 return;
             }
@@ -302,7 +310,12 @@ impl Run {
         ct_sig: Option<&str>,
         sig: &str,
         shape_sig: &str,
+        unprojected: Option<&String>,
     ) -> Decision {
+        // A `call_tool` that names no tool answers its wire id with the bridge error; it never meets a guard.
+        if let Some(text) = unprojected {
+            return Decision::Skip(AgentMessage::tool_text(&call.id, text.clone(), ToolKind::Error));
+        }
         let gate_call = GateCall::new(call.name.clone(), call.arguments.clone());
         if let Some(text) = self.env.gate.pre_dispatch_deny(&gate_call) {
             return Decision::Skip(AgentMessage::tool_text(&call.id, text, ToolKind::Error));
@@ -416,11 +429,22 @@ impl Run {
 
     pub(crate) async fn process_tool_batch(&mut self, wire_calls: &[ToolCall], allowed: u64) -> Result<(), AgentError> {
         let n = wire_calls.len();
-        // The execution view: typo aliases and case variants canonicalized.
-        let calls: Vec<ToolCall> = wire_calls
-            .iter()
-            .map(|c| ToolCall { name: self.tools.canonical(&c.name), ..c.clone() })
-            .collect();
+        // The execution view (`resolveExecutionToolCalls`): typo aliases and case variants canonicalized,
+        // and a `call_tool` of a bridge session replaced by its target, so that every layer below sees the
+        // target itself. The wire calls stay what the transcript holds.
+        let mut unprojected: Vec<Option<String>> = vec![None; n];
+        let mut calls: Vec<ToolCall> = Vec::with_capacity(n);
+        for (index, wire) in wire_calls.iter().enumerate() {
+            let canonical = ToolCall { name: self.tools.canonical(&wire.name), ..wire.clone() };
+            calls.push(match self.tools.project(&self.tool_env.thread_id, &canonical) {
+                Projection::Plain => canonical,
+                Projection::Target(target) => target,
+                Projection::Refused(text) => {
+                    unprojected[index] = Some(text);
+                    canonical
+                }
+            });
+        }
         let dups = intra_turn_duplicates(&calls, &self.tools);
         let mut single_first: HashMap<String, String> = HashMap::new();
         let mut single_of: Vec<Option<String>> = vec![None; n];
@@ -438,7 +462,7 @@ impl Run {
         let groups = edit_groups(&calls);
         let specs: Vec<Option<ToolSpec>> = calls
             .iter()
-            .map(|c| self.tools.get(&c.name).map(|t| t.spec().clone()))
+            .map(|c| self.tools.resolve(&c.name).map(|t| t.spec().clone()))
             .collect();
         let wrap_up = self.turn_limits().and_then(|l| l.wrap_up_at_ms);
         let cwd = self.tool_env.cwd.as_path().to_path_buf();
@@ -449,6 +473,9 @@ impl Run {
         let mut evaluated = vec![false; n];
         let mut finished = vec![false; n];
         let mut started = vec![false; n];
+        // Calls answered without running (here, or by a refusal on the way to the tool): they changed
+        // nothing a streamed read could have read.
+        let mut skipped = vec![false; n];
         let mut ready: Vec<bool> = vec![false; n];
         let mut recorded = 0usize;
         let mut was_executed = vec![false; n];
@@ -489,10 +516,11 @@ impl Run {
                     break;
                 }
                 evaluated[j] = true;
-                match self.decide(call, dups.get(&j), single_of[j].as_ref(), ct_sig.as_deref(), &sig, &shape_sig).await {
+                match self.decide(call, dups.get(&j), single_of[j].as_ref(), ct_sig.as_deref(), &sig, &shape_sig, unprojected[j].as_ref()).await {
                     Decision::Skip(message) => {
                         staged[j] = Some(message);
                         finished[j] = true;
+                        skipped[j] = true;
                     }
                     Decision::Run => {
                         sigs[j] = (sig, shape_sig);
@@ -551,7 +579,7 @@ impl Run {
                 // A streamed read-only result is only usable when no earlier
                 // call of the batch could have changed what it read.
                 let eager = self.eager.remove(&call.id);
-                let eager = eager.filter(|_| (0..j).all(|i| specs[i].as_ref().is_none_or(|s| s.parallel_safe)));
+                let eager = eager.filter(|_| (0..j).all(|i| skipped[i] || specs[i].as_ref().is_none_or(|s| s.parallel_safe)));
                 if let Some(handle) = eager {
                     streamed.insert(j);
                     let id = call.id.clone();
@@ -568,8 +596,9 @@ impl Run {
                 }
             }
             if running.is_empty() {
-                // Everything left was decided without a run.
-                if (0..n).all(|k| finished[k]) {
+                // Everything decided so far was answered without a run; the calls after it are decided next,
+                // once the outcomes before them are recorded.
+                if (0..n).all(|k| !evaluated[k] || finished[k]) {
                     continue;
                 }
                 break;
@@ -588,6 +617,7 @@ impl Run {
                     if !streamed.contains(&idx) {
                         self.emit(RunEvent::EarlyResult(early_result(&calls[idx].id, &result)));
                     }
+                    skipped[idx] = result.returned;
                     executed[idx] = Some(result);
                     finished[idx] = true;
                 }
