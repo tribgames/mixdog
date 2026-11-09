@@ -275,6 +275,11 @@ impl DiscoveryPublication {
         *locked(&self.rpc) = Some(discovery::Port { port });
     }
 
+    /// The bound RPC listener's port, once `set_rpc_port` has recorded it.
+    pub fn rpc_port(&self) -> Option<u16> {
+        locked(&self.rpc).as_ref().map(|port| port.port)
+    }
+
     /// Blocks until every state published so far is on disk. Never call it from a runtime worker.
     pub fn flush(&self) {
         self.barrier(false);
