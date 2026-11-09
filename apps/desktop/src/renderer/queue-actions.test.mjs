@@ -14,14 +14,14 @@ import {
   shouldStopComposerGeneration,
 } from './renderer-logic.mjs';
 import { paneActiveSessionIds } from './pane-layout.ts';
-import { classifyPromptEscape } from '../shared/core-src/tui/components/prompt-input/escape-policy.mjs';
+import { classifyPromptEscape } from '../../../../src/tui/components/prompt-input/escape-policy.mjs';
 import {
   mergeQueuedRestoreDraft,
   paletteOwnsPromptVerticalArrow,
   queuedRestorePrefix,
   queuedRestoreProjection,
   replaceQueuedRestorePrefix,
-} from '../shared/core-src/tui/components/prompt-input/restore-policy.mjs';
+} from '../../../../src/tui/components/prompt-input/restore-policy.mjs';
 
 function installDom() {
   const { restore } = installTestDom(null, { jsdom: { url: 'http://localhost/' }, expose: ['navigator'] });

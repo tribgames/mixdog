@@ -132,19 +132,6 @@
   "UsageLedger": "class",
   "makeUsageRecord": "identity"
  },
- "order": {
-  "createUsageStatsApi#0.getSessionUsage": [
-   "createUsageStatsApi#0.getSessionUsage\u0000[{\"sessionIds\":[\"agent-a\"],\"agents\":true}]",
-   "createUsageStatsApi#0.getSessionUsage\u0000[]",
-   "createUsageStatsApi#0.getSessionUsage\u0000[{\"sessionIds\":[\"agent-a\"],\"agents\":true}]"
-  ]
- },
- "positional": [
-  "createUsageStatsApi.getUsageStats",
-  "createUsageStatsApi.getUsageRequests",
-  "createUsageStatsApi.getSessionUsage",
-  "createUsageStatsApi.getQuotaHistory"
- ],
  "opaque": [],
  "instances": {
   "createUsageStatsApi": 1

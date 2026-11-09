@@ -1,6 +1,7 @@
-// Replays the recorded calls of a Node module: a call is found by its arguments; repeated calls with the same arguments answer in
+// Replays the recorded calls of a Node module: a call is found by ALL of its arguments; repeated calls with the same arguments answer in
 // the order they were recorded (the last answer repeats). A call that was not recorded is an error, never a guess.
-// (Arguments with a measured `timings_ms` are matched by the call's position instead; see below.)
+// Only the per-run values a table names under "normalize" (a measured field, a temp-directory path) are replaced by a placeholder, on the
+// recorded and on the live side alike, before the comparison; everything else must be equal.
 const dec = (v) => JSON.parse(JSON.stringify(v), (_k, x) => {
   if (x && typeof x === 'object') {
     if ('$undef' in x) return undefined;
@@ -35,6 +36,40 @@ export function stub(kind) {
   };
 }
 
+/** Replaces the per-run parts of `value` that the call's rules name: `{field}` (the value of every property of that name, also inside
+ *  JSON text) and `{pattern, flags, placeholder}` (every match in a string). */
+export function normalizeArgs(value, rules) {
+  if (!rules?.length) return value;
+  const patterns = rules.filter((rule) => rule.pattern);
+  const fields = new Set(rules.filter((rule) => rule.field).map((rule) => rule.field));
+  const walk = (node) => {
+    if (typeof node === 'string') {
+      let text = node;
+      for (const rule of patterns) text = text.replace(new RegExp(rule.pattern, rule.flags ?? 'g'), rule.placeholder);
+      if (fields.size && /^\s*[{[]/.test(text)) {
+        try {
+          return JSON.stringify(walk(JSON.parse(text)));
+        } catch {
+          return text;
+        }
+      }
+      return text;
+    }
+    if (Array.isArray(node)) return node.map(walk);
+    if (node && typeof node === 'object') {
+      return Object.fromEntries(Object.entries(node).map(([key, child]) => [key, fields.has(key) ? `<${key}>` : walk(child)]));
+    }
+    return node;
+  };
+  return walk(value);
+}
+
+/** The key a call is found by: its function and its (normalized) arguments. */
+export function callKey(table, name, args) {
+  const rules = table.normalize?.[name.replace(/#\d+/, '')];
+  return name + '\0' + JSON.stringify(normalizeArgs(JSON.parse(enc(args)), rules));
+}
+
 export function replay(table, name) {
   if (Object.hasOwn(table.constants, name)) return dec(table.constants[name]);
   if (table.stubs?.[name]) return stub(table.stubs[name]);
@@ -49,14 +84,10 @@ export function replay(table, name) {
     };
   }
   const seen = new Map();
-  let position = 0;
   return function (...args) {
     if (table.opaque.includes(name)) throw new Error(`${name} returns a live object; it cannot be replayed from a recording`);
-    const key = name + '\0' + enc(args);
-    // A call whose arguments carry a wall-clock measurement (`timings_ms` differs from run to run) or a per-run temp path (a function
-    // listed in the table's `positional`) cannot be found by them: it is the same-numbered call of that function in the recording.
-    const nth = position++;
-    const answers = table.calls[key] ?? (key.includes('timings_ms') || table.positional?.includes(name.replace(/#\d+/, '')) ? table.calls[(table.order?.[name] ?? [])[nth]] : undefined);
+    const key = callKey(table, name, args);
+    const answers = table.calls[key];
     if (!answers) throw new Error(`${name}(${enc(args)}) was not recorded from Node`);
     const at = Math.min(seen.get(key) ?? 0, answers.length - 1);
     seen.set(key, at + 1);

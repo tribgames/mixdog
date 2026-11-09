@@ -135,23 +135,5 @@
    }
   ]
  },
- "order": {
-  "promptContentImageMeta": [
-   "promptContentImageMeta\u0000[[{\"type\":\"image\",\"data\":\"cG5nIGJ5dGVz\",\"mimeType\":\"image/png\"}],{\"1\":{\"id\":1,\"type\":\"image\",\"sizeBytes\":9,\"mediaType\":\"image/png\",\"filename\":\"Pasted image\"}}]",
-   "promptContentImageMeta\u0000[[{\"type\":\"image\",\"data\":\"cG5nIGJ5dGVz\",\"mimeType\":\"image/jpeg\"}],{\"1\":{\"id\":1,\"type\":\"image\",\"sizeBytes\":9,\"mediaType\":\"image/jpeg\",\"filename\":\"photo.jpg\"}}]",
-   "promptContentImageMeta\u0000[[{\"type\":\"image\",\"data\":\"cG5nIGJ5dGVz\",\"mimeType\":\"image/png\"},{\"type\":\"image\",\"data\":\"cG5nIGJ5dGVz\",\"mimeType\":\"image/png\"},{\"type\":\"image\",\"data\":\"cG5nIGJ5dGVz\",\"mimeType\":\"image/png\"}],{\"1\":{\"id\":1,\"type\":\"image\",\"sizeBytes\":9,\"mediaType\":\"image/png\",\"filename\":\"Pasted image\"},\"2\":{\"id\":2,\"type\":\"image\",\"sizeBytes\":9,\"mediaType\":\"image/png\",\"filename\":\"Pasted image\"},\"3\":{\"id\":3,\"type\":\"image\",\"sizeBytes\":9,\"mediaType\":\"image/png\",\"filename\":\"Pasted image\"}}]",
-   "promptContentImageMeta\u0000[[{\"type\":\"text\",\"text\":\"[PDF #1: report.pdf]\"},{\"type\":\"file\",\"data\":\"JVBERi0xLjQgcGRmIGJ5dGVz\",\"mimeType\":\"application/pdf\",\"filename\":\"report.pdf\"}],{\"$undef\":1}]",
-   "promptContentImageMeta\u0000[[{\"type\":\"text\",\"text\":\"[File #1: plan.docx]\"},{\"type\":\"file\",\"data\":\"UEsgZG9jeCBieXRlcw==\",\"mimeType\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"filename\":\"plan.docx\"}],{\"$undef\":1}]",
-   "promptContentImageMeta\u0000[\"[File #1: main.ts]\",{\"$undef\":1}]",
-   "promptContentImageMeta\u0000[\"[Pasted text #1 +30 lines]\",{\"$undef\":1}]",
-   "promptContentImageMeta\u0000[\"C:\\\\clips\\\\demo.mp4\",{\"$undef\":1}]",
-   "promptContentImageMeta\u0000[\"C:\\\\audio\\\\memo.m4a\",{\"$undef\":1}]",
-   "promptContentImageMeta\u0000[\"C:\\\\Project\\\\app\",{\"$undef\":1}]",
-   "promptContentImageMeta\u0000[\"회의 내용을 요약하세요\",{\"$undef\":1}]",
-   "promptContentImageMeta\u0000[[{\"type\":\"text\",\"text\":\"[PDF #2: report.pdf]\\n[File #3: plan.docx]\\n[File #4: main.ts]\\n[Pasted text #5 +30 lines]\"},{\"type\":\"image\",\"data\":\"cG5nIGJ5dGVz\",\"mimeType\":\"image/png\"},{\"type\":\"file\",\"data\":\"JVBERi0xLjQgcGRmIGJ5dGVz\",\"mimeType\":\"application/pdf\",\"filename\":\"report.pdf\"},{\"type\":\"file\",\"data\":\"UEsgZG9jeCBieXRlcw==\",\"mimeType\":\"application/vnd.openxmlformats-officedocument.wordprocessingml.document\",\"filename\":\"plan.docx\"}],{\"1\":{\"id\":1,\"type\":\"image\",\"sizeBytes\":9,\"mediaType\":\"image/png\",\"filename\":\"Pasted image\"}}]",
-   "promptContentImageMeta\u0000[[{\"type\":\"text\",\"text\":\"what is this?\"},{\"type\":\"image\",\"data\":\"cG5nIGJ5dGVz\",\"mimeType\":\"image/png\"}],{\"1\":{\"id\":1,\"type\":\"image\",\"sizeBytes\":9,\"mediaType\":\"image/png\",\"filename\":\"Pasted image\"}}]",
-   "promptContentImageMeta\u0000[[{\"type\":\"text\",\"text\":\"review these\\n[PDF #1: report.pdf]\\n[File #2: main.ts]\"},{\"type\":\"file\",\"data\":\"JVBERi0xLjQgcGRmIGJ5dGVz\",\"mimeType\":\"application/pdf\",\"filename\":\"report.pdf\"}],{\"$undef\":1}]"
-  ]
- },
  "opaque": []
 }

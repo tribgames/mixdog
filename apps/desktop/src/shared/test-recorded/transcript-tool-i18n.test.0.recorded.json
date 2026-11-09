@@ -107,12 +107,5 @@
  },
  "services": {},
  "stubs": {},
- "order": {
-  "convertConversationText": [
-   "convertConversationText\u0000[\"codex\",\"{\\\"type\\\":\\\"session_meta\\\",\\\"payload\\\":{\\\"id\\\":\\\"c\\\",\\\"cwd\\\":\\\"/x\\\"}}\\n{\\\"type\\\":\\\"response_item\\\",\\\"payload\\\":{\\\"type\\\":\\\"message\\\",\\\"role\\\":\\\"user\\\",\\\"content\\\":[{\\\"type\\\":\\\"input_text\\\",\\\"text\\\":\\\"Fix it\\\"}]}}\\n{\\\"type\\\":\\\"response_item\\\",\\\"payload\\\":{\\\"type\\\":\\\"message\\\",\\\"role\\\":\\\"assistant\\\",\\\"content\\\":[{\\\"type\\\":\\\"output_text\\\",\\\"text\\\":\\\"Looking.\\\"}]}}\\n{\\\"type\\\":\\\"response_item\\\",\\\"payload\\\":{\\\"type\\\":\\\"function_call\\\",\\\"name\\\":\\\"shell\\\",\\\"arguments\\\":\\\"{}\\\"}}\\n{\\\"type\\\":\\\"response_item\\\",\\\"payload\\\":{\\\"type\\\":\\\"function_call\\\",\\\"name\\\":\\\"shell\\\",\\\"arguments\\\":\\\"{}\\\"}}\\n{\\\"type\\\":\\\"response_item\\\",\\\"payload\\\":{\\\"type\\\":\\\"function_call\\\",\\\"name\\\":\\\"Read\\\",\\\"arguments\\\":\\\"{}\\\"}}\\n{\\\"type\\\":\\\"response_item\\\",\\\"payload\\\":{\\\"type\\\":\\\"function_call\\\",\\\"name\\\":\\\"apply_patch\\\",\\\"arguments\\\":\\\"{}\\\"}}\\n{\\\"type\\\":\\\"response_item\\\",\\\"payload\\\":{\\\"type\\\":\\\"message\\\",\\\"role\\\":\\\"assistant\\\",\\\"content\\\":[{\\\"type\\\":\\\"output_text\\\",\\\"text\\\":\\\"Done.\\\"}]}}\"]",
-   "convertConversationText\u0000[\"claude\",\"{\\\"sessionId\\\":\\\"c\\\",\\\"cwd\\\":\\\"/x\\\",\\\"timestamp\\\":\\\"2026-01-01T00:00:00.000Z\\\",\\\"type\\\":\\\"user\\\",\\\"uuid\\\":\\\"u1\\\",\\\"parentUuid\\\":null,\\\"message\\\":{\\\"role\\\":\\\"user\\\",\\\"content\\\":\\\"Fix it\\\"}}\\n{\\\"sessionId\\\":\\\"c\\\",\\\"cwd\\\":\\\"/x\\\",\\\"timestamp\\\":\\\"2026-01-01T00:00:00.000Z\\\",\\\"type\\\":\\\"assistant\\\",\\\"uuid\\\":\\\"a1\\\",\\\"parentUuid\\\":\\\"u1\\\",\\\"message\\\":{\\\"role\\\":\\\"assistant\\\",\\\"content\\\":[{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"Looking.\\\"},{\\\"type\\\":\\\"tool_use\\\",\\\"name\\\":\\\"shell\\\",\\\"input\\\":{}},{\\\"type\\\":\\\"tool_use\\\",\\\"name\\\":\\\"shell\\\",\\\"input\\\":{}},{\\\"type\\\":\\\"tool_use\\\",\\\"name\\\":\\\"Read\\\",\\\"input\\\":{}},{\\\"type\\\":\\\"tool_use\\\",\\\"name\\\":\\\"apply_patch\\\",\\\"input\\\":{}},{\\\"type\\\":\\\"text\\\",\\\"text\\\":\\\"Done.\\\"}]}}\"]"
-  ]
- },
- "positional": [],
  "opaque": []
 }

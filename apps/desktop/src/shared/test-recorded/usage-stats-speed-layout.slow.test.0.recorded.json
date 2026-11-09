@@ -123,18 +123,5 @@
   "UsageLedger": "class",
   "makeUsageRecord": "identity"
  },
- "order": {
-  "makeUsageRecord": [
-   "makeUsageRecord\u0000[{\"ts\":1790741400000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"claude-opus-5-5\",\"sessionId\":\"fast-session\",\"sourceType\":\"lead\",\"inputTokens\":100000,\"outputTokens\":300,\"durationMs\":2000}]",
-   "makeUsageRecord\u0000[{\"ts\":1790742000000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"claude-opus-5-5\",\"sessionId\":\"fast-session\",\"sourceType\":\"lead\",\"inputTokens\":100000,\"outputTokens\":600,\"durationMs\":2000,\"requestServiceTier\":\"fast\"}]",
-   "makeUsageRecord\u0000[{\"ts\":1790742600000,\"provider\":\"anthropic-oauth\",\"account\":\"default\",\"model\":\"claude-sonnet-4-6-with-a-very-long-model-identifier\",\"sessionId\":\"fast-session\",\"sourceType\":\"lead\",\"inputTokens\":100000,\"outputTokens\":300,\"durationMs\":2000,\"requestServiceTier\":\"fast\"}]"
-  ]
- },
- "positional": [
-  "createUsageStatsApi.getUsageStats",
-  "createUsageStatsApi.getUsageRequests",
-  "createUsageStatsApi.getSessionUsage",
-  "createUsageStatsApi.getQuotaHistory"
- ],
  "opaque": []
 }

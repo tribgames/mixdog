@@ -25,16 +25,5 @@
   "UsageLedger": "class",
   "makeUsageRecord": "identity"
  },
- "order": {
-  "resolveUsageStatsPeriod": [
-   "resolveUsageStatsPeriod\u0000[{\"view\":\"hour\",\"now\":1789268400000}]"
-  ]
- },
- "positional": [
-  "createUsageStatsApi.getUsageStats",
-  "createUsageStatsApi.getUsageRequests",
-  "createUsageStatsApi.getSessionUsage",
-  "createUsageStatsApi.getQuotaHistory"
- ],
  "opaque": []
 }

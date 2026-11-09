@@ -7,8 +7,8 @@ import type { DesktopSlashCommand } from './slash-commands';
 import { t } from './i18n';
 import { isMobileRemoteSurface } from './mobile-surface';
 import type { SkillMentionResult } from './composer-skill-mentions';
-import { classifyPromptEscape } from '../shared/core-src/tui/components/prompt-input/escape-policy.mjs';
-import { paletteOwnsPromptVerticalArrow } from '../shared/core-src/tui/components/prompt-input/restore-policy.mjs';
+import { classifyPromptEscape } from '../../../../src/tui/components/prompt-input/escape-policy.mjs';
+import { paletteOwnsPromptVerticalArrow } from '../../../../src/tui/components/prompt-input/restore-policy.mjs';
 
 type TextareaKeyEvent = KeyboardEvent<HTMLTextAreaElement>;
 

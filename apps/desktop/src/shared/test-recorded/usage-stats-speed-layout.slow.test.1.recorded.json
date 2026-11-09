@@ -423,17 +423,6 @@
   "UsageLedger": "class",
   "makeUsageRecord": "identity"
  },
- "order": {
-  "createUsageStatsApi#0.getQuotaHistory": [
-   "createUsageStatsApi#0.getQuotaHistory\u0000[{\"provider\":\"\",\"account\":\"\",\"window\":\"\",\"view\":\"window\"}]"
-  ]
- },
- "positional": [
-  "createUsageStatsApi.getUsageStats",
-  "createUsageStatsApi.getUsageRequests",
-  "createUsageStatsApi.getSessionUsage",
-  "createUsageStatsApi.getQuotaHistory"
- ],
  "opaque": [],
  "instances": {
   "createUsageStatsApi": 1

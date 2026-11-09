@@ -21,7 +21,7 @@ import { activityVerb, thinkingEffortLabel } from './activity-verbs';
 import { QuietCue, useLaneSpinnerQuiet } from './quiet-cue';
 import type { QuietProgressParts } from '../shared/core-src/runtime/shared/quiet-progress.mjs';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
-import { buildSpinnerMeta } from '../shared/core-src/tui/spinner-meta.mjs';
+import { buildSpinnerMeta } from '../../../../src/tui/spinner-meta.mjs';
 
 const CONTEXT_USAGE_MEMORY_LIMIT = 64;
 /** A newly published phase is painted once it has lasted this long... */

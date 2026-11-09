@@ -4620,30 +4620,6 @@
   "UsageLedger": "class",
   "makeUsageRecord": "identity"
  },
- "order": {
-  "createUsageStatsApi#0.getUsageRequests": [
-   "createUsageStatsApi#0.getUsageRequests\u0000[{\"view\":\"hour\",\"limit\":50}]",
-   "createUsageStatsApi#0.getUsageRequests\u0000[{\"view\":\"hour\",\"limit\":50,\"cursor\":\"1794193533307:0136313030373066312d363165642d343263352d396161382d643830333430396237306638\",\"asOf\":1794196533408}]",
-   "createUsageStatsApi#0.getUsageRequests\u0000[{\"view\":\"hour\",\"status\":\"failed\",\"limit\":50}]",
-   "createUsageStatsApi#0.getUsageRequests\u0000[{\"view\":\"hour\",\"status\":\"failed\",\"model\":\"gpt-5.6-luna\",\"limit\":50}]"
-  ],
-  "createUsageStatsApi#1.getUsageRequests": [
-   "createUsageStatsApi#1.getUsageRequests\u0000[{\"view\":\"hour\",\"limit\":50}]",
-   "createUsageStatsApi#1.getUsageRequests\u0000[{\"view\":\"hour\",\"limit\":50,\"cursor\":\"1794193533569:0164636530373135612d313633382d343633392d393735622d363331333138633363376164\",\"asOf\":1794196533604}]"
-  ],
-  "createUsageStatsApi#3.getUsageRequests": [
-   "createUsageStatsApi#3.getUsageRequests\u0000[{\"view\":\"hour\",\"limit\":50}]"
-  ],
-  "createUsageStatsApi#4.getUsageRequests": [
-   "createUsageStatsApi#4.getUsageRequests\u0000[{\"view\":\"hour\",\"limit\":50}]"
-  ]
- },
- "positional": [
-  "createUsageStatsApi.getUsageStats",
-  "createUsageStatsApi.getUsageRequests",
-  "createUsageStatsApi.getSessionUsage",
-  "createUsageStatsApi.getQuotaHistory"
- ],
  "opaque": [],
  "instances": {
   "createUsageStatsApi": 5

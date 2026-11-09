@@ -114,11 +114,5 @@
    }
   ]
  },
- "order": {
-  "_sessionSummary": [
-   "_sessionSummary\u0000[{\"id\":\"sess_truncated_only\",\"cwd\":\"C:\\\\Project\\\\mixdog\",\"updatedAt\":1000,\"desktopSession\":{\"classification\":\"project\",\"projectPath\":\"C:\\\\Project\\\\mixdog\"},\"messages\":[{\"role\":\"system\",\"content\":\"rules\"},{\"role\":\"user\",\"content\":\"[truncated]\",\"meta\":{\"synthetic\":true}},{\"role\":\"assistant\",\"content\":\"[request interrupted by user]\"}]}]",
-   "_sessionSummary\u0000[{\"id\":\"sess_truncated_only\",\"cwd\":\"C:\\\\Project\\\\mixdog\",\"updatedAt\":1000,\"desktopSession\":{\"classification\":\"project\",\"projectPath\":\"C:\\\\Project\\\\mixdog\"},\"messages\":[{\"role\":\"system\",\"content\":\"rules\"},{\"role\":\"user\",\"content\":\"[truncated]\",\"meta\":{\"synthetic\":true}},{\"role\":\"assistant\",\"content\":\"[request interrupted by user]\"},{\"role\":\"user\",\"content\":\"Fix the login bug\"}]}]"
-  ]
- },
  "opaque": []
 }

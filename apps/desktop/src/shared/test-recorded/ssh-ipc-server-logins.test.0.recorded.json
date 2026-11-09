@@ -66,19 +66,6 @@
   ]
  },
  "stubs": {},
- "order": {
-  "createSessionOAuthFlowRegistry#0.register": [
-   "createSessionOAuthFlowRegistry#0.register\u0000[{\"provider\":\"openai-oauth\",\"url\":\"https://auth.openai.com/codex/device\",\"userCode\":\"ABCD-1234\",\"waitForCallback\":{},\"cancel\":{\"$fn\":1}}]"
-  ],
-  "createSessionOAuthFlowRegistry#0.status": [
-   "createSessionOAuthFlowRegistry#0.status\u0000[\"oauth_mw8qbr41_1\"]",
-   "createSessionOAuthFlowRegistry#0.status\u0000[\"oauth_mw8qbr41_1\"]"
-  ],
-  "createSessionOAuthFlowRegistry#0.cancelAll": [
-   "createSessionOAuthFlowRegistry#0.cancelAll\u0000[]"
-  ]
- },
- "positional": [],
  "opaque": [],
  "instances": {
   "createSessionOAuthFlowRegistry": 1
