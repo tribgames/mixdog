@@ -327,7 +327,23 @@ await submitting('a closed session takes nothing', { prompt: 'hello', admission:
 await submitting('a repeated submission id is one prompt', { prompt: 'hello', repeat: 2, busy: true });
 
 /**
- * The message selector's rewind and edit (`rewindToItem`, session-api/intake/rewind.mjs) on a submitted row: the client names the row
+ * Node's store guards and coalesces (`frame-batched-store.mjs`): a change followed by two immediate flushes in one synchronous chain,
+ * and then the frame timer, publishes once. What the real store published is recorded; nothing is derived.
+ */
+{
+  const f = boot('flush-probe');
+  const base = f.publications.length;
+  f.flow.set({ busy: true });
+  f.flow.flushEmitImmediate();
+  f.flow.flushEmitImmediate();
+  await advance(50);
+  cases.push({ name: 'two immediate flushes in one chain publish once', kind: 'flush', flushes: 2, publications: f.publications.slice(base) });
+  f.flags.disposed = true;
+}
+
+/**
+ * The message selector's rewind (`rewindToItem`, session-api/intake/rewind.mjs; the desktop's "edit a message" is this same capability,
+ * which hands the prompt's text back to the composer, `use-composer-message-selector.ts:59`) on a submitted row: the client names the row
  * by the id it shows (a user row's id is its submission id) and Node resolves that id on the rows, then hands the runtime the row's
  * stable message id with its text. What the session answered and what it asked of the runtime are recorded.
  */

@@ -129,7 +129,7 @@
             "at": 1700000000150,
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "8ae5264c-b3f6-4138-bcbe-0837e9303642"
+            "attemptId": "4636c85b-78ad-491a-b129-1922c02815d3"
           }
         ],
         "queued": [],
@@ -339,7 +339,7 @@
             "at": 1700000000600,
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "ed5b8b3d-f9ad-48ff-ad1c-d39754b7244d"
+            "attemptId": "56d44a85-3903-4115-ae9b-6b742acd9876"
           }
         ],
         "queued": [],
@@ -620,7 +620,7 @@
             "at": 1700000001050,
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "724382aa-86a1-4da0-826d-790ca56bb116"
+            "attemptId": "972bba51-4561-408e-b71a-2caab8473ad5"
           },
           {
             "kind": "user",
@@ -784,7 +784,7 @@
             "at": 1700000001200,
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "6e0ecdc4-6390-404c-8e60-dda97f6eac97"
+            "attemptId": "1bce95c9-1b87-405f-96da-7dd86db35c9c"
           },
           {
             "kind": "user",
@@ -870,7 +870,7 @@
             "messageId": "msg_<random>",
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "d34a81cd-4565-43ae-8d8e-2dc287aaabb6",
+            "attemptId": "a6b2b998-6884-4172-80b8-6848f54f19cb",
             "kind": "assistant",
             "id": "abort-9-item-1",
             "streaming": false
@@ -888,7 +888,7 @@
             "at": 1700000001350,
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "d34a81cd-4565-43ae-8d8e-2dc287aaabb6"
+            "attemptId": "a6b2b998-6884-4172-80b8-6848f54f19cb"
           }
         ],
         "queued": [],
@@ -1078,7 +1078,7 @@
             "at": 1700000001800,
             "device": "PC",
             "completionVerb": "Mapped",
-            "attemptId": "6d0f807c-5af9-48af-b253-716033a940c9"
+            "attemptId": "1c7c7031-030b-418e-b33d-b0f501d75f81"
           }
         ],
         "queued": [],
@@ -2517,6 +2517,32 @@
       }
     },
     {
+      "name": "two immediate flushes in one chain publish once",
+      "kind": "flush",
+      "flushes": 2,
+      "publications": [
+        {
+          "at": 1700000003350,
+          "state": {
+            "busy": true,
+            "commandBusy": false,
+            "queued": [],
+            "items": [],
+            "promptHistoryList": [],
+            "stats": {
+              "turns": 0,
+              "inputTokens": 0,
+              "outputTokens": 0
+            },
+            "structureRevision": 0,
+            "transcriptViewRevision": 0,
+            "transcriptViewItems": null,
+            "cwd": "<cwd>"
+          }
+        }
+      ]
+    },
+    {
       "name": "a submitted row is rewound by the id it shows",
       "kind": "rewind",
       "prompt": "hello",
@@ -2528,36 +2554,36 @@
             "kind": "user",
             "id": "sub1",
             "text": "hello",
-            "at": 1700000003350,
+            "at": 1700000003400,
             "messageId": "msg_<random>",
             "device": "desktop-1"
           },
           {
             "text": "hi",
-            "at": 1700000003350,
+            "at": 1700000003400,
             "messageId": "msg_<random>",
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "aaa00823-3027-4c3b-8639-f7cdca985af9",
+            "attemptId": "23d59300-27a6-4ad4-b7dc-9dd3d49268b9",
             "kind": "assistant",
-            "id": "rewind-27-item-1",
+            "id": "rewind-28-item-1",
             "streaming": false
           },
           {
             "kind": "turndone",
-            "id": "rewind-27-item-2",
+            "id": "rewind-28-item-2",
             "checkpointId": "sub1",
             "elapsedMs": 0,
             "status": "done",
-            "finalAssistantId": "rewind-27-item-1",
+            "finalAssistantId": "rewind-28-item-1",
             "outputTokens": 1,
             "thinkingElapsedMs": 0,
             "toolCount": 0,
             "verb": "Mapped",
-            "at": 1700000003350,
+            "at": 1700000003400,
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "aaa00823-3027-4c3b-8639-f7cdca985af9"
+            "attemptId": "23d59300-27a6-4ad4-b7dc-9dd3d49268b9"
           }
         ],
         "queued": [],
@@ -2606,36 +2632,36 @@
             "kind": "user",
             "id": "sub1",
             "text": "hello",
-            "at": 1700000003450,
+            "at": 1700000003500,
             "messageId": "msg_<random>",
             "device": "desktop-1"
           },
           {
             "text": "hi",
-            "at": 1700000003450,
+            "at": 1700000003500,
             "messageId": "msg_<random>",
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "e751bf13-ed9c-48e5-a3f7-502322ebfc74",
+            "attemptId": "931d0f34-1dd5-40a4-bc1c-6f7fea181cbc",
             "kind": "assistant",
-            "id": "rewind-28-item-1",
+            "id": "rewind-29-item-1",
             "streaming": false
           },
           {
             "kind": "turndone",
-            "id": "rewind-28-item-2",
+            "id": "rewind-29-item-2",
             "checkpointId": "sub1",
             "elapsedMs": 0,
             "status": "done",
-            "finalAssistantId": "rewind-28-item-1",
+            "finalAssistantId": "rewind-29-item-1",
             "outputTokens": 1,
             "thinkingElapsedMs": 0,
             "toolCount": 0,
             "verb": "Mapped",
-            "at": 1700000003450,
+            "at": 1700000003500,
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "e751bf13-ed9c-48e5-a3f7-502322ebfc74"
+            "attemptId": "931d0f34-1dd5-40a4-bc1c-6f7fea181cbc"
           }
         ],
         "queued": [],
@@ -2654,36 +2680,36 @@
             "kind": "user",
             "id": "sub1",
             "text": "hello",
-            "at": 1700000003450,
+            "at": 1700000003500,
             "messageId": "msg_<random>",
             "device": "desktop-1"
           },
           {
             "text": "hi",
-            "at": 1700000003450,
+            "at": 1700000003500,
             "messageId": "msg_<random>",
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "e751bf13-ed9c-48e5-a3f7-502322ebfc74",
+            "attemptId": "931d0f34-1dd5-40a4-bc1c-6f7fea181cbc",
             "kind": "assistant",
-            "id": "rewind-28-item-1",
+            "id": "rewind-29-item-1",
             "streaming": false
           },
           {
             "kind": "turndone",
-            "id": "rewind-28-item-2",
+            "id": "rewind-29-item-2",
             "checkpointId": "sub1",
             "elapsedMs": 0,
             "status": "done",
-            "finalAssistantId": "rewind-28-item-1",
+            "finalAssistantId": "rewind-29-item-1",
             "outputTokens": 1,
             "thinkingElapsedMs": 0,
             "toolCount": 0,
             "verb": "Mapped",
-            "at": 1700000003450,
+            "at": 1700000003500,
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "e751bf13-ed9c-48e5-a3f7-502322ebfc74"
+            "attemptId": "931d0f34-1dd5-40a4-bc1c-6f7fea181cbc"
           }
         ],
         "queued": [],
@@ -2707,36 +2733,36 @@
             "kind": "user",
             "id": "sub1",
             "text": "hello",
-            "at": 1700000003550,
+            "at": 1700000003600,
             "messageId": "msg_<random>",
             "device": "desktop-1"
           },
           {
             "text": "hi",
-            "at": 1700000003550,
+            "at": 1700000003600,
             "messageId": "msg_<random>",
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "d399334d-2806-4c55-9704-3bb99691cde0",
+            "attemptId": "74aae588-eb63-4b70-86ec-c21906bd4e17",
             "kind": "assistant",
-            "id": "rewind-29-item-1",
+            "id": "rewind-30-item-1",
             "streaming": false
           },
           {
             "kind": "turndone",
-            "id": "rewind-29-item-2",
+            "id": "rewind-30-item-2",
             "checkpointId": "sub1",
             "elapsedMs": 0,
             "status": "done",
-            "finalAssistantId": "rewind-29-item-1",
+            "finalAssistantId": "rewind-30-item-1",
             "outputTokens": 1,
             "thinkingElapsedMs": 0,
             "toolCount": 0,
             "verb": "Mapped",
-            "at": 1700000003550,
+            "at": 1700000003600,
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "d399334d-2806-4c55-9704-3bb99691cde0"
+            "attemptId": "74aae588-eb63-4b70-86ec-c21906bd4e17"
           }
         ],
         "queued": [],
@@ -2755,36 +2781,36 @@
             "kind": "user",
             "id": "sub1",
             "text": "hello",
-            "at": 1700000003550,
+            "at": 1700000003600,
             "messageId": "msg_<random>",
             "device": "desktop-1"
           },
           {
             "text": "hi",
-            "at": 1700000003550,
+            "at": 1700000003600,
             "messageId": "msg_<random>",
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "d399334d-2806-4c55-9704-3bb99691cde0",
+            "attemptId": "74aae588-eb63-4b70-86ec-c21906bd4e17",
             "kind": "assistant",
-            "id": "rewind-29-item-1",
+            "id": "rewind-30-item-1",
             "streaming": false
           },
           {
             "kind": "turndone",
-            "id": "rewind-29-item-2",
+            "id": "rewind-30-item-2",
             "checkpointId": "sub1",
             "elapsedMs": 0,
             "status": "done",
-            "finalAssistantId": "rewind-29-item-1",
+            "finalAssistantId": "rewind-30-item-1",
             "outputTokens": 1,
             "thinkingElapsedMs": 0,
             "toolCount": 0,
             "verb": "Mapped",
-            "at": 1700000003550,
+            "at": 1700000003600,
             "device": "desktop-1",
             "completionVerb": "Mapped",
-            "attemptId": "d399334d-2806-4c55-9704-3bb99691cde0"
+            "attemptId": "74aae588-eb63-4b70-86ec-c21906bd4e17"
           }
         ],
         "queued": [],

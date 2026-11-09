@@ -552,12 +552,13 @@ async fn every_recorded_rewind_resolves_the_displayed_id_as_nodes_does() {
                             role: Some("assistant".into()),
                             model: true,
                             visible: true,
-                            body: json!({ "role": "assistant", "content": "re: hello" }),
+                            body: json!({ "role": "assistant", "content": "hi" }),
                             prompt: None,
                         })
                         .await
                         .expect("commit");
-                    RunOutcome::Completed(Default::default())
+                    // The turn did something (the answer is its result), so it ends with its live end row, as Node's did (`isNoOpTurn`).
+                    RunOutcome::Completed(Box::new(mixdog_agent::agent_tool::flow::seams::TurnResult { content: "hi".into(), ..Default::default() }))
                 })
             }));
         }
@@ -570,8 +571,12 @@ async fn every_recorded_rewind_resolves_the_displayed_id_as_nodes_does() {
         if busy {
             within(eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (rows(&handle).len() == 1).then_some(())), name, &rows(&handle)).await;
         } else {
-            // The prompt and its answer; Node's third row, the turn end, is not a text row.
-            within(eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (idle(&handle) && rows(&handle).len() >= 2).then_some(())), name, &rows(&handle)).await;
+            // The prompt, its answer and the turn's live end: the rows Node held (`before.items`).
+            within(eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || (idle(&handle) && rows(&handle).len() == 3).then_some(())), name, &rows(&handle)).await;
+            // Node's rows by kind and text (`user`, `assistant`, `turndone` are Rust's user, assistant and end rows).
+            let node_rows: Vec<(String, String)> = case["before"]["items"].as_array().unwrap().iter().map(|row| (row["kind"].as_str().unwrap().to_owned(), row["text"].as_str().unwrap_or_default().to_owned())).collect();
+            let rust_rows: Vec<(String, String)> = rows(&handle).into_iter().map(|(role, text)| ((if role == "other" { "turndone" } else { role }).to_owned(), text)).collect();
+            assert_eq!(rust_rows, node_rows, "{name}: the rows the session held");
         }
         let rewound = handle
             .request(CoreRequest {
@@ -587,15 +592,31 @@ async fn every_recorded_rewind_resolves_the_displayed_id_as_nodes_does() {
             reply => {
                 let Ok(Reply::Value(value)) = rewound else { panic!("{name}: Node rewound, Rust answered {rewound:?}") };
                 assert_eq!(value["text"], reply["text"], "{name}: the prompt handed back");
-                // Node counts the turn-end row (`turndone`) among the rows it removes; the scripted run here emits no live end row, so
-                // Rust's window holds every other row of Node's.
-                let turn_ends = case["before"]["items"].as_array().unwrap().iter().filter(|row| row["kind"] == "turndone").count() as u64;
-                assert_eq!(value["removed"].as_u64().unwrap(), reply["removed"].as_u64().unwrap() - turn_ends, "{name}: the rows removed");
+                assert_eq!(value["removed"], reply["removed"], "{name}: the rows removed");
                 // Node asked the runtime to rewind to the row's message id with its text; the row is gone and the history is as before it.
                 assert_eq!(case["runtimeCalls"][0]["text"], reply["text"]);
                 within(eventually_on(&[&handle.cell.stepped, &*rig.feeds.published], || rows(&handle).is_empty().then_some(())), name, &rows(&handle)).await;
                 assert_eq!(case["after"]["items"], json!([]), "{name}: Node's transcript is empty");
             }
+        }
+    }
+}
+
+/// What the recorder's store published is Node's real `frame-batched-store` publishing: it guards and coalesces, so a chain of two
+/// immediate flushes is one publication, and a publication always shows a change from the one before. A recorder that published per
+/// call would show two (the reviewer's probe) or repeated snapshots here.
+#[test]
+fn the_recorded_publishing_is_coalesced_as_nodes_store_does() {
+    let all: Value = serde_json::from_str(include_str!("../../../../fixtures/phone-chat-core/phone-chat-core.json")).unwrap();
+    let cases = all["cases"].as_array().unwrap();
+    let probe = cases.iter().find(|case| case["kind"] == "flush").expect("the flush probe is recorded");
+    assert_eq!(probe["flushes"], json!(2));
+    assert_eq!(probe["publications"].as_array().unwrap().len(), 1, "two immediate flushes in one chain");
+    for case in cases {
+        let publications = case["publications"].as_array().or_else(|| case["after"]["publications"].as_array());
+        let Some(publications) = publications else { continue };
+        for pair in publications.windows(2) {
+            assert_ne!(pair[0]["state"], pair[1]["state"], "{}: a publication that shows nothing new", case["name"]);
         }
     }
 }
