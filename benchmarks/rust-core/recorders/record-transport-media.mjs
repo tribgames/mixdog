@@ -7,6 +7,7 @@
 //
 //   node --experimental-transform-types --import ./benchmarks/rust-core/recorders/lib/ts-register.mjs benchmarks/rust-core/recorders/record-transport-media.mjs --tree <exact git archive of b6f10295a with node_modules> --commit b6f10295a2f698afc85332467192de28500bd146
 import { createHash } from 'node:crypto';
+import { register } from 'node:module';
 import { join } from 'node:path';
 import { FIXTURES_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
@@ -17,28 +18,66 @@ const recorder = 'benchmarks/rust-core/recorders/record-transport-media.mjs';
 const finalDir = join(FIXTURES_ROOT, 'remote-transport-media');
 const stage = stageSet(finalDir);
 
-// Every webcrypto operation runs on the thread pool, the only real asynchrony the adapter has (the leases and the link are
-// stand-ins that answer or park by script). The adapter's own crypto promises are the completion signals: a step is over when
-// the event loop has run every continuation it can (a turn drains the microtask queue) and no crypto promise is left in flight.
-const subtle = globalThis.crypto.subtle;
-const inflight = new Set();
-for (const name of ['encrypt', 'decrypt']) {
-  const original = subtle[name].bind(subtle);
-  subtle[name] = (...a) => {
-    const promise = original(...a).finally(() => inflight.delete(promise));
-    inflight.add(promise);
-    return promise;
-  };
-}
-const turn = () => new Promise((resolve) => setImmediate(resolve));
-async function quiesce() {
-  for (;;) {
-    await turn();
-    if (inflight.size === 0) return;
-    await Promise.allSettled([...inflight]);
+// The adapter has no completion of its own to await (receive() answers a boolean; every pump is `void`ed), so the recorder reads
+// the adapter's pumps at their resting points. A load hook adds one probe call at each place a pump starts, parks for room
+// (`stream.wake = resolve`), is woken, or ends (the `streams.delete` / `refusing = false` lines); it changes nothing else, and every
+// edit must match exactly once or the recording stops. A step is over when every pump has ended, is parked for room, or waits on a
+// send or read this script keeps pending: the pumps that are none of those are the ones still moving, and each leaves motion only
+// through one of those events, so no clock, no event-loop turn and no count of yields decides anything.
+const PROBE_EDITS = [
+  [/stream\.wake = resolve;/g, 'stream.wake = resolve; globalThis.__mediaProbe.parked(stream);'],
+  [/resolve\?\.\(\);/g, 'if (resolve) globalThis.__mediaProbe.woke(stream); resolve?.();'],
+  [/streams\.set\(stream\.id, stream\);/g, 'streams.set(stream.id, stream); globalThis.__mediaProbe.started(stream);'],
+  [/if \(streams\.get\(stream\.id\) === stream\) streams\.delete\(stream\.id\);/g, 'if (streams.get(stream.id) === stream) { streams.delete(stream.id); globalThis.__mediaProbe.ended(stream); }'],
+  [/\n(\s+)refusing = true;/g, '\n$1refusing = true; globalThis.__mediaProbe.started(refuser);'],
+  [/\n(\s+)refusing = false;/g, '\n$1refusing = false; globalThis.__mediaProbe.ended(refuser);'],
+];
+const probeHooks = `
+const EDITS = ${JSON.stringify(PROBE_EDITS.map(([re, to]) => [re.source, to]))};
+export async function load(url, context, nextLoad) {
+  const loaded = await nextLoad(url, context);
+  if (!url.endsWith('/apps/desktop/src/main/remote-transport/media.ts')) return loaded;
+  let source = String(loaded.source);
+  for (const [pattern, to] of EDITS) {
+    const re = new RegExp(pattern, 'g');
+    if ((source.match(re) ?? []).length !== 1) throw new Error('probe edit does not match exactly once: ' + pattern);
+    source = source.replace(re, to);
   }
+  return { ...loaded, source, shortCircuit: true };
 }
-const { createRemoteTransportMediaAdapter } = await importFrom(tree, 'apps/desktop/src/main/remote-transport/media.ts');
+`;
+register(`data:text/javascript,${encodeURIComponent(probeHooks)}`);
+const probe = (globalThis.__mediaProbe = {
+  live: new Set(),
+  parkedSet: new Set(),
+  held: () => 0,
+  notify: null,
+  poke() {
+    const notify = probe.notify;
+    probe.notify = null;
+    notify?.();
+  },
+  started(pump) {
+    probe.live.add(pump);
+    probe.poke();
+  },
+  parked(pump) {
+    probe.parkedSet.add(pump);
+    probe.poke();
+  },
+  woke(pump) {
+    probe.parkedSet.delete(pump);
+  },
+  ended(pump) {
+    probe.live.delete(pump);
+    probe.parkedSet.delete(pump);
+    probe.poke();
+  },
+});
+async function quiesce() {
+  while (probe.live.size - probe.parkedSet.size !== probe.held()) await new Promise((resolve) => (probe.notify = resolve));
+}
+const subtle = globalThis.crypto.subtle;const { createRemoteTransportMediaAdapter } = await importFrom(tree, 'apps/desktop/src/main/remote-transport/media.ts');
 const mediaCrypto = await importFrom(tree, 'apps/desktop/src/shared/remote-media-crypto.ts');
 const { parseRange } = await importFrom(tree, 'apps/relay/lib/media-http.mjs');
 
@@ -69,6 +108,9 @@ async function scenario(name, options, script) {
   const state = { room: { default: options.room ?? true }, sends: [], reads: [], sendQueue: [], listener: null, requests: new Map(), chunkCount: new Map(), metas: new Map() };
   let effects = [];
   let results = [];
+  probe.live.clear();
+  probe.parkedSet.clear();
+  probe.held = () => state.sends.length + state.reads.length;
   const log = (entry) => effects.push(entry);
   const readCounts = new Map();
   const downloads = {
@@ -82,7 +124,12 @@ async function scenario(name, options, script) {
         read: async (offset, length) => {
           const count = (readCounts.get(assetId) ?? 0) + 1;
           readCounts.set(assetId, count);
-          if (asset.hold) await new Promise((resolve) => state.reads.push(resolve));
+          if (asset.hold) {
+            await new Promise((resolve) => {
+              state.reads.push(resolve);
+              probe.poke();
+            });
+          }
           if (asset.fail === 'plain') throw new Error('disk gone');
           if (asset.fail) throw Object.assign(new Error('refused'), { code: asset.fail });
           if (asset.failAfter !== undefined && count > asset.failAfter) throw Object.assign(new Error('refused'), { code: 'file-download:changed' });
@@ -97,7 +144,12 @@ async function scenario(name, options, script) {
       const entry = { e: 'send', stream: admission?.stream ?? null, message: JSON.parse(JSON.stringify(message)) };
       log(entry);
       const next = state.sendQueue.length ? state.sendQueue.shift() : options.send === 'held' ? 'held' : true;
-      if (next === 'held') return new Promise((resolve, reject) => state.sends.push({ resolve, reject }));
+      if (next === 'held') {
+        return new Promise((resolve, reject) => {
+          state.sends.push({ resolve, reject });
+          probe.poke();
+        });
+      }
       if (next === 'reject') return Promise.reject(new Error('session ended'));
       return Promise.resolve(next);
     },
