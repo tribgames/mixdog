@@ -42,9 +42,28 @@ const UNGATED_CALLS = new Set(['abortSession', 'resolveToolApprovalForSession', 
 
 export interface ProtocolRouter {
   call<T = unknown>(method: string, params: unknown[]): Promise<T>;
+  /** Starts the reads the app makes as it mounts, once the client is usable; the app's first identical read takes each answer. */
+  prefetch(reads: ReadonlyArray<readonly [string, unknown[]]>): void;
   fire(method: string, params: unknown[]): void;
   install(): void;
 }
+
+/** Desk-side state reads with no side effect: only these are prefetched (Node's COALESCED_READS, remote-shim-calls.ts at b6f10295a). */
+const BOOT_READABLE = new Set([
+  'getSnapshot',
+  'getUpdaterState',
+  'listProjects',
+  'readActivityRailPins',
+  'readCapabilities',
+  'readHostDisplayPreferences',
+  'readSettings',
+  'viewerDevice',
+  'getTaskWorkspace',
+]);
+/** Boot reads of state the view sync owns: they still wait for it, so their answer can never be older than the baseline the sync installs. */
+const SYNC_ORDERED_BOOT_READS = new Set(['getSnapshot', 'listProjects']);
+/** Whatever the app has not asked for when this window closes is dropped, so no later read is ever served from boot. */
+export const BOOT_READ_WINDOW_MS = 10_000;
 
 /** A name claimed by two adapters is a defect: it throws here, at start, naming both. */
 export function createProtocolRouter(
@@ -73,14 +92,15 @@ export function createProtocolRouter(
   }
   const waiting = new Map<number, true>();
   let nextId = 1;
+  const bootReads = new Map<string, Promise<unknown>>();
+  const bootKey = (method: string, params: unknown[]): string => (BOOT_READABLE.has(method) ? `${method}\0${JSON.stringify(params)}` : '');
   // What the library says of a lost connection is what the page knows as an interrupted call.
   const interrupted = (error: unknown): unknown => {
     const kind = (error as { detail?: { kind?: string } } | null)?.detail?.kind;
     return kind === 'connectionLost' || kind === 'clientClosed' ? remoteConnectionInterruptedError() : error;
   };
 
-  return {
-    call<T>(method: string, params: unknown[]): Promise<T> {
+  const dispatch = <T>(method: string, params: unknown[], gated: boolean): Promise<T> => {
       const handler = calls.get(method);
       if (!handler) return Promise.reject(new UnclaimedNodeMethodError(method));
       return new Promise<T>((resolve, reject) => {
@@ -93,7 +113,7 @@ export function createProtocolRouter(
           waiting.delete(id);
         };
         (async () => {
-          if (UNGATED_CALLS.has(method)) await link.started();
+          if (!gated || UNGATED_CALLS.has(method)) await link.started();
           else await link.synced();
           return handler(params, link.host);
         })().then(
@@ -107,6 +127,31 @@ export function createProtocolRouter(
           }
         );
       });
+  };
+
+  return {
+    // The first identical read takes a prefetched answer before any gate: one use, and a failed read was never kept.
+    call<T>(method: string, params: unknown[]): Promise<T> {
+      const key = bootKey(method, params);
+      const booted = key ? bootReads.get(key) : undefined;
+      if (booted) {
+        bootReads.delete(key);
+        return booted as Promise<T>;
+      }
+      return dispatch<T>(method, params, true);
+    },
+    prefetch(reads) {
+      for (const [method, params] of reads) {
+        const key = bootKey(method, params);
+        if (!key || bootReads.has(key)) continue;
+        // Everything but the sync-ordered reads leaves as soon as the client is up, beside the sync instead of behind it.
+        const read = dispatch(method, params, SYNC_ORDERED_BOOT_READS.has(method));
+        read.catch(() => {
+          if (bootReads.get(key) === read) bootReads.delete(key);
+        });
+        bootReads.set(key, read);
+      }
+      setTimeout(() => bootReads.clear(), BOOT_READ_WINDOW_MS);
     },
     fire(method: string, params: unknown[]): void {
       const handler = fires.get(method);

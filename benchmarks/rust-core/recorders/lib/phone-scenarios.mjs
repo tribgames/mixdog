@@ -365,6 +365,77 @@ export const SCENARIOS = {
     { op: 'advance', ms: 0 },
     { op: 'mark', name: 'refused' },
   ],
+  // The reads the app makes as it mounts (Node: prefetchBootReads, remote-shim-calls.ts): started beside the first view sync, so a consumer
+  // mounted while the sync is blocked is answered; the two reads of state the sync owns (snapshot, projects) wait for it.
+  'boot-reads-sync-held': [
+    { op: 'boot', reads: true, hold: ['synchronizeViews'] },
+    { op: 'accept' },
+    { op: 'await-request', name: 'synchronizeViews' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'sync-held' },
+    { op: 'read', name: 'readSettings', as: 'settings' },
+    { op: 'read', name: 'viewerDevice', as: 'viewer' },
+    { op: 'read', name: 'readHostDisplayPreferences', as: 'display' },
+    { op: 'read', name: 'readActivityRailPins', as: 'pins' },
+    { op: 'read', name: 'getSnapshot', as: 'snapshot' },
+    { op: 'read', name: 'listProjects', as: 'projects' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'mounted-while-blocked' },
+    { op: 'advance', ms: 3000 },
+    { op: 'mark', name: 'still-blocked' },
+    { op: 'release', name: 'synchronizeViews' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'sync-landed' },
+  ],
+  // The sync finishes while a read is still pending: that read is no barrier of the connection becoming ready.
+  'boot-reads-sync-first': [
+    { op: 'boot', reads: true, hold: ['readSettings'] },
+    { op: 'accept' },
+    { op: 'await-request', name: 'synchronizeViews' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'sync-landed-read-pending' },
+    { op: 'read', name: 'readSettings', as: 'settings' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'consumer-waiting' },
+    { op: 'release', name: 'readSettings' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'read-landed' },
+  ],
+  // Snapshot and projects publish no baseline before the sync: they are not even requested until it lands.
+  'boot-reads-no-baseline-before-sync': [
+    { op: 'boot', reads: true, hold: ['synchronizeViews'] },
+    { op: 'accept' },
+    { op: 'await-request', name: 'synchronizeViews' },
+    { op: 'advance', ms: 5000 },
+    { op: 'mark', name: 'sync-held-5s' },
+    { op: 'release', name: 'synchronizeViews' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'sync-landed' },
+  ],
+  // One use, a failure that is evicted (and one a consumer already holds), and expiry after the 10 s boot window.
+  'boot-reads-consume-fail-expire': [
+    { op: 'boot', reads: true, refuse: ['viewerDevice', 'readHostDisplayPreferences'], hold: ['readHostDisplayPreferences'] },
+    { op: 'accept' },
+    { op: 'await-request', name: 'synchronizeViews' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'booted' },
+    { op: 'read', name: 'readHostDisplayPreferences', as: 'display-1' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'pending-read-taken' },
+    { op: 'release', name: 'readHostDisplayPreferences' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'refusal-reaches-consumer' },
+    { op: 'read', name: 'readHostDisplayPreferences', as: 'display-2' },
+    { op: 'read', name: 'viewerDevice', as: 'viewer' },
+    { op: 'read', name: 'readSettings', as: 'settings-1' },
+    { op: 'read', name: 'readSettings', as: 'settings-2' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'fresh-after-failure-and-use' },
+    { op: 'advance', ms: 10000 },
+    { op: 'read', name: 'readActivityRailPins', as: 'pins-late' },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'expired' },
+  ],
   // A browser that refuses to construct a socket does not pin the connection to the rejected attempt.
   'socket-ctor-throws': [
     { op: 'boot', socketThrows: 1 },
@@ -393,6 +464,7 @@ export async function play(world, driver, ops) {
   const calls = [];
   let hellos = 0;
   const refused = new Set();
+  const traceReads = ops[0].reads === true;
   const checkpoint = (name, extra = {}) => {
     const slice = world.events.slice(cursor);
     cursor = world.events.length;
@@ -409,13 +481,17 @@ export async function play(world, driver, ops) {
       banner,
       offline: slice.some((e) => e.ev === 'state' && e.desktop === 'offline'),
       wire: slice
-        .filter((e) => e.ev === 'ping' || e.ev === 'close' || e.ev === 'socket' || e.ev === 'resync' || e.ev === 'xcontrol')
+        .filter((e) => e.ev === 'ping' || e.ev === 'close' || e.ev === 'socket' || e.ev === 'resync' || (e.ev === 'xcontrol' && e.kind !== 'ack'))
         .map((e) => `${e.ev === 'xcontrol' ? `x:${e.kind}` : e.ev}${e.ev === 'close' ? `(${e.code},${e.reason})` : ''}@${e.at - since}`),
+      ...(traceReads
+        ? {
+            requests: slice.filter((e) => e.ev === 'request').map((e) => `${e.name}@${e.at - since}`).sort(),
+            settled: slice.filter((e) => e.ev === 'settled').map((e) => `${e.as}:${e.ok ? `ok=${JSON.stringify(e.value)}` : 'err'}@${e.at - since}`).sort(),
+          }
+        : {}),
       pairingInvalid: slice.filter((e) => e.ev === 'pairing-invalid').map((e) => e.message),
       reconnected: slice.filter((e) => e.ev === 'reconnected').length,
       calls: calls.splice(0),
-      pcRecords: world.pcRecords(),
-      pcRequests: world.pcRequests(),
       core: world.core() ? effectiveCore(world.core()) : null,
       ...extra,
     };
@@ -426,6 +502,8 @@ export async function play(world, driver, ops) {
     switch (op.op) {
       case 'boot':
         world.throwNext = op.socketThrows ?? 0;
+        for (const name of op.hold ?? []) world.holds.add(name);
+        for (const name of op.refuse ?? []) world.refusals.add(name);
         if (op.visible) world.store.set('mixdog.remote-visible-sessions', JSON.stringify(op.visible));
         await driver.boot(world, op);
         break;
@@ -500,6 +578,19 @@ export async function play(world, driver, ops) {
       case 'pong':
         world.pongTo(lastSocket);
         await world.advance(0);
+        break;
+      case 'await-request': {
+        await world.until(() => world.events.some((e) => e.ev === 'request' && e.name === op.name));
+        break;
+      }
+      case 'read':
+        driver.api()[op.name]().then(
+          (value) => world.log({ ev: 'settled', as: op.as, ok: true, value }),
+          () => world.log({ ev: 'settled', as: op.as, ok: false })
+        );
+        break;
+      case 'release':
+        await world.release(op.name);
         break;
       case 'screen':
         driver.api().reportScreenSessions(op.ids);

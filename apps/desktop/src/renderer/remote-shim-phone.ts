@@ -46,6 +46,7 @@ export function createPhoneApi(ctx: RemoteShimContext, adapters: readonly PhoneP
       setVisibleSessions: boot.setVisibleSessions,
       refreshScreen: boot.refreshScreen,
       recycle: () => boot.link?.wake(),
+      prefetchBootReads: router.prefetch,
     },
     fanOut,
     dispatchState: (snapshot: SessionSnapshot) => fanOut(ctx.stateListeners, snapshot),

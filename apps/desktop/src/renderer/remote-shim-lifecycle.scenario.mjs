@@ -2,7 +2,7 @@
 // same script and world the Node recorder used (benchmarks/rust-core/recorders), the core's end speaking the protocol.
 // Prints the trace on a marker line; remote-shim-lifecycle.test.mjs compares it with the recording.
 import { readFileSync } from 'node:fs';
-import { createPhoneWorld, protocolDialect } from '../../../../benchmarks/rust-core/recorders/lib/phone-world.mjs';
+import { SYNTHETIC_READ_REQUESTS, createPhoneWorld, protocolDialect } from '../../../../benchmarks/rust-core/recorders/lib/phone-world.mjs';
 import { SCENARIOS, play } from '../../../../benchmarks/rust-core/recorders/lib/phone-scenarios.mjs';
 
 async function main() {
@@ -24,7 +24,13 @@ const { VISUALIZE_PANELS_EVENT } = await import('../shared/visualize.ts');
 // What PH-2's group adapters will do, minimally: one call that stays pending (the script's in-flight call) and the terminal lane.
 const adapter = {
   group: 'lifecycle-test',
-  calls: { deleteSession: (_params, host) => host.client().call('feed/subscribe', { feedId: 'pending-call' }) },
+  calls: {
+    deleteSession: (_params, host) => host.client().call('feed/subscribe', { feedId: 'pending-call' }),
+    // The reads the app makes as it mounts: PH-2's group adapters answer these; here each is one request the world names.
+    ...Object.fromEntries(
+      Object.entries(SYNTHETIC_READ_REQUESTS).map(([name, method]) => [name, (_params, host) => host.client().call(method, {})])
+    ),
+  },
   install: (host) => void host.declareLane('terminal', ['terminal']),
 };
 const driver = {

@@ -10,7 +10,34 @@ import { join } from 'node:path';
 
 const importFrom = (tree, rel) => import(pathToFileURL(join(tree, rel)).href);
 
-export async function createPhoneWorld({ tree, dialect, random = () => 0.5, paired = true, registration = 200, hidden = false, mxt = false }) {
+/** The reads the app makes as it mounts, and what the desktop answers each (distinct, non-null): the replay of the boot-read contract
+ *  compares requests and settlements, so a request answered with another's value shows. */
+export const READ_VALUES = {
+  readSettings: { settings: 'S' },
+  readHostDisplayPreferences: { display: 'D' },
+  readActivityRailPins: ['pin-1'],
+  viewerDevice: { viewer: 'V' },
+  getSnapshot: { snapshot: 'N' },
+  listProjects: [{ id: 'project-1' }],
+  getUpdaterState: { updater: 'U' },
+};
+/** The protocol request each read is made as in the replay's synthetic handlers (PH-2's group adapters make the real ones): a read-only
+ *  request per Node read name, so the world can name what it received. */
+export const SYNTHETIC_READ_REQUESTS = {
+  readSettings: 'config/read',
+  readHostDisplayPreferences: 'config/getTheme',
+  readActivityRailPins: 'config/getOutputStyle',
+  viewerDevice: 'config/getProfile',
+  getSnapshot: 'thread/list',
+  listProjects: 'agent/pool/list',
+  getUpdaterState: 'config/getUpdateSettings',
+};
+const SYNTHETIC_READ_NAMES = Object.fromEntries(Object.entries(SYNTHETIC_READ_REQUESTS).map(([name, method]) => [method, name]));
+
+/** Requests the trace names (a dialect maps its own request to these); everything else is answered and not traced. */
+const TRACKED_REQUESTS = new Set(['synchronizeViews', ...Object.keys(READ_VALUES)]);
+
+export async function createPhoneWorld({ tree, dialect, random = () => 0.5, paired = true, registration = 200, hidden = false, mxt = false, installed = true }) {
   const E2EE = await importFrom(tree, 'apps/desktop/src/shared/remote-e2ee.ts');
   const Transport = await importFrom(tree, 'apps/desktop/src/shared/remote-transport.ts');
   const Recovery = await importFrom(tree, 'apps/desktop/src/renderer/remote-pairing-recovery.ts');
@@ -25,7 +52,7 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
     [keys.e2eeSecret, material.pairingSecret],
     [keys.browserId, 'browser-1'],
     [keys.server, origin],
-    ['mixdog.directBrowser', '1'],
+    ...(installed ? [['mixdog.directBrowser', '1']] : []),
     ...(paired ? [[keys.paired, '1']] : []),
   ]);
 
@@ -209,6 +236,13 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
         for (const raw of [Transport.encodeRemoteTransportRecord(box)].flat(Infinity)) this.leg.ws.onmessage({ data: raw.slice().buffer });
       }
     }
+    /** The PC acknowledges the phone's records received so far (what its own peer would send). */
+    async ack() {
+      const due = this.receiver.ackDue(Number.MAX_SAFE_INTEGER);
+      if (!due) return;
+      this.receiver.ackSent(due.through);
+      await this.control(Transport.remoteTransportAck(due.through, due.ranges));
+    }
     async control(message) {
       const sealed = Transport.encodeRemoteTransportControl(await this.leg.server.sealControl(message, E2EE.RELAY_E2EE_RELAY_LANE));
       for (const raw of [sealed].flat(Infinity)) this.leg.ws.onmessage({ data: raw.slice().buffer });
@@ -219,7 +253,7 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
       if (message.kind === 'control') {
         const control = Transport.readRemoteTransportControl(await leg.server.openControl(message.box, E2EE.RELAY_E2EE_RELAY_LANE), 'client');
         if (!control) return;
-        log({ ev: 'xcontrol', kind: control.t === 'ack' ? `ack(through=${control.through},sent=${this.sent})` : control.t });
+        log({ ev: 'xcontrol', kind: control.t, control: JSON.parse(JSON.stringify(control, (_k, v) => (typeof v === 'bigint' ? String(v) : v))) });
         if (control.t === 'ping') await this.control({ v: 1, t: 'pong', id: control.id });
         return;
       }
@@ -227,6 +261,7 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
       for (let next = this.receiver.next(); next; next = this.receiver.next()) {
         const value = await leg.server.decryptJson(next.box);
         this.receiver.commit(next.sequence, 0);
+        log({ ev: 'xrecord', seq: Number(next.sequence) });
         const result = this.assembler.accept(value, 0);
         if (result.state === 'complete') {
           if (result.payload.id !== undefined) this.requests.push(result.payload.method);
@@ -281,7 +316,18 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
     holdHello: false,
     /** How many of the next view syncs of a leg that is already synced the desktop refuses. */
     failViewSync: 0,
+    /** Requests (by traced name) the desktop receives but does not answer until `release`, and ones it refuses once. */
+    holds: new Set(),
+    refusals: new Set(),
+    held: [],
+    async release(name) {
+      const mine = world.held.filter((h) => h.name === name);
+      world.held = world.held.filter((h) => h.name !== name);
+      world.holds.delete(name);
+      for (const h of mine) await h.leg.toPhone(h.message);
+    },
     events,
+    log,
     advance,
     waitFor,
     until,
@@ -319,6 +365,17 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
         pings: 0,
         core: { foreground: null, browserId: null, screen: [], panels: [], view: [], lanes: [], resyncs: 0 },
         queue: Promise.resolve(),
+        /** A request arrived: traced by name when it is one the contract tracks. */
+        requested(name) {
+          if (name && TRACKED_REQUESTS.has(name)) log({ ev: 'request', name });
+        },
+        /** Answers it (or holds / refuses it as the script asked); `build(ok, value)` makes the dialect's message. */
+        answer(name, build) {
+          const refused = name !== null && world.refusals.delete(name);
+          const message = refused ? build(false) : build(true, name !== null ? READ_VALUES[name] : undefined);
+          if (name !== null && world.holds.has(name)) world.held.push({ name, leg, message });
+          else void leg.toPhone(message);
+        },
         async toPhone(value) {
           if (leg.desk) return leg.desk.send(value);
           ws.onmessage?.({ data: await leg.server.encryptJson(value) });
@@ -387,6 +444,10 @@ export async function createPhoneWorld({ tree, dialect, random = () => 0.5, pair
       const leg = [...legs.values()].at(-1);
       return leg?.desk ? [...leg.desk.requests] : [];
     },
+    /** The PC's transport peer acknowledges / pings the phone (stimuli of the transport oracle). */
+    pcAck: (ws) => legs.get(ws).desk.ack(),
+    pcPing: (ws, id) => legs.get(ws).desk.control(Transport.remoteTransportPing(id)),
+    material,
     pongTo: (ws) => legs.get(ws).clear({ pong: 1 }),
     stray: (ws) => legs.get(ws).toPhone(dialect.stray),
   };
@@ -420,6 +481,8 @@ export const nodeDialect = {
   stray: { id: 424242, ok: true, value: null },
   onFrame(leg, frame, log) {
     const [a] = frame.params ?? [];
+    const name = frame.id !== undefined ? frame.method : null;
+    leg.requested(name);
     if (frame.method === 'setForeground') {
       leg.core.foreground = a;
       leg.core.browserId = frame.params[1];
@@ -446,7 +509,9 @@ export const nodeDialect = {
       log({ ev: 'resync' });
     }
     if (frame.id !== undefined && !this.unanswered.has(frame.method)) {
-      void leg.toPhone({ id: frame.id, ok: true, value: frame.method === 'synchronizeViews' ? {} : null });
+      leg.answer(name, (ok, value) =>
+        ok ? { id: frame.id, ok: true, value: value ?? (frame.method === 'synchronizeViews' ? {} : null) } : { id: frame.id, ok: false, error: 'refused' }
+      );
     }
   },
 };
@@ -459,7 +524,9 @@ export function protocolDialect(initializeResult) {
     stray: { id: 'stray-1', method: 'test/unknown', params: {} },
     readyFields: { hostName: 'Test PC', remoteOpenAccess: 1 },
     onFrame(leg, frame, log) {
-      const reply = (result) => void leg.toPhone({ id: frame.id, result });
+      const name = frame.method === 'app/subscribe' ? 'synchronizeViews' : (SYNTHETIC_READ_NAMES[frame.method] ?? null);
+      leg.requested(name);
+      const reply = (result) => leg.answer(name, (ok, value) => (ok ? { id: frame.id, result: value ?? result } : { id: frame.id, error: { code: -32000, message: 'refused' } }));
       switch (frame.method) {
         case 'initialize':
           return reply(initializeResult);
@@ -497,7 +564,8 @@ export function protocolDialect(initializeResult) {
           leg.core.panels = frame.params.visualizeSessionIds ?? [];
           return undefined;
         default:
-          return undefined;
+          // A synthetic read (SYNTHETIC_READ_REQUESTS) is answered with its value; any other request is not the world's to answer.
+          return name === null ? undefined : reply(null);
       }
     },
   };
