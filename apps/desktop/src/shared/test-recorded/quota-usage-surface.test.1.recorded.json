@@ -14399,7 +14399,22 @@
   "makeUsageRecord": "identity"
  },
  "opaque": [],
- "instances": {
-  "createUsageStatsApi": 12
+ "factories": {
+  "createUsageStatsApi": {
+   "createUsageStatsApi\u0000[{\"ledger\":{\"$fn\":1},\"importHistory\":{\"$fn\":1},\"accountPool\":{\"$fn\":1}}]": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11
+   ]
+  }
  }
 }

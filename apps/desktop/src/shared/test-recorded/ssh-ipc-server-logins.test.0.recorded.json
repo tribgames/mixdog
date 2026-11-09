@@ -10,7 +10,7 @@
   "createSessionOAuthFlowRegistry#0.register\u0000[{\"provider\":\"openai-oauth\",\"url\":\"https://auth.openai.com/codex/device\",\"userCode\":\"ABCD-1234\",\"waitForCallback\":{},\"cancel\":{\"$fn\":1}}]": [
    {
     "result": {
-     "flowId": "oauth_mw8sabl8_1",
+     "flowId": "oauth_mw8sz3jc_1",
      "provider": "openai-oauth",
      "url": "https://auth.openai.com/codex/device",
      "manualUrl": null,
@@ -23,10 +23,10 @@
     "async": false
    }
   ],
-  "createSessionOAuthFlowRegistry#0.status\u0000[\"oauth_mw8sabl8_1\"]": [
+  "createSessionOAuthFlowRegistry#0.status\u0000[\"oauth_mw8sz3jc_1\"]": [
    {
     "result": {
-     "flowId": "oauth_mw8sabl8_1",
+     "flowId": "oauth_mw8sz3jc_1",
      "provider": "openai-oauth",
      "url": "https://auth.openai.com/codex/device",
      "manualUrl": null,
@@ -40,7 +40,7 @@
    },
    {
     "result": {
-     "flowId": "oauth_mw8sabl8_1",
+     "flowId": "oauth_mw8sz3jc_1",
      "provider": "openai-oauth",
      "url": "https://auth.openai.com/codex/device",
      "manualUrl": null,
@@ -73,7 +73,11 @@
  },
  "stubs": {},
  "opaque": [],
- "instances": {
-  "createSessionOAuthFlowRegistry": 1
+ "factories": {
+  "createSessionOAuthFlowRegistry": {
+   "createSessionOAuthFlowRegistry\u0000[]": [
+    0
+   ]
+  }
  }
 }

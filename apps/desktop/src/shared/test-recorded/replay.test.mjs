@@ -110,6 +110,22 @@ test('every recording names the full Node commit it was taken from, in the table
     assert.equal(table.source?.commit, NODE_COMMIT, `${file} was not recorded from ${NODE_COMMIT}`);
     assert.equal(table.source?.tree, NODE_TREE, `${file} names another tree`);
     const module = readFileSync(new URL(file.replace(/\.json$/, '.mjs'), import.meta.url), 'utf8');
-    assert.ok(module.startsWith(`// Node ${NODE_COMMIT} ${table.source.module},`), `${file}: the replaying module does not name the commit and module`);
+    assert.ok(module.startsWith(`// Node ${NODE_COMMIT} (tree ${NODE_TREE}) ${table.source.module},`), `${file}: the replaying module does not name the commit, tree and module`);
   }
+});
+test('a service factory is found by its arguments, like any call', () => {
+  let factories = 0;
+  for (const [file, table] of tables) {
+    for (const [name, byKey] of Object.entries(table.factories ?? {})) {
+      for (const key of Object.keys(byKey)) {
+        factories += 1;
+        const args = JSON.parse(key.slice(key.indexOf('\0') + 1));
+        assert.doesNotThrow(() => replay(table, name)(...args), `${file}: ${name} refuses its recorded arguments`);
+        assert.throws(() => replay(table, name)(...args, 'unrecorded'), /was not recorded/, `${file}: ${name} accepted an extra argument`);
+        assert.throws(() => replay(table, name)('unrecorded', ...args.slice(1)), /was not recorded/, `${file}: ${name} accepted a wrong argument`);
+      }
+    }
+    for (const name of Object.keys(table.services)) assert.ok(table.factories?.[name], `${file}: ${name} has no recorded factory arguments`);
+  }
+  assert.ok(factories > 0);
 });
