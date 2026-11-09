@@ -11,13 +11,18 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { REPO_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 import { mock } from 'node:test';
-import { play, sizeClaimScript, terminalScript } from './lib/phone-terminal-script.mjs';
+import { claimTrace as claimTraceOf, play, sizeClaimScript, terminalScript } from './lib/phone-terminal-script.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const ROOT = 'D:\\mixdog-build\\tmp\\ph2-terminal';
 const CONNECTION = 'conn-1';
 const TRACE_START = '@@TRACE@@';
 const TRACE_END = '@@END@@';
+// A wait that never ends fails with what it waited for. These are the real timers, taken before the recording's virtual clock replaces them.
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
+const WAIT_MS = 60_000;
+const RECORDING_MS = 15 * 60_000;
 const args = parseArgs();
 const tree = resolveTree(args);
 
@@ -35,14 +40,22 @@ if (!args.has('child')) {
   const trace = await new Promise((resolve, reject) => {
     let stdout = '';
     let stderr = '';
+    const deadline = realSetTimeout(
+      () => reject(new Error(`the recording sent no end marker (${TRACE_END}) within ${RECORDING_MS} ms:\n${stdout.slice(-2000)}\n${stderr.slice(-4000)}`)),
+      RECORDING_MS
+    );
     child.stdout.setEncoding('utf8').on('data', (chunk) => {
       stdout += chunk;
       const end = stdout.indexOf(TRACE_END);
       if (end < 0) return;
+      realClearTimeout(deadline);
       resolve(JSON.parse(stdout.slice(stdout.lastIndexOf(TRACE_START, end) + TRACE_START.length, end)));
     });
     child.stderr.setEncoding('utf8').on('data', (chunk) => (stderr += chunk));
-    child.once('exit', (status) => reject(new Error(`recording failed (${status}):\n${stdout.slice(-2000)}\n${stderr.slice(-4000)}`)));
+    child.once('exit', (status) => {
+      realClearTimeout(deadline);
+      reject(new Error(`recording failed (${status}):\n${stdout.slice(-2000)}\n${stderr.slice(-4000)}`));
+    });
   }).finally(() => child.kill());
   const finalOut = join(REPO_ROOT, 'apps', 'mobile', 'fixtures', 'phone-terminal');
   const out = stageSet(finalOut);
@@ -170,10 +183,15 @@ const driver = {
     if (redeliver) return;
     emit({ name: TERMINAL_RUN_REQUESTED_DESKTOP_EVENT, value: remoteTerminalRun(request) });
   },
-  waitFor: (test) =>
-    new Promise((resolve) => {
+  waitFor: (test, what) =>
+    new Promise((resolve, reject) => {
+      const timer = realSetTimeout(() => {
+        waiting.delete(check);
+        reject(new Error(`timed out after ${WAIT_MS} ms waiting for ${what}`));
+      }, WAIT_MS);
       const check = () => {
         if (!test(events)) return;
+        realClearTimeout(timer);
         waiting.delete(check);
         resolve();
       };
@@ -186,11 +204,9 @@ const driver = {
 process.on('exit', () =>
   process.stderr.write(`\nstate at exit: ${JSON.stringify({ ...events, output: Object.fromEntries(Object.entries(events.output).map(([id, text]) => [id, text.slice(-200)])) })}\n`)
 );
-// Node's folder watches are not persistent (the desktop's own loop is alive), so this process keeps its loop alive while it waits.
-const keepAlive = setInterval(() => {}, 1 << 30);
 // `play` returns the driver's own event lists; the first trace is copied before the second script reuses them.
 const trace = JSON.parse(JSON.stringify(await play(script, driver)));
-// The size-claim cases run after, on their own tabs; only the claims' events are theirs to compare (the tabs' prompts race each other).
+// The size-claim cases run after, on their own tabs; the lists are emptied so the second trace holds its own events, all of them.
 for (const list of Object.values(events)) if (Array.isArray(list)) list.length = 0;
 events.output = {};
 const claimScript = sizeClaimScript(ROOT);
@@ -198,8 +214,7 @@ const claimTrace = await play(claimScript, driver);
 // The tabs' disposals hold timers on the virtual clock; run them so every shell is ended before the clock is released.
 mock.timers.runAll();
 mock.timers.reset();
-trace.claims = { steps: claimTrace.steps, sizeOwner: claimTrace.sizeOwner };
-clearInterval(keepAlive);
+trace.claims = claimTraceOf(JSON.parse(JSON.stringify(claimTrace)));
 await operations.dispose();
 lanes.dispose();
 process.stdout.write(`\n${TRACE_START}${JSON.stringify(trace)}${TRACE_END}\n`);

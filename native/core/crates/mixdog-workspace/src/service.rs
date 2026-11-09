@@ -832,7 +832,7 @@ impl WorkspaceService {
                 let id = s(params, "watchId")?.to_owned();
                 // Any absolute path, as Node's `folderWatch` (`absoluteLocalPath`, then `fs.watch`): a path
                 // that does not exist fails with the text `fs.watch` gives.
-                let wanted = lexical(Path::new(s(params, "path")?));
+                let wanted = crate::pathguard::absolute_local_path(s(params, "path")?)?;
                 let path = match canonical(&wanted) {
                     Ok(path) => path,
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => {

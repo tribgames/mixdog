@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import readline from 'node:readline';
 import WebSocket from 'ws';
 import { createPhoneWorld, protocolDialect } from '../../../../benchmarks/rust-core/recorders/lib/phone-world.mjs';
-import { play, sizeClaimScript, terminalScript } from '../../../../benchmarks/rust-core/recorders/lib/phone-terminal-script.mjs';
+import { claimTrace, play, sizeClaimScript, terminalScript } from '../../../../benchmarks/rust-core/recorders/lib/phone-terminal-script.mjs';
 
 // The world replaces the timers with a virtual clock; this scenario's own deadline (a guard that fails a wait that never ends) is real.
 const realSetTimeout = globalThis.setTimeout;
@@ -88,9 +88,11 @@ async function openClock(core) {
 
 /** Ends the core and its children, and resolves when the core has exited (its files are released then). */
 function stopCore(core) {
-  const exited = new Promise((resolve) => core.child.once('exit', resolve));
+  // A core that has already exited emits no further `exit`: waiting for one would end the process with nothing printed.
+  const gone = core.child.exitCode !== null || core.child.signalCode !== null;
+  const exited = gone ? Promise.resolve() : new Promise((resolve) => core.child.once('exit', resolve));
   spawnSync('taskkill', ['/PID', String(core.child.pid), '/T', '/F'], { stdio: 'ignore' });
-  return exited;
+  return bounded(exited, 'the core to exit after it was ended');
 }
 
 async function main() {
@@ -237,11 +239,11 @@ async function main() {
       const stamp = appStamp;
       down = down.then(() => leg.toPhone({ method: 'ui/openRequested', params: { kind: 'terminal', ...request }, feed: stamp }));
     },
-    waitFor: (test) =>
+    waitFor: (test, what) =>
       new Promise((resolve, reject) => {
         const timer = realSetTimeout(() => {
           watchers.delete(check);
-          reject(new Error(`timed out waiting; state: ${JSON.stringify({ ...events, output: Object.fromEntries(Object.entries(events.output).map(([id, text]) => [id, text.slice(-300)])), tabs: probeHost.client().store.section('terminalTabs', null)?.value })}`));
+          reject(new Error(`timed out after ${DEADLINE_MS} ms waiting for ${what}; state: ${JSON.stringify({ ...events, output: Object.fromEntries(Object.entries(events.output).map(([id, text]) => [id, text.slice(-300)])), tabs: probeHost.client().store.section('terminalTabs', null)?.value })}`));
         }, DEADLINE_MS);
         const check = () => {
           if (!test(events)) return;
@@ -259,7 +261,7 @@ async function main() {
     for (const list of Object.values(events)) if (Array.isArray(list)) list.length = 0;
     events.output = {};
     const claims = await play(sizeClaimScript(ROOT), driver);
-    trace.claims = { steps: claims.steps, sizeOwner: claims.sizeOwner };
+    trace.claims = claimTrace(JSON.parse(JSON.stringify(claims)));
     process.stdout.write(`\n@@TRACE@@${JSON.stringify(trace)}\n`);
   } finally {
     for (const stop of off) stop();

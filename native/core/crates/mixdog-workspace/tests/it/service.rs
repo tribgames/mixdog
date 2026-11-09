@@ -537,6 +537,24 @@ async fn watch_takes_any_absolute_folder_and_a_missing_one_fails_like_fs_watch()
     assert_eq!(&**message, format!("ENOENT: no such file or directory, watch '{}'", missing.display()));
 }
 
+/// Node's `folderWatch` runs `absoluteLocalPath` first and a relative path never reaches `fs.watch` (recorded:
+/// apps/mobile/fixtures/phone-terminal/golden.json, `folderWatch` of `relative/dir` -> `path must be absolute.`). A relative path that
+/// exists from the core's directory must be refused the same, not resolved and watched.
+#[tokio::test(flavor = "multi_thread")]
+async fn watch_refuses_a_relative_path_even_when_it_exists_from_the_working_directory() {
+    let env = env();
+    for relative in [".", "..", "src", "./src"] {
+        let error = env
+            .service
+            .call(request("fs/watch", json!({ "watchId": "rel", "path": relative, "recursive": false })))
+            .await
+            .err()
+            .unwrap_or_else(|| panic!("{relative:?} is relative and must not be watched"));
+        assert!(format!("{error:?}").contains("path must be absolute."), "{relative:?}: {error:?}");
+    }
+    assert_eq!(env.service.open_os_watches(), 0);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn watch_pushes_batched_changes_and_connection_close_drops_the_os_watch() {
     let env = env();

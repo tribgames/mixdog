@@ -43,7 +43,9 @@ for (const [scenario, recordedSteps] of Object.entries(orderScenarios)) for (con
   const steps = withReady(recordedSteps);
   test(`order of calls across groups: ${scenario} (${when})`, async () => {
     let hooks;
-    const ready = Promise.withResolvers();
+    // The connection and the view sync are separate gates: the scenarios open both at once, the test below opens only the connection.
+    const connected = Promise.withResolvers();
+    const synced = Promise.withResolvers();
     const ran = (method) => async () => {
       hooks.started(nameOf[method]);
       await hooks.gate(nameOf[method]);
@@ -53,17 +55,36 @@ for (const [scenario, recordedSteps] of Object.entries(orderScenarios)) for (con
       calls: Object.fromEntries(['renameSession', 'setSessionArchived', 'getSnapshot', 'readCapabilities'].map((method) => [method, ran(method)])),
     };
     // The core: a call of the files adapter reaches it under a protocol method name; it is the Node call by that name.
-    const host = { ctx: { phone: { synced: () => ready.promise } }, client: () => ({
+    const host = { ctx: { phone: { start: () => connected.promise, synced: () => synced.promise } }, client: () => ({
         call: async (method) => (await ran(coreMethods[method])(), {}),
         notify: (method) => void ran(coreMethods[method])(),
       }), declareLane() {} };
-    const router = createProtocolRouter([filesAdapter, terminalAdapter, chat], { host, started: () => ready.promise, synced: () => ready.promise, probe() {}, silentSince: () => false });
+    const router = createProtocolRouter([filesAdapter, terminalAdapter, chat], { host, started: () => connected.promise, synced: () => synced.promise, probe() {}, silentSince: () => false });
     const trace = await play(steps, {
       begin: (given) => (hooks = given),
       send: (name) => router.call(orderCalls[name].method, orderCalls[name].params),
       fire: (name) => router.fire(orderCalls[name].method, orderCalls[name].params),
-      ready: () => ready.resolve(),
+      ready: () => (connected.resolve(), synced.resolve()),
     });
     assert.deepEqual(trace, { events: golden.scenarios[scenario].events, answers: golden.scenarios[scenario].answers });
   });
 }
+
+test('keystrokes and resizes go out once the connection is up, without waiting for the view sync', async () => {
+  const sent = [];
+  const connected = Promise.withResolvers();
+  const synced = Promise.withResolvers();
+  const host = {
+    ctx: { phone: { start: () => connected.promise, synced: () => synced.promise } },
+    client: () => ({ call: async () => ({}), notify: (method) => sent.push(method) }),
+    declareLane() {},
+  };
+  const router = createProtocolRouter([terminalAdapter], { host, started: () => connected.promise, synced: () => synced.promise, probe() {}, silentSince: () => false });
+  router.fire('termWrite', ['t', 'x']);
+  router.fire('termResize', ['t', 80, 24, true]);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(sent, [], 'nothing is sent before the connection is up');
+  connected.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(sent, ['terminal/input', 'terminal/resize'], 'the view sync is still unfinished');
+});

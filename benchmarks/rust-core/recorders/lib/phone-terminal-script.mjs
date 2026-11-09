@@ -115,6 +115,16 @@ export function terminalScript(root) {
       { op: 'until', kind: 'folder', event: watched, count: 2 },
       { op: 'call', name: 'folderUnwatch', params: [watched, true] },
       { op: 'call', name: 'folderUnwatch', params: [watched, true] },
+      // Node resolved a path and folded its case in the registry key: `<dir>\sub\..`, `<DIR>` and `<dir>` are one watch, the change is
+      // reported under the resolved path the first caller gave, and each unwatch (by any of the spellings) takes one count off it.
+      { op: 'call', name: 'folderWatch', params: [`${watched}\\sub\\..`, true] },
+      { op: 'call', name: 'folderWatch', params: [watched.toUpperCase(), true] },
+      { op: 'touch', file: join(watched, 'c.txt') },
+      { op: 'until', kind: 'folder', event: watched, count: 3 },
+      { op: 'call', name: 'folderUnwatch', params: [watched, true] },
+      { op: 'touch', file: join(watched, 'd.txt') },
+      { op: 'until', kind: 'folder', event: watched, count: 4 },
+      { op: 'call', name: 'folderUnwatch', params: [watched.toLowerCase(), true] },
       // The tab goes: the activity ends, and nothing is left to attach.
       { op: 'snap', name: 'end', tabs: [TAB] },
       { op: 'call', name: 'termDispose', params: [TAB] },
@@ -232,6 +242,8 @@ export function sizeClaimScript(root) {
       ...attachAll(tabs),
       { op: 'snap', name: 'end', tabs },
       ...tabs.map((tab) => ({ op: 'call', name: 'termDispose', params: [tab] })),
+      // The lane closes only after every tab's end has been heard, so which ends were pushed does not depend on when the lane closed.
+      ...tabs.map((tab) => ({ op: 'until', kind: 'activity', event: { id: tab, state: null } })),
       { op: 'lane', lane: 'terminal', on: false },
     ],
   };
@@ -244,11 +256,19 @@ const onScreen = (text, { after, prompt }) => {
   return at >= 0 && lines[at + 1] === prompt;
 };
 
+/** The size-claim trace as compared: the five shells start together and each one's first idle arrives in whatever order they come up
+ *  (the script waits for all five before it times a lease), so those first five events are put in tab order; every later one is kept as it came. */
+export function claimTrace(trace) {
+  const STARTED = 5;
+  const first = [...trace.activity.slice(0, STARTED)].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return { ...trace, activity: [...first, ...trace.activity.slice(STARTED)] };
+}
+
 /**
  * Plays the ops against a driver and returns the trace.
  * A reply's `replay` is recorded as the screen it draws; a `snap` records the screen each named tab's streamed output draws.
  * driver: call(name, params) -> value (throws the error), fire(name, params), lane(lane, on), touch(file), run(request, redeliver),
- *         waitFor(test) -> Promise (resolves once `test(events)` holds), events() ->
+ *         waitFor(test, what) -> Promise (resolves once `test(events)` holds; rejects, naming what, if it never does), events() ->
  *         { activity: [], sizeOwner: [], folder: [], run: [], output: { [tabId]: string } }.
  */
 export async function play(script, driver) {
@@ -281,8 +301,12 @@ export async function play(script, driver) {
     } else if (op.op === 'snap') {
       const { output } = driver.events();
       steps.push({ snap: op.name, screens: Object.fromEntries(op.tabs.map((tab) => [tab, screenOf(output[tab] ?? '')])) });
-    } else if (op.op === 'until') {      await driver.waitFor((events) =>
-        op.kind === 'screen' ? onScreen(events.output[op.tab] ?? '', op) : matches(events[op.kind], op.event) >= (op.count ?? 1)
+    } else if (op.op === 'until') {
+      const what =
+        op.kind === 'screen' ? `the screen of ${op.tab} to show ${JSON.stringify(op)}` : `${op.count ?? 1} x ${op.kind} event ${JSON.stringify(op.event)}`;
+      await driver.waitFor(
+        (events) => (op.kind === 'screen' ? onScreen(events.output[op.tab] ?? '', op) : matches(events[op.kind], op.event) >= (op.count ?? 1)),
+        what
       );
     }
   }

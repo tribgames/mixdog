@@ -16,3 +16,30 @@ export function pathText(value: unknown): string {
   if (!text || text.length > 16_384 || text.includes('\0')) throw new TypeError('path is invalid.');
   return text;
 }
+
+/** `path.resolve` of an absolute path as Node ran it on the desktop (`absoluteLocalPath`): separators unified, `.`/`..` and repeated or
+ *  trailing separators removed, the root kept. A drive or UNC path is a Windows host's (`\` separators); anything else is POSIX. */
+export function resolveHostPath(text: string): string {
+  const windows = /^(?:[A-Za-z]:[\\/]|[\\/]{2})/.test(text);
+  const parts = (windows ? text.replace(/\//g, '\\') : text).split(windows ? '\\' : '/');
+  let root = windows ? '' : '/';
+  if (windows) {
+    const unc = text.startsWith('\\\\') || text.startsWith('//');
+    // A UNC root is `\\server\share`; a drive root is `X:`. Both are followed by one separator.
+    root = unc ? `\\\\${parts[2] ?? ''}\\${parts[3] ?? ''}` : parts[0];
+    parts.splice(0, unc ? 4 : 1);
+  }
+  const kept: string[] = [];
+  for (const part of parts) {
+    if (!part || part === '.') continue;
+    if (part === '..') kept.pop();
+    else kept.push(part);
+  }
+  const sep = windows ? '\\' : '/';
+  return `${root}${root.endsWith(sep) ? '' : sep}${kept.join(sep)}`;
+}
+
+/** Whether Node's folder-watch registry folds case for this path: it did on a Windows host (`toLocaleLowerCase`). */
+export function foldsCase(resolved: string): boolean {
+  return /^(?:[A-Za-z]:|\\\\)/.test(resolved);
+}

@@ -466,7 +466,7 @@ impl Claims {
 
     /// The replay's handle on the manual clock, with no wire method (the method table is shared with release builds): a loopback
     /// socket whose port is written to `<dir>/port`. A client sends `advance <ms>\n`; the clock steps by `ms`, ends every claim then due,
-    /// and answers `lapsed <n>\n` (`n` claims ended), so the answer is the completion signal. The thread blocks in accept and read.
+    /// and answers `lapsed <n>\n` (`n` claims ended), so the answer is the completion signal. Each connection has a thread of its own.
     #[cfg(debug_assertions)]
     fn serve_manual_clock(claims: &Arc<Self>, dir: std::path::PathBuf) {
         use std::io::{BufRead, BufReader, Write};
@@ -476,21 +476,35 @@ impl Claims {
         let claims = Arc::downgrade(claims);
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
-                let Ok(reader) = stream.try_clone() else { continue };
-                let mut stream = stream;
-                for line in BufReader::new(reader).lines().map_while(Result::ok) {
-                    let answer = match (line.strip_prefix("advance ").and_then(|ms| ms.trim().parse::<u64>().ok()), claims.upgrade()) {
-                        (Some(ms), Some(claims)) => format!("lapsed {}\n", claims.advance(std::time::Duration::from_millis(ms))),
-                        _ => "refused\n".to_owned(),
-                    };
-                    if stream.write_all(answer.as_bytes()).is_err() {
-                        break;
-                    }
-                }
+                // A connection of its own thread: one that leaves a line unfinished cannot hold back another's advance request.
+                let claims = claims.clone();
+                std::thread::spawn(move || Self::serve_manual_clock_connection(&claims, stream));
             }
         });
     }
 
+    /// One control connection, served on its own thread: a client that leaves a line unfinished holds only its own connection.
+    #[cfg(debug_assertions)]
+    fn serve_manual_clock_connection(claims: &std::sync::Weak<Self>, stream: std::net::TcpStream) {
+        use std::io::{BufRead, BufReader, Write};
+        let Ok(reader) = stream.try_clone() else { return };
+        let mut stream = stream;
+        let mut lines = BufReader::new(reader);
+        loop {
+            let mut line = String::new();
+            let answer = match lines.read_line(&mut line) {
+                Ok(0) => return,
+                Ok(_) => match (line.strip_prefix("advance ").and_then(|ms| ms.trim().parse::<u64>().ok()), claims.upgrade()) {
+                    (Some(ms), Some(claims)) => format!("lapsed {}\n", claims.advance(std::time::Duration::from_millis(ms))),
+                    _ => "refused\n".to_owned(),
+                },
+                Err(_) => return,
+            };
+            if stream.write_all(answer.as_bytes()).is_err() {
+                return;
+            }
+        }
+    }
     #[cfg(debug_assertions)]
     fn due_at(&self) -> Option<std::time::Duration> {
         self.manual.as_ref().map(|clock| *clock.now.lock().unwrap_or_else(|e| e.into_inner()) + SIZE_OWNER_LEASE)
