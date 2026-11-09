@@ -8,7 +8,7 @@
 //     --ort-library=<.../onnxruntime-node/bin/napi-v6/win32/x64/onnxruntime.dll> [--package-root=<repo>] [--program=<node>]
 //
 // The library is the file the shipped app loads: onnxruntime-node 1.30.0's (package.json pins it), the
-// one stage-core.mjs's `ortLibraryPath` names. `--package-root` defaults to this checkout, `--program` to
+// one core-layout.mjs's `desktopOrtLibraryPath` names. `--package-root` defaults to this checkout, `--program` to
 // the Node running this script.
 import { access, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';

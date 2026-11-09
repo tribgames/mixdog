@@ -5,7 +5,6 @@ import {
   chmod,
   cp,
   mkdir,
-  mkdtemp,
   open,
   readdir,
   readFile,
@@ -14,13 +13,11 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { listPackage, statFile } from '@electron/asar';
-import { build } from 'esbuild';
 import { createAsarPackage } from './asar-pack.mjs';
 import { embeddingRuntimeTarget, pruneEmbeddingRuntime } from '../../../scripts/prune-embedding-runtime.mjs';
 import { pruneDesktopPtyPackage, pruneDesktopRuntime } from '../../../scripts/prune-desktop-runtime.mjs';
@@ -33,6 +30,7 @@ import {
 import { runtimeDependencyCacheIdentity } from '../../../scripts/runtime-dependency-cache-key.mjs';
 import { compareDesktopPtyVersion } from '../../../scripts/verify-runtime-dependency-versions.mjs';
 import { optionValue } from './cli-args.mjs';
+import { CORE_READS, mirrorCoreRuntime, PACKAGE_DIR, WINDOWS_ONNX_VC_RUNTIME_DLLS } from './core-layout.mjs';
 import { copyRuntimePackagePayload, runtimePackageSource } from './runtime-package-payload.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -77,70 +75,9 @@ const externalProcessArchivePaths = [
 // against OS-native relative paths).
 const builtinSkillsPackageRoot = 'src/defaults/skills/';
 const builtinSkillsUnpackDir = join('node_modules', 'mixdog', ...builtinSkillsPackageRoot.split('/').filter(Boolean));
-// The skill validator must run without the runtime's shared modules, so the
-// shipped copy is bundled with its imports inlined.
-const skillValidatorPackagePath = 'src/defaults/skills/skill-creator/scripts/validate-skill.mjs';
-// Scripts that import runtime internals run through ${MIXDOG_SKILL_NODE}: the
-// app binary in node mode on this bootstrap, imported from inside the archive.
-const skillScriptEntryPackagePaths = ['src/skill-script-entry.mjs', 'src/runtime/shared/skill-script-runtime.mjs'];
-const pptxSkillScriptPackagePaths = ['source-extract.mjs', 'qc-pages.mjs', 'review-deck.mjs'].map(
-  (name) => `src/defaults/skills/pptx/scripts/${name}`
-);
-const skillScriptFixturePackagePath = 'src/runtime/office/design/library/templates/mixdog-executive.pptx';
-
-/**
- * Run the prepared archive and sidecar the way a desktop model shell does:
- * the generated launcher starts the Electron binary on the archive's bootstrap,
- * which imports the sidecar's source-extract.mjs from inside the archive. The
- * fixture is the template the archive ships, read from a directory with spaces.
- */
-async function checkSkillScriptLauncher() {
-  const { default: electronBinary } = await import('electron');
-  const { SKILL_LAUNCHER_COMMAND, skillScriptRuntime, withSkillLauncherPath } = await import(
-    '../../../src/runtime/shared/skill-script-runtime.mjs'
-  );
-  const scratch = await mkdtemp(join(tmpdir(), 'mixdog skill check '));
-  try {
-    const workDir = join(scratch, 'deck folder');
-    await mkdir(workDir);
-    await cp(
-      join(runtimeSidecar, 'node_modules', 'mixdog', ...skillScriptFixturePackagePath.split('/')),
-      join(workDir, 'executive deck.pptx')
-    );
-    // The same PATH entry a model shell gets, so the bare command name resolves.
-    const env = withSkillLauncherPath(
-      { ...process.env },
-      {
-        runtime: skillScriptRuntime({
-          execPath: electronBinary,
-          versions: { electron: 'desktop' },
-          packageRoot: join(runtimeArchive, 'node_modules', 'mixdog'),
-        }),
-        dataDir: join(scratch, 'data dir'),
-      }
-    );
-    delete env.ELECTRON_RUN_AS_NODE;
-    const script = join(runtimeSidecar, 'node_modules', 'mixdog', ...pptxSkillScriptPackagePaths[0].split('/'));
-    const options = { cwd: workDir, env, windowsHide: true, timeout: 180_000, maxBuffer: 16 * 1024 * 1024 };
-    const { stdout } =
-      process.platform === 'win32'
-        ? await execFileAsync(
-            process.env.ComSpec || 'cmd.exe',
-            ['/d', '/s', '/c', `"${SKILL_LAUNCHER_COMMAND} "${script}" "executive deck.pptx""`],
-            { ...options, windowsVerbatimArguments: true }
-          )
-        : await execFileAsync(
-            '/bin/sh',
-            ['-c', `${SKILL_LAUNCHER_COMMAND} "$@"`, 'sh', script, 'executive deck.pptx'],
-            options
-          );
-    if (!stdout.includes('[slide 1] EXECUTIVE STORY SYSTEM')) {
-      throw new Error(`source-extract.mjs through the skill launcher printed no deck text:\n${stdout}`);
-    }
-  } finally {
-    await rm(scratch, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 });
-  }
-}
+// The skill launcher (src/skill-script-entry.mjs, src/runtime/shared/skill-script-runtime.mjs) is
+// checked as part of CORE_READS / the core closure. K1 retired the Node skill scripts (validate-skill,
+// the pptx scripts) with their Node consumers, so no script is bundled or run here.
 
 /** Archive paths of every shipped built-in skill file, from the npm pack manifest. */
 function builtinSkillArchivePaths(manifest) {
@@ -155,24 +92,6 @@ function unpackedArchivePaths(manifest) {
   return [...externalProcessArchivePaths, ...builtinSkillArchivePaths(manifest)];
 }
 
-async function bundleSkillValidator() {
-  const entry = join(runtimePackageDir, ...skillValidatorPackagePath.split('/'));
-  await build({
-    entryPoints: [entry],
-    outfile: entry,
-    allowOverwrite: true,
-    bundle: true,
-    platform: 'node',
-    format: 'esm',
-    target: 'node22',
-    // yaml's Node build is CommonJS and requires Node built-ins, which an ESM
-    // bundle can only reach through a real require.
-    banner: {
-      js: "import { createRequire as __bundleCreateRequire } from 'node:module'; const require = __bundleCreateRequire(import.meta.url);",
-    },
-    logLevel: 'warning',
-  });
-}
 const desktopPtyPackageDir = join(desktopDir, 'node_modules', '@homebridge', 'node-pty-prebuilt-multiarch');
 const builderDesktopPtyDir = join(runtimeDir, 'desktop-node-pty');
 const desktopNativeToolsDir = join(runtimeDir, 'native-tools');
@@ -199,14 +118,7 @@ let windowLibraryInputIdentity = null;
 const NATIVE_BINARY_NAME = /\.(?:node|dll|dylib|so(?:\.\d+)*)$/i;
 // onnxruntime's Windows binaries import the MSVC C++ runtime, which Windows
 // does not ship; without the VC++ Redistributable the addon fails to load.
-// Deploy these redistributable DLLs app-local beside onnxruntime.dll.
-const WINDOWS_ONNX_VC_RUNTIME_DLLS = Object.freeze([
-  'msvcp140.dll',
-  'msvcp140_1.dll',
-  'msvcp140_atomic_wait.dll',
-  'vcruntime140.dll',
-  'vcruntime140_1.dll',
-]);
+// WINDOWS_ONNX_VC_RUNTIME_DLLS (core-layout.mjs) are deployed app-local beside onnxruntime.dll.
 const runtimeManifestPath = join(runtimeDir, 'manifest.json');
 const preparedRuntimeSchema = 2;
 const configuredNpmCacheDir = String(process.env.MIXDOG_RUNTIME_NPM_CACHE ?? '').trim();
@@ -898,7 +810,6 @@ async function prepareRuntime(manifest, fingerprint) {
         destination: runtimePackageDir,
       })
     );
-    await timed('skill-validator-bundle', () => bundleSkillValidator());
 
     const runtimePackage = JSON.parse(await readFile(join(stagingDir, 'package.json'), 'utf8'));
     runtimePackage.private = true;
@@ -1000,15 +911,11 @@ async function prepareRuntime(manifest, fingerprint) {
     const embeddingBinaryRoot = `/${ortArchiveRoot}/bin/napi-v6/${embeddingTarget.platform}/${embeddingTarget.arch}`;
     for (const required of [
       '/package.json',
-      '/node_modules/mixdog/package.json',
-      '/node_modules/mixdog/src/tui/session.mjs',
+      // What the Rust core reads from the package root (core-layout.mjs); the unpacked copy is checked below.
+      ...CORE_READS.files.map((file) => `/node_modules/${PACKAGE_DIR}/${file}`),
       '/node_modules/mixdog/src/runtime/office/core/journal.mjs',
       '/node_modules/mixdog/src/runtime/office/quality/visual-diff.mjs',
-      '/node_modules/mixdog/src/runtime/local-provider/data/manifest.json',
-      `/node_modules/mixdog/${skillValidatorPackagePath}`,
-      ...[...skillScriptEntryPackagePaths, ...pptxSkillScriptPackagePaths].map(
-        (path) => `/node_modules/mixdog/${path}`
-      ),
+      '/node_modules/mixdog/src/runtime/shared/skill-script-runtime.mjs',
       ...unpackedArchiveEntries,
       '/node_modules/@huggingface/transformers/package.json',
       '/node_modules/@huggingface/transformers/dist/transformers.node.cjs',
@@ -1072,23 +979,18 @@ async function prepareRuntime(manifest, fingerprint) {
         await cp(source, destination);
       }
     });
-    // The mirror holds only the skill files, not the runtime's shared modules,
-    // so validating a skill from it proves the shipped validator is self-contained.
-    await timed('skill-validator-check', async () => {
-      const skillCreatorDir = join(
-        builderNativeModulesDir,
-        'mixdog',
-        ...builtinSkillsPackageRoot.split('/'),
-        'skill-creator'
-      );
-      await execFileAsync(process.execPath, [join(skillCreatorDir, 'scripts', 'validate-skill.mjs'), skillCreatorDir], {
-        windowsHide: true,
+    // `mixdogd` reads the package root with plain fs and runs the extension host and the skill launchers
+    // from it, none of which can use runtime.asar: the package and the dependency closure its entry points
+    // reach are mirrored as real files beside the native files above (core-layout.mjs), then checked.
+    await timed('core-runtime-mirror', async () => {
+      await mirrorCoreRuntime({
+        modulesDir: join(stagingDir, 'node_modules'),
+        destination: builderNativeModulesDir,
+        platform: embeddingTarget.platform,
+        arch: embeddingTarget.arch,
+        ortBinarySource: prunedEmbedding.onnx ? prunedEmbedding.targetBinaryDir : null,
       });
     });
-    // Only a host that can execute the target's Electron binary runs it.
-    if (embeddingTarget.platform === process.platform && embeddingTarget.arch === process.arch) {
-      await timed('skill-script-launcher-check', () => checkSkillScriptLauncher());
-    }
 
     const archive = await stat(runtimeArchive);
     await writeFile(
