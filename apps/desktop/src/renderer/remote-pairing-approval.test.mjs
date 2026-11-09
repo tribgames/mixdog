@@ -116,6 +116,7 @@ async function installPairing(t, { indexedDB, storage = {} } = {}) {
     visualizePages: { clear() {} },
     viewBaselines: { clear() {} },
     resetDeltaState() {},
+    phone: { recycle() {} },
     connect: () => {
       connects.push(Date.now());
       return new Promise(() => {});
@@ -259,7 +260,7 @@ test('a fresh approval is verified by the secure channel and redials until it co
     window.setTimeout = realSetTimeout;
   });
   let retired = 0;
-  ctx.retireConnection = () => {
+  ctx.phone.recycle = () => {
     retired += 1;
   };
   let settled = null;

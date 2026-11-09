@@ -11,5 +11,5 @@
     "allowImportingTsExtensions": true,
     "isolatedModules": true
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts", "../desktop/src/renderer/desktop-api.d.ts"]
 }

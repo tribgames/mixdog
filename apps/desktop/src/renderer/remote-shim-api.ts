@@ -79,11 +79,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     folderChangeListeners,
     lspDiagnosticsListeners,
     lspStatusListeners,
-    viewSync,
-    viewSyncSessionIds,
-    sessionSetKey,
     currentToken,
-    connect,
     laneSubscription,
     call: relayCall,
     readCatalog,
@@ -139,7 +135,8 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
   // is told again; an older desktop ignores the call.
   let visualizePanels: string[] = [];
   const reportVisualizePanels = (): void => {
-    if (ctx.socket?.readyState === WebSocket.OPEN) fire('setVisualizePanels', [visualizePanels]);
+    ctx.visualizePanelIds = visualizePanels;
+    ctx.phone.refreshScreen();
   };
   if (typeof window !== 'undefined') {
     window.addEventListener(VISUALIZE_PANELS_EVENT, (event) => {
@@ -276,7 +273,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     // desktop holds a notification back only for a session named here.
     reportScreenSessions: (sessionIds) => {
       ctx.lastScreenSessionIds = [...sessionIds];
-      if (ctx.socket?.readyState === WebSocket.OPEN) fire('setScreenSessions', [ctx.lastScreenSessionIds]);
+      ctx.phone.refreshScreen();
     },
     setVisibleSessions: (sessionIds) => {
       const requested = [...sessionIds];
@@ -289,24 +286,8 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
       } catch {
         /* the next launch simply waits for React, as before */
       }
-      return connect().then(async () => {
-        if (!ctx.peerViewSync) {
-          // Legacy encrypted peers have no registration version. Keep their
-          // old ordering guarantee here, not in every desktop pane.
-          const run = ctx.legacyVisibleSessionsQueue
-            .catch(() => undefined)
-            .then(() =>
-              ctx.lastVisibleSessionIds === requested ? call<boolean>('setVisibleSessions', [requested]) : true
-            );
-          ctx.legacyVisibleSessionsQueue = run;
-          return run;
-        }
-        // Already named by the latest sync: wait for it instead of
-        // downloading every catalog and transcript baseline again.
-        if (sessionSetKey(viewSyncSessionIds()) === ctx.requestedViewSyncKey) await viewSync.ready();
-        else await viewSync.request();
-        return true;
-      });
+      // The threads open on the core; false asks the page to name them again.
+      return ctx.phone.setVisibleSessions(requested);
     },
     searchProjectFiles: (projectIdOrWorkspaceId, query, limit, includeIgnored, includeDirectories) =>
       call('searchProjectFiles', [
@@ -436,8 +417,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
               document.addEventListener('visibilitychange', visible);
             });
           }
-          await connect();
-          if (ctx.peerViewSync) await viewSync.request();
+          await ctx.phone.synced();
         }
       );
     },
@@ -450,8 +430,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
       return recoverableCreation(
         () => call('submitToSession', [sessionId, prompt, stable]),
         async () => {
-          await connect();
-          if (ctx.peerViewSync) await viewSync.request();
+          await ctx.phone.synced();
         }
       );
     },
@@ -494,40 +473,40 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     // and never emits the lane's event.
     onVisualizeChanged: (listener) => laneSubscription(REMOTE_VISUALIZE_LANE, ctx.visualizeListeners, listener),
     visualizeState: async () => {
-      await connect();
+      await ctx.connect();
       // Inline sources load when their pane shows (visualizePaneInline).
       return ctx.peerVisualize ? call<VisualizeSessionState[]>('visualizeState', [{ deferInline: true }]) : [];
     },
     visualizePaneInline: async (sessionId, tabId, index) => {
-      await connect();
+      await ctx.connect();
       if (!ctx.peerVisualize) throw new Error('This desktop does not serve the visualize panel to remote devices.');
       return call('visualizePaneInline', [sessionId, tabId, index]);
     },
     visualizeCommand: async (command) => {
-      await connect();
+      await ctx.connect();
       // Refused like the pane reads, so an open (a chat link) can fall back to
       // the route an older host still serves instead of doing nothing.
       if (!ctx.peerVisualize) throw new Error('This desktop does not serve the visualize panel to remote devices.');
       return (await call<VisualizeCommandResult | null>('visualizeCommand', [command])) ?? undefined;
     },
     visualizePaneText: async (sessionId, tabId, index) => {
-      await connect();
+      await ctx.connect();
       if (!ctx.peerVisualize) throw new Error('This desktop does not serve the visualize panel to remote devices.');
       return readRemoteVisualizePaneText(call, sessionId, tabId, index);
     },
     visualizePaneSource: async (sessionId, tabId, index) => {
-      await connect();
+      await ctx.connect();
       if (!ctx.peerVisualize) throw new Error('This desktop does not serve the visualize panel to remote devices.');
       // Media panes stream on the encrypted media lane when it answers.
       return readRemoteVisualizePane(call, sessionId, tabId, index, laneUrl, ctx.visualizePages);
     },
     visualizePanePages: async (sessionId, tabId, index, options) => {
-      await connect();
+      await ctx.connect();
       if (!ctx.peerVisualize) throw new Error('This desktop does not serve the visualize panel to remote devices.');
       return call('visualizePanePages', [sessionId, tabId, index, options]);
     },
     visualizeExport: async (sessionId, tabId, format, pane) => {
-      await connect();
+      await ctx.connect();
       // The export arrives as a download: a host without the lane cannot hand it over.
       if (!ctx.peerVisualize || !ctx.peerFileDownloads)
         throw new FileDownloadError('host-too-old', 'Update Mixdog on the PC to download its files.');

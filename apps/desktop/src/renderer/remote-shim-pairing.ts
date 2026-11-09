@@ -251,7 +251,7 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
    *  on its own — or `false` after `ms`. Rejects only on a pairing the PC
    *  refused. */
   const waitForSecureChannel = (ms: number): Promise<boolean> => {
-    if (ctx.connectionReady && ctx.socket?.readyState === WebSocket.OPEN) return Promise.resolve(true);
+    if (ctx.connectionReady) return Promise.resolve(true);
     return new Promise((resolve, reject) => {
       const cleanup = () => {
         window.clearTimeout(timer);
@@ -317,8 +317,8 @@ export const installRemotePairing = (ctx: RemoteShimContext): void => {
         // failures raise REMOTE_PAIRING_INVALID_EVENT and end this attempt.
       });
       while (!(await waitForSecureChannel(APPROVED_CONNECTION_ATTEMPT_MS))) {
-        if (ctx.retireConnection) ctx.retireConnection();
-        else if (ctx.reconnectTimer === null) void ctx.connect().catch(() => {});
+        ctx.phone.recycle();
+        void ctx.connect().catch(() => {});
       }
       // The PC learns this pairing's secure-desktop controller key now, so
       // its PC access setup can enroll this phone. Best effort: without it

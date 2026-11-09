@@ -561,17 +561,11 @@ test('media session changes notify subscribers until they unsubscribe', async ()
   const { getMediaSessionEpoch, notifyMediaSessionChanged, subscribeMediaSession } = await import(
     './remote-file-preview.ts'
   );
-  const { dropMediaSession } = await import('./remote-shim-socket.ts');
   const seen = [];
   const stop = subscribeMediaSession(() => seen.push(getMediaSessionEpoch()));
   const before = getMediaSessionEpoch();
   notifyMediaSessionChanged();
-  // Dropping an authenticated session (reconnect) revokes it and notifies.
-  const ctx = { mediaSid: 'sid-1', peerMediaE2ee: true };
-  dropMediaSession(ctx);
-  assert.equal(ctx.mediaSid, null);
-  // No session to drop: nothing changed.
-  dropMediaSession(ctx);
+  notifyMediaSessionChanged();
   assert.deepEqual(seen, [before + 1, before + 2]);
   stop();
   notifyMediaSessionChanged();
