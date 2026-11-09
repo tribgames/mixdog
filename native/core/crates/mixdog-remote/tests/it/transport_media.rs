@@ -165,11 +165,11 @@ impl MediaLink for LinkFake {
     }
 }
 
-/// Returns once every task the adapter spawned has run as far as it can. The tests run on a paused
-/// clock, which the runtime moves only when no task is ready, so this sleep ends exactly then: the
-/// state the assertions read is complete, whatever number of wake-ups it took.
+/// Returns once every task the adapter spawned has run as far as it can: each has ended or is parked on a future the test's fakes
+/// hold (a held send, a held read) or on the adapter's own wake. The runtime on a paused clock advances time only when it has nothing
+/// ready to run, so this timer ends at exactly that point, whatever the number of wake-ups; its length is never reached by waiting.
 async fn settle() {
-    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(u64::from(u32::MAX))).await;
 }
 
 /// One sealed message as the recording shows it: a frame replaced by what it decrypts to, which

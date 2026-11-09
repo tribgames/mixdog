@@ -17,26 +17,27 @@ const recorder = 'benchmarks/rust-core/recorders/record-transport-media.mjs';
 const finalDir = join(FIXTURES_ROOT, 'remote-transport-media');
 const stage = stageSet(finalDir);
 
-// Every webcrypto operation runs on the thread pool; a step is over only when none is left.
+// Every webcrypto operation runs on the thread pool, the only real asynchrony the adapter has (the leases and the link are
+// stand-ins that answer or park by script). The adapter's own crypto promises are the completion signals: a step is over when
+// the event loop has run every continuation it can (a turn drains the microtask queue) and no crypto promise is left in flight.
 const subtle = globalThis.crypto.subtle;
-let cryptoRunning = 0;
+const inflight = new Set();
 for (const name of ['encrypt', 'decrypt']) {
   const original = subtle[name].bind(subtle);
   subtle[name] = (...a) => {
-    cryptoRunning += 1;
-    return original(...a).finally(() => {
-      cryptoRunning -= 1;
-    });
+    const promise = original(...a).finally(() => inflight.delete(promise));
+    inflight.add(promise);
+    return promise;
   };
 }
 const turn = () => new Promise((resolve) => setImmediate(resolve));
 async function quiesce() {
-  for (let round = 0; round < 4; round += 1) {
+  for (;;) {
     await turn();
-    while (cryptoRunning > 0) await turn();
+    if (inflight.size === 0) return;
+    await Promise.allSettled([...inflight]);
   }
 }
-
 const { createRemoteTransportMediaAdapter } = await importFrom(tree, 'apps/desktop/src/main/remote-transport/media.ts');
 const mediaCrypto = await importFrom(tree, 'apps/desktop/src/shared/remote-media-crypto.ts');
 const { parseRange } = await importFrom(tree, 'apps/relay/lib/media-http.mjs');
