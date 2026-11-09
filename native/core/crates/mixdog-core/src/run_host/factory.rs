@@ -1264,7 +1264,7 @@ mod tests {
     use mixdog_store::schema::record::Record;
 
     use super::*;
-    use mixdog_core_session::session::testing::Rig;
+    use mixdog_core_session::session::testing::{Rig, eventually_on};
     use mixdog_core_session::session::SessionDirectory;
 
     struct Steps(VecDeque<StreamEvent>);
@@ -1909,18 +1909,10 @@ mod tests {
                 .map(|(_, _, params)| params["value"]["progressHint"].clone())
                 .collect()
         };
-        tokio::time::timeout(Duration::from_secs(10), reported.notified()).await.expect("the tool ran");
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        while !hints().contains(&json!({ "outputTail": "compiling" })) {
-            assert!(tokio::time::Instant::now() < deadline, "the hint was not published: {:?}", hints());
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        reported.notified().await;
+        eventually_on(&[&rig.feeds.published], || hints().contains(&json!({ "outputTail": "compiling" })).then_some(())).await;
         release.notify_one();
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        while hints().last() != Some(&Value::Null) {
-            assert!(tokio::time::Instant::now() < deadline, "the hint was not withdrawn: {:?}", hints());
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        eventually_on(&[&rig.feeds.published], || (hints().last() == Some(&Value::Null)).then_some(())).await;
     }
 
     /// A tool that spends like a hosted web search: it reports its delta to the usage registry under the asking thread.
@@ -2140,11 +2132,12 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct Ledger(Mutex<Vec<mixdog_ai::registry::accounting::UsageRow>>);
+    struct Ledger(Mutex<Vec<mixdog_ai::registry::accounting::UsageRow>>, tokio::sync::Notify);
     #[async_trait]
     impl mixdog_ai::registry::accounting::UsageSink for Ledger {
         async fn record_queued(&self, row: mixdog_ai::registry::accounting::UsageRow) -> Result<(), String> {
             lock(&self.0).push(row);
+            self.1.notify_waiters();
             Ok(())
         }
     }
@@ -2418,11 +2411,7 @@ mod tests {
                 })
                 .collect()
         };
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        while roles().len() < 4 || lock(&ledger.0).len() < 2 {
-            assert!(tokio::time::Instant::now() < deadline, "the turn did not settle: {:?} ledger={}", roles(), lock(&ledger.0).len());
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
+        eventually_on(&[&rig.store.committed, &ledger.1], || (roles().len() >= 4 && lock(&ledger.0).len() >= 2).then_some(())).await;
         assert_eq!(roles(), ["user", "assistant", "tool", "assistant"]);
         // The turn's two approval entry points (the policy gate and the tool environment a nested call is judged with) both went through the composition's choice.
         assert_eq!(*lock(&asked.0), [id.as_str(), id.as_str()]);

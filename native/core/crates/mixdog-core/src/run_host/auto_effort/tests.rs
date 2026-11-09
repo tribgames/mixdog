@@ -198,19 +198,6 @@ fn log_env(mode: &str, root: &std::path::Path) -> Map<String, Value> {
     env
 }
 
-/// The file once the lane job that writes it has run.
-async fn settled(path: &std::path::Path, want: &str) -> Option<String> {
-    for _ in 0..500 {
-        if let Ok(bytes) = fixture_fs::read_to_string(path) {
-            if bytes.len() >= want.len() {
-                return Some(bytes);
-            }
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
-    fixture_fs::read_to_string(path).ok()
-}
-
 #[async_trait]
 impl LadderSources for Doubles {
     fn cached_row(&self, _: &str, _: &str) -> Option<Map<String, Value>> {
@@ -333,9 +320,10 @@ async fn turns_chunk(chunk: usize) {
         assert_eq!(got.as_ref().map(decision_value).unwrap_or(Value::Null), case["result"], "result of case {index}: {case}");
         let judged: Vec<Value> = doubles.0.lock().unwrap().judged.iter().map(|j| json!({ "request": j.request, "prev": j.prev, "prevRequest": j.prev_request })).collect();
         assert_eq!(json!(judged), case["judged"], "judge input of case {index}: {case}");
+        diagnostics.log.appended().await;
         let log_path = root.path().join(case["log"]["path"].as_str().unwrap());
         match case["log"]["bytes"].as_str() {
-            Some(want) => assert_eq!(settled(&log_path, want).await.as_deref(), Some(want), "log bytes of case {index}: {case}"),
+            Some(want) => assert_eq!(fixture_fs::read_to_string(&log_path).ok().as_deref(), Some(want), "log bytes of case {index}: {case}"),
             None => assert!(!fixture_fs::exists(&log_path).unwrap(), "no log of case {index}: {case}"),
         }
         assert_eq!(json!(*diagnostics.warnings.lock().unwrap()), case["warnings"], "warnings of case {index}: {case}");
@@ -439,7 +427,8 @@ async fn the_destination_is_read_at_each_append_as_node_reads_it() {
             // Each append lands before the next one switches the destination.
             let so_far = want.entry(rel.to_owned()).or_default();
             so_far.push_str(&line);
-            let got = settled(&root.path().join(rel), so_far).await;
+            log.appended().await;
+            let got = fixture_fs::read_to_string(root.path().join(rel)).ok();
             assert_eq!(got.as_deref(), Some(so_far.as_str()), "append sequence {index}");
         }
         for (rel, bytes) in case["files"].as_object().unwrap() {

@@ -113,6 +113,8 @@ mod tests {
     #[derive(Default)]
     struct Store {
         headers: std::sync::Mutex<std::collections::HashMap<ThreadId, Header>>,
+        /// Told as a header is updated.
+        updated: tokio::sync::Notify,
     }
 
     #[async_trait::async_trait]
@@ -122,6 +124,7 @@ mod tests {
             let header = headers.entry(thread.clone()).or_default();
             let change = update(header);
             header.extend(change.set);
+            self.updated.notify_waiters();
             Ok(())
         }
     }
@@ -144,16 +147,6 @@ mod tests {
             .expect("saved");
     }
 
-    async fn settled<T>(mut probe: impl FnMut() -> Option<T>) -> Option<T> {
-        for _ in 0..200 {
-            if let Some(found) = probe() {
-                return Some(found);
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        None
-    }
-
     fn loaded_thread() -> (ThreadId, Arc<dyn Fn() -> Vec<ThreadId> + Send + Sync>) {
         let thread = ThreadId::from("t1");
         let ids = vec![thread.clone()];
@@ -166,7 +159,7 @@ mod tests {
 
     /// A saved change of the compaction settings reaches a loaded thread's header: the config-owned fields follow, the
     /// session's own survive; a save that leaves the section as it was moves nothing.
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn a_saved_compaction_change_reaches_a_loaded_threads_header() {
         let (_dir, config) = open_config().await;
         let store = Arc::new(Store::default());
@@ -175,7 +168,7 @@ mod tests {
         let follower = tokio::spawn(follow(config.clone(), false, store.clone(), loaded));
         tokio::task::yield_now().await;
         save_compaction(&config, json!({ "auto": false })).await;
-        let got = settled(|| compaction_of(&store, &thread).filter(|c| c.get("auto") == Some(&json!(false)))).await.expect("followed the saved settings");
+        let got = mixdog_core_session::session::testing::eventually_on(&[&store.updated], || compaction_of(&store, &thread).filter(|c| c.get("auto") == Some(&json!(false)))).await;
         assert_eq!(got.get("lastCompactAt"), Some(&json!(5)), "the session's own fields survive");
         // The same section saved again changes nothing.
         let before = store.headers.lock().expect("store").get(&thread).cloned();
@@ -207,19 +200,20 @@ mod tests {
             .await
             .expect("removed");
         let want = case["after"]["compaction"].clone();
-        let got = settled(|| compaction_of(&store, &thread).filter(|c| *c == want)).await;
-        assert_eq!(got, Some(want));
+        let got = mixdog_core_session::session::testing::eventually_on(&[&store.updated], || compaction_of(&store, &thread).filter(|c| *c == want)).await;
+        assert_eq!(got, want);
         follower.abort();
     }
 
     /// A headless caller's injected config is never reloaded, so its sessions are never followed.
-    #[tokio::test]
+    #[tokio::test(start_paused = true)]
     async fn an_injected_config_is_never_followed() {
         let (_dir, config) = open_config().await;
         let store = Arc::new(Store::default());
         let (thread, loaded) = loaded_thread();
         store.headers.lock().expect("store").insert(thread.clone(), header(json!({ "auto": true })));
-        tokio::time::timeout(std::time::Duration::from_secs(5), follow(config.clone(), true, store.clone(), loaded)).await.expect("an injected config has nothing to follow");
+        // An injected config has nothing to follow: the call returns.
+        follow(config.clone(), true, store.clone(), loaded).await;
         save_compaction(&config, json!({ "auto": false })).await;
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         assert_eq!(compaction_of(&store, &thread), Some(json!({ "auto": true })));

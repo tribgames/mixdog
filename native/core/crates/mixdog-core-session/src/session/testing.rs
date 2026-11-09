@@ -1789,3 +1789,21 @@ impl mixdog_ai::registry::accounting::UsagePricing for NoPricing {
         mixdog_ai::catalog::PricedUsage { input: 0.0, cost_usd: None, rates: Default::default() }
     }
 }
+
+/// Waits until `probe` holds, woken by a change of the state it reads, never by the clock (the real store's writer is an OS
+/// thread, so a paused clock cannot pace it): `wakes` are the signals of what the probe reads (the
+/// thread actor's steps, the directory losing a thread, the delete log), each registered before the
+/// probe runs so no change between probe and wait is missed. A wait that can never end is the
+/// test's failure, as for any event wait.
+pub async fn eventually_on<T>(wakes: &[&tokio::sync::Notify], mut probe: impl FnMut() -> Option<T>) -> T {
+    loop {
+        let mut waits: Vec<std::pin::Pin<Box<tokio::sync::futures::Notified<'_>>>> = wakes.iter().map(|wake| Box::pin(wake.notified())).collect();
+        for wait in &mut waits {
+            wait.as_mut().enable();
+        }
+        if let Some(value) = probe() {
+            return value;
+        }
+        futures::future::select_all(waits).await;
+    }
+}

@@ -259,6 +259,12 @@ impl StoreThreads {
         &self.index
     }
 
+    /// Returns once the index holds every write acked so far (the projection runs behind the ack).
+    #[cfg(test)]
+    pub(crate) async fn projected(&self) {
+        self.projector.flush().await;
+    }
+
     fn not_found(id: &ThreadId) -> CoreError {
         CoreError::ThreadNotFound {
             thread_id: id.clone(),

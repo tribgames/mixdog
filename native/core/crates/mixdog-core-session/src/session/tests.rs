@@ -57,23 +57,7 @@ fn request(method: &'static str, params: Value, op: &str) -> CoreRequest {
     }
 }
 
-/// Waits until `probe` holds, woken by a change of the state it reads, never by the clock (the real store's writer is an OS
-/// thread, so a paused clock cannot pace it): `wakes` are the signals of what the probe reads (the
-/// thread actor's steps, the directory losing a thread, the delete log), each registered before the
-/// probe runs so no change between probe and wait is missed. A wait that can never end is the
-/// test's failure, as for any event wait.
-pub(crate) async fn eventually_on<T>(wakes: &[&tokio::sync::Notify], mut probe: impl FnMut() -> Option<T>) -> T {
-    loop {
-        let mut waits: Vec<std::pin::Pin<Box<tokio::sync::futures::Notified<'_>>>> = wakes.iter().map(|wake| Box::pin(wake.notified())).collect();
-        for wait in &mut waits {
-            wait.as_mut().enable();
-        }
-        if let Some(value) = probe() {
-            return value;
-        }
-        futures::future::select_all(waits).await;
-    }
-}
+pub(crate) use super::testing::eventually_on;
 
 /// The Rig's Goal timers fire at their time on the test runtime's clock (here paused, so exactly),
 /// and a cancelled one never fires.
@@ -2551,17 +2535,11 @@ async fn an_idle_delete_refuses_as_node_does_and_deletes_an_idle_archived_sessio
     // Not settled yet, the turn still holds what Node's ask lock is held for (`busy`).
     eventually_on(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.turn_held.load(std::sync::atomic::Ordering::SeqCst)).then_some(())).await;
     // The turn moved `lastUsedAt` past what the caller saw.
-    let used = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-        loop {
-            let meta = directory.session_meta(&id).await.expect("meta").expect("listed");
-            if meta.last_used_at > 0.0 {
-                break meta.last_used_at;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
+    let used = eventually_on(&[&handle.cell.stepped, &rig.store.committed], || {
+        let meta = futures::executor::block_on(directory.session_meta(&id)).expect("meta").expect("listed");
+        (meta.last_used_at > 0.0).then_some(meta.last_used_at)
     })
-    .await
-    .expect("the completed turn stamps lastUsedAt");
+    .await;
     assert_eq!(ask(json!({ "lastUsedAt": used - 1.0 })).await, refused("changed"));
     assert!(lock(&rig.deletes.0).is_empty(), "a refusal deletes nothing");
     assert_eq!(ask(json!({ "lastUsedAt": used })).await, super::delete_idle_tests::recorded("deleted")["reply"]);
