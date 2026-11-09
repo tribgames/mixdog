@@ -193,6 +193,11 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
       restored: ctx.restoredVisibleSessionIds,
       onSynced,
       syncing: () => setRemoteConnectionState('syncing'),
+      error: (error) => {
+        reportRemoteConnectionIssue('sync-failed', error);
+        console.warn('[mixdog-remote] view synchronization failed; retrying', error);
+      },
+      recycle: () => connected.link.retire(),
     });
     lanes = createLaneFeeds(connected.client);
     for (const [lane, feeds] of declaredLanes) lanes.declare(lane, feeds);

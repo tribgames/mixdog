@@ -294,6 +294,74 @@ export const SCENARIOS = {
     { op: 'advance', ms: 0 },
     { op: 'mark', name: 'fourth-refused' },
   ],
+  // A resync the desktop refuses is retried after 250 ms (remote-view-sync.ts:24) and the indicator stays on syncing until it completes.
+  'resync-fails-once': [
+    { op: 'boot' },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'fail-sync', times: 1 },
+    { op: 'relay-hint' },
+    { op: 'mark', name: 'refused' },
+    { op: 'advance', ms: 249 },
+    { op: 'mark', name: 'waiting' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'retried' },
+  ],
+  // Three refusals in a row: retries after 250 and 500 ms, then the connection is recycled (remote-view-sync.ts:16, :56-59) and redialed.
+  'resync-fails-repeatedly': [
+    { op: 'boot' },
+    { op: 'accept' },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'fail-sync', times: 3 },
+    { op: 'relay-hint' },
+    { op: 'mark', name: 'first-refused' },
+    { op: 'advance', ms: 250 },
+    { op: 'mark', name: 'second-refused' },
+    { op: 'advance', ms: 499 },
+    { op: 'mark', name: 'before-third' },
+    { op: 'advance', ms: 1 },
+    { op: 'mark', name: 'recycled' },
+    { op: 'accept' },
+    { op: 'check', name: 'recovered', expect: { foreground: true } },
+  ],
+  // The PC offers the MXT transport and the phone (a browser with WebRTC) opts in: the hello carries the opt-in, the PC's ready carries the
+  // transcript and the session runs over sealed records on the relay lane. Hidden, the transport's timers stop; each wake pings the relay lane.
+  'mxt-negotiated': [
+    { op: 'boot', mxt: true },
+    { op: 'accept', flags: { transportWebrtc: 1, binaryFrames: 1 } },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'screen', ids: ['s1'] },
+    { op: 'check', name: 'reports-over-records', expect: { foreground: true, screen: ['s1'] } },
+    { op: 'advance', ms: 7000 },
+    { op: 'mark', name: 'quiet-visible' },
+    { op: 'hide' },
+    { op: 'advance', ms: 10000 },
+    { op: 'mark', name: 'hidden' },
+    { op: 'show' },
+    { op: 'pong' },
+    { op: 'advance', ms: 5000 },
+    { op: 'mark', name: 'woken' },
+  ],
+  // Hidden past the grace with a transport: the transport says it is suspended, then the socket is released with 1000 background.
+  'mxt-background': [
+    { op: 'boot', mxt: true },
+    { op: 'accept', flags: { transportWebrtc: 1, binaryFrames: 1 } },
+    { op: 'check', name: 'connected', expect: { foreground: true } },
+    { op: 'hide' },
+    { op: 'advance', ms: 30000 },
+    { op: 'mark', name: 'suspended' },
+    { op: 'show' },
+    { op: 'accept', flags: { transportWebrtc: 1, binaryFrames: 1 } },
+    { op: 'check', name: 'back', expect: { foreground: true } },
+  ],
+  // The relay stripped the PC's transport offer from the challenge the phone saw, yet the PC's ready carries the transcript: refused, never a
+  // silent legacy session.
+  'mxt-stripped-offer': [
+    { op: 'boot', mxt: true },
+    { op: 'accept', flags: { transportWebrtc: 1, binaryFrames: 1, stripOffer: 1 } },
+    { op: 'advance', ms: 0 },
+    { op: 'mark', name: 'refused' },
+  ],
   // A browser that refuses to construct a socket does not pin the connection to the rejected attempt.
   'socket-ctor-throws': [
     { op: 'boot', socketThrows: 1 },
@@ -338,8 +406,8 @@ export async function play(world, driver, ops) {
       banner,
       offline: slice.some((e) => e.ev === 'state' && e.desktop === 'offline'),
       wire: slice
-        .filter((e) => e.ev === 'ping' || e.ev === 'close' || e.ev === 'socket' || e.ev === 'resync')
-        .map((e) => `${e.ev}${e.ev === 'close' ? `(${e.code},${e.reason})` : ''}@${e.at - since}`),
+        .filter((e) => e.ev === 'ping' || e.ev === 'close' || e.ev === 'socket' || e.ev === 'resync' || e.ev === 'xcontrol')
+        .map((e) => `${e.ev === 'xcontrol' ? `x:${e.kind}` : e.ev}${e.ev === 'close' ? `(${e.code},${e.reason})` : ''}@${e.at - since}`),
       pairingInvalid: slice.filter((e) => e.ev === 'pairing-invalid').map((e) => e.message),
       reconnected: slice.filter((e) => e.ev === 'reconnected').length,
       calls: calls.splice(0),
@@ -411,6 +479,9 @@ export async function play(world, driver, ops) {
       case 'relay-hint':
         world.legOf(lastSocket).clear({ resync: 1 });
         await world.advance(0);
+        break;
+      case 'fail-sync':
+        world.failViewSync = op.times;
         break;
       case 'hold-hello':
         world.holdHello = true;
