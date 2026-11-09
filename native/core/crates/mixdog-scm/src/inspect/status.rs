@@ -305,13 +305,24 @@ pub(crate) async fn remote_metadata(
     root: &Path,
     options: &RunOptions,
 ) -> Result<(Vec<String>, String), ScmFailure> {
+    remote_metadata_at(git, cancel, root, options, std::time::Instant::now()).await
+}
+
+/// [remote_metadata] at a given moment, so a test moves the clock instead of waiting out the minute.
+pub(crate) async fn remote_metadata_at(
+    git: &Git,
+    cancel: &CancellationToken,
+    root: &Path,
+    options: &RunOptions,
+    now: std::time::Instant,
+) -> Result<(Vec<String>, String), ScmFailure> {
     type Entry = (std::time::Instant, (Vec<String>, String));
     static CACHE: std::sync::OnceLock<std::sync::Mutex<HashMap<String, Entry>>> = std::sync::OnceLock::new();
     let cache = CACHE.get_or_init(Default::default);
     // gitCacheKey: the path, lower-cased on Windows.
     let key = if cfg!(windows) { path_text(root).to_lowercase() } else { path_text(root) };
     if let Some((read_at, value)) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key)
-        && read_at.elapsed() < REMOTE_METADATA_TTL
+        && now.saturating_duration_since(*read_at) < REMOTE_METADATA_TTL
     {
         return Ok(value.clone());
     }
@@ -321,7 +332,7 @@ pub(crate) async fn remote_metadata(
         Err(other) => return Err(other),
     };
     let value = parse_remotes(&text);
-    cache.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (std::time::Instant::now(), value.clone()));
+    cache.lock().unwrap_or_else(|e| e.into_inner()).insert(key, (now, value.clone()));
     Ok(value)
 }
 

@@ -59,6 +59,12 @@ Object.assign(process.env, {
 });
 delete process.env.MIXDOG_FEATURE_GIT;
 
+// Node's clock, driven by the recorder: time passes only when the recording says so.
+let clockSkew = 0;
+const realNow = Date.now;
+Date.now = () => realNow() + clockSkew;
+const PROVEN_BY_CLOCK_TEST = new Set(['gitStatus-remote-after-ttl']);
+
 // `ghlogin_<pid>_<n>` (github-cli.ts): the scripted host has a fixed pid.
 Object.defineProperty(process, 'pid', { value: 4242 });
 // A worktree file's revision token (git-history.ts worktreeRevision) is `size:mtimeNs:ctimeNs:ino` of the file system. The golden
@@ -298,7 +304,7 @@ async function finishReplay() {
   execFileSync('taskkill', ['/T', '/F', '/PID', String(replay.core.pid)], { stdio: 'ignore' });
   await exited;
   rmSync(WORK, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
-  console.log(`phone-scm replay over ${REPLAY}: ${replay.compared.length} compared, ${replay.differences.length} differ, ${replay.byName.size - replay.compared.length} of the recording not replayed`);
+  console.log(`phone-scm replay over ${REPLAY}: ${replay.compared.length} compared, ${replay.differences.length} differ, ${replay.byName.size - replay.compared.length - PROVEN_BY_CLOCK_TEST.size} of the recording not replayed (${PROVEN_BY_CLOCK_TEST.size} proven by the core's injected-clock test)`);
   for (const difference of replay.differences) console.log(`DIFF ${difference.name}\n  node: ${JSON.stringify(difference.node)}\n  core: ${JSON.stringify(difference.core)}`);
   process.exit(replay.differences.length ? 1 : 0);
 }
@@ -331,6 +337,7 @@ async function rec(name, call, params, note) {
   if (replay) {
     const recorded = replay.byName.get(name);
     assert.ok(recorded, `${name} is not in the recording`);
+    if (PROVEN_BY_CLOCK_TEST.has(name)) return;
     if (process.env.PHONE_SCM_VERBOSE) console.error('replay', name);
     replay.shims.sync();
     processes.length = 0;
@@ -567,11 +574,13 @@ await rec('gitPull-no-remote', 'gitPull', [R]);
 await rec('gitSync-no-remote', 'gitSync', [R]);
 git(WORK, 'init', '-q', '--bare', '-b', 'main', ORIGIN);
 // Node answers `remote` from a read it keeps for 60 s per directory and never drops earlier (git-status.ts:179-207, TTL
-// git-read-utils.ts:6): a remote added right after a status shows only once that minute has passed. The wait is that wall-clock TTL.
+// git-read-utils.ts:6): a remote added right after a status shows only once that minute has passed. Node's clock is virtual:
+// the recorder moves Date.now past the TTL. The core's cache is proven at that point by its injected-clock test
+// (remote_metadata_expires_by_clock).
 await rec('gitStatus-before-remote-add', 'gitStatus', [R]);
 git(R, 'remote', 'add', 'origin', ORIGIN);
 await rec('gitStatus-remote-just-added', 'gitStatus', [R]);
-await new Promise((resolve) => setTimeout(resolve, 61_000));
+clockSkew += 61_000;
 await rec('gitStatus-remote-after-ttl', 'gitStatus', [R]);
 await rec('gitPush-no-upstream', 'gitPush', [R]);
 git(R, 'push', '-q', '-u', 'origin', 'main');

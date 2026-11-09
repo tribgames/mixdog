@@ -257,6 +257,28 @@ async fn a_remote_added_right_after_a_status_shows_only_when_its_minute_is_out()
     assert_eq!(status["remote"], false, "{status}");
 }
 #[tokio::test]
+async fn remote_metadata_expires_by_clock() {
+    // Node's minute (GIT_METADATA_TTL_MS) on a moved clock: the list read at t0 holds at t0+59s and is read again at t0+61s.
+    let (_guard, repo, _head) = crate::golden_tests::fixture_repo();
+    let scm = Scm::new(
+        TestProcesses::shared(),
+        mixdog_rt::testing::tokens().maintenance_io,
+        std::env::temp_dir().join(format!("mixdog-scm-remote-clock-{}", std::process::id())),
+    );
+    let cancel = CancellationToken::new();
+    let options = crate::git::RunOptions::read();
+    let at = |seconds: u64, t0: std::time::Instant| t0 + std::time::Duration::from_secs(seconds);
+    let t0 = std::time::Instant::now();
+    let (git, repo_ref, cancel_ref, options_ref) = (&scm.git, &repo, &cancel, &options);
+    let names = |now| async move {
+        crate::inspect::status::remote_metadata_at(git, cancel_ref, repo_ref, options_ref, now).await.unwrap().0
+    };
+    assert!(names(t0).await.is_empty());
+    crate::golden_tests::git(&repo, &["remote", "add", "origin", "http://127.0.0.1:9/r.git"]);
+    assert!(names(at(59, t0)).await.is_empty(), "kept for the minute");
+    assert_eq!(names(at(61, t0)).await, ["origin"], "read again once the minute is out");
+}
+#[tokio::test]
 async fn a_sign_in_without_gh_reads_as_nodes_text() {
     let (handle, _) = service_with_gh_program("mixdog-no-such-gh-program");
     let error = call(&handle, "github/login/start", json!({ "opId": "op" })).await.unwrap_err();
