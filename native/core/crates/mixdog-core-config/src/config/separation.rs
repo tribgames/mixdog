@@ -442,15 +442,21 @@ fn source_mode(_: &std::fs::Metadata) -> u32 {
 /// for it alone. Nothing when there is no file.
 fn backup(lane: &InLane<DurabilityIo>, source: &Path, data_dir: &Path, now_ms: i64) -> Result<(), ConfigError> {
     let Some(bytes) = mixdog_statefile::read_content(source)? else { return Ok(()) };
-    let parent = data_dir.join("backups");
-    mixdog_statefile::create_dir_all(lane, &parent)?;
-    let stamp = chrono::DateTime::from_timestamp_millis(now_ms).map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_default();
-    let stem = format!("defaults-separation-{}", stamp.replace([':', '.'], "-"));
-    let dir = claim_dir(lane, &parent, &stem)?;
+    let dir = claim_backup_dir(lane, data_dir, now_ms)?;
     // `writeFileAtomicSync(target, bytes, { mode: statSync(source).mode & 0o777 })`: the copy keeps the file's own mode.
     let opts = mixdog_statefile::Opts { mode: source_mode(&mixdog_statefile::metadata(lane, source)?), ..mixdog_statefile::Opts::default() };
     let written = mixdog_statefile::write_file_stepped(lane, &dir.join("mixdog-config.json"), &bytes, &opts);
     written.map(|_| ()).map_err(ConfigError::Publish)
+}
+
+/// A fresh `<data>/backups/defaults-separation-<timestamp>[-n]` folder: the one both separation passes (this one and the
+/// `desktop` section's, `desktop_separation.rs`) put their copy of the config in.
+pub(super) fn claim_backup_dir(lane: &InLane<DurabilityIo>, data_dir: &Path, now_ms: i64) -> Result<std::path::PathBuf, ConfigError> {
+    let parent = data_dir.join("backups");
+    mixdog_statefile::create_dir_all(lane, &parent)?;
+    let stamp = chrono::DateTime::from_timestamp_millis(now_ms).map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_default();
+    let stem = format!("defaults-separation-{}", stamp.replace([':', '.'], "-"));
+    claim_dir(lane, &parent, &stem)
 }
 
 /// The folder named `stem`, or `stem-1`, `stem-2`, ... when that name is taken: each name is tried by creating
@@ -502,7 +508,7 @@ impl Shared {
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::config) mod tests;
 
 impl Config {
     /// `ensureDefaultsSeparated()`, as Node's boot runs it before any session reads the config.
