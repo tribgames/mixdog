@@ -612,6 +612,61 @@ mod tests {
         }
     }
 
+    /// The `[<ISO>] ` stamps of `text` replaced by `[<ISO>] `, each checked for the exact `toISOString` shape first.
+    fn mask_stamps(text: &str) -> String {
+        let shape = b"dddd-dd-ddTdd:dd:dd.dddZ";
+        let mut out = String::new();
+        let mut rest = text;
+        while let Some(at) = if rest.starts_with('[') { Some(0) } else { rest.find("\n[").map(|i| i + 1) } {
+            out.push_str(&rest[..at]);
+            let body = &rest[at + 1..];
+            let stamped = body.len() > 26
+                && body.as_bytes()[..24].iter().zip(shape).all(|(b, s)| if *s == b'd' { b.is_ascii_digit() } else { b == s })
+                && &body[24..26] == "] ";
+            if stamped {
+                out.push_str("[<ISO>] ");
+                rest = &body[26..];
+            } else {
+                out.push('[');
+                rest = body;
+            }
+        }
+        out.push_str(rest);
+        out
+    }
+
+    /// The bytes `daemon.log` holds after Node's daemon wrote the same lines (`fixtures/daemon-redirect`, recorded from the
+    /// real `createDaemonLog` in a child whose stdout and stderr are the file): bare before ready, one `[<ISO>] ` row per
+    /// write after (a multi-line write stays one row, trailing white space trimmed, `console` calls tagged).
+    #[tokio::test]
+    async fn the_daemon_log_bytes_are_the_ones_nodes_daemon_wrote() {
+        use mixdog_rt::node_log::Channel::ConsoleError;
+        use mixdog_rt::node_log::Channel::ConsoleWarn;
+        use mixdog_rt::node_log::Channel::Stderr;
+        use mixdog_rt::node_log::Origin::Daemon;
+        let golden: Value = serde_json::from_str(include_str!("../../../fixtures/daemon-redirect/golden.json")).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("daemon.log");
+        let fd2 = Arc::new(Mutex::new(String::new()));
+        let into = fd2.clone();
+        let sink: StderrSink = Arc::new(move |text| locked(&into).push_str(text));
+        let log = DaemonLog::with_parts(Arc::new(DiskLogFile::new(path.clone())), tokens().maintenance_io, CancellationToken::new(), Arc::new(system_now_ms), sink);
+        log.log("before ready");
+        locked(&fd2).push_str(&mixdog_rt::node_log::bare("[mod] raw before ready"));
+        log.enable_file_logging();
+        let node = log.node_sink();
+        log.log("after ready");
+        node(Daemon, Stderr, "[mod] single line");
+        node(Daemon, Stderr, "[mod] first\n[mod] second");
+        node(Daemon, Stderr, "[mod] no newline");
+        node(Daemon, ConsoleWarn, "[mod] warned 3");
+        node(Daemon, ConsoleError, "[mod] errored");
+        log.flush().await;
+        let file = String::from_utf8(mixdog_statefile::read_content(&path).unwrap().unwrap()).unwrap();
+        let written = format!("{}{}", locked(&fd2), file);
+        assert_eq!(mask_stamps(&written), golden["file"].as_str().unwrap());
+    }
+
     /// A cancelled run leaves its drainer unstarted; flush returns instead of waiting on it.
     #[tokio::test]
     async fn flush_returns_when_the_lane_drops_the_drainer() {

@@ -149,17 +149,14 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
     .await?;
     let boot::Begun { started, booting, watch } = begun;
     let ownership: std::sync::Arc<dyn mixdog_core_api::domain::ownership::Ownership> = started.ownership().clone();
-    // The daemon's run token and the one daemon log (`<data>/daemon.log`), enabled where the daemon starts, as Node enables its log at
-    // startup. Compose and every writer share the log; the one stop procedure (`ComposedCore::run_stop_steps`) flushes it after the
-    // last step (Node: daemon.mjs:411, `await flushDaemonLogs()` before the exit) and then cancels the token. A forced exit that skips the
-    // stop steps is covered by the release procedure's own `flush_log` step (run-host-25).
+    // The daemon's run token and the one daemon log (`<data>/daemon.log`). Compose and every writer share the log; the one stop procedure
+    // (`ComposedCore::run_stop_steps`) flushes it after the last step (Node: daemon.mjs:411, `await flushDaemonLogs()` before the exit) and
+    // then cancels the token. A forced exit that skips the stop steps is covered by the release procedure's own `flush_log` step (run-host-25).
+    // Until the ready boundary (below) a log line and a Node stderr line go bare to the process's stderr, which is where Node's go.
     let stop = mixdog_rt::CancellationToken::new();
     let log = daemon_log::DaemonLog::new(data_dir.join("daemon.log"), tokens.maintenance_io, stop.clone());
-    log.enable_file_logging();
-    // From here a line Node writes to its stderr lands where Node's redirect put it (`mixdog_rt::node_log`): the memory worker's in its
-    // own proxy log, every other in `daemon.log`.
     log.attach_memory_log(daemon_log::DaemonLog::new(data_dir.join("memory-runtime-proxy.log"), tokens.maintenance_io, stop.clone()));
-    mixdog_rt::node_log::install(log.node_sink());
+    let ready_log = log.clone();
     let sweep_dir = data_dir.clone();
     let config = compose::ComposeConfig {
         user_data_dir: data_dir.join("userdata"),
@@ -212,6 +209,14 @@ async fn serve(executors: &Arc<Executors>, tokens: LaneTokens) -> Result<(), Ser
             return Err(error);
         }
     };
+    // Node's ready boundary (`announceDaemonReady`, daemon.mjs:836-845): `enableFileLogging()` then `installRedirect()`. From here the file has
+    // the log, and a line Node writes to its stderr lands where its redirect put it (`mixdog_rt::node_log`): the memory worker's in its own
+    // proxy log, every other in `daemon.log`, each as a `[<ISO>] ` row.
+    ready_log.enable_file_logging();
+    // `MIXDOG_DAEMON_ALLOW_STDERR=1` leaves stderr alone (daemon-log.mjs `installRedirect`).
+    if std::env::var("MIXDOG_DAEMON_ALLOW_STDERR").as_deref() != Ok("1") {
+        mixdog_rt::node_log::install(ready_log.node_sink());
+    }
     // The report-only stall monitor (LR §5.4): the runtime probe and the lanes' wedge watch. It lives as long as the process serves.
     let _stall_monitor = serving.watch_stalls(executors.clone());
     // A stop that arrived on the way is handed over now: the watcher has been live since boot.
