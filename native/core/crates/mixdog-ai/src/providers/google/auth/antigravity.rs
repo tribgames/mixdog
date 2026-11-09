@@ -675,6 +675,34 @@ fn no_tier(payload: &Value, email: &str) -> ProviderError {
 mod tests {
     use super::*;
 
+    /// The refresh that outlives its timer reads as the real Node function did (`sites.antigravityRefresh`):
+    /// `AbortSignal.timeout`'s own error.
+    #[tokio::test(start_paused = true)]
+    async fn a_refresh_that_outlives_its_timer_reads_as_nodes() {
+        use crate::oauth::CredentialIo;
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_transport;
+
+        let dir = tempfile::tempdir().unwrap();
+        let rt = mixdog_rt::testing::tokens();
+        let file = CredentialFile::new(dir.path().join("antigravity-oauth.json"), CredentialIo { read: rt.interactive_io, write: rt.durability_io });
+        let transport = TimingOut::new();
+        let auth = AntigravityAuth::new(transport.clone(), Arc::new(FileTokenStore(file)), Box::new(|| 0));
+        let spent = TokenDoc {
+            access_token: "a".into(),
+            refresh_token: "r".into(),
+            expires_at_ms: 0,
+            project_id: String::new(),
+            tier_id: String::new(),
+            email: String::new(),
+            user_id: String::new(),
+        };
+        let error = auth.refresh(&spent).await.expect_err("never answers");
+        assert_transport("antigravityRefresh", &transport);
+        assert_thrown("antigravityRefresh", &error.message);
+    }
+
     #[test]
     fn client_constants_decode_to_the_recorded_refresh_request() {
         assert_eq!(client_id(), "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com");

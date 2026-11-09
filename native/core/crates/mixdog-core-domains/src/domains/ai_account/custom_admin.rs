@@ -698,7 +698,8 @@ fn pool_failure(error: PoolError) -> ProviderError {
 #[async_trait]
 impl CustomEndpoint for BuiltEndpoint {
     async fn list_models(&self) -> Result<Vec<ModelRecord>, ProviderError> {
-        self.parts.listing.list_models().await
+        // `listModels({ timeoutMs: CUSTOM_DISCOVERY_TIMEOUT_MS })`: the probe's window, not the refresh's 10 s.
+        self.parts.listing.list_models_within(super::custom_probe::DISCOVERY_TIMEOUT).await
     }
 
     fn discovery_error(&self) -> Option<ProviderError> {

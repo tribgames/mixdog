@@ -889,6 +889,10 @@ pub struct ProviderError {
     /// [`Exposure`] does not record, e.g. reasoning already streamed; set by
     /// the sender that knows it, never inferred downstream.
     pub unsafe_to_retry: bool,
+    /// A timer the call armed itself ended it (`AbortSignal.timeout`, `createTimeoutSignal`, or a bare
+    /// `controller.abort()` on a `setTimeout`): Node tells these from a connection failure by the error's name, which
+    /// this error does not carry.
+    pub timed_out: bool,
     /// The server's id of the limit the refusal named (Node `quotaLimit`), as
     /// sent; empty ids are `None`. Boxed to keep `Result<_, ProviderError>`
     /// small.
@@ -917,6 +921,7 @@ impl ProviderError {
             rejected_tool: None,
             account_blocked: false,
             unsafe_to_retry: false,
+            timed_out: false,
             quota_limit: None,
         }
     }

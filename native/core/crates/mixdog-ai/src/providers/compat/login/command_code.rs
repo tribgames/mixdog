@@ -20,7 +20,8 @@ use serde::Deserialize;
 
 use super::Http;
 use crate::oauth::FlowGuard;
-use crate::oauth::http::call;
+use crate::oauth::http::call_under;
+use crate::transport::deadlines::TOKEN_PROBE;
 use crate::oauth::http::failed;
 use crate::oauth::loopback;
 use crate::oauth::loopback::Handled;
@@ -123,8 +124,9 @@ pub fn parse_pasted_input(input: &str, state: &str) -> Result<CommandCodeCredent
 
 /// The account behind a key: whoami's user id is the stable identity.
 async fn whoami(http: &Http, api_key: &str) -> Result<(String, String), LoginFailure> {
-    let reply = call(
+    let reply = call_under(
         http.as_ref(),
+        TOKEN_PROBE,
         "GET",
         &format!("{COMMAND_CODE_API_ORIGIN}/alpha/whoami"),
         vec![("accept", "application/json".to_owned()), ("authorization", format!("Bearer {api_key}"))],
@@ -302,6 +304,21 @@ use crate::oauth::http::testing::finish;
             dir.path().join("command-code-oauth.json"),
             CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
         )
+    }
+
+    /// The identity read that outlives its timer reads as the real Node function did (`sites.commandCodeIdentity`).
+    #[tokio::test(start_paused = true)]
+    async fn an_identity_read_that_outlives_its_timer_reads_as_nodes() {
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_transport;
+        use crate::transport::site_probe::login_message;
+
+        let transport = TimingOut::new();
+        let http: Http = transport.clone();
+        let failure = whoami(&http, "k").await.expect_err("never answers");
+        assert_transport("commandCodeIdentity", &transport);
+        assert_thrown("commandCodeIdentity", login_message(&failure));
     }
 
     fn accounts(dir: &tempfile::TempDir) -> AccountStore {

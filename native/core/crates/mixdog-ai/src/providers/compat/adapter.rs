@@ -363,3 +363,24 @@ impl ModelStream for CompatStream {
         DeliveryState::Accepted
     }
 }
+
+#[cfg(test)]
+mod site_tests {
+    use super::*;
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_thrown;
+    use crate::transport::site_probe::assert_transport;
+
+    /// A model list that outlives its timer reads as the real Node function did (`sites.compatModelList`): the
+    /// labelled `"<provider> model list"` timer.
+    #[tokio::test(start_paused = true)]
+    async fn a_model_list_that_outlives_its_timer_reads_as_nodes() {
+        let transport = TimingOut::new();
+        let profile = CompatProfile::plain("groq", "http://x.test/v1", CredentialKind::Keyless);
+        let error = fetch_json(transport.as_ref(), &profile, "http://x.test/v1/models".to_owned(), &[], None)
+            .await
+            .expect_err("the endpoint never answers");
+        assert_transport("compatModelList", &transport);
+        assert_thrown("compatModelList", &error.message);
+    }
+}

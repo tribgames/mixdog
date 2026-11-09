@@ -21,7 +21,8 @@ use serde::Serialize;
 
 use super::Http;
 use crate::oauth::FlowGuard;
-use crate::oauth::http::call;
+use crate::oauth::http::call_under;
+use crate::transport::deadlines::TOKEN_PROBE;
 use crate::oauth::http::failed;
 use crate::oauth::loopback;
 use crate::oauth::loopback::Handled;
@@ -57,8 +58,9 @@ pub async fn probe_token_plan(http: &Http, api_key: &str) -> Result<&'static str
     let mut last = failed("token_plan", "Token Plan check failed");
     let mut all_rejected = true;
     for base in MIMO_TOKEN_PLAN_BASE_URLS {
-        let sent = call(
+        let sent = call_under(
             http.as_ref(),
+            TOKEN_PROBE,
             "POST",
             &format!("{base}/chat/completions"),
             vec![
@@ -261,6 +263,27 @@ use crate::oauth::http::testing::finish;
     }
     use crate::oauth::CredentialIo;
     use crate::oauth::Probe;
+
+    /// The Token Plan probe whose every region outlives its timer ends as the real Node function did
+    /// (`sites.mimoProbe`): the last region's `AbortSignal.timeout` error.
+    #[tokio::test(start_paused = true)]
+    async fn a_probe_that_outlives_its_timer_reads_as_nodes() {
+        use crate::transport::site_probe::TimingOut;
+        use crate::transport::site_probe::assert_thrown;
+        use crate::transport::site_probe::assert_transport;
+        use crate::transport::site_probe::login_message;
+
+        let transport = TimingOut::new();
+        let http: Http = transport.clone();
+        let failure = probe_token_plan(&http, "k").await.expect_err("never answers");
+        assert_transport("mimoProbe", &transport);
+        assert_eq!(
+            transport.seen().len(),
+            crate::transport::site_probe::recorded("mimoProbe")["armed"].as_array().unwrap().len(),
+            "every region is tried under a timer of its own"
+        );
+        assert_thrown("mimoProbe", login_message(&failure));
+    }
 
     fn names(dir: &tempfile::TempDir) -> CredentialFile {
         let tokens = mixdog_rt::testing::tokens();

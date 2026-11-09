@@ -373,6 +373,20 @@ fn api_adapter(http: Arc<ScriptedHttp>) -> AnthropicAdapter {
     AnthropicAdapter::api_key(config("http://127.0.0.1:1"), http, Arc::new(FixedKey), cpu_bulk())
 }
 
+/// The model list that outlives its timer reads as the real Node function's request did (`sites.anthropicModelList`):
+/// `AbortSignal.timeout`'s own error (Node's catch swallows it and lists its built-in rows; the request is what is checked).
+#[tokio::test(start_paused = true)]
+async fn a_model_list_that_outlives_its_timer_reads_as_nodes() {
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_transport;
+    use mixdog_core_api::domain::provider::ModelListing as _;
+
+    let transport = TimingOut::new();
+    let adapter = AnthropicAdapter::api_key(config("http://127.0.0.1:1"), transport.clone(), Arc::new(FixedKey), cpu_bulk());
+    adapter.list_models().await.expect_err("the list never answers");
+    assert_transport("anthropicModelList", &transport);
+}
+
 pub(super) fn cpu_bulk() -> mixdog_rt::CpuBulk {
     mixdog_rt::testing::tokens().cpu_bulk
 }

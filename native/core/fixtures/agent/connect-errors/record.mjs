@@ -25,6 +25,9 @@
 // connect timeout) what each class of Node call (the SDKs, and the raw `fetch` under each kind of timer) throws; see
 // `recordTransports`.
 //
+// `--only sites` records `sites` alone: the real Node function of each production call site that bounds its request with
+// a timer of its own, run with that timer ended at once against a server that never answers; see `recordSites`.
+//
 // The loop is driven the way `send-phase.mjs` drives it: a `retry_transport` verdict adds one to `transportRetriesUsed`
 // and carries `transportRetryMax` into the next call; a thrown error ends the turn. Waits are recorded, not served
 // (the timers `sleepWithAbort` arms are armed at 0 ms), and `Math.random` is pinned to 0.5 so every jittered wait is
@@ -54,11 +57,20 @@ Math.random = () => 0.5;
 // 0 ms. The sockets' own timers are left alone.
 const waits = [];
 const realSetTimeout = globalThis.setTimeout;
+// While a call site runs for `recordSites`, the timers that bound its request (a `createTimeoutSignal`, a bare
+// `setTimeout(() => controller.abort())`, `AbortSignal.timeout`) are recorded and armed at 1 ms, against a server that
+// never answers: the site's own code throws what it throws when the timer fires, without waiting its 30 s.
+let site = null;
+const SITE_TIMER_CALLERS = ['stall-policy.mjs', 'anthropic-oauth-credentials.mjs', 'provider-admin.mjs'];
 globalThis.setTimeout = (callback, ms, ...rest) => {
   const limit = Error.stackTraceLimit;
   Error.stackTraceLimit = 40;
   const stack = new Error().stack ?? '';
   Error.stackTraceLimit = limit;
+  if (site && ms >= 1000 && SITE_TIMER_CALLERS.some((file) => stack.includes(file))) {
+    site.armed.push({ via: 'setTimeout', ms });
+    return realSetTimeout(callback, 1, ...rest);
+  }
   if (!stack.includes('timerSleepWithAbort') && !stack.includes('_defaultAbortSleep')) return realSetTimeout(callback, ms, ...rest);
   waits.push({ by: stack.includes('scheduleTransportReplay') ? 'loop' : 'provider', ms });
   return realSetTimeout(callback, 0, ...rest);
@@ -226,6 +238,11 @@ async function badPorts() {
 // server accepts and never answers) and connectTimeout (an address no one answers: 192.0.2.1, TEST-NET-1).
 // Every timer is TRANSPORT_TIMEOUT_MS so the recording takes seconds; the undici connector's own 10 s is waited out once.
 const TRANSPORT_TIMEOUT_MS = 400;
+// A server that accepts and never answers.
+const silent = () =>
+  new Promise((done) => {
+    const server = createServer((socket) => socket.on('error', () => {})).listen(0, '127.0.0.1', () => done({ server, port: server.address().port }));
+  });
 async function recordTransports() {
   process.env.MIXDOG_LLM_HEADERS_TIMEOUT_MS = String(TRANSPORT_TIMEOUT_MS);
   process.env.MIXDOG_LLM_BODY_TIMEOUT_MS = String(TRANSPORT_TIMEOUT_MS);
@@ -265,10 +282,6 @@ async function recordTransports() {
       }
     },
   };
-  const silent = () =>
-    new Promise((done) => {
-      const server = createServer((socket) => socket.on('error', () => {})).listen(0, '127.0.0.1', () => done({ server, port: server.address().port }));
-    });
   const plainOnTls = () =>
     new Promise((done) => {
       const server = createServer((socket) => {
@@ -306,6 +319,96 @@ async function recordTransports() {
   return { timeoutMs: TRANSPORT_TIMEOUT_MS, kinds: out };
 }
 
+// --- sites: what each production call site throws when its own timer ends the request ----------------------------------
+// Every site is the real Node function (nothing is stubbed but where the request goes: a server that never answers,
+// `site.port`). Per site: `armed`, the timers that bound the request (`via`, `ms`); `fetchRejected`, what the raw `fetch`
+// rejected with (the call class's text); `thrown`, what the site's own code throws after it (equal to the fetch's text
+// where the site passes it on, a wrapper's text where it does not); `value`, the result of a site that answers.
+async function recordSites() {
+  process.env.MIXDOG_QUIET_PROVIDER_LOG = '1';
+  const providers = `${orchestrator}/providers`;
+  const grokTokens = await load(`${providers}/grok-oauth-tokens.mjs`);
+  const grokLogin = await load(`${providers}/grok-oauth-login.mjs`);
+  const anthropicCredentials = await load(`${providers}/anthropic-oauth-credentials.mjs`);
+  const antigravityTokens = await load(`${providers}/antigravity-oauth-tokens.mjs`);
+  const geminiCatalog = await load(`${providers}/lib/gemini-model-catalog.mjs`);
+  const mimoTokens = await load(`${providers}/mimo-oauth-tokens.mjs`);
+  const commandCodeTokens = await load(`${providers}/command-code-oauth-tokens.mjs`);
+  const museTokens = await load(`${providers}/muse-code-oauth-tokens.mjs`);
+  const devinAuth = await load(`${providers}/devin-auth.mjs`);
+  const compatModels = await load(`${providers}/openai-compat-models.mjs`);
+  const { AnthropicProvider } = await load(`${providers}/anthropic.mjs`);
+  const { createCustomProvider } = await load(`${providers}/custom-provider.mjs`);
+
+  const xaiToken = 'https://auth.x.ai/oauth2/token';
+  const input = (protocol, path, port) => ({ name: 'Probe', protocol, baseURL: `http://127.0.0.1:${port}${path}`, apiKey: 'sk-DUMMY-probe-secret-0123456789' });
+  // The settings page's probe: the discovery under its own 60 s `withTimeout` (armed first, so it ends the wait) ...
+  const probe = (protocol, path) => async ({ port }) => portless(await admin.discoverCustomProviderModels(cfgMod, input(protocol, path, port)));
+  // ... and the provider's own discovery, as the runtime refresh runs it (the default 10 s window).
+  const listing = (protocol, path) => async ({ port }) => {
+    const provider = await createCustomProvider('custom-listing', input(protocol, path, port));
+    return provider.listModels();
+  };
+  const sites = {
+    grokDiscovery: () => grokTokens.fetchDiscovery(),
+    grokRefresh: () => grokTokens.refreshTokens({ access_token: 'a', refresh_token: 'r', token_endpoint: xaiToken }, { force: true }),
+    grokCodeExchange: () => grokLogin.exchangeAuthorizationCode({ discovery: { token_endpoint: xaiToken }, pkce: { verifier: 'v', challenge: 'c' }, code: 'abc' }),
+    anthropicRefresh: () =>
+      anthropicCredentials.refreshOAuthCredentials({ path: join(scratch, 'anthropic-credentials.json'), accessToken: 'a', refreshToken: 'r', expiresAt: 0 }),
+    antigravityRefresh: async () => {
+      await antigravityTokens.saveTokens({ access_token: 'a', refresh_token: 'r', expires_at: 0 });
+      return antigravityTokens.refreshTokens();
+    },
+    geminiModelList: () => geminiCatalog.fetchGeminiModelPages('k'),
+    mimoProbe: () => mimoTokens.probeTokenPlanBaseUrl('k'),
+    commandCodeIdentity: () => commandCodeTokens.requestCommandCodeJson(commandCodeTokens.WHOAMI_URL, 'k'),
+    museKey: () => museTokens.requestMuseCodeKey('t', { onboard: true }),
+    devinExchange: () => devinAuth.exchangeDevinCode('c', 'v'),
+    compatModelList: ({ port }) => compatModels.fetchCompatModelItems({ name: 'groq', baseURL: `http://127.0.0.1:${port}/v1`, config: {} }, { keyless: true }),
+    anthropicModelList: ({ port }) => new AnthropicProvider({ name: 'custom-harness-a', apiKey: 'fixture', baseURL: `http://127.0.0.1:${port}` }).listModels(),
+    customOpenaiChatListing: listing('openai-chat', '/v1'),
+    customAnthropicListing: listing('anthropic', ''),
+    customOpenaiChatProbe: probe('openai-chat', '/v1'),
+    customAnthropicProbe: probe('anthropic', ''),
+  };
+
+  const realFetch = globalThis.fetch;
+  const realAbortTimeout = AbortSignal.timeout.bind(AbortSignal);
+  const out = {};
+  for (const [name, run] of Object.entries(sites)) {
+    const quiet = await silent();
+    site = { armed: [], rejected: [], port: quiet.port };
+    AbortSignal.timeout = (ms) => {
+      site.armed.push({ via: 'AbortSignal.timeout', ms });
+      return realAbortTimeout(1);
+    };
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(typeof input === 'string' ? input : input.url);
+      try {
+        return await realFetch(`http://127.0.0.1:${site.port}${url.pathname}${url.search}`, init);
+      } catch (error) {
+        site.rejected.push({ name: error.name ?? null, message: portless(String(error.message)) });
+        throw error;
+      }
+    };
+    const entry = { armed: null, fetchRejected: null, thrown: null };
+    try {
+      const value = await run({ port: quiet.port });
+      entry.thrown = { resolved: true };
+      if (value !== undefined && name.endsWith('Probe')) entry.value = value;
+    } catch (error) {
+      entry.thrown = { name: error.name ?? null, code: error.code ?? null, message: portless(String(error.message)) };
+    }
+    Object.assign(entry, { armed: site.armed, fetchRejected: site.rejected });
+    globalThis.fetch = realFetch;
+    AbortSignal.timeout = realAbortTimeout;
+    site = null;
+    quiet.server.close();
+    out[name] = entry;
+  }
+  return out;
+}
+
 const only = args.includes('--only') ? args[args.indexOf('--only') + 1] : null;
 const goldenFile = join(here, 'golden', 'connect_errors.json');
 const golden = only ? JSON.parse(readFileSync(goldenFile, 'utf8')) : { transportRetryMax: TRANSPORT_RETRY_MAX, badPorts: await badPorts(), cases: {} };
@@ -326,7 +429,8 @@ if (!only || only === 'probes') {
   };
 }
 if (!only || only === 'transports') golden.transports = await recordTransports();
-for (const [name, first] of only === 'probes' || only === 'transports' ? [] : [
+if (!only || only === 'sites') golden.sites = await recordSites();
+for (const [name, first] of only && only !== 'cut' ? [] : [
   ['cut', ': open\n\n'],
   ['cutRole', `data: ${JSON.stringify({ id: 'c1', object: 'chat.completion.chunk', model: 'm', choices: [{ index: 0, delta: { role: 'assistant' } }] })}\n\n`],
 ]) {
