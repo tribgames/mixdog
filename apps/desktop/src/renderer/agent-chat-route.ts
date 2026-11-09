@@ -5,8 +5,8 @@
 // which owns model, effort, fast, Auto, model parameters and the context
 // window). The chip's session write lands first; this mirrors it onto the
 // agent and tells an open profile pane to re-read.
-import { MIXY_AGENT_ID, agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
-import { roomMemberOfSession } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { MIXY_AGENT_ID, agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { roomMemberOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { DesktopApi, DesktopModelSelection } from '../shared/contract';
 import { record } from './record-utils';
 import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';

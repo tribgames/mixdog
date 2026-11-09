@@ -13,7 +13,7 @@ import {
 } from '../shared/desktop-pet.ts';
 import { DESKTOP_PET_WINDOW_IPC } from '../shared/desktop-pet-bridge.ts';
 import { createDesktopPet } from './desktop-pet-window.ts';
-import { agentHomeSessionId, MIXY_AGENT_ID } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { agentHomeSessionId, MIXY_AGENT_ID } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import {
   clampPetPosition,
   defaultPetPosition,
@@ -766,7 +766,7 @@ test('a picture face: kept as the look, drawn from its idle still, a mascot only
   const { petMemberAvatar, petFallbackAvatar, petMascotCells, petPictureSource } = await import(
     '../shared/desktop-pet-art.ts'
   );
-  const { MIXY_AVATAR: pup, mascotCells: cells } = await import('../../../../src/runtime/shared/agent-avatar.mjs');
+  const { MIXY_AVATAR: pup, mascotCells: cells } = await import('../shared/core-src/runtime/shared/agent-avatar.mjs');
   const custom = { kind: 'custom', states: { idle: 'idle-0123456789ab.png' } };
   const member = { id: MIXY_AGENT_ID, name: '하치와레', avatar: custom };
   assert.deepEqual(petMemberAvatar(member), custom);
@@ -794,7 +794,7 @@ const COMPOSER = { x: 300, y: 600, width: 700, height: 120 };
  *  gap above the card (15-composer.css: 12px). */
 const NO_ISLAND_LINE = DESKTOP_PET_ISLAND.gap;
 /** Mixy's lowest drawn row of the 16x12 mascot (the art's visible feet). */
-const { mascotCells, MIXY_AVATAR } = await import('../../../../src/runtime/shared/agent-avatar.mjs');
+const { mascotCells, MIXY_AVATAR } = await import('../shared/core-src/runtime/shared/agent-avatar.mjs');
 const MIXY_FEET_ROW = Math.max(...mascotCells(MIXY_AVATAR).map((cell) => cell.y));
 /** The visible art's bottom for a sprite box: the 16x12 svg stands on the
  *  box's bottom, lowered by `gap` rows (desktop-pet.css --pet-feet-gap; the

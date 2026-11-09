@@ -16,9 +16,9 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { MIXY_AGENT_ID, agentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { MIXY_AGENT_ID, agentHomeSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import type { DesktopBrowserLoginStatus, ToolApprovalDecision } from '../shared/contract';
-import { connectorById } from '../../../../src/runtime/shared/connector-catalog.mjs';
+import { connectorById } from '../shared/core-src/runtime/shared/connector-catalog.mjs';
 import { loginSiteLabel } from '../shared/login-site';
 import { SECRET_SAVE_SUFFIX, SECRET_USERNAME_SUFFIX } from '../shared/secret-slots';
 import { agentHomeTitle } from './agent-contacts-model';

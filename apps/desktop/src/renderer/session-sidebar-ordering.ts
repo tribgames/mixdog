@@ -4,7 +4,7 @@
 import {
   roomIdOfSession,
   roomMemberOfSession,
-} from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { DesktopSessionSummary } from '../shared/contract';
 import { listsAsSession } from './session-sidebar-agents';
 

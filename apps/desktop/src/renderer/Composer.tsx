@@ -24,7 +24,7 @@ import { hasSendablePromptContent, shouldStopComposerGeneration } from './render
 import type { CommandSurface as CommandSurfaceName, SettingsSection } from './slash-commands';
 import { touchPrimaryPointer } from './surface-input-focus';
 // @ts-expect-error The shared TUI module is plain ESM and has no declaration file.
-import { shouldFoldPastedText } from '../../../../src/tui/paste-text-policy.mjs';
+import { shouldFoldPastedText } from '../shared/core-src/tui/paste-text-policy.mjs';
 
 // Project-context pill, attachment budget and prompt history live in
 // composer-support.tsx.
@@ -82,7 +82,7 @@ import {
   composerPlaceholder,
 } from './composer-surfaces';
 import { disabledMentionedSkills, useComposerSkillHighlight, useSkillCatalog } from './composer-skill-mentions';
-import { isInMarkdownCode } from '../../../../src/runtime/shared/skill-mentions.mjs';
+import { isInMarkdownCode } from '../shared/core-src/runtime/shared/skill-mentions.mjs';
 import { ComposerBanners } from './ComposerBanners';
 import {
   type ComposerModelControlProps,

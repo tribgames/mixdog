@@ -48,8 +48,8 @@ import {
 } from './first-submit-stability';
 import { readTranscriptVirtualSnapshot } from './transcript-virtual-cache';
 import { ContextUsageIndicator } from './transcript-status';
-import { agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
-import { roomIdOfSession } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { ComposerRoutineReadout } from './composer-routine-readout';
 import { ComposerUsageReadout } from './composer-usage-readout';
 import { TranscriptAssistantRow, type TranscriptAssistantRowProps } from './TranscriptAssistantRow';

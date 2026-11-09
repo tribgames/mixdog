@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { DesktopSettingsStore } from '../main/settings-store.ts';
+import { DesktopSettingsStore, storedPinsState } from '../main/settings-store.ts';
+import { DEFAULT_ACTIVITY_RAIL_PINS } from '../shared/activity-rail-pins.ts';
 import { useActivityRailPins } from './use-activity-rail-pins.ts';
 import { DESKTOP_TOAST_EVENT } from './desktop-toasts.tsx';
 import { remoteConnectionInterruptedError } from './remote-connection-state.ts';
@@ -11,18 +12,28 @@ import { installTestDom } from './test-support/test-dom.mjs';
 function hub() {
   let config = {};
   let tail = Promise.resolve();
+  // The core's config actor: pins are written in order, a revision is bumped on each write.
   const store = new DesktopSettingsStore({
-    loadConfig: async () => ({
-      readConfig: () => config,
-      updateConfigAsync: (update) => {
-        const saved = tail.then(() => {
-          config = update(config);
-          return config;
-        });
-        tail = saved.catch(() => {});
-        return saved;
-      },
-    }),
+    call: async () => {
+      throw new Error('unused');
+    },
+    watchConfig: () => () => {},
+    invoke: async (name, args) => {
+      if (name === 'readActivityRailPins') return storedPinsState(config.desktop?.activityRailPins);
+      assert.equal(name, 'updateActivityRailPins');
+      const [pins, initializeIfMissing] = args;
+      const saved = tail.then(() => {
+        const previous = storedPinsState(config.desktop?.activityRailPins);
+        if (!(initializeIfMissing && previous)) {
+          const revision = (previous?.revision ?? 0) + 1;
+          const stored = JSON.stringify(pins) === JSON.stringify(DEFAULT_ACTIVITY_RAIL_PINS) ? { revision } : { pins, revision };
+          config = { ...config, desktop: { ...config.desktop, activityRailPins: stored } };
+        }
+        return storedPinsState(config.desktop.activityRailPins);
+      });
+      tail = saved.catch(() => {});
+      return saved;
+    },
   });
   const listeners = new Map();
   const offline = new Set();

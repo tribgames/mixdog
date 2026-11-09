@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
 
-import { roomMemberSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { roomMemberSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { createAgentRooms } from './agent-rooms.ts';
 
 /** The log's intake (agent-room-delivery.mjs): a user row's files come back

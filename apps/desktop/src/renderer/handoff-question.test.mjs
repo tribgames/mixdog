@@ -28,7 +28,7 @@ const { QuestionCard } = await import('./QuestionCard.tsx');
 const { approvalQuestions } = await import('./question-card-logic.ts');
 const { publishSessionGlances } = await import('./session-glance-store.ts');
 const { publishCatalogApprovalSessions } = await import('./session-catalog-approvals.ts');
-const { roomSessionId } = await import('../../../../src/runtime/agent/orchestrator/session/agent-room.mjs');
+const { roomSessionId } = await import('../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs');
 const { useConversationApprovals } = await import('./use-conversation-approvals.tsx');
 const { AskUserRecord } = await import('./ask-user-record.tsx');
 

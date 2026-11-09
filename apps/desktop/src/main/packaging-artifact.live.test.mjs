@@ -10,7 +10,7 @@ import { dirname, join, sep } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { extractFile, listPackage, statFile } from '@electron/asar';
-import { onnxRuntimeSupported } from '../../../../src/runtime/shared/onnx-runtime-support.mjs';
+import { onnxRuntimeSupported } from '../shared/core-src/runtime/shared/onnx-runtime-support.mjs';
 
 async function findRuntimeArchives(directory, depth = 0) {
   if (depth > 8) return [];

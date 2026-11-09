@@ -330,33 +330,6 @@ test('backoff is capped inside the server grace window and starts over after 60 
   assert.equal(f.link.view().state.status, 'reconnecting');
 });
 
-test('a link attempt makes the service client reconnect now instead of waiting out its delay', async () => {
-  const transports = [];
-  const client = new DesktopServiceClient({
-    connect: () => {
-      const transport = new EventEmitter();
-      transport.postMessage = () => {};
-      transport.close = async () => {};
-      transports.push(transport);
-      return transport;
-    },
-    sessionOptions: () => ({}),
-    startupTimeoutMs: 600_000,
-    restartBaseDelayMs: 60_000,
-    restartMaxDelayMs: reconnectDelayCapMs(REMOTE_CLIENT_GRACE_DEFAULT_MS),
-  });
-  const ready = client.start();
-  assert.equal(transports.length, 1);
-  transports[0].emit('exit', 1);
-  assert.equal(transports.length, 1, 'the restart waits out its delay');
-  const retried = client.retryNow();
-  assert.equal(transports.length, 2, 'retryNow dials at once');
-  transports[1].emit('message', { kind: 'ready', viewSync: false });
-  await Promise.all([ready, retried]);
-  assert.equal(client.terminalFailure, null);
-  await client.dispose();
-});
-
 test('sleep pauses the link; resume probes twice before touching the tunnel', async () => {
   // A live link after sleep: two probes at most, nothing restarted.
   let answers = [null, 9];

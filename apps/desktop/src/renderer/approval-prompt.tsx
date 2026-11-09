@@ -21,7 +21,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { type AgentAvatarValue, agentAvatar } from '../../../../src/runtime/shared/agent-avatar.mjs';
+import { type AgentAvatarValue, agentAvatar } from '../shared/core-src/runtime/shared/agent-avatar.mjs';
 import { isContactAgentRow, MIXY_AGENT_ID } from '../shared/agent-contacts';
 import { AgentAvatar } from './agent-avatar';
 import { useLeadAvatar } from './lead-avatar-store';

@@ -15,7 +15,7 @@ const [{ AgentActivityPane, splitAgentHomeGroups }, { agentContacts, agentHomeTi
     import('./agent-activity-model.ts'),
   ]);
 
-const { defaultAgentAvatar } = await import('../../../../src/runtime/shared/agent-avatar.mjs');
+const { defaultAgentAvatar } = await import('../shared/core-src/runtime/shared/agent-avatar.mjs');
 const { contactAgentRows } = await import('../shared/agent-contacts.ts');
 const NOW = Date.now();
 const AGENTS = [

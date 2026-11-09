@@ -4,7 +4,7 @@
 // Every surface that names or draws Mixy reads it here: '' / null fall back to
 // "Mixy" and Mixy's pup.
 import { useEffect, useSyncExternalStore } from 'react';
-import { type AgentAvatarValue, normalizeAgentAvatar } from '../../../../src/runtime/shared/agent-avatar.mjs';
+import { type AgentAvatarValue, normalizeAgentAvatar } from '../shared/core-src/runtime/shared/agent-avatar.mjs';
 import type { DesktopApi } from '../shared/contract';
 import { invalidateSidebarReferenceForMutation } from './sidebar-reference-cache';
 

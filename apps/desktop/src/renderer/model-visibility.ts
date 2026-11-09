@@ -2,7 +2,7 @@
 // management: which catalog models /model lists, and the card's pending edits.
 import type { DesktopModelOption } from '../shared/contract';
 // @ts-expect-error -- shared TUI source has no declaration file.
-import { compareModelRecency, normalizeModelOptions } from '../../../../src/tui/app/model-options.mjs';
+import { compareModelRecency, normalizeModelOptions } from '../shared/core-src/tui/app/model-options.mjs';
 import { record } from './record-utils';
 
 export function modelKey(provider: string, model: string): string {

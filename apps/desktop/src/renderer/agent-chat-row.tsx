@@ -18,7 +18,7 @@ import type { RoomMemberLabel } from './agent-room-parts';
 import { RoomMemberFace } from './agent-room-parts';
 import type { AvatarMotionState } from './avatar-motion';
 import { type AgentChatPlace, chatRoutineOf, chatRoutineTriggerOf } from './agent-chat-place';
-import { stripRoutineTriggerHeader } from '../../../../src/runtime/shared/routine-trigger.mjs';
+import { stripRoutineTriggerHeader } from '../shared/core-src/runtime/shared/routine-trigger.mjs';
 import { OPEN_AGENT_PANEL_EVENT, setAgentPanelTab } from './agent-panel-tab';
 import { OPEN_TASK_SESSION_EVENT } from './agent-task-events';
 import type { TranscriptItem } from './desktop-types';

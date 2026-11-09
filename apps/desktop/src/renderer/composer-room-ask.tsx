@@ -2,8 +2,8 @@
 // + menu's "Call an agent"), the member picker while the agent is being typed,
 // and the "→ name" chip once one is named. `@`, `/` and `$` keep their meaning.
 import { type RefObject, useMemo, useRef } from 'react';
-import { parseRoomAsk } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
-import { agentAvatar } from '../../../../src/runtime/shared/agent-avatar.mjs';
+import { parseRoomAsk } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { agentAvatar } from '../shared/core-src/runtime/shared/agent-avatar.mjs';
 import { RoomMemberFace, type RoomMemberLabel, useRoomContacts } from './agent-room-parts';
 import { useAgentRoom } from './agent-room-store';
 import { ComposerPalette } from './ComposerPalette';

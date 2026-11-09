@@ -8,7 +8,7 @@ import { isOtherDevice } from '../shared/session-devices';
 import { t, uiFormatLocale } from './i18n';
 import { timeFormatOptions } from './time-format-preference';
 import { useRoomContacts } from './agent-room-parts';
-import { stripAgentMessageEnvelope } from '../../../../src/runtime/shared/agent-message-envelope.mjs';
+import { stripAgentMessageEnvelope } from '../shared/core-src/runtime/shared/agent-message-envelope.mjs';
 import { localizeHeartbeatBreakerNotice, localizeRouteFallbackNotice } from './error-notice-copy';
 import MarkdownBody from './MarkdownBody';
 import {
@@ -35,7 +35,7 @@ import { SteerStatus } from './transcript-steer-status';
 import { AppliedSkills, SkillMentionText, appliedSkillsOf } from './composer-skill-mentions';
 // biome-ignore format: @ts-expect-error must precede the specifier
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { isInternalTranscriptDisplayText, isTranscriptCancelledStatusText, isTranscriptHiddenToolItem } from '../../../../src/runtime/shared/tool-execution-contract.mjs';
+import { isInternalTranscriptDisplayText, isTranscriptCancelledStatusText, isTranscriptHiddenToolItem } from '../shared/core-src/runtime/shared/tool-execution-contract.mjs';
 import { stripInjectedDisplayText, stripSessionEnvelope } from '../shared/session-title.mjs';
 import { routineNoticeText } from './routine-notice';
 import { RoomAddressChip, RoomTranscriptRow } from './agent-room-transcript';

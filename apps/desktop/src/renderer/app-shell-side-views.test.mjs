@@ -106,7 +106,7 @@ test("a room log's Browser toggle shows the member page routed into it, not an e
     jsdom: { url: 'about:blank' },
   });
   const { roomSessionId, roomMemberSessionId } = await import(
-    '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs'
+    '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs'
   );
   const { recordChildSurfacePeek } = await import('./child-surface-peeks.tsx');
   const { borrowedBrowserTab } = await import('./browser-pane-borrowed-tab.ts');
@@ -219,7 +219,7 @@ const memberPage = (member, name, tabId, at) => ({
 
 test("a deleted member's page never comes back from the room log's Browser toggle", async (t) => {
   const { roomSessionId, roomMemberSessionId } = await import(
-    '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs'
+    '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs'
   );
   const { recordChildSurfacePeek, childSurfacePeeksOf } = await import('./child-surface-peeks.tsx');
   const { borrowedBrowserTab, clearBorrowedBrowserTab } = await import('./browser-pane-borrowed-tab.ts');
@@ -240,7 +240,7 @@ test("a deleted member's page never comes back from the room log's Browser toggl
 
 test("the room log's Browser toggle borrows the latest reveal: A, then B, then A again shows A", async (t) => {
   const { roomSessionId, roomMemberSessionId } = await import(
-    '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs'
+    '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs'
   );
   const { recordChildSurfacePeek, childSurfacePeeksOf } = await import('./child-surface-peeks.tsx');
   const { borrowedBrowserTab, clearBorrowedBrowserTab } = await import('./browser-pane-borrowed-tab.ts');

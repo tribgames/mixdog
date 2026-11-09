@@ -1,7 +1,7 @@
 import { Plus } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
-import { agentIdOfHomeSession } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
-import { roomIdOfSession } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { agentIdOfHomeSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { DesktopSessionSummary } from '../shared/contract';
 import { t } from './i18n';
 import { notificationMenuItems } from './notification-controls';

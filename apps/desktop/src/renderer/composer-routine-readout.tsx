@@ -11,7 +11,7 @@ import { useEffect, useState } from 'react';
 import {
   agentHomeSessionId,
   agentIdOfHomeSession,
-} from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { useComposerRoomMembers } from './composer-room-ask';
 import { OPEN_AGENT_PANEL_EVENT, setAgentPanelTab } from './agent-panel-tab';
 import { FittedReadout, type ReadoutItem, readoutVariants } from './composer-usage-readout';

@@ -178,7 +178,7 @@ test('while the user reads a bot chat, a coding session that finishes takes the 
 
 test("a delegated session and its descendants (via the desktop projection) take their own dots, read with the bot's chat; a user's /inherit continuation is not", async () => {
   const { desktopSessionSummaries } = await import('../main/desktop-state.ts');
-  const { agentHomeSessionId } = await import('../../../../src/runtime/agent/orchestrator/session/agent-home.mjs');
+  const { agentHomeSessionId } = await import('../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs');
   const botChat = agentHomeSessionId('bot');
   const raw = (id, extra) => ({
     id,

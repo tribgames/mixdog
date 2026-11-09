@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { test } from 'node:test';
 
-import { waitForQuiet, waitUntil } from '../../../../src/runtime/shared/wait-until.test-support.mjs';
+import { waitForQuiet, waitUntil } from '../shared/core-src/runtime/shared/wait-until.test-support.mjs';
 import { CRASHPAD_PIPE_ENV, crashHandlerFinderScript, watchCrashHandler } from './crash-handler-watch.ts';
 
 function fakeFinder() {

@@ -8,7 +8,7 @@ import {
   ROOM_LIMITS,
   ROOM_MAX_MEMBERS,
   ROOM_MIN_MEMBERS,
-} from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { DesktopAgentRoomSummary } from '../shared/contract';
 import { confirmAction } from './app-confirm';
 import { RoomAvatar, RoomMemberFace, useRoomContacts } from './agent-room-parts';

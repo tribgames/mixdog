@@ -26,7 +26,7 @@ registerHooks({
 
 const { CredentialVault } = await import('./credential-vault.ts');
 const { clearDesktopNotice, registerDesktopNoticeSink } = await import(
-  '../../../../../src/runtime/shared/desktop-notice-host.mjs'
+  '../../shared/core-src/runtime/shared/desktop-notice-host.mjs'
 );
 
 function vaultDirectory(t) {

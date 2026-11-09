@@ -32,7 +32,7 @@ const PAGE = `
   import { LeadAppearanceDialog } from "./lead-appearance-dialog";
   import { ProgressSpinner } from "./ProgressSpinner";
   import { agentChatTimeLabel } from "./agent-chat-summary";
-  import { agentAvatar } from "../../../../src/runtime/shared/agent-avatar.mjs";
+  import { agentAvatar } from "../shared/core-src/runtime/shared/agent-avatar.mjs";
 
   const LONG = "Checking the build output and rewriting the failing settings tests so the pane keeps its two line preview";
   function Bot({ id, name, preview, mixy, working, time }) {

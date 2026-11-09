@@ -1,6 +1,6 @@
 import type React from 'react';
 import { useEffect, useMemo } from 'react';
-import { agentIdOfHomeSession } from '../../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { agentIdOfHomeSession } from '../../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import type { DesktopProjectSummary, DesktopWorkspaceFolder } from '../../shared/contract';
 import { SessionSidebar, type NavigationSelection } from '../navigation';
 import { paneActiveSelection, type PaneLeaf } from '../pane-layout';

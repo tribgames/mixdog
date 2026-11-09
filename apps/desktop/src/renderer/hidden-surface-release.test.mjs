@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict';
-import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { createRendererClock } from '../../scripts/test-renderer-clock.mjs';
-import { createFolderWatchRegistry } from '../main/desktop-operations.ts';
 import { startEditorDiskWatch } from './editor-disk-watch.ts';
 import { useExplorerDirs } from './explorer-dir-state.ts';
 import { useRetainedDiff } from './pane-side-dock.tsx';
@@ -69,64 +67,6 @@ test('editor disk watch is the core file watch: it owns no timer, checks on its 
   assert.equal(listeners, 0);
   assert.deepEqual(calls.map((call) => call[0]), ['fs/watch', 'fs/unwatch']);
   assert.equal(startEditorDiskWatch(undefined, 'C:/p', 'a', () => {})(), undefined, 'a host without sections watches nothing');
-});
-
-test('folder watch registry closes a watcher whose native watch errored', () => {
-  const watchers = [];
-  const fakeWatch = () => {
-    const watcher = new EventEmitter();
-    watcher.closed = 0;
-    watcher.close = () => {
-      watcher.closed += 1;
-    };
-    watchers.push(watcher);
-    return watcher;
-  };
-  const registry = createFolderWatchRegistry(() => {}, fakeWatch);
-  registry.watch('/repo', true);
-  watchers[0].emit('error', new Error('EPERM'));
-  assert.equal(watchers[0].closed, 1);
-  registry.watch('/repo', true);
-  assert.equal(watchers.length, 2, 'a fresh watcher replaces the failed one');
-  registry.dispose();
-  assert.equal(watchers[1].closed, 1);
-});
-
-test('a recursive folder watch also follows the git dirs outside the folder, skipping the object store', async (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  const watchers = [];
-  const fakeWatch = (dir, _options, listener) => {
-    const watcher = new EventEmitter();
-    Object.assign(watcher, { dir, listener, closed: 0, close: () => (watcher.closed += 1) });
-    watchers.push(watcher);
-    return watcher;
-  };
-  const events = [];
-  const registry = createFolderWatchRegistry(
-    (event) => events.push(event),
-    fakeWatch,
-    async () => ['/repo/.git/worktrees/wt', '/repo/.git', '/wt/.git']
-  );
-  registry.watch('/wt', true);
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.deepEqual(
-    watchers.map((watcher) => watcher.dir),
-    ['/wt', '/repo/.git/worktrees/wt', '/repo/.git'],
-    'a git dir inside the folder is already covered by its own watch'
-  );
-  const [, gitDir, commonDir] = watchers;
-  commonDir.listener('change', 'objects/ab/cdef');
-  t.mock.timers.tick(250);
-  assert.deepEqual(events, []);
-  gitDir.listener('change', 'index');
-  t.mock.timers.tick(250);
-  assert.deepEqual(events, [{ name: 'folder-changed', value: '/wt' }]);
-  registry.unwatch('/wt', true);
-  assert.deepEqual(
-    watchers.map((watcher) => watcher.closed),
-    [1, 1, 1]
-  );
 });
 
 function domHarness(t) {

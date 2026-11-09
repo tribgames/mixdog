@@ -9,7 +9,7 @@ import {
   reconnectActivityVerb,
   thinkingEffortLabel,
 } from './activity-verbs';
-import { SPINNER_VERBS } from '../../../../src/tui/spinner-verbs.mjs';
+import { SPINNER_VERBS } from '../shared/core-src/tui/spinner-verbs.mjs';
 
 const MODES = [
   'requesting',

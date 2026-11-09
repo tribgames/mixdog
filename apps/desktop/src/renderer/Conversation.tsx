@@ -1,6 +1,6 @@
 import { useMemo, useRef } from 'react';
 import { HandoffQuestionsContext } from './agent-task-line';
-import { roomIdOfSession } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { roomIdOfSession } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { useAgentChatSession, useDeletedBotSession } from './agent-chat-mode';
 import { t } from './i18n';
 import { AgentChatIntro } from './agent-chat-header';

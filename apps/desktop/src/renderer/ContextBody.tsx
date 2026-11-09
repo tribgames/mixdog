@@ -5,7 +5,7 @@ import { record } from './record-utils';
 import { ContextInspector, type ContextInspection, type ContextRequest } from './ContextInspector';
 import { statsCount, statsMoney, statsNumber, statsPercent, statsSpeed, statsTokens } from './usage-stats-model';
 // @ts-expect-error Shared presentation contract has no separate declaration file.
-import { contextMeasurementStats, contextMeasurementLabel } from '../../../../src/ui/context-measurement.mjs';
+import { contextMeasurementStats, contextMeasurementLabel } from '../shared/core-src/ui/context-measurement.mjs';
 
 type Row = Record<string, unknown>;
 

@@ -1,6 +1,6 @@
 // The Agents pane's room rows: one per group room, built from the session
 // catalog (the host stamps each room's log with `agentRoom`) and the contacts.
-import { plainPreviewText } from '../../../../src/runtime/shared/plain-preview.mjs';
+import { plainPreviewText } from '../shared/core-src/runtime/shared/plain-preview.mjs';
 import type { DesktopAgentRoomSummary, DesktopSessionSummary } from '../shared/contract';
 import { unseenIncomingCount } from '../shared/incoming-tail';
 import type { AgentChatIndicator } from './agent-chat-summary';

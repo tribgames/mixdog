@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { isAgentHomeSessionId } from '../../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { isAgentHomeSessionId } from '../../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { BOT_DELETED_EVENT } from '../agent-profile-actions';
 import { navigationKey } from '../text-format';
 import { sessionDisplayTitle } from '../session-display-title';

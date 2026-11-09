@@ -124,8 +124,8 @@ test('a Lead session rename uses the session rename with the trimmed title', asy
 
 test('session rows: Rename for ordinary sessions, none for a bot home chat or a room log', async () => {
   const { sessionMenuItems } = await import('./session-sidebar-menus.tsx');
-  const { agentHomeSessionId } = await import('../../../../src/runtime/agent/orchestrator/session/agent-home.mjs');
-  const { roomSessionId } = await import('../../../../src/runtime/agent/orchestrator/session/agent-room.mjs');
+  const { agentHomeSessionId } = await import('../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs');
+  const { roomSessionId } = await import('../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs');
   const actions = { projectGroups: [], sessionGroupKeys: new Map(), onResumeSession() {} };
   const ids = (id) => sessionMenuItems({ id, title: 'x', archived: true }, id, actions).map((item) => item.id);
   assert.ok(ids('sess_plain').includes('rename'));

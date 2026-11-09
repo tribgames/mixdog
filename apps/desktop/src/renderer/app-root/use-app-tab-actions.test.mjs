@@ -162,7 +162,7 @@ async function mountShell(t, { tabs, active, host = {} }) {
 }
 
 test('a visualize open keeps the browser behind it and never writes the Routines tile preference', async (t) => {
-  const { agentHomeSessionId } = await import('../../../../../src/runtime/agent/orchestrator/session/agent-home.mjs');
+  const { agentHomeSessionId } = await import('../../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs');
   const { readRoutinesTilePreference } = await import('../routines-tile.ts');
   const { revealVisualizeTab } = await import('../visualize-store.ts');
   const home = agentHomeSessionId('watcher');
