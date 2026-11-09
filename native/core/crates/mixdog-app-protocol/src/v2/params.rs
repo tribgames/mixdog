@@ -4115,6 +4115,10 @@ pub struct ToolsToolsStatusParams {
     pub thread_id: Option<ThreadId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub query: Option<String>,
+    /// `true`: the reply also carries `requestSnapshot`, the provider request the thread's next send
+    /// would carry (needs `threadId`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<bool>,
 }
 
 /// Params of `memory/memoryControl`.

@@ -7,7 +7,7 @@ import {
 } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { summarizeReductionTraceRows } from '../../../src/runtime/agent/orchestrator/session/reduction-metrics.mjs';
+import { summarizeReductionTraceRows } from './reduction-metrics.mjs';
 import { pricedCost, pricedSplitCost, rateFor } from './model-rates.mjs';
 
 export { pricedCost, pricedSplitCost, rateFor };
