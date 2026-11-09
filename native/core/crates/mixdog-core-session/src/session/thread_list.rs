@@ -196,7 +196,12 @@ impl ThreadListService {
     pub async fn summary(&self, id: &ThreadId) -> Result<Option<ThreadSummary>, CoreError> {
         let listed = self.store.lead_row(id.as_str()).await.map_err(|error| failed(DOMAIN, error.to_string()))?;
         let Some(listed) = listed else { return Ok(None) };
-        let row = self.with_rooms(vec![self.row_of(id, &listed)]).await?.pop();
+        self.summary_of(id, &listed).await
+    }
+
+    /// The row `thread/list` shows for `id` over the listed row in hand (what the index held when it was written).
+    pub(super) async fn summary_of(&self, id: &ThreadId, listed: &LeadRow) -> Result<Option<ThreadSummary>, CoreError> {
+        let row = self.with_rooms(vec![self.row_of(id, listed)]).await?.pop();
         if let Some(row) = &row {
             self.published(&[row.id.as_str()]);
         }

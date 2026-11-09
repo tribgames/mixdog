@@ -262,6 +262,32 @@ impl Folds {
     }
 }
 
+/// A catalog row as the index holds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredRow {
+    /// The JSON list row.
+    pub summary: String,
+    pub archived: bool,
+    pub deleted: bool,
+}
+
+/// A catalog row write that changed the row: what the index held before it (`None`: no row) and what it holds now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowEdge {
+    pub id: String,
+    pub before: Option<StoredRow>,
+    pub after: StoredRow,
+}
+
+/// Told, in write order and after the transaction that wrote them committed, of every row write that changed a row (Node's
+/// `onSessionCatalogDbChange`). Called on the index writer thread: it must not block.
+pub trait RowSink: Send + Sync {
+    fn written(&self, edge: RowEdge);
+}
+
+/// The sink of a store, set once after the store opens.
+pub type RowSinkCell = Arc<std::sync::OnceLock<Arc<dyn RowSink>>>;
+
 /// What an upsert does to the RL §9.2 dirty mark.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DirtyMark {
@@ -399,15 +425,35 @@ ON CONFLICT(id) DO UPDATE SET
 /// Writes the catalog row of `head` with the message state projected so far; the bytes
 /// of the list row.
 fn upsert(tx: &Transaction<'_>, head: &CatalogHead, dirty: DirtyMark, labels: &PlaceholderLabels) -> rusqlite::Result<usize> {
+    upsert_edge(tx, head, dirty, labels, false).map(|(written, _)| written)
+}
+
+/// [`upsert`], and with `watch` the change it made to the row.
+fn upsert_edge(
+    tx: &Transaction<'_>,
+    head: &CatalogHead,
+    dirty: DirtyMark,
+    labels: &PlaceholderLabels,
+    watch: bool,
+) -> rusqlite::Result<(usize, Option<RowEdge>)> {
     // A fork whose inherited state is still being computed keeps its row until it is done.
     if crate::message_index::has_pending_view(tx, &head.session)? {
-        return Ok(0);
+        return Ok((0, None));
     }
     let with_incoming = crate::agent_mode::wants_incoming_tail(&head.session);
     let stats = crate::message_index::read_stats(tx, &head.session, with_incoming)?.into_stats(&head.session);
     let row = crate::summary::catalog_row(head, &stats, now_ms());
+    let before = if watch {
+        tx.prepare_cached("SELECT summary, archived, deleted FROM sessions WHERE id = ?1")?
+            .query_row([&row.id], |r| Ok(StoredRow { summary: r.get(0)?, archived: r.get(1)?, deleted: r.get(2)? }))
+            .optional()?
+    } else {
+        None
+    };
     write_row(tx, &row, dirty, labels)?;
-    Ok(row.summary.len())
+    let after = StoredRow { summary: row.summary.clone(), archived: row.archived, deleted: row.deleted };
+    let edge = (watch && before.as_ref() != Some(&after)).then(|| RowEdge { id: row.id.clone(), before, after });
+    Ok((row.summary.len(), edge))
 }
 
 fn write_row(tx: &Transaction<'_>, row: &CatalogRow, dirty: DirtyMark, labels: &PlaceholderLabels) -> rusqlite::Result<()> {
@@ -500,6 +546,8 @@ struct Writer {
     /// Rows per append transaction and per maintenance step (tests shrink them).
     append_rows: usize,
     step_rows: usize,
+    /// Told of the rows an append transaction changed, once it committed.
+    sink: RowSinkCell,
 }
 
 const LABELS_KEY: &str = "ui:placeholder_labels";
@@ -546,6 +594,7 @@ impl Writer {
             seq: 0,
             append_rows: APPEND_ROWS,
             step_rows: STEP_ROWS,
+            sink: RowSinkCell::default(),
         })
     }
 
@@ -708,6 +757,8 @@ impl Writer {
         let mut rows = 0usize;
         let mut bytes = 0usize;
         let mut waiting: Vec<(String, CatalogHead)> = Vec::new();
+        let mut edges: Vec<RowEdge> = Vec::new();
+        let watch = self.sink.get().is_some();
         let result = (|| -> rusqlite::Result<()> {
             let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             // Small commands (dirty marks, status): one row each.
@@ -786,7 +837,8 @@ impl Writer {
                 }
                 let (head, dirty, waiters, _) = self.upserts.remove(&id).expect("listed");
                 rows += 1;
-                let written = upsert(&tx, &head, dirty, &self.labels)?;
+                let (written, edge) = upsert_edge(&tx, &head, dirty, &self.labels, watch)?;
+                edges.extend(edge);
                 if written == 0 {
                     waiting.push((id.clone(), (*head).clone()));
                 }
@@ -813,6 +865,12 @@ impl Writer {
         if result.is_ok() {
             self.waiting.extend(waiting);
             self.views |= advanced;
+            // Durable: the sink may read the rows back.
+            if let Some(sink) = self.sink.get() {
+                for edge in edges {
+                    sink.written(edge);
+                }
+            }
         }
         send(acks, &result);
     }
@@ -1152,6 +1210,7 @@ fn refresh_prompt(tx: &Transaction<'_>, session: &str, key: &str) -> rusqlite::R
 struct Shared {
     path: PathBuf,
     pool: Arc<ReadPool>,
+    rows: RowSinkCell,
 }
 
 /// Cloneable handle on `index/store.sqlite`. The writer thread finishes the queued
@@ -1278,6 +1337,7 @@ impl SqliteStore {
             }
         };
         writer.boot_purge(lane, data, &incomplete)?;
+        let rows = writer.sink.clone();
         let (sender, rx) = mpsc::channel();
         thread
             .spawn_thread("mixdog-index-writer", move |_| writer.run(rx))
@@ -1286,9 +1346,15 @@ impl SqliteStore {
             shared: Arc::new(Shared {
                 path: path.to_path_buf(),
                 pool: ReadPool::new(path, read_lane),
+                rows,
             }),
             sender,
         })
+    }
+
+    /// Connects the sink of the catalog row writes. Set once; the second call is refused.
+    pub fn observe_rows(&self, sink: Arc<dyn RowSink>) -> Result<(), &'static str> {
+        self.shared.rows.set(sink).map_err(|_| "the row sink is already set")
     }
 
     fn submit(&self, cmd: Command) -> Result<(), DbError> {
