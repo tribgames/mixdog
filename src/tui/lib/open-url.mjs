@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
-import { isWSL } from './wsl.mjs';
-import { detachedSpawnOpts } from './spawn-flags.mjs';
+import { isWSL } from '../../runtime/shared/wsl.mjs';
+import { detachedSpawnOpts } from '../../runtime/shared/spawn-flags.mjs';
 
 /**
  * Whether a browser can plausibly open on this machine: not inside an SSH

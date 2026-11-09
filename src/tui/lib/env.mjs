@@ -4,7 +4,7 @@
 // flip it, and an unrecognised value (a typo) also keeps the default instead
 // of silently enabling or disabling a feature.
 
-import { nonNegativeInt, positiveInt } from './numbers.mjs';
+import { nonNegativeInt, positiveInt } from '../../runtime/shared/numbers.mjs';
 
 const ON_VALUES = new Set(['1', 'true', 'yes', 'on']);
 const OFF_VALUES = new Set(['0', 'false', 'off', 'no']);

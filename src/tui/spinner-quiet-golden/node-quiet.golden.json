@@ -1,0 +1,66 @@
+{
+ "recordedFrom": "b6f10295a2f698afc85332467192de28500bd146",
+ "cases": [
+  {
+   "name": "a streaming turn silent for 6m 40s",
+   "quiet": {
+    "since": 49600000,
+    "wait": "model",
+    "warnMs": 300000
+   },
+   "quietText": "quiet for 6m · waiting on model",
+   "quietParts": {
+    "quietMs": 400000,
+    "minutes": 6,
+    "wait": "model",
+    "tool": "",
+    "escalated": true
+   }
+  },
+  {
+   "name": "a sent request still waiting for its headers",
+   "quiet": {
+    "since": 49800000,
+    "wait": "thinking",
+    "warnMs": 300000
+   },
+   "quietText": "quiet for 3m · model thinking",
+   "quietParts": {
+    "quietMs": 200000,
+    "minutes": 3,
+    "wait": "thinking",
+    "tool": "",
+    "escalated": false
+   }
+  },
+  {
+   "name": "a turn inside the cue window",
+   "quiet": null,
+   "quietText": "",
+   "quietParts": null
+  },
+  {
+   "name": "a running tool, silent",
+   "quiet": {
+    "since": 49880000,
+    "wait": "tool",
+    "tool": "shell",
+    "warnMs": 300000
+   },
+   "quietText": "quiet for 2m · running shell",
+   "quietParts": {
+    "quietMs": 120000,
+    "minutes": 2,
+    "wait": "tool",
+    "tool": "shell",
+    "escalated": false
+   }
+  },
+  {
+   "name": "a wire-only liveness answer",
+   "quiet": null,
+   "quietText": "",
+   "quietParts": null
+  }
+ ]
+}

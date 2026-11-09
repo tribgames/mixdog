@@ -6,7 +6,7 @@ import { backgroundTaskFailureStatusLabel, isBackgroundErrorOnlyBody } from '../
 import { formatElapsed } from '../time-format.mjs';
 import { titleizeAgentName } from './agent-surface.mjs';
 import { displayTerminalStatus, prefixElapsed } from './terminal-status.mjs';
-import { parseTaskNotification } from '../task-notification-envelope.mjs';
+import { parseTaskNotification } from '../../../../../src/runtime/shared/task-notification-envelope.mjs';
 
 // Surfaces whose background task renders as a Shell job.
 const SHELL_TASK_SURFACES = new Set(['shell', 'bash', 'bash_session', 'shell_command', 'task']);
