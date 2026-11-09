@@ -482,6 +482,49 @@ impl Rig {
         self.manager.info(&mixdog_protocol::ProcessHandle::from(id)).unwrap().pty
     }
 
+    /// Returns once the feed shows `needle` and, after it, the complete prompt ConPTY draws for
+    /// the idle shell. Eight recorded runs ended the prompt in one of three ways, each followed
+    /// directly by the next input's echo and nothing else:
+    /// - a repaint, `ESC[?25l \n PS <cwd>>` + padding + `ESC[<row>;<col>H ESC[?25h`: closed by the
+    ///   cursor show after a cursor position;
+    /// - plain text `\r\n PS <cwd>> ` ending in a space;
+    /// - plain text `\r\n PS <cwd>>` + `ESC[1C` (the space as a cursor move).
+    /// The shell writes its prompt as the last thing before it blocks reading input and the
+    /// screen does not change again, so ConPTY has nothing further to paint until the next input
+    /// arrives. The feed carries the replay window's text and the window is appended first, so
+    /// what this saw is already visible to `snapshot`.
+    async fn wait_prompt_frame_after(&self, id: &str, needle: &str) {
+        use mixdog_core_api::domain::process::ProcessEvent;
+        const HIDE: &str = "\u{1b}[?25l";
+        const SHOW: &str = "\u{1b}[?25h";
+        let mut events = self.manager.subscribe(&mixdog_protocol::ProcessHandle::from(id), Some(0)).expect("subscribe");
+        let mut text = String::new();
+        loop {
+            match events.next().await.expect("the shell outlives the wait") {
+                ProcessEvent::Output { bytes, .. } => text.push_str(&String::from_utf8_lossy(&bytes)),
+                ProcessEvent::Exited { .. } => panic!("the shell exited before it drew its prompt"),
+            }
+            let Some(after) = text.rfind(needle).map(|at| &text[at..]) else { continue };
+            // A cursor-hide with no show after it is a frame still being drawn.
+            if after.rfind(HIDE) > after.rfind(SHOW) {
+                continue;
+            }
+            let Some(prompt) = after.rfind("\nPS ").map(|at| &after[at + 1..]) else { continue };
+            let repainted = prompt.strip_suffix(SHOW).is_some_and(|body| {
+                body.rfind("\u{1b}[").is_some_and(|at| {
+                    body[at + 2..].strip_suffix('H').is_some_and(|rc| {
+                        rc.split_once(';').is_some_and(|(r, c)| {
+                            !r.is_empty() && !c.is_empty() && r.bytes().chain(c.bytes()).all(|b| b.is_ascii_digit())
+                        })
+                    })
+                })
+            });
+            if repainted || prompt.ends_with("> ") || prompt.ends_with(">\u{1b}[1C") {
+                return;
+            }
+        }
+    }
+
     fn wait_text(&self, id: &str, needle: &str) {
         loop {
             if self.tabs.snapshot(id, None).is_some_and(|s| s.text.contains(needle)) {
@@ -814,6 +857,8 @@ async fn terminal_tool_lists_runs_and_reads_in_process() {
     assert_eq!(host.reveals.load(Ordering::SeqCst), 1);
     let cursor: u64 = run.text.split("cursor=").nth(1).unwrap().lines().next().unwrap().parse().unwrap();
     rig.wait_text("session-terminal:sess8", "bridge line 500");
+    // The shell stays live; this is the barrier after which it is quiet until the next input.
+    rig.wait_prompt_frame_after("session-terminal:sess8", "bridge line 500").await;
 
     let listed = call(json!({ "action": "list" })).await.text;
     assert!(listed.starts_with("1 ") && listed.contains(" running "), "{listed}");
@@ -839,13 +884,6 @@ async fn terminal_tool_lists_runs_and_reads_in_process() {
     assert!(grep.text.contains("1 of 1 matches for \"BRIDGE LINE 250\""), "{}", grep.text);
     assert!(grep.text.contains(": bridge line 250"), "{}", grep.text);
     assert!(grep.text.contains(": bridge line 248") && grep.text.contains(": bridge line 252"), "{}", grep.text);
-
-    // A live shell keeps redrawing its prompt asynchronously, so "nothing new" can only be
-    // asserted once the output source is finished. Ending the shell is that barrier: the feed's
-    // exit event follows every byte the reader will ever put into the replay window.
-    rig.tabs.write("session-terminal:sess8", "exit\r");
-    let (_, exit) = collect(&rig.manager, &mixdog_protocol::ProcessHandle::from("session-terminal:sess8")).await;
-    assert!(exit.killed.is_none(), "the shell left on its own");
 
     // since: only what came after the run's cursor, nothing when asked again at the new cursor.
     let since = call(json!({ "action": "read", "since": cursor, "lines": 400 })).await;
@@ -883,5 +921,9 @@ async fn terminal_tool_lists_runs_and_reads_in_process() {
     assert_eq!(call(json!({ "action": "list" })).await.text.starts_with("1 "), true);
     let other = bridge.execute(&json!({ "action": "list" }), "other-session", &options).await;
     assert_eq!(other.text, "No terminal tabs open for this session.");
+    // Only now does the shell leave, on its own.
+    rig.tabs.write("session-terminal:sess8", "exit\r");
+    let (_, exit) = collect(&rig.manager, &mixdog_protocol::ProcessHandle::from("session-terminal:sess8")).await;
+    assert!(exit.killed.is_none(), "the shell left on its own");
     rig.tabs.dispose_all();
 }
