@@ -1,9 +1,12 @@
 //! Terminal tabs (DS §6.3): the tab layer over PTY handles of the one process manager. A tab is a
 //! PTY process owned by `ProcessOwner::TerminalTab` plus what the Node `terminal-manager.ts` kept
 //! beside it: the replay window, shell-integration markers and the activity they drive, the
-//! size owner, and output flow control. No part of it arms a timer: focus and size ownership end
-//! when a view unfocuses or its connection closes, and held-back marker text is released by the
-//! next chunk or the end of the stream.
+//! size owner, and output flow control. The size owner is Node's claim model: a view that claims
+//! the size (a phone) holds it for [`SIZE_OWNER_LEASE`] unless it renews, the newest claim owns,
+//! a claim of zero size releases it, and a resize without a claim is ignored while any claim
+//! stands. The lease is the one timer here (on the core ticker); focus ends when a view unfocuses
+//! or its connection closes, and held-back marker text is released by the next chunk or the end
+//! of the stream.
 
 mod bridge;
 mod integration;
@@ -268,14 +271,12 @@ struct TabState {
     exited: bool,
     output_paused: bool,
     size: (u16, u16),
-    /// The last size each connection reported for this tab.
-    client_sizes: HashMap<String, (u16, u16)>,
-    /// The connection that last focused the tab.
-    owner: Option<String>,
 }
 
 struct Tab {
     id: String,
+    /// Creation order, kept by a respawn of the same id (Node's `terminals` map keeps the key's place).
+    seq: u64,
     handle: ProcessHandle,
     shell: String,
     cwd: Option<String>,
@@ -304,29 +305,6 @@ impl Tab {
         if let Some(state) = change {
             self.events.activity(&self.id, state);
         }
-    }
-
-    fn owner_of(state: &TabState) -> Option<SizeOwner> {
-        let owner = state.owner.as_ref()?;
-        let (cols, rows) = state.client_sizes.get(owner).copied().unwrap_or(state.size);
-        Some(SizeOwner {
-            cols,
-            rows,
-            owner: owner.clone(),
-        })
-    }
-
-    fn announce(&self, before: Option<SizeOwner>, state: &TabState) {
-        let after = Self::owner_of(state);
-        if before == after {
-            return;
-        }
-        self.events.size_owner(&SizeOwnerChange {
-            id: self.id.clone(),
-            cols: after.as_ref().map_or(0, |o| o.cols),
-            rows: after.as_ref().map_or(0, |o| o.rows),
-            owner: after.map(|o| o.owner).unwrap_or_default(),
-        });
     }
 
     /// Applies the tab's current size to its PTY. Called without the state lock.
@@ -421,12 +399,181 @@ impl Drop for SpawnGuard {
     }
 }
 
+/// How long a size claim holds without being renewed (`SIZE_OWNER_LEASE_MS`): a phone renews every
+/// 10 s while it shows the terminal, so a claim that stops renewing (a lost connection) lapses
+/// and the PC fits its own pane again.
+pub const SIZE_OWNER_LEASE: std::time::Duration = std::time::Duration::from_secs(30);
+
+struct SizeClaim {
+    client: String,
+    cols: u16,
+    rows: u16,
+    lease: Option<mixdog_rt::TimerHandle>,
+    /// Which arming of the lease is current: a lapse of an older arming is ignored.
+    epoch: u64,
+}
+
+/// Per tab id, the connections claiming its size, oldest claim first; the newest claim owns.
+/// Claims belong to the id, not to a running process (Node's `sizeClaims`): a claim made before
+/// the tab exists stands, and only a dispose forgets it.
+struct Claims {
+    map: Mutex<HashMap<String, Vec<SizeClaim>>>,
+    tabs: Arc<Mutex<HashMap<String, Slot>>>,
+    events: Arc<dyn TerminalEvents>,
+    epoch: AtomicU64,
+}
+
+impl Claims {
+    fn lock(&self) -> MutexGuard<'_, HashMap<String, Vec<SizeClaim>>> {
+        self.map.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn owner_in(list: &[SizeClaim]) -> Option<SizeOwner> {
+        list.last().map(|claim| SizeOwner {
+            cols: claim.cols,
+            rows: claim.rows,
+            owner: claim.client.clone(),
+        })
+    }
+
+    fn owner_of(&self, id: &str) -> Option<SizeOwner> {
+        self.lock().get(id).and_then(|list| Self::owner_in(list))
+    }
+
+    /// Fits the running tab's PTY to `cols` x `rows`; a missing or exited tab is left alone.
+    fn apply_size(&self, id: &str, cols: u16, rows: u16) {
+        let tab = match self.tabs.lock().unwrap_or_else(|e| e.into_inner()).get(id) {
+            Some(Slot::Live(tab)) => Arc::clone(tab),
+            _ => return,
+        };
+        if !tab.running() {
+            return;
+        }
+        tab.lock().size = (cols, rows);
+        tab.sync_size();
+    }
+
+    /// Applies and announces the new effective owner when it differs. Called under the claims lock,
+    /// so the PTY sizes and the announcements keep the order of the changes.
+    fn changed(&self, id: &str, before: Option<SizeOwner>, after: Option<SizeOwner>) {
+        if before == after {
+            return;
+        }
+        if let Some(owner) = &after {
+            self.apply_size(id, owner.cols, owner.rows);
+        }
+        self.events.size_owner(&SizeOwnerChange {
+            id: id.to_owned(),
+            cols: after.as_ref().map_or(0, |o| o.cols),
+            rows: after.as_ref().map_or(0, |o| o.rows),
+            owner: after.map(|o| o.owner).unwrap_or_default(),
+        });
+    }
+
+    fn arm(self: &Arc<Self>, id: &str, client: &str, epoch: u64) -> mixdog_rt::TimerHandle {
+        let claims = Arc::downgrade(self);
+        let (id, client) = (id.to_owned(), client.to_owned());
+        // The ticker's callback only hands the lapse to a task: releasing fits a PTY.
+        mixdog_rt::ticker().register(std::time::Instant::now() + SIZE_OWNER_LEASE, move || {
+            if let Some(claims) = claims.upgrade() {
+                drop(mixdog_rt::spawn("terminal-size-lease", mixdog_rt::TaskClass::Work, async move {
+                    claims.release(&id, &client, Some(epoch));
+                }));
+            }
+        })
+    }
+
+    /// `client` claims (or renews its claim on) the size; a renewal keeps the claim's place in the order.
+    fn claim(self: &Arc<Self>, id: &str, client: &str, cols: u16, rows: u16) {
+        let mut map = self.lock();
+        let list = map.entry(id.to_owned()).or_default();
+        let before = Self::owner_in(list);
+        let epoch = self.epoch.fetch_add(1, Ordering::AcqRel) + 1;
+        let lease = Some(self.arm(id, client, epoch));
+        match list.iter_mut().find(|claim| claim.client == client) {
+            Some(claim) => {
+                if let Some(old) = claim.lease.take() {
+                    let _ = old.cancel();
+                }
+                claim.cols = cols;
+                claim.rows = rows;
+                claim.lease = lease;
+                claim.epoch = epoch;
+            }
+            None => list.push(SizeClaim {
+                client: client.to_owned(),
+                cols,
+                rows,
+                lease,
+                epoch,
+            }),
+        }
+        let after = Self::owner_in(list);
+        self.changed(id, before, after);
+    }
+
+    /// Ends `client`'s claim: by its own release (`epoch` none) or by its lease lapsing.
+    fn release(&self, id: &str, client: &str, epoch: Option<u64>) {
+        let mut map = self.lock();
+        let Some(list) = map.get_mut(id) else {
+            return;
+        };
+        let Some(at) = list.iter().position(|claim| claim.client == client) else {
+            return;
+        };
+        if epoch.is_some_and(|epoch| epoch != list[at].epoch) {
+            return;
+        }
+        let before = Self::owner_in(list);
+        if let Some(lease) = list.remove(at).lease {
+            let _ = lease.cancel();
+        }
+        let after = Self::owner_in(list);
+        if list.is_empty() {
+            map.remove(id);
+        }
+        self.changed(id, before, after);
+    }
+
+    /// A resize no phone claimed: ignored while any claim stands.
+    fn resize_unclaimed(&self, id: &str, cols: u16, rows: u16) {
+        let map = self.lock();
+        if map.contains_key(id) {
+            return;
+        }
+        self.apply_size(id, cols, rows);
+    }
+
+    /// The tab was disposed: its claims go with it. Node announces nothing here; the cleared owner
+    /// below only lets the section worker drop what it holds for the id (the tab itself is already
+    /// gone from the list).
+    fn forget(&self, id: &str) {
+        let Some(list) = self.lock().remove(id) else {
+            return;
+        };
+        for claim in list {
+            if let Some(lease) = claim.lease {
+                let _ = lease.cancel();
+            }
+        }
+        self.events.size_owner(&SizeOwnerChange {
+            id: id.to_owned(),
+            cols: 0,
+            rows: 0,
+            owner: String::new(),
+        });
+    }
+}
+
 pub struct TerminalTabs {
     manager: LocalProcessManager,
     config: TerminalConfig,
     tabs: Arc<Mutex<HashMap<String, Slot>>>,
+    claims: Arc<Claims>,
     cursor_floors: Mutex<HashMap<String, u64>>,
     sequence: AtomicU64,
+    /// Creation order of tabs (their `seq`).
+    created: AtomicU64,
     disposed: std::sync::atomic::AtomicBool,
     profiles: OnceCell<Vec<ShellProfile>>,
 }
@@ -442,12 +589,20 @@ enum Claim {
 
 impl TerminalTabs {
     pub fn new(manager: LocalProcessManager, config: TerminalConfig) -> Self {
+        let tabs = Arc::new(Mutex::new(HashMap::new()));
         Self {
             manager,
+            claims: Arc::new(Claims {
+                map: Mutex::new(HashMap::new()),
+                tabs: Arc::clone(&tabs),
+                events: Arc::clone(&config.events),
+                epoch: AtomicU64::new(0),
+            }),
             config,
-            tabs: Arc::new(Mutex::new(HashMap::new())),
+            tabs,
             cursor_floors: Mutex::new(HashMap::new()),
             sequence: AtomicU64::new(0),
+            created: AtomicU64::new(0),
             disposed: std::sync::atomic::AtomicBool::new(false),
             profiles: OnceCell::new(),
         }
@@ -503,11 +658,11 @@ impl TerminalTabs {
     // ----- ensure / attach ------------------------------------------------------------------
 
     fn attached(&self, tab: &Tab) -> Attached {
-        let state = tab.lock();
+        let replay = tab.lock().buffer.read();
         Attached {
             id: tab.id.clone(),
-            replay: state.buffer.read(),
-            size_owner: Tab::owner_of(&state),
+            replay,
+            size_owner: self.claims.owner_of(&tab.id),
         }
     }
 
@@ -673,8 +828,12 @@ impl TerminalTabs {
 
         let start = self.start_cursor(tab_id, prior.as_deref());
         let infer_start = plan.integration == Some(Integration::Cmd);
+        let seq = prior
+            .as_ref()
+            .map_or_else(|| self.created.fetch_add(1, Ordering::AcqRel) + 1, |prior| prior.seq);
         let tab = Arc::new(Tab {
             id: tab_id.to_owned(),
+            seq,
             handle: handle.clone(),
             shell: shell_label(&shell.path),
             cwd: cwd_text,
@@ -686,8 +845,6 @@ impl TerminalTabs {
                 exited: false,
                 output_paused: false,
                 size: (cols, rows),
-                client_sizes: HashMap::new(),
-                owner: None,
             }),
             pty_gate: Mutex::new(()),
             events: Arc::clone(&self.config.events),
@@ -805,13 +962,13 @@ impl TerminalTabs {
             .all_tabs()
             .into_iter()
             .map(|tab| {
-                let state = tab.lock();
+                let running = !tab.lock().exited;
                 TabEntry {
                     id: tab.id.clone(),
                     shell: tab.shell.clone(),
-                    running: !state.exited,
+                    running,
                     cwd: tab.cwd.clone(),
-                    size_owner: Tab::owner_of(&state),
+                    size_owner: self.claims.owner_of(&tab.id),
                 }
             })
             .collect();
@@ -819,9 +976,9 @@ impl TerminalTabs {
         entries
     }
 
-    /// Every live tab whose activity is known.
+    /// Every live tab whose activity is known, in creation order (Node's `activitySnapshot`).
     pub fn activity_snapshot(&self) -> Vec<(String, ActivityState)> {
-        let mut states: Vec<(String, ActivityState)> = self
+        let mut states: Vec<(u64, String, ActivityState)> = self
             .all_tabs()
             .into_iter()
             .filter_map(|tab| {
@@ -829,18 +986,21 @@ impl TerminalTabs {
                 (!state.exited)
                     .then(|| state.activity.state())
                     .flatten()
-                    .map(|s| (tab.id.clone(), s))
+                    .map(|s| (tab.seq, tab.id.clone(), s))
             })
             .collect();
-        states.sort_by(|a, b| a.0.cmp(&b.0));
-        states
+        states.sort_by_key(|(seq, ..)| *seq);
+        states.into_iter().map(|(_, id, state)| (id, state)).collect()
+    }
+
+    /// Where the tab `id` stands in creation order, if it is open.
+    pub fn creation_order(&self, id: &str) -> Option<u64> {
+        self.live(id).map(|tab| tab.seq)
     }
 
     /// Who owns this PTY's size right now, if anyone.
     pub fn size_owner(&self, id: &str) -> Option<SizeOwner> {
-        let tab = self.live(id)?;
-        let state = tab.lock();
-        Tab::owner_of(&state)
+        self.claims.owner_of(id)
     }
 
     // ----- input, size, focus, flow control -------------------------------------------------
@@ -858,29 +1018,27 @@ impl TerminalTabs {
         }
     }
 
-    /// A view reports its size. While a connection owns the tab's size (the last to focus it),
-    /// resizes from any other connection are only remembered, not applied.
+    /// A view reports its size (`terminal-manager.ts` `resize`). `client` is the connection of a
+    /// phone claiming the size, empty for any other view (the desktop's pane, a phone that does not
+    /// claim). A claim sets the PTY size, renews its lease, and the newest claim owns; a claim of
+    /// zero size releases that connection's claim; any other view's resize is ignored while a claim
+    /// stands.
     pub fn resize(&self, id: &str, cols: u32, rows: u32, client: &str) {
-        let Some(tab) = self.running(id) else {
-            return;
-        };
-        let cols = clamp_size(cols, DEFAULT_COLS, 500);
-        let rows = clamp_size(rows, DEFAULT_ROWS, 200);
-        let mut state = tab.lock();
-        let before = Tab::owner_of(&state);
-        state.client_sizes.insert(client.to_owned(), (cols, rows));
-        if state.owner.as_deref().is_some_and(|owner| owner != client) {
+        if !client.is_empty() && !(cols > 0 && rows > 0) {
+            self.claims.release(id, client, None);
             return;
         }
-        state.size = (cols, rows);
-        tab.announce(before, &state);
-        drop(state);
-        tab.sync_size();
+        let cols = clamp_size(cols, DEFAULT_COLS, 500);
+        let rows = clamp_size(rows, DEFAULT_ROWS, 200);
+        if client.is_empty() {
+            self.claims.resize_unclaimed(id, cols, rows);
+        } else {
+            self.claims.claim(id, client, cols, rows);
+        }
     }
 
-    /// A view focused (or left) a tab. Focusing clears `finished` and makes the connection the
-    /// size owner; leaving does not give the size up (ownership passes on another focus or when
-    /// the owner's connection closes).
+    /// A view focused (or left) a tab; focusing clears `finished`. Focus is activity only: the size
+    /// owner is whoever claimed it with [`Self::resize`].
     pub fn focus(&self, id: &str, client: &str, focused: bool) {
         let Some(tab) = self.running(id) else {
             return;
@@ -889,34 +1047,15 @@ impl TerminalTabs {
         let mut state = tab.lock();
         let change = state.activity.set_focus(client, focused);
         tab.publish(change);
-        if !focused {
-            return;
-        }
-        let before = Tab::owner_of(&state);
-        state.owner = Some(client.to_owned());
-        let reported = state.client_sizes.get(client).copied();
-        if let Some(size) = reported {
-            state.size = size;
-        }
-        tab.announce(before, &state);
-        drop(state);
-        if reported.is_some() {
-            tab.sync_size();
-        }
     }
 
-    /// A connection closed: its focus and its size ownership end, on every tab.
+    /// A connection closed: its focus ends on every tab. Its size claims are not released: Node's
+    /// lease lapses them (a phone that reconnects holds a new connection id).
     pub fn connection_closed(&self, client: &str) {
         for tab in self.all_tabs() {
             let mut state = tab.lock();
-            state.client_sizes.remove(client);
             let change = state.activity.set_focus(client, false);
             tab.publish(change);
-            if state.owner.as_deref() == Some(client) {
-                let before = Tab::owner_of(&state);
-                state.owner = None;
-                tab.announce(before, &state);
-            }
         }
     }
 
@@ -957,12 +1096,9 @@ impl TerminalTabs {
             state.exited = true;
             let change = state.activity.exit();
             tab.publish(change);
-            let before = Tab::owner_of(&state);
-            state.owner = None;
-            state.client_sizes.clear();
-            tab.announce(before, &state);
             (was_paused, state.buffer.cursor())
         };
+        self.claims.forget(&tab.id);
         if was_paused {
             // A paused reader must be released before the kill, or the exit cannot arrive.
             tab.sync_pause();
@@ -1044,6 +1180,7 @@ mod lock_order {
         let tabs = Arc::new(TerminalTabs::new(manager.clone(), TerminalConfig::new(Arc::new(Quiet))));
         let tab = Arc::new(Tab {
             id: "term_1".to_owned(),
+            seq: 1,
             handle: ProcessHandle::from("term_1"),
             shell: "sh".to_owned(),
             cwd: None,
@@ -1055,8 +1192,6 @@ mod lock_order {
                 exited: false,
                 output_paused: false,
                 size: (80, 24),
-                client_sizes: HashMap::new(),
-                owner: None,
             }),
             pty_gate: Mutex::new(()),
             events: Arc::new(Quiet),
