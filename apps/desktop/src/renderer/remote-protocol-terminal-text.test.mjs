@@ -67,12 +67,24 @@ const visibly = {
   'an overline': ['X', '\x1b[53mX\x1b[m'],
   'a link target': ['\x1b]8;;http://a\x07X\x1b]8;;\x07', '\x1b]8;;http://b\x07X\x1b]8;;\x07'],
   'the alternate buffer': ['', '\x1b[?1049h'],
+  // The app's terminal view draws a blinking bar until the shell asks for another (TerminalPane.tsx), so a stream that never says and one
+  // that asks for the emulator's own default (a steady block) are different screens.
+  'no cursor escape and an explicit steady block': ['', '\x1b[2 q'],
+  'a bold underlined blank': ['ab\x1b[4m   \x1b[m\x1b[3D', 'ab\x1b[4;1m   \x1b[m\x1b[3D'],
+  'a dim underlined blank': ['ab\x1b[4m   \x1b[m\x1b[3D', 'ab\x1b[4;2m   \x1b[m\x1b[3D'],
+  'a red foreground on an underlined blank': ['ab\x1b[4m   \x1b[m\x1b[3D', 'ab\x1b[4;31m   \x1b[m\x1b[3D'],
+  'italic on a background-coloured blank': ['ab\x1b[41m   \x1b[m\x1b[3D', 'ab\x1b[41;3m   \x1b[m\x1b[3D'],
+  'a struck blank in bold': ['ab\x1b[9m   \x1b[m\x1b[3D', 'ab\x1b[9;1m   \x1b[m\x1b[3D'],
 };
 for (const [what, [left, right]] of Object.entries(visibly)) {
   test(`${what} is a different screen`, async () => {
     assert.notDeepEqual(await trace({ replay: text, output: `${text}${left}` }), await trace({ replay: text, output: `${text}${right}` }));
   });
 }
+
+test('no cursor escape and a blinking bar are the same screen: the view\'s own cursor', async () => {
+  assert.deepEqual(await trace({ replay: text, output: text }), await trace({ replay: text, output: `${text}\x1b[5 q` }));
+});
 
 test('an underline colour that no underline shows is not a different screen', async () => {
   assert.deepEqual(await trace({ replay: text, output: `${text}\x1b[58;2;255;0;0mX\x1b[m` }), await trace({ replay: text, output: `${text}X` }));

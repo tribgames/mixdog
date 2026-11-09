@@ -2,16 +2,36 @@
 // in apps/desktop/node_modules, run un-opened), then read back as the screen: every row's text and attributes and the cursor.
 // Two byte streams that draw the same screen (a redraw per keystroke or in one frame, a re-render after a resize) give the same screen.
 // ConPTY reports each size change in its stream as `ESC[8;<rows>;<cols>t`; the emulator follows it, as the page follows the owner's size.
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 const { Terminal } = createRequire(new URL('../../../../apps/desktop/package.json', import.meta.url))('@xterm/xterm');
+
+/** The cursor options the app's terminal view passes to xterm (TerminalPane.tsx `new Terminal({...})`), read from that source: a screen's
+ *  cursor is its shape and blinking as that view draws them, so a stream with no cursor escape and one that asks for the emulator's own
+ *  default (a steady block) are different screens, as they are on the user's. */
+function viewCursorOptions() {
+  const source = readFileSync(new URL('../../../../apps/desktop/src/renderer/TerminalPane.tsx', import.meta.url), 'utf8');
+  const view = /new Terminal\(\{([\s\S]*?)\n  \}\);/.exec(source)?.[1];
+  const pick = (name, pattern) => {
+    const value = new RegExp(`\\n\\s*${name}:\\s*${pattern}`).exec(view ?? '')?.[1];
+    if (value === undefined) throw new Error(`TerminalPane.tsx no longer passes ${name} to the terminal: this reader needs the app's cursor options`);
+    return value;
+  };
+  return {
+    cursorBlink: pick('cursorBlink', '(true|false)') === 'true',
+    cursorStyle: pick('cursorStyle', "'(block|bar|underline)'"),
+    cursorInactiveStyle: pick('cursorInactiveStyle', "'(block|bar|underline|outline|none)'"),
+  };
+}
+const CURSOR_OPTIONS = viewCursorOptions();
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
 const RESIZE_REPORT = /(\x1b\[8;\d+;\d+t)/;
 
 function played(text) {
-  const term = new Terminal({ cols: DEFAULT_COLS, rows: DEFAULT_ROWS, scrollback: 5000, allowProposedApi: true });
+  const term = new Terminal({ cols: DEFAULT_COLS, rows: DEFAULT_ROWS, scrollback: 5000, allowProposedApi: true, ...CURSOR_OPTIONS });
   // Synchronous: the emulator's async write is timer-driven, and the recording holds Node's timers on a virtual clock.
   for (const part of String(text).split(RESIZE_REPORT)) {
     const size = /^\x1b\[8;(\d+);(\d+)t$/.exec(part);
@@ -21,7 +41,8 @@ function played(text) {
   return term;
 }
 
-const SHOWN_ON_BLANK = new Set(['isInverse', 'isUnderline', 'isStrikethrough', 'isOverline']);
+/** What a blank cell can draw: a background, an underline, an inverse, a strike, an overline. */
+const DRAWS_ON_BLANK = ['isInverse', 'isUnderline', 'isStrikethrough', 'isOverline'];
 const FLAGS = ['isBold', 'isItalic', 'isDim', 'isUnderline', 'isBlink', 'isInverse', 'isInvisible', 'isStrikethrough', 'isOverline'];
 
 /** One row: its text, and a run `[from, length, fg, bg, flags, underline style, underline colour, link]` for each stretch of cells that is not in the default style. */
@@ -32,13 +53,12 @@ function row(line, cols, cell, links) {
     // The underline's style (straight, double, curly, dotted, dashed) and colour show only on an underlined cell; a link is its target.
     const underline = cell.isUnderline() ? [cell.getUnderlineStyle(), cell.getUnderlineColorMode(), cell.getUnderlineColor(), cell.getUnderlineVariantOffset()] : [0, 0, 0, 0];
     const link = cell.extended.urlId ? (links.getLinkData(cell.extended.urlId)?.uri ?? '') : '';
-    // An empty or blank cell shows its background, an underline, a strike or an overline, and (inverse) its foreground as a background;
-    // its foreground colour, bold, italic, dim, blink and invisible do not show. Two Node recordings of the same script differ only
-    // there: PSReadLine's colouring of the typed command reached 4 blank cells past its end in one and not in the other.
+    // A blank cell that draws nothing (no background, underline, inverse, strike or overline) shows nothing of its attributes: a foreground
+    // colour, bold or italic on it is not seen. Two Node recordings of the same script differ only there: PSReadLine's colouring of the typed
+    // command reached 4 blank cells past its end in one and not in the other. A blank cell that draws anything keeps every attribute.
     const blank = cell.getChars().trim() === '';
-    const shown = blank ? FLAGS.filter((flag) => cell[flag]() && SHOWN_ON_BLANK.has(flag)) : FLAGS.filter((flag) => cell[flag]());
-    const foreground = blank && !cell.isInverse() ? [0, 0] : [cell.getFgColorMode(), cell.getFgColor()];
-    const style = [...foreground, cell.getBgColorMode(), cell.getBgColor(), shown.join('+'), underline.join(':'), link];
+    if (blank && cell.getBgColorMode() === 0 && !DRAWS_ON_BLANK.some((flag) => cell[flag]()) && !link) continue;
+    const style = [cell.getFgColorMode(), cell.getFgColor(), cell.getBgColorMode(), cell.getBgColor(), FLAGS.filter((flag) => cell[flag]()).join('+'), underline.join(':'), link];
     if (style[0] === 0 && style[2] === 0 && style[4] === '' && style[6] === '') continue;
     const last = runs.at(-1);
     if (last && last[0] + last[1] === x && last.slice(2).join() === style.join()) last[1] += 1;

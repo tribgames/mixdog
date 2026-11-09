@@ -65,6 +65,8 @@ enum Change {
     /// A tab's size owner changed (cleared when its claims ended or it was disposed).
     Owner(SizeOwnerChange),
     Tabs,
+    /// Answered once every change queued before it is published: a reply that must not overtake the events its call caused.
+    Barrier(tokio::sync::oneshot::Sender<()>),
 }
 
 struct Events {
@@ -150,6 +152,10 @@ async fn publish_sections(
                 tabs_changed = true;
             }
             Change::Tabs => tabs_changed = true,
+            Change::Barrier(published) => {
+                let _ = published.send(());
+                continue;
+            }
         }
         if activity_changed {
             let object: serde_json::Map<String, Value> =
@@ -316,6 +322,13 @@ impl DomainService for TerminalService {
                 self.tabs.dispose(params.tab_id.as_str());
                 self.feeds.close(params.tab_id.as_str());
                 let _ = self.changes.send(Change::Tabs);
+                // Node's disposal forwards the tab's end (state: null) before it answers the request (terminal-manager.ts:541,
+                // remote-relay-push-lanes.ts:150, remote-methods.ts:1284); a publish reaches the connection's queue at once, so the reply
+                // follows the events of this disposal once the section worker has published them.
+                let (published, done) = tokio::sync::oneshot::channel();
+                if self.changes.send(Change::Barrier(published)).is_ok() {
+                    let _ = done.await;
+                }
                 Ok(Reply::Value(json!({})))
             }
             other => Err(invalid_params("method", format!("a method of terminal, not {other}"))),

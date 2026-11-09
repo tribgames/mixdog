@@ -142,17 +142,18 @@ pub fn is_beyond_project(error: &WsError) -> bool {
     matches!(error.reason, crate::error::Reason::PermissionDenied) && (error.message == OUTSIDE_PROJECT || error.message == RESOLVES_OUTSIDE_PROJECT)
 }
 
-/// Absolute path of a client-supplied absolute string (trusted local lanes).
+/// Node's `absoluteLocalPath` (local-files.ts): the string trimmed, shape-checked, required to be absolute by the host's
+/// `path.isAbsolute` (on Windows that includes a rooted `\dir`, which `path.resolve` then puts on the working directory's drive), and
+/// resolved by the host's `path.resolve`.
 pub fn absolute_local_path(value: &str) -> WsResult<PathBuf> {
-    let text = value.trim();
-    if text.is_empty() || text.len() > 16_384 || text.contains('\0') {
+    let text = mixdog_js::js_trim(value);
+    if text.is_empty() || mixdog_js::utf16_len(text) > 16_384 || text.contains('\0') {
         return Err(WsError::invalid("path is invalid."));
     }
-    let path = Path::new(text);
-    if !path.is_absolute() {
+    if !mixdog_js::nodepath::is_absolute_host(text) {
         return Err(WsError::invalid("path must be absolute."));
     }
-    Ok(lexical(path))
+    Ok(PathBuf::from(mixdog_js::nodepath::resolve_host(&[text])))
 }
 
 #[cfg(test)]
@@ -176,5 +177,66 @@ mod tests {
         }
         let err = project_entry_path(&root, "link/x.txt").unwrap_err();
         assert_eq!(err.message, "Path resolves outside the project.");
+    }
+
+    fn answer(text: &str) -> Result<String, String> {
+        absolute_local_path(text).map(|path| path.to_string_lossy().into_owned()).map_err(|error| error.message)
+    }
+
+    /// Node's `absoluteLocalPath` for each class of input on a Windows host (expected values from `path.win32` of Node 22 with the
+    /// working directory on the drive `D:`; here the drive is the test's own).
+    #[cfg(windows)]
+    #[test]
+    fn absolute_local_path_answers_each_class_as_node_does() {
+        let drive: String = std::env::current_dir().unwrap().to_string_lossy().chars().take(2).collect();
+        let on_drive = |rest: &str| Ok(format!("{drive}{rest}"));
+        for (text, expected) in [
+            ("relative/dir", Err("path must be absolute.".to_owned())),
+            ("C:foo", Err("path must be absolute.".to_owned())),
+            ("C:", Err("path must be absolute.".to_owned())),
+            ("", Err("path is invalid.".to_owned())),
+            ("   ", Err("path is invalid.".to_owned())),
+            ("a\0b", Err("path is invalid.".to_owned())),
+            ("/dir", on_drive("\\dir")),
+            ("\\dir", on_drive("\\dir")),
+            ("/dir/../x/", on_drive("\\x")),
+            ("//server", on_drive("\\server")),
+            ("/", on_drive("\\")),
+            ("//server/share", Ok("\\\\server\\share\\".to_owned())),
+            ("\\\\server\\share\\a\\..\\b\\", Ok("\\\\server\\share\\b".to_owned())),
+            ("C:\\a\\b\\..\\c\\", Ok("C:\\a\\c".to_owned())),
+            ("c:/A/B/", Ok("c:\\A\\B".to_owned())),
+            ("C:\\a\\", Ok("C:\\a".to_owned())),
+            ("C:\\", Ok("C:\\".to_owned())),
+            ("C:\\..", Ok("C:\\".to_owned())),
+            (" D:\\x ", Ok("D:\\x".to_owned())),
+            ("\\\\?\\C:\\x\\y", Ok("\\\\?\\C:\\x\\y".to_owned())),
+            ("\\\\.\\C:\\x", Ok("\\\\.\\C:\\x".to_owned())),
+            ("\\\\?\\UNC\\srv\\sh\\a", Ok("\\\\?\\UNC\\srv\\sh\\a".to_owned())),
+            ("//?/C:/x", Ok("\\\\?\\C:\\x".to_owned())),
+            ("//tmp/Mixed/", Ok("\\\\tmp\\Mixed\\".to_owned())),
+        ] {
+            assert_eq!(answer(text), expected, "{text:?}");
+        }
+    }
+
+    /// The same classes on a POSIX host (`path.posix` of Node 22).
+    #[cfg(not(windows))]
+    #[test]
+    fn absolute_local_path_answers_each_class_as_node_does() {
+        for (text, expected) in [
+            ("relative/dir", Err("path must be absolute.")),
+            ("C:foo", Err("path must be absolute.")),
+            ("\\dir", Err("path must be absolute.")),
+            ("C:\\a", Err("path must be absolute.")),
+            ("", Err("path is invalid.")),
+            ("/dir/../x/", Ok("/x")),
+            ("//server/share", Ok("/server/share")),
+            ("//tmp/Mixed/", Ok("/tmp/Mixed")),
+            ("/", Ok("/")),
+            ("//", Ok("/")),
+        ] {
+            assert_eq!(answer(text), expected.map(str::to_owned).map_err(str::to_owned), "{text:?}");
+        }
     }
 }

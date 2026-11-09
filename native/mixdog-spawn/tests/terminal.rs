@@ -751,6 +751,26 @@ async fn a_stalled_clock_connection_does_not_block_another() {
     assert_eq!(late.advance(30_000), "lapsed 1", "a connection after a stalled one is still served");
     rig.tabs.dispose(&id);
 }
+/// The control connection has deadlines: a line left unfinished is answered with what was awaited, and the connection is closed (its
+/// thread and socket are released), not held for ever.
+#[cfg(debug_assertions)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_connection_that_leaves_a_line_unfinished_is_refused_and_closed() {
+    use std::io::{BufRead, Write};
+    let (rig, id, _first) = manual_lease_rig("manual-unfinished").await;
+    let port: u16 = std::fs::read_to_string(std::env::temp_dir().join(format!("mixdog-lease-clock-{}-manual-unfinished", std::process::id())).join("port")).unwrap().parse().unwrap();
+    let mut stalled = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    // The test's own guard, longer than the core's line deadline: a core without one fails here by its message instead of hanging.
+    stalled.set_read_timeout(Some(std::time::Duration::from_secs(60))).unwrap();
+    stalled.write_all(b"advance 1").unwrap();
+    let mut reader = std::io::BufReader::new(stalled);
+    let mut told = String::new();
+    reader.read_line(&mut told).unwrap_or_else(|e| panic!("the core never answered a line left unfinished: {e}"));
+    assert_eq!(told, "refused: the `advance <ms>` command was not finished with a newline within 10 s\n");
+    let mut rest = String::new();
+    assert_eq!(reader.read_line(&mut rest).unwrap(), 0, "the connection is closed after the refusal");
+    rig.tabs.dispose(&id);
+}
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn activity_follows_the_shell_markers_and_focus() {
     let rig = rig("activity").await;

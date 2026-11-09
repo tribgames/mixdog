@@ -3,14 +3,14 @@
 // through the adapter and the phone's protocol client, through the world's relay end (a real E2EE handshake), into a freshly started
 // core on a loopback WebSocket. The relay end only carries frames both ways: the core answers for itself.
 // Prints the trace on a marker line; remote-protocol-terminal.slow.test.mjs compares it with the recording.
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, watch, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { join } from 'node:path';
 import readline from 'node:readline';
 import WebSocket from 'ws';
 import { createPhoneWorld, protocolDialect } from '../../../../benchmarks/rust-core/recorders/lib/phone-world.mjs';
-import { claimTrace, play, sizeClaimScript, terminalScript } from '../../../../benchmarks/rust-core/recorders/lib/phone-terminal-script.mjs';
+import { play, sizeClaimScript, terminalScript } from '../../../../benchmarks/rust-core/recorders/lib/phone-terminal-script.mjs';
 
 // The world replaces the timers with a virtual clock; this scenario's own deadline (a guard that fails a wait that never ends) is real.
 const realSetTimeout = globalThis.setTimeout;
@@ -29,7 +29,8 @@ async function startCore() {
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (key.startsWith('MIXDOG_')) delete env[key];
   Object.assign(env, { MIXDOG_RUNTIME_ROOT: join(CORE_ROOT, 'runtime'), MIXDOG_DATA_DIR: join(CORE_ROOT, 'data'), MIXDOG_HOME: join(CORE_ROOT, 'home'), MIXDOG_TERMINAL_LEASE_CLOCK: CLOCK_DIR });
-  const child = spawn(BIN, ['serve'], { env, stdio: 'ignore', windowsHide: true });
+  // The working directory is the recording's root: a path without a drive resolves onto its drive, as it did for Node's recorder.
+  const child = spawn(BIN, ['serve'], { cwd: ROOT, env, stdio: 'ignore', windowsHide: true });
   // The core publishes its discovery record when it serves (a debug core first migrates its stores): the wait is on that file's change.
   const record = await untilFile(join(CORE_ROOT, 'runtime'), child, (dir) => {
     const found = JSON.parse(readFileSync(join(dir, 'daemon.json'), 'utf8'));
@@ -79,22 +80,32 @@ function bounded(promise, message) {
 async function openClock(core) {
   const port = await untilFile(CLOCK_DIR, core.child, (dir) => Number(readFileSync(join(dir, 'port'), 'utf8')) || null, "the core to publish the lease clock's port");
   const socket = net.connect(port, '127.0.0.1');
-  await new Promise((resolve, reject) => {
-    socket.once('connect', resolve);
-    socket.once('error', reject);
+  await bounded(
+    new Promise((resolve, reject) => {
+      socket.once('connect', resolve);
+      socket.once('error', reject);
+    }),
+    `the connection to the lease clock on port ${port} to open`,
+  ).catch((error) => {
+    socket.destroy();
+    throw error;
   });
   return { socket, lines: readline.createInterface({ input: socket }) };
 }
 
-/** Ends the core and its children, and resolves when the core has exited (its files are released then). */
+/** Ends the core and its children, and resolves when `taskkill` has finished and the core has exited (its files are released then). One
+ *  deadline covers both: `taskkill` is a process of its own and can hang like the core can. */
 function stopCore(core) {
   // A core that has already exited emits no further `exit`: waiting for one would end the process with nothing printed.
   const gone = core.child.exitCode !== null || core.child.signalCode !== null;
   const exited = gone ? Promise.resolve() : new Promise((resolve) => core.child.once('exit', resolve));
-  spawnSync('taskkill', ['/PID', String(core.child.pid), '/T', '/F'], { stdio: 'ignore' });
-  return bounded(exited, 'the core to exit after it was ended');
+  const killed = new Promise((resolve, reject) => {
+    const killer = spawn('taskkill', ['/PID', String(core.child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+    killer.once('error', reject);
+    killer.once('exit', resolve);
+  });
+  return bounded(Promise.all([killed, exited]), `taskkill to end the core (pid ${core.child.pid}) and the core to exit`);
 }
-
 async function main() {
   const repo = new URL('../../../../', import.meta.url);
   const script = terminalScript(ROOT);
@@ -256,18 +267,26 @@ async function main() {
       }),
     events: () => events,
   };
+  let failed = false;
   try {
     const trace = JSON.parse(JSON.stringify(await play(script, driver)));
     for (const list of Object.values(events)) if (Array.isArray(list)) list.length = 0;
     events.output = {};
     const claims = await play(sizeClaimScript(ROOT), driver);
-    trace.claims = claimTrace(JSON.parse(JSON.stringify(claims)));
+    trace.claims = JSON.parse(JSON.stringify(claims));
     process.stdout.write(`\n@@TRACE@@${JSON.stringify(trace)}\n`);
+  } catch (error) {
+    failed = true;
+    throw error;
   } finally {
     for (const stop of off) stop();
     void peer?.then((ws) => ws.close());
     clock?.socket.destroy();
-    await stopCore(core);
+    // A teardown that fails is reported unless the run already failed: its error is the one that explains.
+    await stopCore(core).catch((error) => {
+      if (!failed) throw error;
+      console.error(error.message);
+    });
   }
 }
 main().then(

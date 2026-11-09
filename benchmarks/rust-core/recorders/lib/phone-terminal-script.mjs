@@ -44,6 +44,10 @@ export function terminalScript(root) {
   const prompt = `PS ${cwd}>`;
   const watched = join(root, 'watched');
   const missing = join(root, 'missing');
+  // The same folder as a path without its drive, spelled with /: Node (a Windows host, its working directory on the root's drive)
+  // resolved it onto that drive; the spelling says nothing about the host's platform.
+  const rooted = (path) => path.slice(2).replace(/\\/g, '/');
+  const nowhere = rooted(join(root, 'nowhere'));
   return {
     cwd,
     watched,
@@ -64,6 +68,17 @@ export function terminalScript(root) {
       { op: 'call', name: 'folderUnwatch', params: ['relative/dir'] },
       { op: 'call', name: 'folderWatch', params: [missing, false] },
       { op: 'call', name: 'folderUnwatch', params: [missing, false] },
+      // Each class of path argument: not absolute (drive-relative), rooted without a drive (on the working directory's), drive-absolute with
+      // a trailing separator, and the device namespaces. A folder that does not exist fails with the text of s.watch, which has the
+      // resolved path in it.
+      { op: 'call', name: 'folderWatch', params: ['C:nowhere'] },
+      { op: 'call', name: 'folderWatch', params: ['C:'] },
+      { op: 'call', name: 'folderWatch', params: [nowhere + '/'] },
+      { op: 'call', name: 'folderWatch', params: [nowhere.replace(/\//g, '\\') + '\\x\\..'] },
+      { op: 'call', name: 'folderWatch', params: [join(root, 'nowhere') + '\\'] },
+      { op: 'call', name: 'folderWatch', params: ['\\\\?\\' + join(root, 'nowhere')] },
+      { op: 'call', name: 'folderWatch', params: ['\\\\.\\' + join(root, 'nowhere')] },
+      { op: 'call', name: 'folderUnwatch', params: [nowhere] },
       // Nothing runs yet.
       { op: 'call', name: 'termAttach', params: [TAB] },
       { op: 'call', name: 'termActivity', params: [] },
@@ -119,12 +134,14 @@ export function terminalScript(root) {
       // reported under the resolved path the first caller gave, and each unwatch (by any of the spellings) takes one count off it.
       { op: 'call', name: 'folderWatch', params: [`${watched}\\sub\\..`, true] },
       { op: 'call', name: 'folderWatch', params: [watched.toUpperCase(), true] },
+      { op: 'call', name: 'folderWatch', params: [rooted(watched).replace(/watched/, 'Watched') + '/', true] },
       { op: 'touch', file: join(watched, 'c.txt') },
       { op: 'until', kind: 'folder', event: watched, count: 3 },
       { op: 'call', name: 'folderUnwatch', params: [watched, true] },
       { op: 'touch', file: join(watched, 'd.txt') },
       { op: 'until', kind: 'folder', event: watched, count: 4 },
       { op: 'call', name: 'folderUnwatch', params: [watched.toLowerCase(), true] },
+      { op: 'call', name: 'folderUnwatch', params: [rooted(watched).replace(/\//g, '\\').toUpperCase(), true] },
       // The tab goes: the activity ends, and nothing is left to attach.
       { op: 'snap', name: 'end', tabs: [TAB] },
       { op: 'call', name: 'termDispose', params: [TAB] },
@@ -182,9 +199,12 @@ export function sizeClaimScript(root) {
     cwd,
     ops: [
       { op: 'lane', lane: 'terminal', on: true },
-      ...tabs.map((tab) => ({ op: 'call', name: 'termEnsure', params: [tab, cwd, null] })),
-      // Every shell is up (its first prompt made the tab idle) before the leases are timed, so the disposals at the end end live shells.
-      ...tabs.map((tab) => ({ op: 'until', kind: 'activity', event: { id: tab, state: 'idle' } })),
+      // One tab at a time, each one's first prompt (it is idle) before the next: the five shells come up in an order of their own when
+      // started together, and the activity events are compared in the order they came. Every shell is up before the leases are timed.
+      ...tabs.flatMap((tab) => [
+        { op: 'call', name: 'termEnsure', params: [tab, cwd, null] },
+        { op: 'until', kind: 'activity', event: { id: tab, state: 'idle' } },
+      ]),
       // From here the leases are timed.
       { op: 'clock' },
       claim(L1, 100, 30),
@@ -242,8 +262,6 @@ export function sizeClaimScript(root) {
       ...attachAll(tabs),
       { op: 'snap', name: 'end', tabs },
       ...tabs.map((tab) => ({ op: 'call', name: 'termDispose', params: [tab] })),
-      // The lane closes only after every tab's end has been heard, so which ends were pushed does not depend on when the lane closed.
-      ...tabs.map((tab) => ({ op: 'until', kind: 'activity', event: { id: tab, state: null } })),
       { op: 'lane', lane: 'terminal', on: false },
     ],
   };
@@ -255,14 +273,6 @@ const onScreen = (text, { after, prompt }) => {
   const at = lines.lastIndexOf(after);
   return at >= 0 && lines[at + 1] === prompt;
 };
-
-/** The size-claim trace as compared: the five shells start together and each one's first idle arrives in whatever order they come up
- *  (the script waits for all five before it times a lease), so those first five events are put in tab order; every later one is kept as it came. */
-export function claimTrace(trace) {
-  const STARTED = 5;
-  const first = [...trace.activity.slice(0, STARTED)].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return { ...trace, activity: [...first, ...trace.activity.slice(STARTED)] };
-}
 
 /**
  * Plays the ops against a driver and returns the trace.

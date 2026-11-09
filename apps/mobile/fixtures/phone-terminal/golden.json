@@ -125,6 +125,62 @@
         "value": null
       },
       {
+        "call": "folderWatch",
+        "params": [
+          "C:nowhere"
+        ],
+        "error": "path must be absolute."
+      },
+      {
+        "call": "folderWatch",
+        "params": [
+          "C:"
+        ],
+        "error": "path must be absolute."
+      },
+      {
+        "call": "folderWatch",
+        "params": [
+          "/mixdog-build/tmp/ph2-terminal/nowhere/"
+        ],
+        "error": "ENOENT: no such file or directory, watch 'D:\\mixdog-build\\tmp\\ph2-terminal\\nowhere'"
+      },
+      {
+        "call": "folderWatch",
+        "params": [
+          "\\mixdog-build\\tmp\\ph2-terminal\\nowhere\\x\\.."
+        ],
+        "error": "ENOENT: no such file or directory, watch 'D:\\mixdog-build\\tmp\\ph2-terminal\\nowhere'"
+      },
+      {
+        "call": "folderWatch",
+        "params": [
+          "D:\\mixdog-build\\tmp\\ph2-terminal\\nowhere\\"
+        ],
+        "error": "ENOENT: no such file or directory, watch 'D:\\mixdog-build\\tmp\\ph2-terminal\\nowhere'"
+      },
+      {
+        "call": "folderWatch",
+        "params": [
+          "\\\\?\\D:\\mixdog-build\\tmp\\ph2-terminal\\nowhere"
+        ],
+        "error": "ENOENT: no such file or directory, watch '\\\\?\\D:\\mixdog-build\\tmp\\ph2-terminal\\nowhere'"
+      },
+      {
+        "call": "folderWatch",
+        "params": [
+          "\\\\.\\D:\\mixdog-build\\tmp\\ph2-terminal\\nowhere"
+        ],
+        "error": "ENOENT: no such file or directory, watch '\\\\.\\D:\\mixdog-build\\tmp\\ph2-terminal\\nowhere'"
+      },
+      {
+        "call": "folderUnwatch",
+        "params": [
+          "/mixdog-build/tmp/ph2-terminal/nowhere"
+        ],
+        "value": null
+      },
+      {
         "call": "termAttach",
         "params": [
           "term_ph2a"
@@ -172,8 +228,8 @@
                 0
               ],
               "visible": true,
-              "style": "block",
-              "blink": false
+              "style": "bar",
+              "blink": true
             },
             "rows": []
           }
@@ -207,8 +263,8 @@
                 2
               ],
               "visible": true,
-              "style": "block",
-              "blink": false
+              "style": "bar",
+              "blink": true
             },
             "rows": [
               {
@@ -305,8 +361,8 @@
                 4
               ],
               "visible": true,
-              "style": "block",
-              "blink": false
+              "style": "bar",
+              "blink": true
             },
             "rows": [
               {
@@ -400,8 +456,8 @@
                 4
               ],
               "visible": true,
-              "style": "block",
-              "blink": false
+              "style": "bar",
+              "blink": true
             },
             "rows": [
               {
@@ -495,8 +551,8 @@
                 4
               ],
               "visible": true,
-              "style": "block",
-              "blink": false
+              "style": "bar",
+              "blink": true
             },
             "rows": [
               {
@@ -592,8 +648,8 @@
                 0
               ],
               "visible": true,
-              "style": "block",
-              "blink": false
+              "style": "bar",
+              "blink": true
             },
             "rows": []
           }
@@ -631,8 +687,8 @@
                 4
               ],
               "visible": true,
-              "style": "block",
-              "blink": false
+              "style": "bar",
+              "blink": true
             },
             "rows": [
               {
@@ -759,6 +815,14 @@
         "value": null
       },
       {
+        "call": "folderWatch",
+        "params": [
+          "/mixdog-build/tmp/ph2-terminal/Watched/",
+          true
+        ],
+        "value": null
+      },
+      {
         "call": "folderUnwatch",
         "params": [
           "D:\\mixdog-build\\tmp\\ph2-terminal\\watched",
@@ -770,6 +834,14 @@
         "call": "folderUnwatch",
         "params": [
           "d:\\mixdog-build\\tmp\\ph2-terminal\\watched",
+          true
+        ],
+        "value": null
+      },
+      {
+        "call": "folderUnwatch",
+        "params": [
+          "\\MIXDOG-BUILD\\TMP\\PH2-TERMINAL\\WATCHED",
           true
         ],
         "value": null
@@ -789,8 +861,8 @@
                 4
               ],
               "visible": true,
-              "style": "block",
-              "blink": false
+              "style": "bar",
+              "blink": true
             },
             "rows": [
               {
@@ -1001,8 +1073,8 @@
                   0
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": []
             }
@@ -1029,8 +1101,8 @@
                   0
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": []
             }
@@ -1057,8 +1129,8 @@
                   0
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": []
             }
@@ -1085,8 +1157,8 @@
                   0
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": []
             }
@@ -1113,8 +1185,8 @@
                   0
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": []
             }
@@ -1169,8 +1241,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -1240,8 +1312,8 @@
                   4
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -1338,8 +1410,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -1403,8 +1475,8 @@
                   4
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -1501,8 +1573,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -1569,8 +1641,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -1632,8 +1704,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -1697,8 +1769,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -1762,8 +1834,8 @@
                   4
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -1857,8 +1929,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -1922,8 +1994,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -1982,8 +2054,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -2047,8 +2119,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -2107,8 +2179,8 @@
                   4
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -2202,8 +2274,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -2267,8 +2339,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -2327,8 +2399,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -2392,8 +2464,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -2452,8 +2524,8 @@
                   4
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -2547,8 +2619,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -2612,8 +2684,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -2672,8 +2744,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -2737,8 +2809,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -2797,8 +2869,8 @@
                   4
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -2892,8 +2964,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -2952,8 +3024,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -3012,8 +3084,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -3077,8 +3149,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -3137,8 +3209,8 @@
                   4
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -3232,8 +3304,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -3292,8 +3364,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -3352,8 +3424,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -3417,8 +3489,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -3477,8 +3549,8 @@
                   4
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -3572,8 +3644,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -3632,8 +3704,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -3692,8 +3764,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -3752,8 +3824,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -3812,8 +3884,8 @@
                   4
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -3907,8 +3979,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -3967,8 +4039,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -4027,8 +4099,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -4087,8 +4159,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -4147,8 +4219,8 @@
                   4
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -4237,8 +4309,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -4297,8 +4369,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -4357,8 +4429,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -4413,8 +4485,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -4464,8 +4536,8 @@
                   4
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -4545,8 +4617,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -4596,8 +4668,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {
@@ -4647,8 +4719,8 @@
                   2
                 ],
                 "visible": true,
-                "style": "block",
-                "blink": false
+                "style": "bar",
+                "blink": true
               },
               "rows": [
                 {

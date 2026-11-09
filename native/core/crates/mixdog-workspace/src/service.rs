@@ -53,7 +53,6 @@ use crate::lsp::LspManager;
 use crate::lsp::LspSink;
 use crate::pathguard::canonical;
 use crate::pathguard::canonical_through_existing;
-use crate::pathguard::lexical;
 use crate::pathguard::project_entry_path;
 use crate::recovery::Action;
 use crate::recovery::RecoveryStore;
@@ -832,7 +831,8 @@ impl WorkspaceService {
                 let id = s(params, "watchId")?.to_owned();
                 // Any absolute path, as Node's `folderWatch` (`absoluteLocalPath`, then `fs.watch`): a path
                 // that does not exist fails with the text `fs.watch` gives.
-                let wanted = crate::pathguard::absolute_local_path(s(params, "path")?)?;
+                let Some(given) = params.get("path").and_then(Value::as_str) else { return Err(WsError::invalid("path must be a string.")) };
+                let wanted = crate::pathguard::absolute_local_path(given)?;
                 let path = match canonical(&wanted) {
                     Ok(path) => path,
                     Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
