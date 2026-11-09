@@ -12,6 +12,7 @@ pub mod consts;
 pub mod control;
 pub mod coordinator;
 pub mod frame;
+pub mod media;
 pub mod path;
 pub mod receiver;
 pub mod sender;
