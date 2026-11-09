@@ -9,6 +9,7 @@ import test from 'node:test';
 
 import { fileDownloadErrorReason } from '../shared/file-downloads.ts';
 import { withPhoneApi } from './test-support/phone-api-rig.mjs';
+import { wholeOutcome } from './test-support/whole-outcome.mjs';
 
 const golden = JSON.parse(readFileSync(new URL('../../../mobile/fixtures/phone-shim/golden.json', import.meta.url), 'utf8'));
 
@@ -23,14 +24,18 @@ test('a host that did not advertise fileDownloads refuses as host-too-old withou
   await withPhoneApi(handlers, async ({ ctx, api, calls }) => {
     const seen = {};
     seen.availableBeforeAdvertisement = api.fileDownloads.available();
-    seen.reasonBeforeAdvertisement = fileDownloadErrorReason(await api.fileDownloads.authorize(input.request).catch((error) => error));
+    const refusedBefore = await api.fileDownloads.authorize(input.request).catch((error) => error);
+    seen.reasonBeforeAdvertisement = fileDownloadErrorReason(refusedBefore);
+    seen.outcomeBeforeAdvertisement = wholeOutcome(refusedBefore);
     seen.sentBeforeAdvertisement = calls.length;
 
     ctx.peerFileDownloads = true;
     seen.availableAfterAdvertisement = api.fileDownloads.available();
-    seen.reasonAfterRefusal = fileDownloadErrorReason(await api.fileDownloads.authorize(input.request).catch((error) => error));
+    const refusedAfter = await api.fileDownloads.authorize(input.request).catch((error) => error);
+    seen.reasonAfterRefusal = fileDownloadErrorReason(refusedAfter);
+    seen.outcomeAfterRefusal = wholeOutcome(refusedAfter);
     seen.authorizeParams = calls.at(-1).params;
-    seen.rangeResult = await api.fileDownloads.readRange(...input.range.args);
+    seen.rangeResult = wholeOutcome(await api.fileDownloads.readRange(...input.range.args));
     seen.rangeParams = calls.at(-1).params;
 
     ctx.peerFileDownloads = undefined;

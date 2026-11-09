@@ -9,6 +9,7 @@
 //   node --import apps/desktop/scripts/test-env.mjs --import apps/desktop/scripts/test-tsx.mjs \
 //        benchmarks/rust-core/recorders/record-phone-shim.mjs --tree <git archive of b6f10295a with node_modules>
 import { join } from 'node:path';
+import { wholeOutcome } from '../../../apps/desktop/src/renderer/test-support/whole-outcome.mjs';
 import { commitStage, exactProductIdentity, importFrom, parseArgs, REPO_ROOT, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
@@ -49,7 +50,9 @@ async function downloads(input) {
     const leg = await shim.dial({ remoteParity: true, ready: publishedCeilings(4096, 4096) });
     const sentBefore = leg.ws.sent.length;
     seen.availableBeforeAdvertisement = api.fileDownloads.available();
-    seen.reasonBeforeAdvertisement = fileDownloadErrorReason(await api.fileDownloads.authorize(input.request).catch((error) => error));
+    const refusedBefore = await api.fileDownloads.authorize(input.request).catch((error) => error);
+    seen.reasonBeforeAdvertisement = fileDownloadErrorReason(refusedBefore);
+    seen.outcomeBeforeAdvertisement = wholeOutcome(refusedBefore);
     seen.sentBeforeAdvertisement = leg.ws.sent.length - sentBefore;
 
     const current = await redial(shim, { fileDownloads: true });
@@ -58,13 +61,15 @@ async function downloads(input) {
     const frame = await nextCall(current, 'fileDownloadAuthorize');
     seen.authorizeParams = frame.params;
     await current.deliver({ id: frame.id, ok: false, ...input.authorizeRefusal });
-    seen.reasonAfterRefusal = fileDownloadErrorReason(await pending);
+    const refusedAfter = await pending;
+    seen.reasonAfterRefusal = fileDownloadErrorReason(refusedAfter);
+    seen.outcomeAfterRefusal = wholeOutcome(refusedAfter);
 
     const range = api.fileDownloads.readRange(...input.range.args);
     const rangeFrame = await nextCall(current, 'fileDownloadRange');
     seen.rangeParams = rangeFrame.params;
     await current.deliver({ id: rangeFrame.id, ok: true, value: input.range.value });
-    seen.rangeResult = await range;
+    seen.rangeResult = wholeOutcome(await range);
 
     await redial(shim, {});
     seen.availableAfterOlderHost = api.fileDownloads.available();
@@ -112,13 +117,13 @@ async function grant(input, refusal) {
     const next = await Promise.race([nextCall(leg, 'resolveLocalPaths'), pending.then(() => null)]);
     if (!next) {
       const result = await pending;
-      return { resolveParams: null, retryParams: null, result: { content: result.content ?? null, code: result.code ?? null } };
+      return { resolveParams: null, retryParams: null, result: wholeOutcome(result) };
     }
     await leg.deliver({ id: next.id, ok: true, value: input.regrant });
     const retry = await nextCall(leg, 'readProjectFile');
     await leg.deliver({ id: retry.id, ok: true, value: input.retryValue });
     const result = await pending;
-    return { resolveParams: next.params, retryParams: retry.params.slice(0, 3), result: { content: result.content ?? null, code: result.code ?? null } };
+    return { resolveParams: next.params, retryParams: retry.params, result: wholeOutcome(result) };
   });
 }
 
