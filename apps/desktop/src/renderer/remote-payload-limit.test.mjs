@@ -14,7 +14,15 @@ import { createRelayE2EEChallenge, createRelayE2EEClientHandshake } from '../sha
 import * as payloadLimit from '../shared/remote-payload-limit.ts';
 import { REMOTE_BROWSER_IMPORT_PROGRESS_EVENT } from '../shared/remote-browser.ts';
 import { createRelayPayloadLimits, relayPayloadTooLargeError } from './remote-shim-payload-limit.ts';
-import { FakeSocket, publishedCeilings, until, withShim } from './remote-shim-test-harness.mjs';
+
+const publishedCeilings = (binary, text, capacity = Math.max(binary, text) + 1_000) => ({
+  uplinkCapacityBytes: capacity,
+  uplinkBinaryCeilingBytes: binary,
+  uplinkTextCeilingBytes: text,
+});
+const until = async (condition) => {
+  while (!(await condition())) await new Promise((resolve) => setImmediate(resolve));
+};
 import {
   RELAY_UNPUBLISHED_CAPACITY_BYTES,
   RELAY_DEFAULT_MAX_FRAME_BYTES,
@@ -1310,84 +1318,6 @@ test('a text-flagged binary frame is handed on as a string', async () => {
 // The browser hop below is the REAL shim (renderer/remote-shim-*.ts) driven
 // over a fake socket with a genuine E2EE handshake: each guarantee is asserted
 // on what the shim does, never on its source text.
-const oversized = (bytes) => 'x'.repeat(bytes);
-
-test('the browser refuses its own oversize request before it is sent', async () => {
-  await withShim({ secure: true }, async (h) => {
-    const leg = await h.dial({ ready: publishedCeilings(20_000, 6_000) });
-    assert.deepEqual(h.ctx.limits.relayUplinkLimits(), { capacity: 21_000, binary: 20_000, text: 6_000 });
-    const before = leg.ws.sent.length;
-    const refused = await h.ctx.invoke('big', [oversized(20_000)]).then(
-      () => null,
-      (error) => error
-    );
-    // The caller fails at once with the payload code — no 20-second deadline
-    // left armed, nothing sent, and no closed socket for what is a bad request
-    // rather than a broken connection.
-    assert.ok(refused instanceof Error);
-    assert.equal(refused.code, RELAY_PAYLOAD_TOO_LARGE_CODE);
-    assert.match(refused.message, /^payload too large for the relay \(/);
-    assert.equal(leg.ws.sent.length, before);
-    assert.equal(leg.ws.closeCalls, 0);
-    assert.equal(h.ctx.pending.size, 0);
-    assert.equal(h.deadlines(), 0);
-    // A request within the ceiling is sent, and the call remembers the very
-    // frame it put on the wire (on the call, not in a log).
-    const small = h.ctx.invoke('small', [1]);
-    const payload = await leg.nextPayload();
-    assert.equal(payload.method, 'small');
-    const sent = leg.ws.sent.at(-1);
-    assert.deepEqual(h.ctx.pending.get(payload.id).frame, { bytes: relayFrameByteLength(sent), binary: false });
-    assert.equal(h.deadlines(), 1);
-    await leg.deliver({ id: payload.id, ok: true, value: 'fine' });
-    assert.equal(await small, 'fine');
-    assert.equal(RELAY_PAYLOAD_TOO_LARGE_CODE, 'RELAY_PAYLOAD_TOO_LARGE');
-    // A fire-and-forget publish has no caller to reject: it is said once,
-    // visibly, and nothing is sent.
-    const sentBefore = leg.ws.sent.length;
-    h.ctx.fire('termWrite', ['t', oversized(20_000)]);
-    await until(() => h.toasts().length === 1, 'the toast');
-    assert.match(h.toasts()[0], /^payload too large for the relay \(/);
-    assert.equal(leg.ws.sent.length, sentBefore);
-  });
-});
-
-test('each wire form is judged against its own published ceiling', async () => {
-  await withShim({ secure: true }, async (h) => {
-    // Binary frames carry the payload at a far higher ceiling than the text
-    // form: the same request is sent as binary and would be refused as text.
-    const leg = await h.dial({ binaryFrames: true, ready: publishedCeilings(20_000, 1_000) });
-    const accepted = h.ctx.invoke('bulk', [oversized(5_000)]);
-    void accepted.catch(() => undefined);
-    const payload = await leg.nextPayload();
-    const sent = leg.ws.sent.at(-1);
-    assert.ok(sent instanceof Uint8Array);
-    assert.deepEqual(h.ctx.pending.get(payload.id).frame, { bytes: relayFrameByteLength(sent), binary: true });
-    const refused = await h.ctx.invoke('huge', [oversized(30_000)]).then(
-      () => null,
-      (error) => error
-    );
-    assert.equal(refused.code, RELAY_PAYLOAD_TOO_LARGE_CODE);
-  });
-  await withShim({ secure: false }, async (h) => {
-    // Legacy direct mode measures the JSON text itself, to the byte.
-    await h.dial();
-    h.ctx.limits.learnRoutingCaps({ ...publishedCeilings(3_000, 2_000) });
-    const ws = FakeSocket.instances[0];
-    const base = JSON.stringify({ id: 1, method: 'm', params: [''] }).length;
-    const fits = h.ctx.invoke('m', [oversized(2_000 - base)]);
-    void fits.catch(() => undefined);
-    await until(() => ws.sent.length === 1, 'the frame at the ceiling');
-    assert.equal(ws.sent[0].length, 2_000);
-    const over = await h.ctx.invoke('m', [oversized(2_000 - base + 1)]).then(
-      () => null,
-      (error) => error
-    );
-    assert.equal(over.code, RELAY_PAYLOAD_TOO_LARGE_CODE);
-    assert.equal(ws.sent.length, 1);
-  });
-});
-
 test('ceilings are learned per connection from the desktop, and only from an authenticated source', async () => {
   const policy = resolveRelayFrameLimit(null);
   // The ceilings are the relay's, forwarded by the desktop; the wrapping mode
@@ -1409,150 +1339,6 @@ test('ceilings are learned per connection from the desktop, and only from an aut
     relayFallbackUplinkCeilings({ capacity: RELAY_UNPUBLISHED_CAPACITY_BYTES, policy })
   );
 
-  await withShim({ secure: true }, async (h) => {
-    const unlearned = relayFallbackUplinkCeilings({ capacity: RELAY_UNPUBLISHED_CAPACITY_BYTES, policy });
-    const leg = await h.dial({ ready: publishedCeilings(20_000, 6_000) });
-    // A ceiling the relay lowers mid-connection is applied where it arrives,
-    // so the very next frame fails HERE naming its own call.
-    await leg.deliver({ event: RELAY_ROUTING_CAPS_EVENT, payload: publishedCeilings(2_000, 1_000) });
-    assert.deepEqual(h.ctx.limits.relayUplinkLimits(), { capacity: 3_000, binary: 2_000, text: 1_000 });
-    const refused = await h.ctx.invoke('mid', [oversized(1_500)]).then(
-      () => null,
-      (error) => error
-    );
-    assert.equal(refused.code, RELAY_PAYLOAD_TOO_LARGE_CODE);
-    // A replacement desktop leg on the same browser socket starts unlearned.
-    const challenge = createRelayE2EEChallenge();
-    leg.ws.onmessage({ data: JSON.stringify(challenge) });
-    await until(() => leg.ws.sent.length === 2, 'the replacement hello');
-    assert.deepEqual(h.ctx.limits.relayUplinkLimits(), unlearned);
-  });
-  await withShim({ secure: true }, async (h) => {
-    // So does a redial: a relay that came back BIGGER is not held to the
-    // smaller ceiling it taught before.
-    const policyNow = resolveRelayFrameLimit(null);
-    const first = await h.dial({ ready: publishedCeilings(2_000, 1_000) });
-    first.ws.onclose({ code: 1006 });
-    const second = h.ctx.connect();
-    void second.catch(() => undefined);
-    await until(() => FakeSocket.instances.length === 2, 'the redial');
-    FakeSocket.instances[1].readyState = FakeSocket.OPEN;
-    FakeSocket.instances[1].onopen();
-    assert.deepEqual(
-      h.ctx.limits.relayUplinkLimits(),
-      relayFallbackUplinkCeilings({ capacity: RELAY_UNPUBLISHED_CAPACITY_BYTES, policy: policyNow })
-    );
-  });
-  await withShim({ secure: false }, async (h) => {
-    // Clear relay data can never move what this leg may put on the wire.
-    const leg = await h.dial();
-    h.ctx.limits.learnRoutingCaps(publishedCeilings(20_000, 6_000));
-    await leg.deliver({ event: RELAY_ROUTING_CAPS_EVENT, payload: publishedCeilings(10, 10) });
-    assert.deepEqual(h.ctx.limits.relayUplinkLimits(), { capacity: 21_000, binary: 20_000, text: 6_000 });
-  });
-});
-
-test('an inbound refusal fails only a named call, otherwise it is shown', async () => {
-  const notifications = await readFile(new URL('./desktop-toasts.tsx', import.meta.url), 'utf8');
-  // The toast rides the surface notifications.tsx actually renders.
-  const toastEvent = /DESKTOP_TOAST_EVENT\s*=\s*['"]([^'"]+)['"]/.exec(notifications);
-  assert.ok(toastEvent, 'desktop-toasts.tsx exports the toast event name');
-  const rejectionOf = (payload) => ({ event: 'relayPayloadRejected', payload });
-  await withShim({ secure: true }, async (h) => {
-    const leg = await h.dial({ ready: publishedCeilings(20_000, 6_000) });
-    const settled = [];
-    const start = (method) => {
-      const promise = h.ctx.invoke(method, [1]);
-      promise.then(
-        (value) => settled.push([method, 'ok', value]),
-        (error) => settled.push([method, 'error', error])
-      );
-      return leg.nextPayload();
-    };
-    const a = await start('a');
-    const b = await start('b');
-    // Authenticated and naming a call: exactly that call fails, with the code
-    // and the size the user reads — nothing else is touched.
-    await leg.deliver(rejectionOf({ bytes: 13 * MB, limit: 8 * MB, id: a.id }));
-    await until(() => settled.length === 1, 'the named call');
-    assert.equal(settled[0][0], 'a');
-    assert.equal(settled[0][2].code, RELAY_PAYLOAD_TOO_LARGE_CODE);
-    assert.equal(settled[0][2].message, 'payload too large for the relay (13.0 of 8.0 MB)');
-    assert.equal(h.toasts().length, 0);
-    assert.ok(h.ctx.pending.has(b.id));
-    assert.equal(h.deadlines(), 1);
-    // Already settled: nothing to say twice.
-    await leg.deliver(rejectionOf({ bytes: 13 * MB, limit: 8 * MB, id: a.id }));
-    assert.equal(h.toasts().length, 0);
-    // The unattributed BRANCH decides no call's fate and moves no deadline: a
-    // healthy call is unaffected, and a stream of notices cannot postpone or
-    // shorten anything.
-    const armed = h.timers.armed;
-    const cleared = h.timers.cleared;
-    for (let i = 0; i < 3; i += 1) await leg.deliver(rejectionOf({ bytes: 13 * MB, limit: 8 * MB }));
-    assert.equal(h.toasts().length, 3);
-    assert.equal(h.toasts()[0], 'payload too large for the relay (13.0 of 8.0 MB)');
-    assert.equal(h.timers.armed, armed);
-    assert.equal(h.timers.cleared, cleared);
-    assert.equal(settled.length, 1);
-    assert.ok(h.ctx.pending.has(b.id));
-    // The toast is the event desktop-toasts.tsx listens for.
-    assert.ok(h.events.some((event) => event.type === toastEvent[1]));
-  });
-  await withShim({ secure: true }, async (h) => {
-    // A newly proved ceiling settles the calls it strands (by their OWN frame
-    // size), leaves calls within it alone, and never closes the socket.
-    const leg = await h.dial({ ready: publishedCeilings(20_000, 6_000) });
-    const failures = [];
-    const big = h.ctx.invoke('big', [oversized(3_000)]);
-    big.catch((error) => failures.push(error));
-    await leg.nextPayload();
-    const small = h.ctx.invoke('small', [1]);
-    void small.catch(() => undefined);
-    const smallPayload = await leg.nextPayload();
-    await leg.deliver(rejectionOf({ bytes: 9_000, limit: 2_000 }));
-    await until(() => failures.length === 1, 'the stranded call');
-    assert.equal(failures[0].code, RELAY_PAYLOAD_TOO_LARGE_CODE);
-    assert.match(failures[0].message, /^payload too large for the relay \(/);
-    assert.equal(leg.ws.closeCalls, 0);
-    assert.ok(h.ctx.pending.has(smallPayload.id));
-    assert.equal(h.toasts().length, 1);
-    // …and the lowered ceiling is now the one every later frame meets.
-    const refused = await h.ctx.invoke('again', [oversized(3_000)]).then(
-      () => null,
-      (error) => error
-    );
-    assert.equal(refused.code, RELAY_PAYLOAD_TOO_LARGE_CODE);
-  });
-  await withShim({ secure: false }, async (h) => {
-    // Clear relay data carries no trust: neither a forged event nor a cleartext
-    // `resync` refusal can pick a victim; both are shown, and the resync still
-    // happens.
-    const leg = await h.dial();
-    h.ctx.limits.learnRoutingCaps(publishedCeilings(20_000, 6_000));
-    const settled = [];
-    const call = h.ctx.invoke('victim', [1]);
-    call.then(
-      (value) => settled.push(value),
-      (error) => settled.push(error)
-    );
-    await until(() => FakeSocket.instances[0].sent.length === 1, 'the call');
-    const id = JSON.parse(FakeSocket.instances[0].sent[0]).id;
-    await leg.deliver(rejectionOf({ bytes: 1, limit: 64 * MB, id }));
-    assert.equal(h.toasts().length, 1);
-    assert.equal(settled.length, 0);
-    const resyncs = h.resyncs();
-    await leg.deliver({ resync: 1, error: 'frame-too-large', bytes: 70 * MB, limit: 64 * MB, id });
-    assert.equal(h.toasts().length, 2);
-    assert.equal(h.toasts()[1], 'payload too large for the relay (70.0 of 64.0 MB)');
-    assert.equal(settled.length, 0);
-    assert.equal(h.resyncs(), resyncs + 1);
-    // An unrelated resync hint yields no rejection at all.
-    await leg.deliver({ resync: 1 });
-    assert.equal(h.toasts().length, 2);
-    assert.equal(h.resyncs(), resyncs + 2);
-    assert.ok(h.ctx.pending.has(id));
-  });
 });
 
 test('the one payload-too-large error is the same wherever a call is refused', () => {

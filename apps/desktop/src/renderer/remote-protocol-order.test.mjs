@@ -43,7 +43,7 @@ for (const [scenario, recordedSteps] of Object.entries(orderScenarios)) for (con
     };
     // The core: a call of the files adapter reaches it under a protocol method name; it is the Node call by that name.
     const host = { ctx: {}, client: () => ({ call: async (method) => (await ran(coreMethods[method])(), {}) }), declareLane() {} };
-    const router = createProtocolRouter([filesAdapter, chat], { host, started: () => ready.promise, synced: () => ready.promise, probe() {} });
+    const router = createProtocolRouter([filesAdapter, chat], { host, started: () => ready.promise, synced: () => ready.promise, probe() {}, silentSince: () => false });
     const trace = await play(steps, {
       begin: (given) => (hooks = given),
       send: (name) => router.call(orderCalls[name].method, orderCalls[name].params),
