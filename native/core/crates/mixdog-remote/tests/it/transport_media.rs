@@ -22,6 +22,7 @@ use serde_json::Value;
 use serde_json::json;
 use sha2::Digest;
 use sha2::Sha256;
+use tokio::sync::Notify;
 use tokio::sync::oneshot;
 
 const RECORDED: &str = include_str!("../../../../fixtures/remote-transport-media/scenarios.json");
@@ -47,7 +48,12 @@ fn asset(id: &str) -> Option<(u64, &'static str, Option<&'static str>, Option<&'
     })
 }
 
-type Gate = Arc<Mutex<VecDeque<oneshot::Sender<()>>>>;
+/// The reads the leases keep pending, and the notice (shared with the link's held sends) that one more is.
+#[derive(Clone, Default)]
+struct Gate {
+    held: Arc<Mutex<VecDeque<oneshot::Sender<()>>>>,
+    changed: Arc<Notify>,
+}
 
 struct Leases {
     gate: Gate,
@@ -84,7 +90,8 @@ impl ByteSource for Lease {
         let (_, _, _, failure, after, held) = asset(&self.id).expect("a known asset");
         if held {
             let (tx, rx) = oneshot::channel();
-            self.gate.lock().unwrap().push_back(tx);
+            self.gate.held.lock().unwrap().push_back(tx);
+            self.gate.changed.notify_waiters();
             let _ = rx.await;
         }
         match failure {
@@ -126,6 +133,8 @@ struct LinkState {
     queue: VecDeque<Send>,
     held: VecDeque<oneshot::Sender<Result<bool, ()>>>,
     effects: Vec<Value>,
+    /// Notified when a send is kept pending: the gate's, so one wait covers sends and reads.
+    changed: Arc<Notify>,
 }
 
 struct LinkFake {
@@ -154,7 +163,12 @@ impl MediaLink for LinkFake {
             Send::Reject => Err(()),
             Send::Held => {
                 let (tx, rx) = oneshot::channel();
-                self.state.lock().unwrap().held.push_back(tx);
+                let changed = {
+                    let mut state = self.state.lock().unwrap();
+                    state.held.push_back(tx);
+                    state.changed.clone()
+                };
+                changed.notify_waiters();
                 rx.await.unwrap_or(Err(()))
             }
         }
@@ -165,11 +179,10 @@ impl MediaLink for LinkFake {
     }
 }
 
-/// Returns once every task the adapter spawned has run as far as it can: each has ended or is parked on a future the test's fakes
-/// hold (a held send, a held read) or on the adapter's own wake. The runtime on a paused clock advances time only when it has nothing
-/// ready to run, so this timer ends at exactly that point, whatever the number of wake-ups; its length is never reached by waiting.
-async fn settle() {
-    tokio::time::sleep(std::time::Duration::from_secs(u64::from(u32::MAX))).await;
+/// Returns once the adapter says every pump it runs has ended, is parked for room, or waits on a send or read this test keeps
+/// pending: the adapter's own resting-point events, not a clock or a count of yields.
+async fn settle(adapter: &TransportMedia<LinkFake>, state: &Arc<Mutex<LinkState>>, gate: &Gate) {
+    adapter.settled(|| state.lock().unwrap().held.len() + gate.held.lock().unwrap().len(), &gate.changed).await;
 }
 
 /// One sealed message as the recording shows it: a frame replaced by what it decrypts to, which
@@ -206,7 +219,7 @@ fn describe(actual: &Value, recorded: &Value, requests: &HashMap<String, Value>)
     json!({ "e": "send", "stream": actual["stream"], "message": { "type": message["type"], "op": "chunk", "id": id, "frame": shown } })
 }
 
-#[tokio::test(flavor = "current_thread", start_paused = true)]
+#[tokio::test(flavor = "current_thread")]
 async fn the_adapter_seals_what_node_sealed_over_every_recorded_scenario() {
     let recorded: Value = serde_json::from_str(RECORDED).expect("the recording is JSON");
     let scenarios = recorded["scenarios"].as_array().expect("scenarios");
@@ -215,6 +228,7 @@ async fn the_adapter_seals_what_node_sealed_over_every_recorded_scenario() {
     for scenario in scenarios {
         let name = scenario["name"].as_str().expect("name");
         let options = &scenario["options"];
+        let gate = Gate::default();
         let state = Arc::new(Mutex::new(LinkState {
             room: HashMap::new(),
             default_room: options["room"] != false,
@@ -222,8 +236,8 @@ async fn the_adapter_seals_what_node_sealed_over_every_recorded_scenario() {
             queue: VecDeque::new(),
             held: VecDeque::new(),
             effects: Vec::new(),
+            changed: gate.changed.clone(),
         }));
-        let gate: Gate = Arc::new(Mutex::new(VecDeque::new()));
         let sources = Arc::new(Leases { gate: gate.clone(), counts: Arc::new(Mutex::new(HashMap::new())) });
         let key = (options["mediaKey"] != false).then_some(KEY);
         let device = match &options["device"] {
@@ -278,7 +292,7 @@ async fn the_adapter_seals_what_node_sealed_over_every_recorded_scenario() {
                 }
                 "release-read" => {
                     for _ in 0..step["count"].as_u64().expect("count") {
-                        if let Some(pending) = gate.lock().unwrap().pop_front() {
+                        if let Some(pending) = gate.held.lock().unwrap().pop_front() {
                             let _ = pending.send(());
                         }
                     }
@@ -286,7 +300,7 @@ async fn the_adapter_seals_what_node_sealed_over_every_recorded_scenario() {
                 "close" => adapter.close(),
                 other => panic!("an op: {other}"),
             }
-            settle().await;
+            settle(&adapter, &state, &gate).await;
             let actual = state.lock().unwrap().effects.clone();
             let recorded_effects = step["effects"].as_array().expect("effects");
             let described: Vec<Value> = actual
@@ -306,8 +320,9 @@ async fn the_adapter_seals_what_node_sealed_over_every_recorded_scenario() {
 /// Two requests past the stream limit arrive before the refusal pump has run, and the first error's
 /// send is still pending: the queue head is sealed once. (Node claims the pump synchronously, so the
 /// second request finds `refusing` set.)
-#[tokio::test(flavor = "current_thread", start_paused = true)]
+#[tokio::test(flavor = "current_thread")]
 async fn two_overflows_before_the_pump_runs_seal_the_head_refusal_once() {
+    let gate = Gate::default();
     let state = Arc::new(Mutex::new(LinkState {
         room: HashMap::new(),
         default_room: true,
@@ -315,16 +330,16 @@ async fn two_overflows_before_the_pump_runs_seal_the_head_refusal_once() {
         queue: VecDeque::new(),
         held: VecDeque::new(),
         effects: Vec::new(),
+        changed: gate.changed.clone(),
     }));
-    let gate: Gate = Arc::new(Mutex::new(VecDeque::new()));
-    let sources = Arc::new(Leases { gate, counts: Arc::new(Mutex::new(HashMap::new())) });
+    let sources = Arc::new(Leases { gate: gate.clone(), counts: Arc::new(Mutex::new(HashMap::new())) });
     let adapter = TransportMedia::new(Arc::new(LinkFake { state: state.clone() }), sources, Some(KEY), Some(DEVICE.to_owned()));
     let request = |n: u32| json!({ "type": "transport-media", "op": "request", "id": format!("m{n}"), "assetId": "dddddddd-0001", "variant": "download", "range": "", "enc": "e2ee1" });
     // 32 streams fill the limit; m33 and m34 are refused, with no await between them.
     for n in 1..=34 {
         assert!(adapter.receive(&request(n)));
     }
-    settle().await;
+    settle(&adapter, &state, &gate).await;
     let errors: Vec<Value> = state.lock().unwrap().effects.iter().filter(|e| e["message"]["op"] == "error").map(|e| e["message"]["id"].clone()).collect();
     assert_eq!(errors, vec![json!("m33")], "the head refusal is sealed by one pump");
 }

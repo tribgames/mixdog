@@ -21,6 +21,7 @@ use std::sync::atomic::Ordering;
 use async_trait::async_trait;
 use base64::Engine;
 use serde_json::Value;
+use tokio::sync::Notify;
 use tokio::sync::watch;
 
 use super::consts::MAX_MEDIA_STREAMS;
@@ -51,11 +52,13 @@ struct Stream {
     id: String,
     aborted: AtomicBool,
     wake: watch::Sender<u64>,
+    /// Set while this stream's pump waits in [`Inner::changed`] for room or an abort; cleared by whoever wakes it.
+    parked: AtomicBool,
 }
 
 impl Stream {
     fn new(id: &str) -> Arc<Self> {
-        Arc::new(Self { id: id.to_owned(), aborted: AtomicBool::new(false), wake: watch::channel(0).0 })
+        Arc::new(Self { id: id.to_owned(), aborted: AtomicBool::new(false), wake: watch::channel(0).0, parked: AtomicBool::new(false) })
     }
 
     fn is_aborted(&self) -> bool {
@@ -63,6 +66,7 @@ impl Stream {
     }
 
     fn wake(&self) {
+        self.parked.store(false, Ordering::Release);
         self.wake.send_modify(|epoch| *epoch += 1);
     }
 }
@@ -88,6 +92,8 @@ struct Inner<L: MediaLink> {
     /// Counts writable notifications. A waiter compares it with the value it saw before its
     /// admission check or send, so a notification that came in between is never slept through.
     generation: AtomicU64,
+    /// Notified whenever a pump reaches a resting point: it parks, or it ends. See [`TransportMedia::settled`].
+    activity: Notify,
 }
 
 pub struct TransportMedia<L: MediaLink> {
@@ -118,7 +124,10 @@ impl<L: MediaLink> Inner<L> {
         if stream.is_aborted() || self.generation() != seen {
             return;
         }
+        stream.parked.store(true, Ordering::Release);
+        self.activity.notify_waiters();
         let _ = wake.changed().await;
+        stream.parked.store(false, Ordering::Release);
     }
 
     fn abort(stream: &Stream) {
@@ -174,6 +183,8 @@ impl<L: MediaLink> Inner<L> {
                     _ => {
                         // Cleared with the check that ends the loop, so a refusal queued after it starts a pump.
                         state.refusing = false;
+                        drop(state);
+                        self.activity.notify_waiters();
                         return;
                     }
                 }
@@ -183,6 +194,7 @@ impl<L: MediaLink> Inner<L> {
                 Ok(sent) => sent,
                 Err(()) => {
                     self.state().refusing = false;
+                    self.activity.notify_waiters();
                     return;
                 }
             };
@@ -259,6 +271,7 @@ impl<L: MediaLink> TransportMedia<L> {
                 state: Mutex::new(State::default()),
                 refuser: Stream::new(""),
                 generation: AtomicU64::new(0),
+                activity: Notify::new(),
             }),
         }
     }
@@ -333,6 +346,8 @@ impl<L: MediaLink> TransportMedia<L> {
             if state.streams.get(&id).is_some_and(|current| Arc::ptr_eq(current, &stream)) {
                 state.streams.remove(&id);
             }
+            drop(state);
+            inner.activity.notify_waiters();
         });
         true
     }
@@ -351,6 +366,33 @@ impl<L: MediaLink> TransportMedia<L> {
     /// The session ended: every pump stops; nothing more is sent.
     pub fn close(&self) {
         self.inner.close();
+    }
+
+    /// Pumps that are neither parked for room nor ended: running, or waiting on something outside the adapter (a send, a read).
+    pub fn busy(&self) -> usize {
+        let state = self.inner.state();
+        let streams = state.streams.values().filter(|stream| !stream.parked.load(Ordering::Acquire)).count();
+        streams + usize::from(state.refusing && !self.inner.refuser.parked.load(Ordering::Acquire))
+    }
+
+    /// Resolves once every pump has reached a resting point: it ended, is parked for room, or waits on one of the `held` things
+    /// outside the adapter (sends and reads the caller keeps pending; `external` is notified when that count grows). A pump leaves
+    /// motion only by parking or ending, and each announces it, so this needs no clock and no count of wake-ups.
+    pub async fn settled(&self, held: impl Fn() -> usize, external: &Notify) {
+        loop {
+            let mine = self.inner.activity.notified();
+            let theirs = external.notified();
+            tokio::pin!(mine, theirs);
+            mine.as_mut().enable();
+            theirs.as_mut().enable();
+            if self.busy() == held() {
+                return;
+            }
+            tokio::select! {
+                () = &mut mine => {}
+                () = &mut theirs => {}
+            }
+        }
     }
 
     /// Running pumps (at most [`MAX_MEDIA_STREAMS`]).
