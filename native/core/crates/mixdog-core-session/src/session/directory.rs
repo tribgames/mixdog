@@ -1623,7 +1623,7 @@ impl ThreadDirectory for SessionDirectory {
                 }
                 let mut result = json!({ "thread": handle.cell.view.load_full().summary });
                 if let Some(input) = params.initial_input {
-                    let turn = handle
+                    let started = handle
                         .request(CoreRequest {
                             method: Method("turn/start"),
                             params: json!({
@@ -1634,7 +1634,12 @@ impl ThreadDirectory for SessionDirectory {
                             op: req.op.as_ref().map(|op| OpId::from(format!("{op}:turn"))),
                             ctx: req.ctx.clone(),
                         })
-                        .await?;
+                        .await;
+                    // A first prompt the session refuses leaves no thread behind.
+                    if matches!(&started, Err(CoreError::DomainError { code: Some(code), .. }) if code.as_ref() == super::actor::SUBMIT_REFUSED) {
+                        let _ = super::delete::delete_session(&self.inner, handle.id.as_str(), None).await;
+                    }
+                    let turn = started?;
                     if let Reply::Value(turn) = turn {
                         result["turn"] = turn;
                     }

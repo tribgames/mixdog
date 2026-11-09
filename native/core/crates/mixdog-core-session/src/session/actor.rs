@@ -425,6 +425,40 @@ pub(crate) enum Init {
     Open { fenced: Vec<String> },
 }
 
+/// `SUBMISSION_ID_MEMORY` (`session-flow/queue.mjs`).
+const SUBMISSION_MEMORY: usize = 256;
+
+/// The submission ids the thread took and the answer each got, oldest first.
+#[derive(Default)]
+struct Submissions {
+    order: std::collections::VecDeque<String>,
+    answers: std::collections::HashMap<String, Value>,
+}
+
+impl Submissions {
+    fn remember(&mut self, id: &str, answer: Value) {
+        if self.answers.insert(id.to_owned(), answer).is_none() {
+            self.order.push_back(id.to_owned());
+        }
+        while self.order.len() > SUBMISSION_MEMORY {
+            if let Some(oldest) = self.order.pop_front() {
+                self.answers.remove(&oldest);
+            }
+        }
+    }
+
+    fn forget(&mut self, id: &str) {
+        if self.answers.remove(id).is_some() {
+            self.order.retain(|kept| kept != id);
+        }
+    }
+}
+
+/// The trimmed `clientSubmissionId` of a start, if it names one.
+fn submission_id(input: &TurnInput) -> Option<&str> {
+    input.options.as_ref().and_then(|options| options.client_submission_id.as_deref()).map(mixdog_js::js_trim).filter(|id| !id.is_empty())
+}
+
 /// The sender of a user prompt (`transcriptMeta.device`, `options.restorable`).
 #[derive(Clone, Debug, PartialEq)]
 struct Submitter {
@@ -595,6 +629,9 @@ pub(crate) struct SessionActor {
     /// Who sent the prompt the next run starts on: its device, and whether the composer may take it back. Set where the
     /// prompt is admitted (`turn/start`, a queued entry that starts), read when the run's input row is built.
     submitter: Option<Submitter>,
+    /// `createSubmissionMemory`: the answers of the last submissions by `clientSubmissionId`, so a retried send joins the
+    /// original instead of posting the prompt twice. Memory only, as in Node.
+    submissions: Submissions,
     /// A dequeued Goal entry waits on `shouldRunGoalContinuation`: no other turn starts.
     goal_checking: bool,
     /// When a thread nobody ever watched, quiet since, is unloaded (Node's `idleEvictMs` deadline
@@ -911,6 +948,7 @@ impl SessionActor {
             agent_done: None,
             starting: false,
             submitter: None,
+            submissions: Submissions::default(),
             goal_checking: false,
             idle_evict_at: None,
             goal_deferred: false,
@@ -2077,6 +2115,21 @@ impl SessionActor {
     }
 
     fn fail_entry(&mut self, entry: Entry, error: &CoreError) {
+        // A queued prompt whose record was not stored is removed and its id forgotten, and the sender hears a refusal
+        // (`drain-enqueue.mjs:64`, a failed durable mirror), so a retry is a new submission.
+        let mut refused = None;
+        if let Change::Record { record, .. } = &entry.change
+            && let Record::Queue(queue) = &**record
+            && queue.action == QueueAction::Enqueue
+        {
+            if let Some(Slot::Inline(queued)) = &queue.entry
+                && let Some(submission) = queued.pointer("/options/clientSubmissionId").and_then(Value::as_str)
+            {
+                self.submissions.forget(mixdog_js::js_trim(submission));
+            }
+            refused = Some(coded("session", SUBMIT_REFUSED, "The message could not be saved, so it was not sent."));
+        }
+        let error = refused.as_ref().unwrap_or(error);
         for effect in entry.effects {
             match effect {
                 Effect::Reply { op, tx, .. } => {
@@ -2661,6 +2714,20 @@ impl SessionActor {
     /// `thread/promptRestore` (the canceller's reply never carries it).
     fn apply_reclaim(&mut self, reclaim: &super::stop::Reclaim) {
         self.accept_view(Change::PromptWithout(reclaim.text.clone()), Vec::new());
+        // The prompt's row, and every row after it, leave the transcript (`reclaimInFlightPrompt` removes the turn's prompt),
+        // by the thread's own rewind as `PromptRewound` does.
+        let window = &self.acked.window;
+        if let Some((index, ordinal)) = window.iter().rposition(|row| row.prompt.as_deref().map(str::trim) == Some(reclaim.text.as_str())).and_then(|index| Some((index, window[index].ordinal?))) {
+            let previous = index.checked_sub(1).map(|i| window[i].item.id().clone());
+            let record = Record::Rewind(RewindRecord { to_ordinal: ordinal, reason: RewindReason::Rewind, op: None });
+            self.transcript_rewritten = true;
+            self.deps.side.forget(&self.id, false);
+            let note = self.history_reset(HistoryResetReason::Rewind, previous);
+            self.accept_record(record, Class::Normal, Display::None, vec![note], Vec::new());
+            if let Some(reset) = self.provider_state_change(None) {
+                self.accept_record(reset, Class::Normal, Display::None, Vec::new(), Vec::new());
+            }
+        }
         if let Some(device) = &reclaim.handoff {
             let at = self.deps.clock.now_ms();
             let restore = PromptRestore { id: format!("restore-{at}-{}", reclaim.ids.join(",")), ids: reclaim.ids.clone(), text: reclaim.text.clone(), device: device.clone(), at };
@@ -4024,6 +4091,15 @@ impl SessionActor {
                 return Ok(());
             }
         }
+        // A retried submission joins the original (`drain-enqueue.mjs:37`): an idempotent success, not a second prompt.
+        if req.method.as_str() == "turn/start"
+            && let Ok(params) = parse::<TurnStartParams>(&req.params, "TurnStartParams")
+            && display_text(&params.input) != ""
+            && let Some(answer) = submission_id(&params.input).and_then(|id| self.submissions.answers.get(id))
+        {
+            let _ = tx.send(Ok(Reply::Value(answer.clone())));
+            return Ok(());
+        }
         let result = match req.method.as_str() {
             "turn/start" => self.turn_start(&req),
             "thread/queue/delete" => self.queue_delete(&req),
@@ -4087,8 +4163,12 @@ impl SessionActor {
         }
         // `submission` (`submission.mjs:10`): a prompt that shows nothing is not a submission. Node answers `false`
         // before the session is touched; the wire answers a refusal with this code.
-        if display_text(&params.input).is_empty() {
+        if user_prompt.is_some() && display_text(&params.input).is_empty() {
             return Err(coded("session", SUBMIT_REFUSED, "The message is empty."));
+        }
+        // A deleted bot's chat is kept to read, never to talk to (`submitToSession`).
+        if self.projected.header.get("retired").and_then(Value::as_bool) == Some(true) {
+            return Err(coded("session", SUBMIT_REFUSED, "This bot was deleted."));
         }
         // The device that sent a user prompt rides it (`transcriptMeta.device`, stamped by the host in Node).
         let submitter = match req.ctx.caller {
@@ -4123,6 +4203,9 @@ impl SessionActor {
         }
         let qid = new_id();
         let value = json!({ "kind": "queued", "queuedId": qid });
+        if let Some(submission) = submission_id(&params.input) {
+            self.submissions.remember(submission, value.clone());
+        }
         let mut entry = json!({
             "message": params.input.prompt,
             "enqueuedAt": self.deps.clock.now_ms(),
@@ -4891,6 +4974,9 @@ impl SessionActor {
         let turn = TurnId::from(new_id());
         let mut op_ref = op_ref;
         let value = json!({ "kind": "started", "turnId": turn });
+        if let Some(submission) = submission_id(&input) {
+            self.submissions.remember(submission, value.clone());
+        }
         if let Some(op) = &mut op_ref {
             op.result = Json::try_from(value.clone()).ok();
         }

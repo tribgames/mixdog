@@ -182,7 +182,7 @@ pub(crate) fn echo() -> Script {
 }
 
 /// `(role, text)` of the acked view's items.
-fn rows(handle: &SessionHandle) -> Vec<(&'static str, String)> {
+pub(crate) fn rows(handle: &SessionHandle) -> Vec<(&'static str, String)> {
     handle
         .cell
         .view

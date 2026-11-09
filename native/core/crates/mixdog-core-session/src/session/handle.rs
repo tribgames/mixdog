@@ -249,7 +249,18 @@ impl SessionHandle {
         let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
         // A turn is a session's first use (`createCurrentSession('turn')`, `turn-prepare.mjs`).
         self.create_session().await?;
-        let _admitted = directory.gate().enter(&self.id).ok_or_else(|| self.closing())?;
+        // A closed session takes nothing (`drain-enqueue.mjs:27`): Node answers a refused submit `false`.
+        let _admitted = directory
+            .gate()
+            .enter(&self.id)
+            .ok_or_else(|| {
+                // Only a closed session is a refused submit; one fenced by an idle delete stays `threadClosing`.
+                if self.cell.closed.load(std::sync::atomic::Ordering::SeqCst) {
+                    mixdog_core_base::support::coded("session", super::actor::SUBMIT_REFUSED, "The session is closed.")
+                } else {
+                    self.closing()
+                }
+            })?;
         let cancel = req.ctx.cancel.clone();
         let in_order = self.submits.enter(&cancel).await.map_err(caller_cancelled)?;
         let named = super::staged_originals::named_originals(&req.params);
