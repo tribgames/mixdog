@@ -84,6 +84,41 @@ pub(crate) struct Normalized {
     pub text: String,
 }
 
+/// The names and aliases of the registered slash commands (`SLASH_COMMANDS`, `tui/app/slash-commands.mjs`).
+const SLASH_TOKENS: &[&str] = &[
+    "clear", "new", "project", "projects", "compact", "btw", "goal", "autoclear", "resume", "context", "shells", "stop",
+    "fork", "inherit", "usage", "model", "websearch", "workflow", "outputstyle", "output-style", "style", "theme",
+    "agents", "effort", "fast", "mcp", "skills", "memory", "plugins", "providers", "settings", "setting", "config",
+    "profile", "update", "doctor", "quit", "exit", "q",
+];
+
+/// `isSlashQueuedEntry` (`queue-helpers.mjs`): the entry is not marked `skipSlashCommands` (JS truthiness) and its
+/// text (`content ?? text`, a queued prompt's `message` here) begins with `/` and a registered command or alias
+/// (`recognisedSlashToken`: `/^\s*\/(\S+)/`, lower-cased).
+pub(crate) fn is_slash_entry(entry: &Value) -> bool {
+    let skipped = match entry.get("skipSlashCommands") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(flag)) => *flag,
+        Some(Value::Number(n)) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
+        Some(Value::String(text)) => !text.is_empty(),
+        Some(_) => true,
+    };
+    if skipped {
+        return false;
+    }
+    let content = ["content", "message", "text"]
+        .iter()
+        .find_map(|key| entry.get(*key).filter(|value| !value.is_null()))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let text = content_text(&content);
+    let Some(rest) = mixdog_js::js_trim_start(&text).strip_prefix('/') else {
+        return false;
+    };
+    let token = rest.split(mixdog_js::is_js_space).next().unwrap_or_default();
+    !token.is_empty() && SLASH_TOKENS.contains(&mixdog_js::js_to_lowercase(token).as_str())
+}
+
 /// `promptContentText`.
 fn content_text(content: &Value) -> String {
     match content {
@@ -94,6 +129,7 @@ fn content_text(content: &Value) -> String {
                 Value::String(text) => text.clone(),
                 _ => match part.get("type").and_then(Value::as_str) {
                     Some("image") => "[Image]".to_owned(),
+                    Some("file") => "[File]".to_owned(),
                     _ => part.get("text").and_then(Value::as_str).unwrap_or_default().to_owned(),
                 },
             })

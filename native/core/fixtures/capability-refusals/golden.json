@@ -34,6 +34,7 @@
       "name": "nothing is queued",
       "busy": false,
       "queued": [],
+      "entries": {},
       "selectedId": "q1",
       "reply": {
         "count": 0,
@@ -52,6 +53,7 @@
         "q1",
         "q2"
       ],
+      "entries": {},
       "selectedId": "q9",
       "reply": {
         "count": 0,
@@ -78,6 +80,7 @@
       "queued": [
         "q1"
       ],
+      "entries": {},
       "selectedId": "",
       "reply": {
         "count": 0,
@@ -100,6 +103,7 @@
       "queued": [
         "q1"
       ],
+      "entries": {},
       "selectedId": "q1",
       "reply": {
         "count": 1,
@@ -128,6 +132,7 @@
         "q2",
         "q3"
       ],
+      "entries": {},
       "selectedId": "q2",
       "reply": {
         "count": 1,
@@ -164,11 +169,577 @@
           "priority": "next"
         }
       ]
+    },
+    {
+      "name": "a registered slash command",
+      "busy": false,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/compact now"
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
+    },
+    {
+      "name": "a registered alias in capitals after blanks",
+      "busy": false,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "   /NEW"
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
+    },
+    {
+      "name": "an unregistered /word",
+      "busy": false,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/Users/example/python-learn"
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q2"
+        ],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q2",
+          "priority": "now"
+        },
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ],
+      "kicked": 1,
+      "drained": [
+        "q2"
+      ],
+      "pendingAfterDrain": [
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ]
+    },
+    {
+      "name": "a bare slash",
+      "busy": false,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/"
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q2"
+        ],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q2",
+          "priority": "now"
+        },
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ],
+      "kicked": 1,
+      "drained": [
+        "q2"
+      ],
+      "pendingAfterDrain": [
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ]
+    },
+    {
+      "name": "a slash command in text parts",
+      "busy": false,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": [
+            {
+              "type": "text",
+              "text": "/model"
+            }
+          ]
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
+    },
+    {
+      "name": "a text part before the command",
+      "busy": false,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": [
+            {
+              "type": "text",
+              "text": "see"
+            },
+            {
+              "type": "text",
+              "text": "/model"
+            }
+          ]
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q2"
+        ],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q2",
+          "priority": "now"
+        },
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ],
+      "kicked": 1,
+      "drained": [
+        "q2"
+      ],
+      "pendingAfterDrain": [
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ]
+    },
+    {
+      "name": "a command in the first of two text parts",
+      "busy": false,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": [
+            {
+              "type": "text",
+              "text": "/model"
+            },
+            {
+              "type": "text",
+              "text": "x"
+            }
+          ]
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
+    },
+    {
+      "name": "a slash command with skipSlashCommands true",
+      "busy": false,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/compact",
+          "skipSlashCommands": true
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q2"
+        ],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q2",
+          "priority": "now"
+        },
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ],
+      "kicked": 1,
+      "drained": [
+        "q2"
+      ],
+      "pendingAfterDrain": [
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ]
+    },
+    {
+      "name": "a slash command with skipSlashCommands 1",
+      "busy": false,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/compact",
+          "skipSlashCommands": 1
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q2"
+        ],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q2",
+          "priority": "now"
+        },
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ],
+      "kicked": 1,
+      "drained": [
+        "q2"
+      ],
+      "pendingAfterDrain": [
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ]
+    },
+    {
+      "name": "a slash command with skipSlashCommands x",
+      "busy": false,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/compact",
+          "skipSlashCommands": "x"
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q2"
+        ],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q2",
+          "priority": "now"
+        },
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ],
+      "kicked": 1,
+      "drained": [
+        "q2"
+      ],
+      "pendingAfterDrain": [
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ]
+    },
+    {
+      "name": "a slash command with skipSlashCommands false",
+      "busy": false,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/compact",
+          "skipSlashCommands": false
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
+    },
+    {
+      "name": "a slash command with skipSlashCommands 0",
+      "busy": false,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/compact",
+          "skipSlashCommands": 0
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
+    },
+    {
+      "name": "a slash command with skipSlashCommands -0",
+      "busy": false,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/compact",
+          "skipSlashCommands": 0
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
+    },
+    {
+      "name": "a slash command with skipSlashCommands NaN",
+      "busy": false,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/compact",
+          "skipSlashCommands": null
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
+    },
+    {
+      "name": "a slash command with skipSlashCommands ",
+      "busy": false,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/compact",
+          "skipSlashCommands": ""
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
     },
     {
       "name": "nothing is queued",
       "busy": true,
       "queued": [],
+      "entries": {},
       "selectedId": "q1",
       "reply": {
         "count": 0,
@@ -187,6 +758,7 @@
         "q1",
         "q2"
       ],
+      "entries": {},
       "selectedId": "q9",
       "reply": {
         "count": 0,
@@ -213,6 +785,7 @@
       "queued": [
         "q1"
       ],
+      "entries": {},
       "selectedId": "",
       "reply": {
         "count": 0,
@@ -235,6 +808,7 @@
       "queued": [
         "q1"
       ],
+      "entries": {},
       "selectedId": "q1",
       "reply": {
         "count": 1,
@@ -263,6 +837,7 @@
         "q2",
         "q3"
       ],
+      "entries": {},
       "selectedId": "q2",
       "reply": {
         "count": 1,
@@ -299,6 +874,571 @@
           "priority": "next"
         }
       ]
+    },
+    {
+      "name": "a registered slash command",
+      "busy": true,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/compact now"
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
+    },
+    {
+      "name": "a registered alias in capitals after blanks",
+      "busy": true,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "   /NEW"
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
+    },
+    {
+      "name": "an unregistered /word",
+      "busy": true,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/Users/example/python-learn"
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q2"
+        ],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q2",
+          "priority": "now"
+        },
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ],
+      "kicked": 1,
+      "drained": [
+        "q2"
+      ],
+      "pendingAfterDrain": [
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ]
+    },
+    {
+      "name": "a bare slash",
+      "busy": true,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/"
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q2"
+        ],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q2",
+          "priority": "now"
+        },
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ],
+      "kicked": 1,
+      "drained": [
+        "q2"
+      ],
+      "pendingAfterDrain": [
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ]
+    },
+    {
+      "name": "a slash command in text parts",
+      "busy": true,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": [
+            {
+              "type": "text",
+              "text": "/model"
+            }
+          ]
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
+    },
+    {
+      "name": "a text part before the command",
+      "busy": true,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": [
+            {
+              "type": "text",
+              "text": "see"
+            },
+            {
+              "type": "text",
+              "text": "/model"
+            }
+          ]
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q2"
+        ],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q2",
+          "priority": "now"
+        },
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ],
+      "kicked": 1,
+      "drained": [
+        "q2"
+      ],
+      "pendingAfterDrain": [
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ]
+    },
+    {
+      "name": "a command in the first of two text parts",
+      "busy": true,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": [
+            {
+              "type": "text",
+              "text": "/model"
+            },
+            {
+              "type": "text",
+              "text": "x"
+            }
+          ]
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
+    },
+    {
+      "name": "a slash command with skipSlashCommands true",
+      "busy": true,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/compact",
+          "skipSlashCommands": true
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q2"
+        ],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q2",
+          "priority": "now"
+        },
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ],
+      "kicked": 1,
+      "drained": [
+        "q2"
+      ],
+      "pendingAfterDrain": [
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ]
+    },
+    {
+      "name": "a slash command with skipSlashCommands 1",
+      "busy": true,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/compact",
+          "skipSlashCommands": 1
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q2"
+        ],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q2",
+          "priority": "now"
+        },
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ],
+      "kicked": 1,
+      "drained": [
+        "q2"
+      ],
+      "pendingAfterDrain": [
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ]
+    },
+    {
+      "name": "a slash command with skipSlashCommands x",
+      "busy": true,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/compact",
+          "skipSlashCommands": "x"
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 1,
+        "ids": [
+          "q2"
+        ],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q2",
+          "priority": "now"
+        },
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ],
+      "kicked": 1,
+      "drained": [
+        "q2"
+      ],
+      "pendingAfterDrain": [
+        {
+          "id": "q1",
+          "priority": "next"
+        }
+      ]
+    },
+    {
+      "name": "a slash command with skipSlashCommands false",
+      "busy": true,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/compact",
+          "skipSlashCommands": false
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
+    },
+    {
+      "name": "a slash command with skipSlashCommands 0",
+      "busy": true,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/compact",
+          "skipSlashCommands": 0
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
+    },
+    {
+      "name": "a slash command with skipSlashCommands -0",
+      "busy": true,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/compact",
+          "skipSlashCommands": 0
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
+    },
+    {
+      "name": "a slash command with skipSlashCommands NaN",
+      "busy": true,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/compact",
+          "skipSlashCommands": null
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
+    },
+    {
+      "name": "a slash command with skipSlashCommands ",
+      "busy": true,
+      "queued": [
+        "q1",
+        "q2"
+      ],
+      "entries": {
+        "q2": {
+          "content": "/compact",
+          "skipSlashCommands": ""
+        }
+      },
+      "selectedId": "q2",
+      "reply": {
+        "count": 0,
+        "ids": [],
+        "priority": "now"
+      },
+      "pendingAfter": [
+        {
+          "id": "q1",
+          "priority": "next"
+        },
+        {
+          "id": "q2",
+          "priority": "next"
+        }
+      ],
+      "kicked": 0,
+      "drained": null,
+      "pendingAfterDrain": null
     }
   ]
 }

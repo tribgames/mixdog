@@ -3,28 +3,28 @@
   "fileCount": 1,
   "files": [
     {
-      "bytes": 5440,
+      "bytes": 26367,
       "path": "golden.json",
-      "sha256": "7156b31f328728e4901b6a38a87ef3675a9ba583a2caa6139900d13cfb443f8a"
+      "sha256": "4c0c8d020cd945152f833d81764c34991f808f0289d7fd43ae85de2c2cf4d0ef"
     }
   ],
   "product": {
-    "appsSha256": "bcf180079755bb5953f7a59fd1984c7c920e405e6c47956ce75ad105e77bcb3b",
-    "commit": "b6f10295a2f698afc85332467192de28500bd146",
+    "appsSha256": "76fce0d110cb5122882854fe249d47c63431d8ff9439b7b2924969e3ec7b44f5",
+    "commit": null,
     "comparedAgainst": "b6f10295a",
-    "files": 9139,
+    "files": 43481,
     "refComparison": {
       "closestCommit": "b6f10295a2f698afc85332467192de28500bd146",
-      "commitFilesMissingFromTree": 0,
-      "exact": true,
-      "filesDifferingFromCommit": 0
+      "commitFilesMissingFromTree": 1,
+      "exact": false,
+      "filesDifferingFromCommit": 34407
     },
-    "srcSha256": "f8dfa3acbdab6fa18312fbd4b1b30357b9b2902447b3ad64ae44ab9141f9975a",
+    "srcSha256": "f720dc95de9423101dfe77a3764dfa9a7210266494a2d4d192cf6f37b07436dd",
     "tree": "product tree loaded by the recorder",
-    "treeKind": "archive",
+    "treeKind": "git-checkout",
     "version": "1.4.5"
   },
   "recorder": "benchmarks/rust-core/recorders/record-capability-refusals.mjs",
   "set": "capability-refusals",
-  "totalBytes": 5440
+  "totalBytes": 26367
 }

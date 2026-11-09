@@ -24,14 +24,34 @@ for (const [name, state, itemId] of [
   rewind.push({ name, busy: state.busy, items, itemId, reply: await createRewindAction(bag).rewindToItem(itemId) });
 }
 
+// Entries whose text or `skipSlashCommands` is not the default: `isSlashQueuedEntry` keeps a recognized slash command out of
+// `prioritizeQueued` (`!isSlashQueuedEntry`), and reads `skipSlashCommands` by JS truthiness. The raw values are what Node ran
+// on; the fixture holds them as JSON writes them (`-0` is `0`, `NaN` is `null`), the form the store hands the Rust core.
+const slashCases = [
+  ['a registered slash command', ['q1', 'q2'], 'q2', { q2: { content: '/compact now' } }],
+  ['a registered alias in capitals after blanks', ['q1', 'q2'], 'q2', { q2: { content: '  \u00a0/NEW' } }],
+  ['an unregistered /word', ['q1', 'q2'], 'q2', { q2: { content: '/Users/example/python-learn' } }],
+  ['a bare slash', ['q1', 'q2'], 'q2', { q2: { content: '/' } }],
+  ['a slash command in text parts', ['q1', 'q2'], 'q2', { q2: { content: [{ type: 'text', text: '/model' }] } }],
+  ['a text part before the command', ['q1', 'q2'], 'q2', { q2: { content: [{ type: 'text', text: 'see' }, { type: 'text', text: '/model' }] } }],
+  ['a command in the first of two text parts', ['q1', 'q2'], 'q2', { q2: { content: [{ type: 'text', text: '/model' }, { type: 'text', text: 'x' }] } }],
+  ...[true, 1, 'x', false, 0, -0, Number.NaN, ''].map((skip) => [
+    `a slash command with skipSlashCommands ${Object.is(skip, -0) ? '-0' : String(skip)}`,
+    ['q1', 'q2'],
+    'q2',
+    { q2: { content: '/compact', skipSlashCommands: skip } },
+  ]),
+];
+
 const prioritize = [];
 for (const busy of [false, true]) {
-  for (const [name, queued, selectedId] of [
+  for (const [name, queued, selectedId, overrides = {}] of [
     ['nothing is queued', [], 'q1'],
     ['the entry is not among the queued ones', ['q1', 'q2'], 'q9'],
     ['a blank id', ['q1'], ''],
     ['the only queued entry', ['q1'], 'q1'],
     ['a later queued entry', ['q1', 'q2', 'q3'], 'q2'],
+    ...slashCases,
   ]) {
     let counter = 0;
     let state = { busy, queued: [] };
@@ -49,7 +69,8 @@ for (const busy of [false, true]) {
     };
     const ops = createQueueOps(bag, { kickDrain: () => (kicked += 1) });
     for (const id of queued) {
-      const entry = ops.makeQueueEntry(`text ${id}`, { id, submittedAt: 1 });
+      const { content = `text ${id}`, ...raw } = overrides[id] ?? {};
+      const entry = Object.assign(ops.makeQueueEntry(content, { id, submittedAt: 1 }), raw);
       bag.pending.push(entry);
       state = { ...state, queued: [...state.queued, { id, text: entry.text, priority: entry.priority }] };
     }
@@ -62,6 +83,7 @@ for (const busy of [false, true]) {
       name,
       busy,
       queued,
+      entries: JSON.parse(JSON.stringify(overrides)),
       selectedId,
       reply,
       pendingAfter,

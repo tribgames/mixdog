@@ -341,6 +341,11 @@ pub(super) fn is_editable_entry(entry: &Value) -> bool {
         && entry.get("isMeta") != Some(&Value::Bool(true))
 }
 
+/// The entries `prioritizeQueued` selects: `isQueuedEntryEditable(entry) && !isSlashQueuedEntry(entry)`.
+pub(super) fn is_prioritizable_entry(entry: &Value) -> bool {
+    is_editable_entry(entry) && !super::pending::is_slash_entry(entry)
+}
+
 impl ControlCell {
     fn not_active(&self, turn: Option<&TurnId>) -> CoreError {
         CoreError::TurnNotActive {
@@ -401,7 +406,7 @@ impl ControlCell {
     /// matches `expected`; the actor does it (`Ctl::Prioritize`). A run that matches (`expected` when named,
     /// else any) also takes the entry at its next model-call boundary.
     pub fn steer(&self, expected: Option<&TurnId>, queued: QueuedId) -> Result<Value, CoreError> {
-        if !self.queue.load().iter().any(|entry| entry.qid == queued.as_str() && is_editable_entry(&entry.entry)) {
+        if !self.queue.load().iter().any(|entry| entry.qid == queued.as_str() && is_prioritizable_entry(&entry.entry)) {
             return Err(CoreError::QueuedEntryNotFound {
                 thread_id: self.thread.clone(),
                 queued_id: queued,

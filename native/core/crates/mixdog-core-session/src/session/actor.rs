@@ -2735,7 +2735,7 @@ impl SessionActor {
             .projected
             .queue
             .iter()
-            .find(|q| q.qid == qid.as_str() && super::control::is_editable_entry(&q.entry))
+            .find(|q| q.qid == qid.as_str() && super::control::is_prioritizable_entry(&q.entry))
         else {
             return;
         };

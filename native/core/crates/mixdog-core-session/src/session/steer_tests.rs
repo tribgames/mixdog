@@ -33,12 +33,25 @@ fn golden() -> Value {
     serde_json::from_str(include_str!("../../../../fixtures/capability-refusals/golden.json")).expect("golden.json")
 }
 
-fn enqueue(id: &str) -> Record {
-    serde_json::from_value(json!({
-        "k": "queue", "qid": id, "action": "enqueue",
-        "entry": { "inline": { "message": format!("text {id}"), "enqueuedAt": 1, "priority": "next" } },
-    }))
-    .expect("queue record")
+/// The queued entry as the store hands it over: the recorded content (`text <id>` unless the case names one) and the recorded
+/// `skipSlashCommands` as JSON carries it (Node's `-0` is `0` and its `NaN` is `null` there, so those two reach the core as
+/// the numbers and the null recorded; the core never sees a `-0` or a `NaN` from JSON or the store).
+fn entry_of(case: &Value, id: &str) -> Value {
+    let named = &case["entries"][id];
+    let mut entry = json!({ "message": named.get("content").cloned().unwrap_or_else(|| json!(format!("text {id}"))), "enqueuedAt": 1, "priority": "next" });
+    if let Some(skip) = named.get("skipSlashCommands") {
+        entry["skipSlashCommands"] = skip.clone();
+    }
+    entry
+}
+
+fn enqueue(case: &Value, id: &str) -> Record {
+    serde_json::from_value(json!({ "k": "queue", "qid": id, "action": "enqueue", "entry": { "inline": entry_of(case, id) } })).expect("queue record")
+}
+
+/// The queue as the live session holds it, in Node's `pendingAfterDrain` form.
+fn live(handle: &super::handle::SessionHandle) -> Value {
+    Value::Array(handle.cell.queue.load().iter().map(|queued| json!({ "id": queued.qid, "priority": queued.entry["priority"] })).collect())
 }
 
 /// The queue the durable log leaves, in Node's `pendingAfter` form: every queue record but the dequeues folded by the
@@ -82,15 +95,13 @@ async fn a_steer_prioritizes_as_nodes_prioritize_queued_does() {
         for named in turns {
             let rig = Rig::new();
             let release: Arc<tokio::sync::Notify> = Arc::default();
-            let started: Arc<Mutex<Vec<String>>> = Arc::default();
+            let started: Arc<Mutex<Vec<Value>>> = Arc::default();
             let entered: Arc<tokio::sync::Notify> = Arc::default();
             let (gate, seen, entry) = (release.clone(), started.clone(), entered.clone());
             rig.set_script(Arc::new(move |run| {
                 let (gate, seen, entry) = (gate.clone(), seen.clone(), entry.clone());
                 Box::pin(async move {
-                    if let mixdog_protocol::PromptContent::Text(text) = &run.input.prompt {
-                        lock(&seen).push(text.clone());
-                    }
+                    lock(&seen).push(serde_json::to_value(&run.input.prompt).expect("prompt"));
                     run.port.input_durable().await.expect("input durable");
                     entry.notify_one();
                     gate.notified().await;
@@ -102,7 +113,7 @@ async fn a_steer_prioritizes_as_nodes_prioritize_queued_does() {
             let id = ThreadId::from("sess_prio");
             let creator = SessionDirectory::new(rig.deps());
             creator.create_with_id(id.clone(), json!({ "cwd": "/ws" }).as_object().cloned().expect("object"), json!({})).await.expect("create");
-            rig.store.seed(&id, case["queued"].as_array().expect("queued").iter().map(|qid| enqueue(qid.as_str().expect("id"))).collect());
+            rig.store.seed(&id, case["queued"].as_array().expect("queued").iter().map(|qid| enqueue(case, qid.as_str().expect("id"))).collect());
             let directory = SessionDirectory::new(rig.deps());
             let handle = directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
             let queued = case["queued"].as_array().expect("queued").len();
@@ -118,8 +129,7 @@ async fn a_steer_prioritizes_as_nodes_prioritize_queued_does() {
             let selected = case["selectedId"].as_str().expect("selectedId");
             let got = handle.steer(expected.as_ref(), json!({ "queuedId": selected }), OpId::from("op-steer"));
             let want_after = &case["pendingAfter"];
-            let label = format!("{name}: busy={busy} turn={named:?}");
-            match case["reply"]["count"].as_u64() {
+            let label = format!("{name}: busy={busy} turn={named:?}");            match case["reply"]["count"].as_u64() {
                 Some(0) => {
                     match got {
                         Err(CoreError::QueuedEntryNotFound { queued_id, .. }) => assert_eq!(queued_id.as_str(), selected, "{label}"),
@@ -137,18 +147,20 @@ async fn a_steer_prioritizes_as_nodes_prioritize_queued_does() {
                     if busy {
                         eventually_on(&[&handle.cell.stepped], || (pending(&rig, &id) == *want_after).then_some(())).await;
                         assert_eq!(dequeued(&rig, &id), json!([]), "{label}: a busy thread defers the drain");
-                        assert_eq!(*lock(&started), vec!["work".to_owned()], "{label}");
+                        assert_eq!(*lock(&started), vec![json!("work")], "{label}");
                         release.notify_one();
                     }
                     eventually_on(&[&handle.cell.stepped], || (dequeued(&rig, &id) == drained).then_some(())).await;
                     if !busy {
                         assert_eq!(pending(&rig, &id), *want_after, "{label}: the order the drain found");
                     }
-                    let taken: Vec<String> = drained.as_array().expect("drained").iter().map(|qid| format!("text {}", qid.as_str().expect("id"))).collect();
-                    let mut runs = if busy { vec!["work".to_owned()] } else { Vec::new() };
+                    let taken = drained.as_array().expect("drained").iter().map(|qid| entry_of(case, qid.as_str().expect("id"))["message"].clone());
+                    let mut runs = if busy { vec![json!("work")] } else { Vec::new() };
                     runs.extend(taken);
                     eventually_on(&[&handle.cell.stepped], || (*lock(&started) == runs).then_some(())).await;
                     release.notify_one();
+                    // What the drain leaves queued: the recorded `pendingAfterDrain` (the slash commands it passes over).
+                    eventually_on(&[&handle.cell.stepped], || (idle(&handle).then(|| live(&handle)) == Some(case["pendingAfterDrain"].clone())).then_some(())).await;
                 }
                 other => panic!("{label}: recorded count {other:?}"),
             }
