@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 
 import type { BrowserWindow, Display, Rectangle } from 'electron';
-import { writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
+import { writeJsonAtomicAsync } from '../shared/core-src/runtime/shared/atomic-file.mjs';
 import { DESKTOP_WINDOW_MIN_WIDTH } from '../shared/window-layout';
 
 interface PersistedWindowState {

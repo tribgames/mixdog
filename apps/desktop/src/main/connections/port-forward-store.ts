@@ -2,7 +2,7 @@
 // servers and started again whenever that server's connection comes back.
 import { join } from 'node:path';
 
-import { readJsonState, writeJsonAtomicAsync } from '../../../../../src/runtime/shared/atomic-file.mjs';
+import { readJsonState, writeJsonAtomicAsync } from '../../shared/core-src/runtime/shared/atomic-file.mjs';
 
 export const PORT_FORWARDS_FILE = 'port-forwards.json';
 const MAX_FORWARDS_PER_HOST = 64;

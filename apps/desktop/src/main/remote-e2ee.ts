@@ -1,5 +1,5 @@
 import { join } from 'node:path';
-import { withFileLock } from '../../../../src/runtime/shared/atomic-file.mjs';
+import { withFileLock } from '../shared/core-src/runtime/shared/atomic-file.mjs';
 
 import {
   generateRelayE2EEServerIdentity,

@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
-import { withFileLock } from '../../../../src/runtime/shared/atomic-file.mjs';
+import { withFileLock } from '../shared/core-src/runtime/shared/atomic-file.mjs';
 
 import { readSecretFile, writeSecretFile } from './secret-file';
 

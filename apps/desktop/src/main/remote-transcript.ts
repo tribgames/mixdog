@@ -1,6 +1,6 @@
 import { patchSectionDigests } from '../renderer/renderer-logic.mjs';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { normalizeToolName } from '../../../../src/runtime/shared/tool-primitives.mjs';
+import { normalizeToolName } from '../shared/core-src/runtime/shared/tool-primitives.mjs';
 import { outputFactsOf, REMOTE_OUTPUT_FACTS_FIELD } from '../renderer/tool-output-facts.mjs';
 import { REMOTE_TRANSCRIPT_TAIL_BYTES } from './desktop-support';
 

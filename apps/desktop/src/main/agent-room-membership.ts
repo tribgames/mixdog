@@ -2,7 +2,7 @@
 // existence: a bot proven deleted leaves every room it was in, in the
 // operation that finds out. A restored bot does not rejoin (`update` adds it
 // back by hand); a room keeps its id and log however few members remain.
-import { roomMemberSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+import { roomMemberSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import { MIXY_AGENT_ID } from '../shared/agent-contacts';
 import type { createRoomRecords } from './agent-room-records';
 import type { RoomScheduler } from './agent-room-scheduler';

@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { writeJsonAtomicSync } from '../../../../src/runtime/shared/atomic-file.mjs';
+import { writeJsonAtomicSync } from '../shared/core-src/runtime/shared/atomic-file.mjs';
 
 const GPU_CRASH_WINDOW_MS = 30_000;
 const GPU_CRASH_THRESHOLD = 3;

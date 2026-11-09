@@ -2,8 +2,8 @@
 // each room. An exchange in flight, the send/ask requests still on their way
 // to it, and the relays held back while it talks live here only; requests
 // route into the exchange that runs, or start one.
-import { roomIdOfSession, roomSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
-import type { AgentRoomTurnDetail } from '../../../../src/runtime/shared/agent-room-host.mjs';
+import { roomIdOfSession, roomSessionId } from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
+import type { AgentRoomTurnDetail } from '../shared/core-src/runtime/shared/agent-room-host.mjs';
 import type { ToolApprovalDecision } from '../shared/contract';
 import { type RoomExchangeHost, runRoomExchangeIn } from './agent-room-exchange';
 import type { createRoomLog } from './agent-room-log';

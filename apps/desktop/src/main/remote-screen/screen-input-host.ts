@@ -29,7 +29,7 @@ import { MAX_REMOTE_SCREEN_TEXT } from '../../shared/remote-webrtc';
 import { MIXDOG_INPUT_TRANSPORT_CSHARP } from '../computer/backend/native-source';
 import { COMMAND_TIMEOUT_MS } from '../computer/backend/worker-requests';
 import type { ScreenDesktopIdentity } from './screen-input-router';
-import { createComputerLineDecoder } from '../../../../../src/runtime/computer-bridge/limits.mjs';
+import { createComputerLineDecoder } from '../../shared/core-src/runtime/computer-bridge/limits.mjs';
 
 const START_TIMEOUT_MS = 30_000;
 const STOP_TIMEOUT_MS = 4_000;

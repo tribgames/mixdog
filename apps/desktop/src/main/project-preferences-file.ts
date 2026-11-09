@@ -3,7 +3,7 @@
 // in-memory copy and decides when to persist.
 import { join } from 'node:path';
 
-import { readJsonState, writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
+import { readJsonState, writeJsonAtomicAsync } from '../shared/core-src/runtime/shared/atomic-file.mjs';
 import type { DesktopProjectPreferences } from './desktop-support';
 
 const FILE_NAME = 'desktop-projects.json';

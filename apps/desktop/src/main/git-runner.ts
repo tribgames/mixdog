@@ -1,7 +1,7 @@
 import { execFile, spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
-import { gitVerb, startGit } from '../../../../src/runtime/shared/git-launch.mjs';
-import { killChildTree } from '../../../../src/runtime/shared/run-child.mjs';
+import { gitVerb, startGit } from '../shared/core-src/runtime/shared/git-launch.mjs';
+import { killChildTree } from '../shared/core-src/runtime/shared/run-child.mjs';
 import { childEnvironment, hookEnvironment } from './child-environment';
 import { notePhase, timePhase } from './phase-recorder';
 

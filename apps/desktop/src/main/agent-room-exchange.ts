@@ -7,12 +7,12 @@ import {
   roomMessageBudget,
   roomUserWaiting,
   runRoomExchange,
-} from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import {
   type RoomDecision,
   type RoomSupervisorInput,
   roomSupervisorRows,
-} from '../../../../src/runtime/agent/orchestrator/session/agent-room-supervisor.mjs';
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-room-supervisor.mjs';
 import {
   type MemberLabel,
   type RoomCall,

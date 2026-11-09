@@ -3,7 +3,7 @@
 // in-flight request so post-submit title work cannot race foreground listings.
 // Writes drain immutable snapshots; a failed write retains the newest maps
 // for an explicit retry instead of reporting an unsaved mutation as success.
-import { createDebouncedWriter, type DebouncedWriter } from '../../../../src/runtime/shared/debounced-writer.mjs';
+import { createDebouncedWriter, type DebouncedWriter } from '../shared/core-src/runtime/shared/debounced-writer.mjs';
 import { generatedSessionTitle, isMediaSessionTitlePlaceholder } from '../shared/session-title.mjs';
 import { readSessionMetadata, writeSessionMetadata, type SessionReadCursor } from './session-metadata-file';
 import { isSessionId } from './desktop-state';

@@ -5,7 +5,7 @@ import {
   roomIdOfSession,
   roomMemberOfSession,
   roomSessionId,
-} from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { DesktopAgentRoomSummary, DesktopSessionSummary, SessionSnapshot } from '../shared/contract';
 import type { RunState } from './agent-room-turn';
 import type { AgentRoomRecord } from './agent-rooms';

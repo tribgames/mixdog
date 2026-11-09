@@ -4,7 +4,7 @@
  * bookkeeping actions (list_tabs, downloads, close_tab, hide) never reach a page
  * and are answered by the host before dispatch.
  */
-import { BROWSER_ACTIONS } from '../../../../../../src/runtime/browser-bridge/browser-action-contract.mjs';
+import { BROWSER_ACTIONS } from '../../../shared/core-src/runtime/browser-bridge/browser-action-contract.mjs';
 import { TABLESS_ACTIONS } from '../command';
 import { diagnosticActions } from './diagnostics';
 import { flowActions } from './flow';

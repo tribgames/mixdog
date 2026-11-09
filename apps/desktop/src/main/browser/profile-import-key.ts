@@ -9,7 +9,7 @@
  */
 import { createHash } from 'node:crypto';
 import { readFile, rm, stat } from 'node:fs/promises';
-import { writeFileAtomicAsync } from '../../../../../src/runtime/shared/atomic-file.mjs';
+import { writeFileAtomicAsync } from '../../shared/core-src/runtime/shared/atomic-file.mjs';
 
 export const APP_BOUND_KEY_FILE = 'browser-app-bound-key.bin';
 

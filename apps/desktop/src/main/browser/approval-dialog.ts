@@ -12,7 +12,7 @@ import {
 } from './action-approval';
 import { type ApprovalRequester, ownBotOfSession } from './approval-requester';
 import { redactBrowserUrl } from './redaction';
-import { createSessionGrants } from '../../../../../src/runtime/agent/orchestrator/session/human-gate/session-grants.mjs';
+import { createSessionGrants } from '../../shared/core-src/runtime/agent/orchestrator/session/human-gate/session-grants.mjs';
 
 /** Approvals wait here for the in-app card's answer (never an OS dialog),
  *  keyed to the one renderer the card was sent to. */

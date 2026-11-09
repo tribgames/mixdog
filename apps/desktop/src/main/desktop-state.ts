@@ -10,8 +10,8 @@ import { compactedSessionTitle, generatedSessionTitle, normalizeSessionTitle } f
 import {
   agentHomeSessionId,
   agentIdOfHomeSession,
-} from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
-import { normalizeRoutineProvenance } from '../../../../src/runtime/agent/orchestrator/session/routine-result.mjs';
+} from '../shared/core-src/runtime/agent/orchestrator/session/agent-home.mjs';
+import { normalizeRoutineProvenance } from '../shared/core-src/runtime/agent/orchestrator/session/routine-result.mjs';
 
 // A user prompt plus an assistant reply: the smallest persisted conversation.
 const MIN_CONVERSATION_MESSAGE_COUNT = 2;

@@ -8,7 +8,7 @@
 import { randomBytes } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
-import { listenOnFetchSafePort } from '../../../../../src/runtime/shared/fetch-safe-listen.mjs';
+import { listenOnFetchSafePort } from '../../shared/core-src/runtime/shared/fetch-safe-listen.mjs';
 import { createBridgeDiscovery } from './discovery-file';
 import {
   bridgeDiscoveryPublicIdentity,

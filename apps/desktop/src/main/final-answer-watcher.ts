@@ -6,7 +6,7 @@ import { createTurnCompletionTracker, sessionsWithPendingWork, type TurnCompleti
 import type { DesktopAgentPoolRow, DesktopSessionSummary } from '../shared/contract';
 import { isSessionMissingError, type SessionFinalAnswer } from './session-final-answer';
 import { notificationPreview } from './notification-preview';
-import { isRoutineQuietReply } from '../../../../src/runtime/shared/routine-trigger.mjs';
+import { isRoutineQuietReply } from '../shared/core-src/runtime/shared/routine-trigger.mjs';
 
 export interface FinalAnswerWatcher {
   onSessions(sessions: readonly DesktopSessionSummary[]): void;

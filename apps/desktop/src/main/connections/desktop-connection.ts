@@ -7,14 +7,6 @@ import type { DesktopServerPort } from '../../shared/contract-server-ports';
 import { DesktopServiceClient } from '../desktop-service-client';
 import type { SerializableDesktopServiceOptions } from '../desktop-service-contract';
 import type { DesktopTerminalHost } from '../ipc-terminal';
-import {
-  createModelProxyHost,
-  type ModelProxyCallSettled,
-  type ModelProxyHost,
-  type ModelProxyHostOptions,
-  type ModelProxyRuntime,
-} from '../model-proxy-host';
-import { SessionTransport } from '../session-transport';
 import { describeConnectFailure } from '../ssh/connect-failure';
 import { RemoteBootstrapError } from '../ssh/remote-bootstrap';
 import { RemoteSession, type RemoteDaemonConnector, type RemoteSessionConfig } from '../ssh/remote-session';
@@ -31,7 +23,7 @@ import { createOperationLane } from '../protocol/desktop-operation-route';
 import { createServiceLane } from '../protocol/service-route';
 import type { OperationHost } from '../protocol/section-reads';
 import type { ProtocolConnection } from '../protocol/connection';
-import { createCoreModelProxy } from '../protocol/model-proxy-relay';
+import { createCoreModelProxy, type ModelProxyHost } from '../protocol/model-proxy-relay';
 
 /** How long a server's tunnel may take to accept its first connection. */
 export const REMOTE_TUNNEL_READY_TIMEOUT_MS = 90_000;
@@ -41,9 +33,9 @@ export interface DesktopConnection extends ConnectionIdentity {
   readonly target: string | null;
   readonly client: DesktopServiceClient;
   /** This process's one protocol connection to the connection's core: pushed sections, detail calls, host role.
-   *  A server's session is carried by it entirely (its endpoint is the ssh tunnel); null only for a target whose
-   *  core endpoint is not wired yet (this PC's, until K1). */
-  readonly protocol: ProtocolConnection | null;
+   *  Every session capability, read and operation is a request on it: a server's endpoint is the ssh tunnel, this PC's
+   *  the discovery file of the core the desktop starts. */
+  readonly protocol: ProtocolConnection;
   /** The current ssh session; reopening after a terminal failure replaces it. */
   readonly remote: RemoteSession | null;
   /** What the server window shows about its link; null for this PC. */
@@ -62,8 +54,6 @@ export interface DesktopConnection extends ConnectionIdentity {
    *  `modelLogin`: it is disposed (disconnect, quit) or its model login
    *  changes; at once when it already has. Returns the unsubscribe. */
   onModelLoginEnd(modelLogin: SshModelLogin, listener: () => void | Promise<void>): () => void;
-  /** The transport generation the client is attached through, if any. */
-  transport(): SessionTransport | null;
   /** Notices for the connection's windows (re-attach report, sign-in). */
   subscribeNotices(listener: (notice: DesktopConnectionNotice) => void): () => void;
   /** Reconnect now; a connection a terminal failure stopped is opened again
@@ -80,12 +70,7 @@ export interface DesktopConnection extends ConnectionIdentity {
 }
 
 export interface DesktopConnectionDependencies {
-  /** The Node service module this PC's local connection runs until the core replaces it (K1). */
-  moduleUrl(): string;
-  /** Settles once this process's environment is final (local daemon spawn). */
-  environmentReady(): Promise<unknown>;
   sessionOptions(): SerializableDesktopServiceOptions;
-  loadModelProxyRuntime(): Promise<ModelProxyRuntime>;
   appVersion: string;
   remoteGraceMs?: string;
   initialSnapshot?(): SessionSnapshot;
@@ -291,11 +276,6 @@ function versionRefusal(detail: unknown, display: string): RemoteBootstrapError 
       );
 }
 
-/** What the service client's callbacks reach: the transport it is on (this PC's only). */
-interface ClientLive {
-  transport: SessionTransport | null;
-}
-
 /** A server's link follows its protocol connection: the library redials a dropped socket by itself (through the
  *  connector, which re-reads the server), so what the link needs from here is the state, not a retry. */
 function followCore({
@@ -346,61 +326,40 @@ function followCore({
 function createServiceClient({
   deps,
   identity,
-  binding,
-  live,
   protocol,
 }: {
   deps: DesktopConnectionDependencies;
   identity: ConnectionIdentity;
-  binding: RemoteBinding | null;
-  live: ClientLive;
-  protocol: ProtocolConnection | null;
+  protocol: ProtocolConnection;
 }): DesktopServiceClient {
   const client: DesktopServiceClient = new DesktopServiceClient({
-    // A connection with a core endpoint sends its session capabilities there (capability-route.ts).
-    // The capabilities the sections replaced are answered from the connection's sections (section-capability-lane.ts).
-    ...(protocol
-      ? {
-          // A server's whole service is core requests (service-route.ts): it has no Node service to start.
-          ...(binding ? { serviceLane: createServiceLane({ protocol, snapshot: () => client.getSnapshot() }) } : {}),
-          capabilityLane: withSectionCapabilities({
-            lane: createCapabilityLane({ protocol }),
-            protocol,
-            snapshot: () => client.getSnapshot(),
-          }),
-          // What only this process knows (the OS's notification support, the window's theme, its windows' event feed)
-          // is handed to the lane.
-          operationLane: createOperationLane({
-            protocol,
-            host: { ...deps.operationHost?.(), emitDesktopEvent: (name, value) => client.emitDesktopEvent(name, value) },
-          }),
-        }
-      : {}),
-    // This PC's Node service, until K1. A server connection has none: its client starts at once.
-    ...(binding
-      ? {}
-      : {
-          connect: () => {
-            live.transport = new SessionTransport(deps.moduleUrl(), process.cwd(), null, deps.environmentReady());
-            return live.transport;
-          },
-        }),
-    sessionOptions: () => deps.sessionOptions(),
+    // Every capability, read and operation is a request of the connection's core (capability-route.ts, service-route.ts,
+    // desktop-operation-route.ts); the capabilities the sections replaced are answered from the connection's sections
+    // (section-capability-lane.ts).
+    serviceLane: createServiceLane({ protocol, snapshot: () => client.getSnapshot() }),
+    capabilityLane: withSectionCapabilities({
+      lane: createCapabilityLane({ protocol }),
+      protocol,
+      snapshot: () => client.getSnapshot(),
+    }),
+    // What only this process knows (the OS's notification support, the window's theme, its windows' event feed) is
+    // handed to the lane.
+    operationLane: createOperationLane({
+      protocol,
+      host: { ...deps.operationHost?.(), emitDesktopEvent: (name, value) => client.emitDesktopEvent(name, value) },
+    }),
     ...(deps.initialSnapshot ? { initialSnapshot: deps.initialSnapshot() } : {}),
     onDiagnostic: (event, data) => deps.onDiagnostic?.(identity, event, data),
-    onServiceReady: (context) => deps.onServiceReady?.(identity, context),
   });
   return client;
 }
 
-/** The model proxy that runs the daemon's model calls with this PC's
- *  credentials. Idle unless the connected daemon publishes model-proxy
- *  requests. */
+/** The model proxy of a server connection: its core asks this PC (model/proxy/execute, DS §12.4) and the calls run on
+ *  this PC's own core. This PC's own connection has none: it is the core the calls run on. */
 function createConnectionModelProxy({
   spec,
   deps,
   identity,
-  client,
   reattach,
   emitNotice,
   serverLogins,
@@ -409,56 +368,29 @@ function createConnectionModelProxy({
   spec: DesktopConnectionSpec;
   deps: DesktopConnectionDependencies;
   identity: ConnectionIdentity;
-  protocol: ProtocolConnection | null;
-  client: DesktopServiceClient;
+  protocol: ProtocolConnection;
   reattach: ReturnType<typeof createReattachReport> | null;
   emitNotice(notice: DesktopConnectionNotice): void;
   /** The server runs models with its own logins now. */
   serverLogins(): boolean;
 }): ModelProxyHost {
-  // A server with a core endpoint asks this PC through the protocol (`model/proxy/execute`, DS §12.4), not through the
-  // claim/event/resolve/heartbeat operations: the calls run on this PC's own core.
-  const local = spec.kind === 'ssh' && protocol ? (deps.localProtocol?.() ?? null) : null;
-  if (spec.kind === 'ssh' && protocol) {
-    if (!local) throw new Error('A server core can use this PC\'s model sign-ins only through this PC\'s own core.');
-    const core = createCoreModelProxy(
-      protocol,
-      local,
-      () => deps.allowedProviders?.(identity) ?? null,
-      {
-        serving: () => !serverLogins(),
-        ...(reattach
-          ? {
-              onCallSettled: (event) => {
-                reattach.onModelCall(event);
-                // The server's turn ran on this PC's sign-in: say which one failed.
-                if (event.outcome === 'failed' && isSignInFailure(event.error)) {
-                  emitNotice({ kind: 'model-sign-in', provider: event.provider });
-                }
-              },
-            }
-          : {}),
-      }
-    );
-    return { handleDesktopEvent: () => false, revoke: core.revoke, dispose: core.dispose, get running() { return core.running; } };
-  }
-  const proxyOptions: ModelProxyHostOptions = {
-    invoke: (operation, args) => client.invokeDesktopOperation(operation, args),
-    loadRuntime: () => deps.loadModelProxyRuntime(),
-    // A server on its own logins is never served from this PC: nothing of
-    // this PC's providers is described to it and no call runs on its sign-ins.
+  if (spec.kind !== 'ssh') return { running: 0, revoke: () => undefined, dispose: () => undefined };
+  const local = deps.localProtocol?.() ?? null;
+  if (!local) throw new Error('A server core can use this PC\'s model sign-ins only through this PC\'s own core.');
+  return createCoreModelProxy(protocol, local, () => deps.allowedProviders?.(identity) ?? null, {
     serving: () => !serverLogins(),
-  };
-  if (reattach) {
-    proxyOptions.onCallSettled = (event: ModelProxyCallSettled) => {
-      reattach.onModelCall(event);
-      // The server's turn ran on this PC's sign-in: say which one failed.
-      if (event.outcome === 'failed' && isSignInFailure(event.error)) {
-        emitNotice({ kind: 'model-sign-in', provider: event.provider });
-      }
-    };
-  }
-  return createModelProxyHost(proxyOptions);
+    ...(reattach
+      ? {
+          onCallSettled: (event) => {
+            reattach.onModelCall(event);
+            // The server's turn ran on this PC's sign-in: say which one failed.
+            if (event.outcome === 'failed' && isSignInFailure(event.error)) {
+              emitNotice({ kind: 'model-sign-in', provider: event.provider });
+            }
+          },
+        }
+      : {}),
+  });
 }
 
 export function createDesktopConnection(
@@ -470,15 +402,14 @@ export function createDesktopConnection(
   const binding = spec.kind === 'ssh' ? bindRemote(spec, options) : null;
   const graceMs = spec.graceMs ?? remoteClientGraceMs(deps.remoteGraceMs);
   const protocol = deps.createProtocol?.(identity, binding?.connector ?? null) ?? null;
-  if (binding && !protocol) throw new Error('A server connection is carried by its core connection: it needs createProtocol.');
-  const live: ClientLive = { transport: null };
-  const client = createServiceClient({ deps, identity, binding, live, protocol });
+  if (!protocol) throw new Error('A connection is carried by its core connection: it needs createProtocol.');
+  const client = createServiceClient({ deps, identity, protocol });
   const notices = new Set<(notice: DesktopConnectionNotice) => void>();
   const emitNotice = (notice: DesktopConnectionNotice): void => {
     for (const listener of notices) listener(notice);
   };
   const panels =
-    binding && protocol
+    binding
       ? createServerPanels({
           spec,
           deps,
@@ -491,7 +422,19 @@ export function createDesktopConnection(
           retryService: () => void attachCore((core) => core.reopen()).catch(() => undefined),
         })
       : null;
-  const follow = binding && protocol && panels ? followCore({ deps, identity, binding, panels, protocol }) : null;
+  // This PC's core: each attachment (the first, and every redial after a lost link or a restarted core) is a service ready.
+  let localGeneration = 0;
+  let localStarted = false;
+  const localAttached = (): void => {
+    localGeneration += 1;
+    deps.onServiceReady?.(identity, { generation: localGeneration });
+  };
+  const stopLocal = binding
+    ? null
+    : protocol.onEvent((event) => {
+        if (localStarted && event.type === 'status' && (event as { status: { state: string } }).status.state === 'ready') localAttached();
+      });
+  const follow = binding && panels ? followCore({ deps, identity, binding, panels, protocol }) : null;
   /** The user's own dial (inside their ssh context, so it may prompt): bootstrap and tunnel now, so a failure reaches
    *  them. The protocol connection's next dial then finds the server's core already attached. */
   const dialNow = (remote: RemoteBinding): Promise<unknown> =>
@@ -502,7 +445,7 @@ export function createDesktopConnection(
    *  protocol connection. */
   const attachCore = async (open: (core: ProtocolConnection) => Promise<void>): Promise<void> => {
     try {
-      if (protocol) await open(protocol);
+      await open(protocol);
     } catch (error) {
       const refusal = binding ? versionRefusal((error as { detail?: unknown } | null)?.detail, binding.connector.display) : null;
       if (!refusal) throw error;
@@ -519,14 +462,10 @@ export function createDesktopConnection(
     spec,
     deps,
     identity,
-    client,
     reattach: panels?.reattach ?? null,
     emitNotice,
     serverLogins,
     protocol,
-  });
-  const unsubscribeModelProxy = client.subscribeDesktopEvents(({ name, value }) => {
-    modelProxy.handleDesktopEvent(name, value);
   });
   let disposal: Promise<void> | null = null;
   // Watchers of one model login: each is called once, when the connection is
@@ -574,7 +513,6 @@ export function createDesktopConnection(
     },
     terminals: createServiceTerminalHost(client),
     ports: panels?.ports ?? null,
-    transport: () => live.transport,
     subscribeNotices(listener) {
       notices.add(listener);
       return () => notices.delete(listener);
@@ -598,6 +536,10 @@ export function createDesktopConnection(
       // The core is serving once its connection is open (a server's: bootstrap, tunnel, initialize); windows read
       // sections from here on.
       await attachCore((core) => core.start());
+      if (!binding) {
+        localStarted = true;
+        localAttached();
+      }
     },
     stopped() {
       return Boolean(binding?.session.stoppedBy);
@@ -627,14 +569,14 @@ export function createDesktopConnection(
       disposal ??= (async () => {
         await endLogins(true);
         follow?.stop();
+        stopLocal?.();
         panels?.link.dispose();
         panels?.reattach.dispose();
         await panels?.ports?.dispose().catch(() => undefined);
         notices.clear();
-        unsubscribeModelProxy();
         modelProxy.dispose();
         try {
-          await protocol?.close().catch(() => undefined);
+          await protocol.close().catch(() => undefined);
           await client.dispose();
         } finally {
           await binding?.session.close();

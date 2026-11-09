@@ -1,7 +1,7 @@
 import { createConnection, createServer } from 'node:net';
 import type { ChildProcess } from 'node:child_process';
 
-import { listenOnFetchSafePort } from '../../../../../src/runtime/shared/fetch-safe-listen.mjs';
+import { listenOnFetchSafePort } from '../../shared/core-src/runtime/shared/fetch-safe-listen.mjs';
 import {
   classifySshFailure,
   isLocalForwardBindFailure,

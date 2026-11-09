@@ -15,7 +15,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream';
-import { listenOnFetchSafePort } from '../../../../src/runtime/shared/fetch-safe-listen.mjs';
+import { listenOnFetchSafePort } from '../shared/core-src/runtime/shared/fetch-safe-listen.mjs';
 import { fileExtension } from '../shared/file-extension';
 import { withSandboxStorageShim } from '../shared/sandbox-storage-shim';
 import { isLocalAccessDenied, LocalAccessDeniedError } from './local-access-denied';

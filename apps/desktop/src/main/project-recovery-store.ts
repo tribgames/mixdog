@@ -12,7 +12,7 @@ import {
   type ProjectRecoverySummary,
   type ProjectRecoveryDetail,
 } from '../shared/project-recovery';
-import { createKeyedSerialQueue } from '../../../../src/runtime/shared/keyed-serial-queue.mjs';
+import { createKeyedSerialQueue } from '../shared/core-src/runtime/shared/keyed-serial-queue.mjs';
 
 export const RECOVERY_MAX_BYTES = 16 * 1024 * 1024;
 export const RECOVERY_MAX_RECORDS = 20;
