@@ -18,7 +18,7 @@ import { cancelBackgroundTasks } from '../../../runtime/shared/background-tasks.
 import { isAgentModeSession } from '../../../runtime/agent/orchestrator/session/agent-mode.mjs';
 import { isAgentHomeSessionId } from '../../../runtime/agent/orchestrator/session/agent-home.mjs';
 import { recognisedAgentRoomSlash } from '../../../tui/app/slash-commands.mjs';
-import { promptContentText } from '../../../tui/session/queue-helpers.mjs';
+import { promptContentText } from '../../../runtime/shared/idle-auto-clear-gate.mjs';
 
 /** Whether an abort on this session is an Agent cancelling its own turn: the
  *  catalog knows it, the runtime declares agent-only visibility, or it is a
