@@ -398,7 +398,7 @@ async fn staged_originals_expire_on_their_own_deadline() {
                 let before = *passes.borrow();
                 originals.start_prune(tokens.durability_io, clock.clone(), mixdog_rt::CancellationToken::new());
                 // The task has read the index and armed its first deadline.
-                passes.wait_for(|n| *n > before).await.unwrap();
+                crate::session::testing::awaiting("the prune task's first pass", passes.wait_for(|n| *n > before)).await.unwrap();
             }
             "claim" => {
                 let refs: Vec<String> = step["refs"].as_array().unwrap().iter().map(|t| sha(t.as_str().unwrap().as_bytes())).collect();
@@ -416,7 +416,7 @@ async fn staged_originals_expire_on_their_own_deadline() {
                 clock.0.store(target, std::sync::atomic::Ordering::SeqCst);
                 tokio::time::advance(Duration::from_millis(ms)).await;
                 if due {
-                    passes.wait_for(|n| *n > before).await.unwrap();
+                    crate::session::testing::awaiting("the prune pass the tick reaches", passes.wait_for(|n| *n > before)).await.unwrap();
                 }
                 if let Some(at) = recorded.get("stagedAt") {
                     let limits = StageLimits { now_ms: at.as_i64().unwrap(), ..FRESH };
@@ -478,7 +478,7 @@ async fn a_turn_claims_the_originals_it_names_before_it_is_submitted() {
     });
     use mixdog_core_api::ThreadHandle as _;
     handle.request(request("turn/start", params, Some(1))).await.unwrap();
-    let options = super::tests::eventually_on(&[&handle.cell.stepped], || seen.lock().unwrap().clone()).await;
+    let options = crate::eventually_on!(&[&handle.cell.stepped], || seen.lock().unwrap().clone()).await;
     assert_eq!(options["pastedImages"]["1"]["originalRef"], json!(claimed));
     assert!(options["pastedImages"]["2"].get("originalRef").is_none() && options["pastedImages"]["2"].get("originalMediaType").is_none());
     let at = dir_of(&deps).join("prompt-attachments");

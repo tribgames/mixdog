@@ -21,7 +21,7 @@ use mixdog_core_api::ThreadHandle;
 use crate::session::seams::RunOutcome;
 use crate::session::run::Settled;
 use crate::session::testing::Rig;
-use crate::session::tests::eventually_on;
+use crate::eventually_on;
 use crate::session::tests::idle;
 use crate::session::tests::start_thread;
 use crate::session::tests::turn;
@@ -141,7 +141,7 @@ async fn the_asks_that_fail_or_abort_record_no_event_as_in_node() {
             .expect("route");
         for (index, _) in ends.iter().enumerate() {
             turn(&handle, "go", &format!("op-{index}")).await;
-            eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+            eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
         }
         writer.settle().await;
         let path = rig._data.path().join(super::STORE_FILE);

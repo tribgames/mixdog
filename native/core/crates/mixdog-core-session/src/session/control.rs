@@ -225,13 +225,17 @@ pub(crate) struct ControlCell {
     pub ui_busy: std::sync::atomic::AtomicBool,
     pub compacting: std::sync::atomic::AtomicBool,
     /// Woken after every step of the thread's actor, so a test waits on the thread's state by its
-    /// change (`tests::eventually_on`, and `SessionHandle::stepped` for the tests of other crates).
+    /// change (`eventually_on!`, and `SessionHandle::stepped` for the tests of other crates).
     #[cfg(any(test, feature = "test-support"))]
     pub stepped: tokio::sync::Notify,
     /// The actor's `turn_busy()` after its last step: a turn runs, starts or is still settling.
     /// The next turn is refused or queued until it is false, which `run` being empty does not say.
     #[cfg(any(test, feature = "test-support"))]
     pub busy: std::sync::atomic::AtomicBool,
+    /// How many times the actor has armed the prompt-history write timer (the window, or a backoff), counted in the step that arms
+    /// it: a test that moves a paused clock waits on this first, so the timer is armed before the clock moves.
+    #[cfg(any(test, feature = "test-support"))]
+    pub prompt_timers: std::sync::atomic::AtomicU64,
 }
 
 impl ControlCell {

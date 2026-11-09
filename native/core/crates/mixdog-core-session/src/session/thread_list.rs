@@ -533,7 +533,7 @@ mod tests {
         };
         let log = directory.handle(&thread).expect("loaded");
         summaries.publish_room(&thread, Some(view.clone())).await;
-        let shown = crate::session::tests::eventually_on(&[&log.cell.stepped], || {
+        let shown = crate::eventually_on!(&[&log.cell.stepped], || {
             directory.handle(&thread).and_then(|handle| handle.cell.view.load_full().state.room_view.clone())
         })
         .await;
@@ -543,7 +543,7 @@ mod tests {
         assert_eq!(sent, vec![serde_json::to_value(&view).unwrap()]);
 
         summaries.publish_room(&thread, None).await;
-        crate::session::tests::eventually_on(&[&log.cell.stepped], || {
+        crate::eventually_on!(&[&log.cell.stepped], || {
             directory.handle(&thread).filter(|handle| handle.cell.view.load_full().state.room_view.is_none()).map(drop)
         })
         .await;

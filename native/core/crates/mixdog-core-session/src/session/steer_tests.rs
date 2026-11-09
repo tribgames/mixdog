@@ -25,7 +25,7 @@ use super::state::Display;
 use super::state::SessionState;
 use super::testing::Rig;
 use super::testing::lock;
-use super::tests::eventually_on;
+use crate::eventually_on;
 use super::tests::idle;
 use super::tests::turn;
 
@@ -124,11 +124,11 @@ async fn a_steer_prioritizes_as_nodes_prioritize_queued_does() {
             let directory = SessionDirectory::new(rig.deps());
             let handle = directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
             let queued = case["queued"].as_array().expect("queued").len();
-            eventually_on(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == queued).then_some(())).await;
+            eventually_on!(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == queued).then_some(())).await;
             let mut running = None;
             if busy {
                 turn(&handle, "work", "op-turn").await;
-                eventually_on(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
+                eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
                 running = handle.active_turn();
                 entered.notified().await;
             }
@@ -153,29 +153,29 @@ async fn a_steer_prioritizes_as_nodes_prioritize_queued_does() {
                     let drained = case["drained"].clone();
                     // Idle, the kicked drain runs at once; busy, it is deferred to the turn's settling.
                     if busy {
-                        eventually_on(&[&handle.cell.stepped], || (pending(&rig, &id) == *want_after).then_some(())).await;
+                        eventually_on!(&[&handle.cell.stepped], || (pending(&rig, &id) == *want_after).then_some(())).await;
                         assert_eq!(dequeued(&rig, &id), json!([]), "{label}: a busy thread defers the drain");
                         assert_eq!(*lock(&started), vec![json!("work")], "{label}");
                         release.add_permits(1);
                     }
-                    eventually_on(&[&handle.cell.stepped], || (dequeued(&rig, &id) == drained).then_some(())).await;
+                    eventually_on!(&[&handle.cell.stepped], || (dequeued(&rig, &id) == drained).then_some(())).await;
                     if !busy {
                         assert_eq!(pending(&rig, &id), *want_after, "{label}: the order the drain found");
                     }
                     let taken = drained.as_array().expect("drained").iter().map(|qid| entry_of(case, qid.as_str().expect("id"))["message"].clone());
                     let mut runs = if busy { vec![json!("work")] } else { Vec::new() };
                     runs.extend(taken);
-                    eventually_on(&[&handle.cell.stepped, &started_changed], || (*lock(&started) == runs).then_some(())).await;
+                    eventually_on!(&[&handle.cell.stepped, &started_changed], || (*lock(&started) == runs).then_some(())).await;
                     // What the drain leaves queued: the recorded `pendingAfterDrain` (the slash commands it passes over). It is read
                     // while the drain's turn is held: once that turn settles, the thread goes on to the next queued entry, so the
                     // queue the drain left is a state of the held turn, not one an idle thread rests in.
-                    eventually_on(&[&handle.cell.stepped], || (live(&handle) == case["pendingAfterDrain"]).then_some(())).await;
+                    eventually_on!(&[&handle.cell.stepped], || (live(&handle) == case["pendingAfterDrain"]).then_some(())).await;
                 }
                 other => panic!("{label}: recorded count {other:?}"),
             }
             // Every turn still to run (the queued entries that follow the drain's) is let through, so the thread comes to rest.
             release.add_permits(RUNS_LEFT);
-            eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+            eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
         }
     }
 }

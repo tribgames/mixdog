@@ -25,7 +25,7 @@ use super::delivered::DeliveredCompletions;
 use super::pending_read::PendingQueue;
 use super::seams::RunOutcome;
 use super::testing::Rig;
-use super::tests::eventually_on;
+use crate::eventually_on;
 use super::tests::start_thread;
 
 fn golden() -> Value {
@@ -65,7 +65,7 @@ async fn busy_thread(rig: &Rig) -> (Arc<SessionDirectory>, Arc<SessionHandle>) {
     let directory = Arc::new(SessionDirectory::new(rig.deps()));
     let handle = start_thread(&directory).await;
     queue_prompt(&handle, &json!("running"), None).await;
-    eventually_on(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
     (directory, handle)
 }
 
@@ -99,7 +99,7 @@ async fn the_queue_reads_answer_as_nodes_in_memory_queue_does() {
     }
     assert_eq!(fed, 7);
     // Four prompts (one blank) and two completions are queued; the repeated completion is one entry.
-    eventually_on(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 6).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 6).then_some(())).await;
 
     let delivered = Arc::new(DeliveredCompletions::new(rig.clock.clone()));
     let reads = PendingQueue::new(directory.clone(), delivered.clone());
@@ -188,7 +188,7 @@ async fn the_steering_read_returns_the_queued_submission_ids_as_nodes_persist_do
             queue_prompt(&handle, &entry["text"], options).await;
             queued += 1;
             // The next op runs after this entry is projected.
-            eventually_on(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == queued - 1).then_some(())).await;
+            eventually_on!(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == queued - 1).then_some(())).await;
         } else {
             let session = if step["session"] == gold["steering"]["session"] { handle.id.as_str() } else { step["session"].as_str().unwrap() };
             let want: Vec<String> = step["submissionIds"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect();

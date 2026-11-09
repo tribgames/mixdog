@@ -610,9 +610,14 @@ mod tests {
         Arc::new(ResourceAdmission::new(limits, Arc::new(Fixed(0))))
     }
 
+    /// A spawned acquire's end: its result, or the failure naming what it was awaited for.
+    async fn finished<T>(what: &str, task: tokio::task::JoinHandle<T>) -> T {
+        mixdog_core_session::session::testing::awaiting(what, task).await.unwrap()
+    }
+
     /// Returns once `n` waiters are in the queue; fails by assertion if `task`, the acquire that should be queuing, ends first.
     async fn queued_is(a: &ResourceAdmission, n: usize, task: &mut tokio::task::JoinHandle<impl std::fmt::Debug>) {
-        mixdog_core_session::session::testing::eventually_on_until(&[&a.controller.queued], || (a.queued() == n).then_some(()), task).await;
+        mixdog_core_session::eventually_on_until!(&[&a.controller.queued], || (a.queued() == n).then_some(()), task).await;
     }
 
     fn spawn_acquire(a: &Arc<ResourceAdmission>, pool: Pool, owner: &'static str, priority: Priority, order: &Arc<Mutex<Vec<String>>>, tag: &'static str) -> tokio::task::JoinHandle<()> {
@@ -656,8 +661,8 @@ mod tests {
         let refused = a.acquire_in(Pool::Agent, Some("s1"), Priority::UserVisible, &cancel).await.err().unwrap();
         assert_eq!(refused, "resource pressure: high-load admission queue full (maximum 2); retry after running work completes");
         drop(first);
-        w1.await.unwrap();
-        w2.await.unwrap();
+        finished("the first waiter to be granted the slot the first holder freed", w1).await;
+        finished("the second waiter to be granted the slot the first waiter freed", w2).await;
         assert_eq!(*order.lock().unwrap(), ["one", "two"]);
         assert_eq!((a.active(Pool::Agent), a.queued()), (0, 0));
     }
@@ -683,7 +688,7 @@ mod tests {
         }
         drop(first);
         for t in tasks {
-            t.await.unwrap();
+            finished("a queued acquire to be granted a slot as the first holder lets go", t).await;
         }
         // user-blocking first; then a and b alternate (a's first waiter, then b); best-effort last.
         assert_eq!(*order.lock().unwrap(), ["c-blocking", "a1", "b1", "a2", "a-best"]);
@@ -715,7 +720,7 @@ mod tests {
         };
         queued_is(&a, 1, &mut waiting).await;
         cancel.abort(JOB_CANCELLED);
-        assert_eq!(waiting.await.unwrap().as_deref(), Some(JOB_CANCELLED));
+        assert_eq!(finished("the cancelled acquire to end", waiting).await.as_deref(), Some(JOB_CANCELLED));
         assert_eq!(a.queued(), 0);
         // A token cancelled before the call never queues.
         let done = Cancel::new();
@@ -750,7 +755,7 @@ mod tests {
             }
             drop(first);
             for t in tasks {
-                t.await.unwrap();
+                finished("a queued acquire to be granted a slot as the first holder lets go", t).await;
             }
             assert_eq!(serde_json::json!(*order.lock().unwrap()), golden[name]["order"], "{name}");
         }
@@ -802,22 +807,25 @@ mod tests {
                 ev.lock().unwrap().push(format!("A-restored:{}", value.unwrap()));
             })
         };
-        tokio::select! {
-            biased;
-            () = started.notified() => {}
-            ended = &mut run => panic!("the yielded run ended before its request started: {ended:?}"),
-        }
-        let b = b_rx.await.unwrap();
+        mixdog_core_session::session::testing::awaiting("the yielded run's request to start", async {
+            tokio::select! {
+                biased;
+                () = started.notified() => {}
+                ended = &mut run => panic!("the yielded run ended before its request started: {ended:?}"),
+            }
+        })
+        .await;
+        let b = mixdog_core_session::session::testing::awaiting("B to be granted the slot the yielded run gave up", b_rx).await.unwrap();
         push(&ev, format!("active-while-B:{}", a.active(Pool::Agent)));
         gate.notify_one();
         // The request ends and A joins the queue behind C.
         queued_is(&a, 2, &mut run).await;
         push(&ev, format!("A-waiting-for-slot:{}", a.queued() > 0));
         b.release().await;
-        let c = c_rx.await.unwrap();
+        let c = mixdog_core_session::session::testing::awaiting("C to be granted the slot B released", c_rx).await.unwrap();
         push(&ev, "C-held".into());
         c.release().await;
-        run.await.unwrap();
+        finished("the yielded run to be given its slot back and end", run).await;
         Arc::try_unwrap(held_a).ok().unwrap().release().await;
         push(&ev, format!("active-end:{}", a.active(Pool::Agent)));
         let golden = yield_golden();
@@ -866,7 +874,7 @@ mod tests {
             };
             queued_is(&a, 1, &mut waiting).await;
             abort(&cancel);
-            let text = waiting.await.unwrap().unwrap();
+            let text = finished("the cancelled acquire to end", waiting).await.unwrap();
             held.release().await;
             text
         };
@@ -878,7 +886,7 @@ mod tests {
         let (parent, call) = (Cancel::new(), Cancel::new());
         let linked = Cancel::linked(&[parent.clone(), call.clone()]);
         call.abort("call stopped");
-        linked.cancelled().await;
+        mixdog_core_session::session::testing::awaiting("the composed signal to carry the call's abort", linked.cancelled()).await;
         parent.abort("too late");
         assert_eq!(linked.reason(), "call stopped");
     }

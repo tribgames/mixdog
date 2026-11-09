@@ -81,7 +81,7 @@ mod tests {
 
     use super::super::FeedFactory;
     use super::super::testing::RecFeeds;
-    use super::super::testing::eventually_on;
+    use crate::eventually_on;
     use super::*;
 
     struct Stored(Option<Header>);
@@ -182,7 +182,7 @@ mod tests {
                 let wakes: [&tokio::sync::Notify; 1] = [&feeds_ref.published];
                 let (_, _, params) = tokio::select! {
                     biased;
-                    frame = eventually_on(&wakes, || feeds_ref.frames("app").into_iter().nth(1)) => frame,
+                    frame = eventually_on!(&wakes, || feeds_ref.frames("app").into_iter().nth(1)) => frame,
                     shown = reveal.as_mut() => panic!("the reveal ended before it published its request: {shown}"),
                 };
                 let request = params["requestId"].as_str().unwrap().to_owned();
@@ -191,7 +191,7 @@ mod tests {
                 waits.notify(Method("ui/terminalRun/claimed"), json!({ "requestId": request }), ConnectionId(1));
             };
             claim.await;
-            reveal.await
+            crate::session::testing::awaiting("the reveal to end once its request is claimed", reveal).await
         };
         assert!(claimer, "a claimed request is shown");
     }

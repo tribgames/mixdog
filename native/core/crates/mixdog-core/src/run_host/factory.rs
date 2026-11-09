@@ -1264,7 +1264,8 @@ mod tests {
     use mixdog_store::schema::record::Record;
 
     use super::*;
-    use mixdog_core_session::session::testing::{Rig, eventually_on};
+    use mixdog_core_session::eventually_on;
+    use mixdog_core_session::session::testing::Rig;
     use mixdog_core_session::session::SessionDirectory;
 
     struct Steps(VecDeque<StreamEvent>);
@@ -1909,10 +1910,10 @@ mod tests {
                 .map(|(_, _, params)| params["value"]["progressHint"].clone())
                 .collect()
         };
-        reported.notified().await;
-        eventually_on(&[&rig.feeds.published], || hints().contains(&json!({ "outputTail": "compiling" })).then_some(())).await;
+        mixdog_core_session::session::testing::awaiting("the report tool to be called", reported.notified()).await;
+        eventually_on!(&[&rig.feeds.published], || hints().contains(&json!({ "outputTail": "compiling" })).then_some(())).await;
         release.notify_one();
-        eventually_on(&[&rig.feeds.published], || (hints().last() == Some(&Value::Null)).then_some(())).await;
+        eventually_on!(&[&rig.feeds.published], || (hints().last() == Some(&Value::Null)).then_some(())).await;
     }
 
     /// A tool that spends like a hosted web search: it reports its delta to the usage registry under the asking thread.
@@ -2411,7 +2412,7 @@ mod tests {
                 })
                 .collect()
         };
-        eventually_on(&[&rig.store.committed, &ledger.1], || (roles().len() >= 4 && lock(&ledger.0).len() >= 2).then_some(())).await;
+        eventually_on!(&[&rig.store.committed, &ledger.1], || (roles().len() >= 4 && lock(&ledger.0).len() >= 2).then_some(())).await;
         assert_eq!(roles(), ["user", "assistant", "tool", "assistant"]);
         // The turn's two approval entry points (the policy gate and the tool environment a nested call is judged with) both went through the composition's choice.
         assert_eq!(*lock(&asked.0), [id.as_str(), id.as_str()]);

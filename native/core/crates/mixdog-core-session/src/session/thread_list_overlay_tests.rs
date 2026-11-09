@@ -16,7 +16,7 @@ use serde_json::json;
 use super::SessionDirectory;
 use super::seams::RunOutcome;
 use super::testing::Rig;
-use super::tests::eventually_on;
+use crate::eventually_on;
 use super::tests::start_thread;
 use super::tests::turn;
 use super::thread_list::ListOverlay;
@@ -66,7 +66,7 @@ async fn the_overlay_carries_the_hosted_threads_live_facts() {
     assert_eq!(overlay.of(&lead.id), RowOverlay { handed_by: Some(vec!["bot1".into()]), ..RowOverlay::default() }, "nothing runs yet");
     turn(&lead, "ask me", "op-1").await;
     turn(&worker, "work", "op-2").await;
-    eventually_on(&[&lead.cell.stepped, &worker.cell.stepped], || (!lead.cell.approvals.load().is_empty() && worker.cell.run.load().is_some()).then_some(())).await;
+    eventually_on!(&[&lead.cell.stepped, &worker.cell.stepped], || (!lead.cell.approvals.load().is_empty() && worker.cell.run.load().is_some()).then_some(())).await;
     assert_eq!(
         overlay.of(&lead.id),
         RowOverlay {

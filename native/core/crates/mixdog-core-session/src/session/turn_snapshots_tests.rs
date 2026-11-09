@@ -4,7 +4,7 @@
 use super::SessionDirectory;
 use super::testing::Rig;
 use super::testing::lock;
-use super::tests::eventually_on;
+use crate::eventually_on;
 use super::tests::idle;
 use super::tests::start_thread;
 use super::tests::turn;
@@ -23,11 +23,11 @@ async fn each_settled_turn_releases_its_snapshots_once() {
     let settled = format!("settled:{}", handle.id.as_str());
 
     turn(&handle, "first", "op-1").await;
-    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    eventually_on(&[&rig.snapshots.1], || (calls(&rig).len() == 1).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    eventually_on!(&[&rig.snapshots.1], || (calls(&rig).len() == 1).then_some(())).await;
     turn(&handle, "second", "op-2").await;
-    eventually_on(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    eventually_on(&[&rig.snapshots.1], || (calls(&rig).len() == 2).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
+    eventually_on!(&[&rig.snapshots.1], || (calls(&rig).len() == 2).then_some(())).await;
     assert_eq!(calls(&rig), vec![settled.clone(), settled]);
 }
 
@@ -40,7 +40,7 @@ async fn shutdown_stops_each_threads_cleanups_and_disposes() {
     let handle = start_thread(&directory).await;
     directory.shutdown().await;
     let stopped = format!("stopped:{}", handle.id.as_str());
-    eventually_on(&[&rig.snapshots.1], || (calls(&rig).len() == 2).then_some(())).await;
+    eventually_on!(&[&rig.snapshots.1], || (calls(&rig).len() == 2).then_some(())).await;
     let mut seen = calls(&rig);
     seen.sort();
     assert_eq!(seen, vec!["dispose".to_owned(), stopped]);

@@ -612,7 +612,8 @@ mod tests {
         fail: std::sync::atomic::AtomicU32,
         stamps: std::sync::Mutex<Vec<tokio::time::Instant>>,
         landed: std::sync::Mutex<Vec<String>>,
-        landed_wake: tokio::sync::Notify,
+        /// Woken after every attempted write, landed or not.
+        attempted: tokio::sync::Notify,
     }
 
     impl PromptHistoryStore for Flaky {
@@ -625,29 +626,39 @@ mod tests {
             let failing = self.fail.try_update(SeqCst, SeqCst, |n| n.checked_sub(1)).is_ok();
             if !failing {
                 self.landed.lock().unwrap().push(text.to_owned());
-                self.landed_wake.notify_waiters();
             }
+            self.attempted.notify_waiters();
             Appended { list: s(&[text]), written: !failing }
         }
     }
 
     /// A prompt whose write failed is not lost: the thread flushes it after the window and retries on
-    /// Node's backoff.
+    /// Node's backoff. The clock is paused and held, so it moves only by the advances below: each follows the actor's arming of the
+    /// timer it brings to its end, and is followed by the write it brings.
     #[tokio::test(start_paused = true)]
     async fn a_prompt_whose_write_failed_is_retried_on_nodes_backoff_until_it_lands() {
-        use crate::session::SessionDirectory;
-        use crate::session::testing::Rig;
-        use crate::session::tests::{eventually_on, start_thread, turn};
+        use std::sync::atomic::Ordering::SeqCst;
 
+        use crate::eventually_on;
+        use crate::session::SessionDirectory;
+        use crate::session::testing::{HeldClock, Rig};
+        use crate::session::tests::{start_thread, turn};
+
+        let _held = HeldClock::hold();
         let rig = Rig::new();
-        let flaky = std::sync::Arc::new(Flaky { fail: 2.into(), stamps: Default::default(), landed: Default::default(), landed_wake: Default::default() });
+        let flaky = std::sync::Arc::new(Flaky { fail: 2.into(), stamps: Default::default(), landed: Default::default(), attempted: Default::default() });
         let mut deps = rig.deps_parts(rig.store.clone());
         deps.prompts = flaky.clone();
         let directory = SessionDirectory::new(std::sync::Arc::new(deps));
         let handle = start_thread(&directory).await;
         let asked = tokio::time::Instant::now();
         turn(&handle, "remember me", "op-1").await;
-        eventually_on(&[&flaky.landed_wake], || (!flaky.landed.lock().unwrap().is_empty()).then_some(())).await;
+        for (armed, wait) in [(1, Duration::from_millis(WRITE_BEHIND_MS)), (2, write_retry_delay(1)), (3, write_retry_delay(2))] {
+            eventually_on!(&[&handle.cell.stepped], || (handle.cell.prompt_timers.load(SeqCst) == armed).then_some(())).await;
+            assert_eq!(flaky.stamps.lock().unwrap().len(), armed as usize - 1, "no write before its timer has ended");
+            tokio::time::advance(wait).await;
+            eventually_on!(&[&flaky.attempted], || (flaky.stamps.lock().unwrap().len() == armed as usize).then_some(())).await;
+        }
         let stamps = flaky.stamps.lock().unwrap().clone();
         assert_eq!(stamps.len(), 3);
         assert_eq!(stamps[0] - asked, Duration::from_millis(WRITE_BEHIND_MS), "the first flush waits the window");
