@@ -47,6 +47,11 @@ try {
     try {
       const reply = await attached.call(call.configure ? 'session.configure' : 'session.read', { sessionId, action: call.action, args: call.args, open, baseRevision: null });
       entry = { action: call.action, args: call.args, ok: true, value: reply?.value };
+      // The stored agent section the change left (its save is debounced), so a replay can apply Node's change as it stored it.
+      if (call.configure && scenario.recordConfig) {
+        await new Promise((done) => setTimeout(done, 1500));
+        entry.agentAfter = JSON.parse(readFileSync(join(process.env.MIXDOG_DATA_DIR, 'mixdog-config.json'), 'utf8')).agent;
+      }
     } catch (error) {
       entry = { action: call.action, args: call.args, ok: false, error: String(error?.message || error) };
     }

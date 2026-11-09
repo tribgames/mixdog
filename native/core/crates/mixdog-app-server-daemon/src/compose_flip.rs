@@ -687,6 +687,8 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
             loaded_providers.clone(),
         )),
     });
+    // The `modelCatalog` section (`model/catalog/updated`): the `model/list` rows, pushed when they change.
+    let model_catalog = mixdog_core_domains::domains::ai_admin::model_catalog_feed::ModelCatalogFeed::start(model_list.clone(), state.publisher.clone(), config.changes());
     let web_search_models = Arc::new(mixdog_core_domains::domains::ai_admin::web_search_models::WebSearchModelsService::new(
         b.catalog.clone(),
         config.clone(),
@@ -702,9 +704,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
     ));
     // The ONE readiness invalidation (Node `invalidateProviderCaches()`, wp-ai-svc-24): every cache Node drops there, in one closure.
     readiness.bind_invalidation(Arc::new({
-        let (setup, dashboards, web_search_models, model_list) = (provider_setup.clone(), dashboards.clone(), web_search_models.clone(), model_list.clone());
+        let (setup, dashboards, web_search_models, model_list, model_catalog) = (provider_setup.clone(), dashboards.clone(), web_search_models.clone(), model_list.clone(), model_catalog.clone());
         move || {
             model_list.invalidate();
+            model_catalog.invalidated();
             setup.invalidate();
             dashboards.invalidate();
             web_search_models.invalidate(None);
@@ -2467,6 +2470,10 @@ pub async fn real_core(b: Built) -> Result<Real, ComposeError> {
         marks: heartbeats.clone(),
     });
     bot_summaries.bind(thread_list.clone(), b.sections.clone()).map_err(|_| ComposeError::AlreadyBound("bot work summaries"))?;
+    // The index writer's row writes reach the app feed: `thread/started`, `thread/summary/updated`, `thread/deleted` (Node's roster push).
+    catalog_index
+        .observe_rows(mixdog_core_session::session::thread_edges::ThreadEdges::start(mixdog_core_session::session::thread_edges::ThreadEdgePublisher::new(thread_list.clone(), b.sections.clone())))
+        .map_err(|_| ComposeError::AlreadyBound("thread edges"))?;
     let room_summaries = mixdog_core_session::session::thread_list::RoomSummaries::new(thread_list.clone(), b.sections.clone(), directory.clone());
     late_room_summaries.bind(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room summaries"))?;
     room_approvals.bind_summaries(room_summaries.clone()).map_err(|_| ComposeError::AlreadyBound("room approvals summaries"))?;
