@@ -1524,6 +1524,7 @@ impl ThreadDirectory for SessionDirectory {
                 let mut header = Header::new();
                 header.insert("createdAt".into(), json!(now));
                 header.insert("updatedAt".into(), json!(now));
+                header.insert("lastUsedAt".into(), json!(now));
                 // The project the request names: its own path, else the new task's draft (`submitNewTask(prompt, options, draft)`).
                 // The desktop's control session is its own kind, not inferred (Node: `ensureControlSession`): the task
                 // workspace, no project, no classification.

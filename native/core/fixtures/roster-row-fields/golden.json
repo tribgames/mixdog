@@ -1,0 +1,398 @@
+{
+  "domain": "roster-row-fields",
+  "recorder": "benchmarks/rust-core/recorders/record-roster-row-fields.mjs",
+  "t0": 1800000000000,
+  "cases": [
+    {
+      "record": {
+        "id": "sess_plain",
+        "title": "Title sess_plain",
+        "cwd": "C:/proj/a",
+        "createdAt": 1799999995000,
+        "updatedAt": 1799999997000,
+        "lastUsedAt": 1799999998000,
+        "desktopSession": {
+          "classification": "project",
+          "projectPath": "C:/proj/a"
+        },
+        "messages": [],
+        "compactCount": 0
+      },
+      "overlay": {},
+      "row": {
+        "id": "sess_plain",
+        "preview": "",
+        "title": "Title sess_plain",
+        "updatedAt": 1799999997000,
+        "activityAt": 1799999998000,
+        "messageCount": 0,
+        "cwd": "C:/proj/a",
+        "classification": "project",
+        "projectPath": "C:/proj/a",
+        "createdAt": 1799999995000,
+        "compactCount": 0
+      }
+    },
+    {
+      "record": {
+        "id": "sess_favorite",
+        "title": "Title sess_favorite",
+        "cwd": "C:/proj/a",
+        "createdAt": 1799999995000,
+        "updatedAt": 1799999997000,
+        "lastUsedAt": 1799999998000,
+        "desktopSession": {
+          "classification": "project",
+          "projectPath": "C:/proj/a"
+        },
+        "messages": [],
+        "compactCount": 0
+      },
+      "overlay": {},
+      "row": {
+        "id": "sess_favorite",
+        "preview": "",
+        "title": "Title sess_favorite",
+        "updatedAt": 1799999997000,
+        "activityAt": 1799999998000,
+        "messageCount": 0,
+        "cwd": "C:/proj/a",
+        "classification": "project",
+        "projectPath": "C:/proj/a",
+        "createdAt": 1799999995000,
+        "compactCount": 0,
+        "favorite": true
+      }
+    },
+    {
+      "record": {
+        "id": "sess_read",
+        "title": "Title sess_read",
+        "cwd": "C:/proj/a",
+        "createdAt": 1799999995000,
+        "updatedAt": 1799999997000,
+        "lastUsedAt": 1799999998000,
+        "desktopSession": {
+          "classification": "project",
+          "projectPath": "C:/proj/a"
+        },
+        "messages": [],
+        "compactCount": 0
+      },
+      "overlay": {},
+      "row": {
+        "id": "sess_read",
+        "preview": "",
+        "title": "Title sess_read",
+        "updatedAt": 1799999997000,
+        "activityAt": 1799999998000,
+        "messageCount": 0,
+        "cwd": "C:/proj/a",
+        "classification": "project",
+        "projectPath": "C:/proj/a",
+        "createdAt": 1799999995000,
+        "compactCount": 0,
+        "readMessageCount": 0,
+        "readRevision": 1
+      }
+    },
+    {
+      "record": {
+        "id": "sess_read_twice",
+        "title": "Title sess_read_twice",
+        "cwd": "C:/proj/a",
+        "createdAt": 1799999995000,
+        "updatedAt": 1799999997000,
+        "lastUsedAt": 1799999998000,
+        "desktopSession": {
+          "classification": "project",
+          "projectPath": "C:/proj/a"
+        },
+        "messages": [],
+        "compactCount": 0
+      },
+      "overlay": {},
+      "row": {
+        "id": "sess_read_twice",
+        "preview": "",
+        "title": "Title sess_read_twice",
+        "updatedAt": 1799999997000,
+        "activityAt": 1799999998000,
+        "messageCount": 0,
+        "cwd": "C:/proj/a",
+        "classification": "project",
+        "projectPath": "C:/proj/a",
+        "createdAt": 1799999995000,
+        "compactCount": 0,
+        "readMessageCount": 0,
+        "readRevision": 2
+      }
+    },
+    {
+      "record": {
+        "id": "sess_read_compacted",
+        "title": "Title sess_read_compacted",
+        "cwd": "C:/proj/a",
+        "createdAt": 1799999995000,
+        "updatedAt": 1799999997000,
+        "lastUsedAt": 1799999998000,
+        "desktopSession": {
+          "classification": "project",
+          "projectPath": "C:/proj/a"
+        },
+        "messages": [],
+        "compactCount": 3
+      },
+      "overlay": {},
+      "row": {
+        "id": "sess_read_compacted",
+        "preview": "",
+        "title": "Title sess_read_compacted",
+        "updatedAt": 1799999997000,
+        "activityAt": 1799999998000,
+        "messageCount": 0,
+        "cwd": "C:/proj/a",
+        "classification": "project",
+        "projectPath": "C:/proj/a",
+        "createdAt": 1799999995000,
+        "compactCount": 0,
+        "readMessageCount": 0,
+        "readRevision": 1
+      }
+    },
+    {
+      "record": {
+        "id": "sess_retired",
+        "title": "Title sess_retired",
+        "cwd": "C:/proj/a",
+        "createdAt": 1799999995000,
+        "updatedAt": 1799999997000,
+        "lastUsedAt": 1799999998000,
+        "desktopSession": {
+          "classification": "project",
+          "projectPath": "C:/proj/a"
+        },
+        "messages": [],
+        "compactCount": 0
+      },
+      "overlay": {},
+      "row": {
+        "id": "sess_retired",
+        "preview": "",
+        "title": "Title sess_retired",
+        "updatedAt": 1799999997000,
+        "activityAt": 1799999998000,
+        "messageCount": 0,
+        "cwd": "C:/proj/a",
+        "classification": "project",
+        "projectPath": "C:/proj/a",
+        "createdAt": 1799999995000,
+        "compactCount": 0,
+        "agentDeleted": true
+      }
+    },
+    {
+      "record": {
+        "id": "sess_working",
+        "title": "Title sess_working",
+        "cwd": "C:/proj/a",
+        "createdAt": 1799999995000,
+        "updatedAt": 1799999997000,
+        "lastUsedAt": 1799999998000,
+        "desktopSession": {
+          "classification": "project",
+          "projectPath": "C:/proj/a"
+        },
+        "messages": [],
+        "compactCount": 0
+      },
+      "overlay": {
+        "working": true
+      },
+      "row": {
+        "id": "sess_working",
+        "preview": "",
+        "title": "Title sess_working",
+        "updatedAt": 1799999997000,
+        "activityAt": 1799999998000,
+        "messageCount": 0,
+        "cwd": "C:/proj/a",
+        "classification": "project",
+        "projectPath": "C:/proj/a",
+        "working": true,
+        "leadWorking": true,
+        "createdAt": 1799999995000,
+        "compactCount": 0
+      }
+    },
+    {
+      "record": {
+        "id": "sess_agent_working",
+        "title": "Title sess_agent_working",
+        "cwd": "C:/proj/a",
+        "createdAt": 1799999995000,
+        "updatedAt": 1799999997000,
+        "lastUsedAt": 1799999998000,
+        "desktopSession": {
+          "classification": "project",
+          "projectPath": "C:/proj/a"
+        },
+        "messages": [],
+        "compactCount": 0
+      },
+      "overlay": {
+        "agentWorking": true
+      },
+      "row": {
+        "id": "sess_agent_working",
+        "preview": "",
+        "title": "Title sess_agent_working",
+        "updatedAt": 1799999997000,
+        "activityAt": 1799999998000,
+        "messageCount": 0,
+        "cwd": "C:/proj/a",
+        "classification": "project",
+        "projectPath": "C:/proj/a",
+        "working": true,
+        "agentWorking": true,
+        "createdAt": 1799999995000,
+        "compactCount": 0
+      }
+    },
+    {
+      "record": {
+        "id": "sess_both_working",
+        "title": "Title sess_both_working",
+        "cwd": "C:/proj/a",
+        "createdAt": 1799999995000,
+        "updatedAt": 1799999997000,
+        "lastUsedAt": 1799999998000,
+        "desktopSession": {
+          "classification": "project",
+          "projectPath": "C:/proj/a"
+        },
+        "messages": [],
+        "compactCount": 0
+      },
+      "overlay": {
+        "working": true,
+        "agentWorking": true
+      },
+      "row": {
+        "id": "sess_both_working",
+        "preview": "",
+        "title": "Title sess_both_working",
+        "updatedAt": 1799999997000,
+        "activityAt": 1799999998000,
+        "messageCount": 0,
+        "cwd": "C:/proj/a",
+        "classification": "project",
+        "projectPath": "C:/proj/a",
+        "working": true,
+        "leadWorking": true,
+        "agentWorking": true,
+        "createdAt": 1799999995000,
+        "compactCount": 0
+      }
+    },
+    {
+      "record": {
+        "id": "sess_no_created",
+        "title": "Title sess_no_created",
+        "cwd": "C:/proj/a",
+        "createdAt": 0,
+        "updatedAt": 1799999997000,
+        "lastUsedAt": 1799999998000,
+        "desktopSession": {
+          "classification": "project",
+          "projectPath": "C:/proj/a"
+        },
+        "messages": [],
+        "compactCount": 0
+      },
+      "overlay": {},
+      "row": {
+        "id": "sess_no_created",
+        "preview": "",
+        "title": "Title sess_no_created",
+        "updatedAt": 1799999997000,
+        "activityAt": 1799999998000,
+        "messageCount": 0,
+        "cwd": "C:/proj/a",
+        "classification": "project",
+        "projectPath": "C:/proj/a",
+        "compactCount": 0
+      }
+    },
+    {
+      "record": {
+        "id": "sess_all",
+        "title": "Title sess_all",
+        "cwd": "C:/proj/a",
+        "createdAt": 1799999995000,
+        "updatedAt": 1799999997000,
+        "lastUsedAt": 1799999998000,
+        "desktopSession": {
+          "classification": "project",
+          "projectPath": "C:/proj/a"
+        },
+        "messages": [],
+        "compactCount": 0
+      },
+      "overlay": {
+        "working": true
+      },
+      "row": {
+        "id": "sess_all",
+        "preview": "",
+        "title": "Title sess_all",
+        "updatedAt": 1799999997000,
+        "activityAt": 1799999998000,
+        "messageCount": 0,
+        "cwd": "C:/proj/a",
+        "classification": "project",
+        "projectPath": "C:/proj/a",
+        "working": true,
+        "leadWorking": true,
+        "createdAt": 1799999995000,
+        "compactCount": 0,
+        "agentDeleted": true,
+        "favorite": true,
+        "readMessageCount": 0,
+        "readRevision": 1
+      }
+    }
+  ],
+  "stored": {
+    "favorites": {
+      "sess_favorite": 1800000002000,
+      "sess_all": 1800000011000
+    },
+    "reads": {
+      "sess_read": {
+        "messageCount": 0,
+        "revision": 1,
+        "epoch": 0
+      },
+      "sess_read_twice": {
+        "messageCount": 0,
+        "revision": 2,
+        "epoch": 0
+      },
+      "sess_read_compacted": {
+        "messageCount": 0,
+        "revision": 1,
+        "epoch": 0
+      },
+      "sess_all": {
+        "messageCount": 0,
+        "revision": 1,
+        "epoch": 0
+      }
+    },
+    "retired": {
+      "sess_retired": 1800000006000,
+      "sess_all": 1800000011000
+    }
+  }
+}

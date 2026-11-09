@@ -64,7 +64,9 @@ pub struct RowOverlay {
 
 impl RowOverlay {
     fn lay_over(self, row: &mut ThreadSummary) {
-        row.working = self.working.or(row.working);
+        // The roster's projection (`desktop-state.ts`): `leadWorking` is the session's own turn, `working` that or an agent's.
+        row.lead_working = self.working.or(row.lead_working);
+        row.working = (self.working.or(self.agent_working)).or(row.working);
         row.agent_working = self.agent_working.or(row.agent_working);
         row.awaiting_approval = self.awaiting_approval.or(row.awaiting_approval);
         row.awaiting_question = self.awaiting_question.or(row.awaiting_question);
@@ -603,6 +605,41 @@ mod tests {
             assert_eq!(published["classification"], desktop["classification"], "{id}");
             assert_eq!(published["projectPath"], desktop["projectPath"], "{id}");
         }
+    }
+
+    /// The roster row's fields beyond `_sessionSummary` (`favorite`, `readMessageCount`, `readRevision`, `agentDeleted`,
+    /// `createdAt`, `working`, `leadWorking`, `agentWorking`) as the desktop's own catalog projection answered each crafted
+    /// record (`fixtures/roster-row-fields`): the Rust row over the header keys that metadata is stored in, with the live overlay.
+    #[test]
+    fn the_listed_row_carries_the_roster_fields_nodes_catalog_does() {
+        let golden: Value = serde_json::from_str(include_str!("../../../../fixtures/roster-row-fields/golden.json")).expect("golden json");
+        let stored = &golden["stored"];
+        let mut checked = 0;
+        for case in golden["cases"].as_array().expect("cases") {
+            let mut header = case["record"].as_object().expect("record").clone();
+            header.remove("messages");
+            let id = header["id"].as_str().expect("id").to_owned();
+            if let Some(at) = stored["favorites"].get(&id) {
+                header.insert("favoriteAt".into(), at.clone());
+            }
+            if let Some(at) = stored["retired"].get(&id) {
+                header.insert("retiredAt".into(), at.clone());
+            }
+            if let Some(cursor) = stored["reads"].get(&id) {
+                header.insert("readState".into(), cursor.clone());
+            }
+            let head = CatalogHead { session: id.clone(), log_id: "L".into(), base_session: None, header };
+            let list: Value = serde_json::from_str(&mixdog_store::summary::catalog_row(&head, &Default::default(), 0.0).summary).expect("list row");
+            let mut row = summary_of_list_row(&ThreadId::from(id.clone()), &list, false);
+            let flag = |name: &str| case["overlay"].get(name).and_then(Value::as_bool);
+            RowOverlay { working: flag("working"), agent_working: flag("agentWorking"), ..Default::default() }.lay_over(&mut row);
+            let row = serde_json::to_value(row).expect("row json");
+            for field in ["updatedAt", "activityAt", "createdAt", "favorite", "readMessageCount", "readRevision", "agentDeleted", "working", "leadWorking", "agentWorking"] {
+                assert_eq!(row.get(field), case["row"].get(field), "{field} of {id}");
+            }
+            checked += 1;
+        }
+        assert_eq!(checked, 11);
     }
 
     /// A cursor that does not decode is Node's `EINVALIDCURSOR` failure; a text search or another

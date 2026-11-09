@@ -328,6 +328,16 @@ pub fn catalog_row(head: &CatalogHead, stats: &MessageStats, now: f64) -> Catalo
             _ => Value::Null,
         },
     );
+    // The desktop's sidebar metadata, which the session's own header holds here (`favoriteAt`, `readState`, `retiredAt`); the
+    // list row carries each only once set, for the roster projection of `thread/list`.
+    for k in ["favoriteAt", "retiredAt"] {
+        if positive(get(h, k), 0.0) > 0.0 {
+            s.insert(k.into(), num(positive(get(h, k), 0.0)));
+        }
+    }
+    if let Some(read @ Value::Object(_)) = get(h, "readState") {
+        s.insert("readState".into(), read.clone());
+    }
     let as_str = |v: &Value| v.as_str().map(str::to_owned);
     CatalogRow {
         id: head.session.clone(),
