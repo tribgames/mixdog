@@ -70,7 +70,7 @@ async function startCore(exe, coreRoot, relay, fresh = true) {
       stirred = false;
       if (child.exitCode !== null) throw new Error(`mixdogd exited ${child.exitCode}:\n${stderr}`);
       try {
-        return { child, endpoint: parseDiscovery(readFileSync(file, 'utf8')), dataDir: join(coreRoot, 'data') };
+        return { child, env, endpoint: parseDiscovery(readFileSync(file, 'utf8')), dataDir: join(coreRoot, 'data') };
       } catch {
         if (!stirred) await new Promise((resolve) => (wake = resolve));
       }
@@ -148,7 +148,7 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
   // The router arms a per-call deadline on the page's window timers; the replay compares answers, so its window never fires one.
   globalThis.window = { setTimeout: () => 0, clearTimeout() {} };
   const { createProtocolRouter } = await here('apps/desktop/src/renderer/remote-shim-protocol.ts');
-  const router = createProtocolRouter([adapter], { host, started: async () => {}, synced: async () => {}, probe() {} });
+  const router = createProtocolRouter([adapter], { host, started: async () => {}, synced: async () => {}, probe() {}, silentSince: () => false });
   let window = null;
   let compared = 0;
 
@@ -170,9 +170,10 @@ async function replayScenario({ exe, world, name, make, expected, relay }) {
     restart: async () => {
       if (relay || window) throw new Error('restart is replayed on a loopback phone with no window');
       client.close?.();
+      // A stop the app itself performs (its own quit): the memory database shuts down cleanly, so the next start does not run crash recovery.
       const { execFileSync } = await import('node:child_process');
       const exited = new Promise((resolve) => core.child.once('exit', resolve));
-      execFileSync('taskkill', ['/T', '/F', '/PID', String(core.child.pid)], { stdio: 'ignore' });
+      execFileSync(exe, ['ctl', 'stop', '--when-idle', '--reason', 'userStop'], { env: core.env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
       await exited;
       Object.assign(core, await startCore(exe, coreRoot, relay, false));
       base.connector = createWsConnector(async () => core.endpoint);
