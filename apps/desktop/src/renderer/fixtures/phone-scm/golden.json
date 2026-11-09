@@ -10675,6 +10675,236 @@
         "starred": true,
         "ghApiDown": false
       }
+    },
+    {
+      "name": "gitStatus-git-missing",
+      "call": "gitStatus",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing"
+      ],
+      "frame": {
+        "ok": true,
+        "value": {
+          "repository": false,
+          "root": "",
+          "branch": "",
+          "detached": false,
+          "unborn": false,
+          "upstream": false,
+          "upstreamName": "",
+          "remote": false,
+          "remoteUrl": "",
+          "ahead": 0,
+          "behind": 0,
+          "operation": "",
+          "files": [],
+          "untrackedOmitted": 0
+        }
+      },
+      "ops": [
+        {
+          "name": "gitStatus",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+            {
+              "reuseLineStats": false,
+              "skipLineStats": false
+            }
+          ],
+          "result": {
+            "repository": false,
+            "root": "",
+            "branch": "",
+            "detached": false,
+            "unborn": false,
+            "upstream": false,
+            "upstreamName": "",
+            "remote": false,
+            "remoteUrl": "",
+            "ahead": 0,
+            "behind": 0,
+            "operation": "",
+            "files": [],
+            "untrackedOmitted": 0
+          }
+        }
+      ],
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": true,
+        "wingetInstallsGit": true,
+        "soffice": true,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "gitLog-git-missing",
+      "call": "gitLog",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing"
+      ],
+      "frame": {
+        "ok": true,
+        "value": []
+      },
+      "ops": [
+        {
+          "name": "gitLog",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+            "",
+            0,
+            40
+          ],
+          "result": []
+        }
+      ],
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": true,
+        "wingetInstallsGit": true,
+        "soffice": true,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "gitStage-git-missing",
+      "call": "gitStage",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+        [
+          "f.txt"
+        ]
+      ],
+      "frame": {
+        "ok": false,
+        "error": "spawn git ENOENT",
+        "errorCode": "ENOENT"
+      },
+      "ops": [
+        {
+          "name": "gitStage",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+            [
+              "f.txt"
+            ]
+          ],
+          "error": {
+            "message": "spawn git ENOENT",
+            "code": "ENOENT"
+          }
+        }
+      ],
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": true,
+        "wingetInstallsGit": true,
+        "soffice": true,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "gitDiff-output-too-large",
+      "call": "gitDiff",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\big",
+        "big.txt",
+        false
+      ],
+      "frame": {
+        "ok": false,
+        "error": "git --no-optional-locks diff --no-ext-diff --no-textconv --no-color HEAD -- big.txt exceeded 32000000 output bytes",
+        "errorCode": "EMAXBUFFER"
+      },
+      "ops": [
+        {
+          "name": "gitDiff",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\big",
+            "big.txt",
+            false,
+            false,
+            false
+          ],
+          "error": {
+            "message": "git --no-optional-locks diff --no-ext-diff --no-textconv --no-color HEAD -- big.txt exceeded 32000000 output bytes",
+            "code": "EMAXBUFFER"
+          }
+        }
+      ],
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": true,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
+    },
+    {
+      "name": "gitStatus-git-timeout",
+      "call": "gitStatus",
+      "params": [
+        "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing"
+      ],
+      "frame": {
+        "ok": false,
+        "error": "git --no-optional-locks status --porcelain=v2 -z --branch --untracked-files=all timed out after 1ms",
+        "errorCode": "EGITTIMEOUT"
+      },
+      "ops": [
+        {
+          "name": "gitStatus",
+          "args": [
+            "D:\\mixdog-build\\tmp\\phone-ph2-scm-rec\\failing",
+            {
+              "reuseLineStats": false,
+              "skipLineStats": false
+            }
+          ],
+          "error": {
+            "message": "git --no-optional-locks status --porcelain=v2 -z --branch --untracked-files=all timed out after 1ms",
+            "code": "EGITTIMEOUT"
+          }
+        }
+      ],
+      "world": {
+        "ghInstalled": true,
+        "ghAuth": true,
+        "wingetMissing": false,
+        "wingetFails": false,
+        "wingetInstallsGh": true,
+        "gitMissing": false,
+        "wingetInstallsGit": true,
+        "soffice": true,
+        "wingetInstallsSoffice": true,
+        "starred": true,
+        "ghApiDown": false
+      }
     }
   ],
   "ordering": {

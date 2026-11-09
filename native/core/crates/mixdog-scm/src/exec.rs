@@ -210,13 +210,10 @@ impl Exec {
     }
 }
 
-/// The program by its name without directory or extension, then its arguments.
+/// The program as the child was started with it (the resolved path of git, as `gitCommand()` gives it), then its arguments:
+/// the words of run-child.mjs, `${command} ${args.join(' ')}`.
 pub(crate) fn command_label(program: &str, args: &[String]) -> String {
-    let name = std::path::Path::new(program)
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or(program);
-    std::iter::once(name).chain(args.iter().map(String::as_str)).collect::<Vec<_>>().join(" ")
+    std::iter::once(program).chain(args.iter().map(String::as_str)).collect::<Vec<_>>().join(" ")
 }
 
 fn spawn_failure(error: ProcessError, program: &str) -> ScmFailure {

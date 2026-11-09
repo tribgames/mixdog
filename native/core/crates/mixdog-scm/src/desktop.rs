@@ -46,6 +46,14 @@ impl Scm {
         cancel: &CancellationToken,
         line_stats: bool,
     ) -> Result<Value, ScmFailure> {
+        // git-status.ts: any failure of the scan but a deadline or an overflow reads as "not a repository", a git that cannot start too.
+        match self.git_status_scan(cwd, cancel, line_stats).await {
+            Err(ScmFailure::Unavailable { .. }) => to_value(not_a_repository()),
+            other => other,
+        }
+    }
+
+    async fn git_status_scan(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken, line_stats: bool) -> Result<Value, ScmFailure> {
         let repo = match self.open(cwd, cancel).await {
             Ok(repo) => repo,
             Err(ScmFailure::NotARepository) => return to_value(not_a_repository()),
@@ -78,7 +86,11 @@ impl Scm {
         skip: u32,
         limit: u32,
     ) -> Result<Value, ScmFailure> {
-        to_value(history::log(&self.git, cancel, cwd, query, skip, limit).await?)
+        // git-history.ts gitLog: [] reads as an empty history for any failure but a deadline, a git that cannot start too.
+        match history::log(&self.git, cancel, cwd, query, skip, limit).await {
+            Err(ScmFailure::Unavailable { .. }) => to_value(Vec::<crate::inspect::history::GitLogEntry>::new()),
+            other => to_value(other?),
+        }
     }
 
     pub async fn git_show(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken, hash: &str) -> Result<Value, ScmFailure> {
