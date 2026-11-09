@@ -597,10 +597,13 @@ impl PkceProvider for AnthropicLogin {
             Ok(credential) => credential,
             Err(TokenFailure::Dead) => return Err(LoginFailure::Denied),
             Err(TokenFailure::Failed(err)) => {
-                return Err(LoginFailure::Failed {
-                    code: "token_exchange_failed".into(),
-                    message: err.message,
-                });
+                // A request that got no answer is worded by `oauthRequestError` (`anthropic-oauth-credentials.mjs:628`).
+                let message = if err.transport.is_some() {
+                    crate::oauth::http::request_failed("[anthropic-oauth] token exchange", &err)
+                } else {
+                    err.message
+                };
+                return Err(LoginFailure::Failed { code: "token_exchange_failed".into(), message });
             }
         };
         self.file
@@ -632,6 +635,22 @@ mod site_tests {
         };
         assert_transport("anthropicRefresh", &transport);
         assert_thrown("anthropicRefresh", &error.message);
+    }
+
+    /// The authorization-code exchange is an `AbortSignal.timeout` fetch whose failure Node words itself
+    /// (`oauthRequestError`, `sites.anthropicCodeExchange`).
+    #[tokio::test(start_paused = true)]
+    async fn a_code_exchange_that_outlives_its_timer_reads_as_nodes() {
+        use crate::oauth::CredentialIo;
+        use crate::transport::site_probe::login_message;
+
+        let dir = tempfile::tempdir().unwrap();
+        let rt = mixdog_rt::testing::tokens();
+        let file = CredentialFile::new(dir.path().join("anthropic-oauth.json"), CredentialIo { read: rt.interactive_io, write: rt.durability_io });
+        let transport = TimingOut::new();
+        let failure = AnthropicLogin::new(file, transport.clone()).exchange("abc", "v", "http://localhost/cb").await.expect_err("never answers");
+        assert_transport("anthropicCodeExchange", &transport);
+        assert_thrown("anthropicCodeExchange", login_message(&failure));
     }
 }
 

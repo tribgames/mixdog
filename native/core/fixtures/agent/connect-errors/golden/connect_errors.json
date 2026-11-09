@@ -2181,6 +2181,184 @@
         "message": "This operation was aborted"
       }
     },
+    "grokModelList": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 10000
+        },
+        {
+          "via": "setTimeout",
+          "ms": 10000
+        },
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 4000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "ProviderTimeoutError",
+          "message": "grok-oauth model list timed out after 10000ms"
+        }
+      ],
+      "thrown": {
+        "name": "ProviderTimeoutError",
+        "code": "EPROVIDERTIMEOUT",
+        "message": "grok-oauth model list timed out after 10000ms"
+      }
+    },
+    "grokProxyList": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 10000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        },
+        {
+          "name": "ProviderTimeoutError",
+          "message": "grok-oauth proxy model list timed out after 10000ms"
+        },
+        {
+          "name": "ProviderTimeoutError",
+          "message": "grok-oauth proxy model list timed out after 10000ms"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      }
+    },
+    "anthropicCodeExchange": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 300000
+        },
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 30000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "Error",
+        "code": null,
+        "message": "[anthropic-oauth] token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY."
+      }
+    },
+    "geminiCacheCreate": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 180000
+        },
+        {
+          "via": "setTimeout",
+          "ms": 120000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "ProviderTimeoutError",
+          "message": "Gemini cachedContents.create total timed out after 180000ms"
+        }
+      ],
+      "thrown": {
+        "resolved": true
+      },
+      "logged": [
+        "[gemini] cachedContents.create error: Gemini cachedContents.create total timed out after 180000ms"
+      ]
+    },
+    "cursorPoll": {
+      "armed": [],
+      "fetchRejected": [
+        {
+          "name": "TypeError",
+          "message": "fetch failed"
+        },
+        {
+          "name": "TypeError",
+          "message": "fetch failed"
+        },
+        {
+          "name": "TypeError",
+          "message": "fetch failed"
+        }
+      ],
+      "thrown": {
+        "name": "TypeError",
+        "code": null,
+        "message": "fetch failed"
+      }
+    },
+    "opencodeConsoleGet": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 20000
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "oauthUsage": {
+      "armed": [
+        {
+          "via": "AbortSignal.timeout",
+          "ms": 4500
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "TimeoutError",
+          "message": "The operation was aborted due to timeout"
+        }
+      ],
+      "thrown": {
+        "name": "TimeoutError",
+        "code": 23,
+        "message": "The operation was aborted due to timeout"
+      }
+    },
+    "apiUsage": {
+      "armed": [
+        {
+          "via": "setTimeout",
+          "ms": 6500
+        }
+      ],
+      "fetchRejected": [
+        {
+          "name": "AbortError",
+          "message": "This operation was aborted"
+        }
+      ],
+      "thrown": {
+        "name": "AbortError",
+        "code": 20,
+        "message": "This operation was aborted"
+      }
+    },
     "vertexMetadataProbe": {
       "armed": [
         {

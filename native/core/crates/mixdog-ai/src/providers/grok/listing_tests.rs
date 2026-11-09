@@ -122,3 +122,62 @@ async fn every_recorded_case_gives_node_rows_and_requests() {
         }
     }
 }
+
+mod timers {
+    use async_trait::async_trait;
+    use mixdog_core_api::domain::provider::ProviderError;
+
+    use super::*;
+    use crate::transport::Exchange;
+    use crate::transport::http::HttpResponse;
+    use crate::transport::http::HttpSend;
+    use crate::transport::site_probe::TimingOut;
+    use crate::transport::site_probe::assert_window;
+    use crate::transport::site_probe::recorded;
+
+    /// api.x.ai answers an empty catalog; the proxy never answers.
+    struct ProxyHangs {
+        api: Arc<Replay>,
+        proxy: Arc<TimingOut>,
+    }
+
+    #[async_trait]
+    impl HttpSend for ProxyHangs {
+        async fn send(&self, request: WireRequest, exchange: Exchange) -> Result<HttpResponse, ProviderError> {
+            if side_of(&request) == "api" { self.api.send(request, exchange).await } else { self.proxy.send(request, exchange).await }
+        }
+    }
+
+    fn over(http: Arc<dyn HttpSend>) -> GrokListing {
+        let credential = StaticCredential(Some(("authorization".to_owned(), "Bearer fixture-grok-access".to_owned())));
+        GrokListing::new(http, Arc::new(credential), super::super::codec(VERSION), VERSION.into(), Arc::new(SeedEffortRule), ListingLookup::new())
+    }
+
+    fn rejected(site: &str) -> Vec<String> {
+        recorded(site)["fetchRejected"].as_array().unwrap().iter().map(|r| r["message"].as_str().unwrap().to_owned()).collect()
+    }
+
+    /// The primary catalog's timer (`sites.grokModelList`) is the failure the list ends with.
+    #[tokio::test(start_paused = true)]
+    async fn the_primary_catalogs_timer_is_the_failure_the_listing_ends_with() {
+        let transport = TimingOut::new();
+        let error = over(transport.clone()).list_models().await.expect_err("never answers");
+        assert_eq!(error.message, recorded("grokModelList")["thrown"]["message"].as_str().unwrap());
+        let texts: Vec<String> = transport.seen().into_iter().map(|s| s.text).collect();
+        assert!(texts.contains(&error.message), "{texts:?}");
+        assert_window("grokModelList", &transport);
+    }
+
+    /// The proxy's timer (`sites.grokProxyList`) is swallowed into no rows, as Node does: the listing still answers.
+    #[tokio::test(start_paused = true)]
+    async fn the_proxy_catalogs_timer_is_swallowed_as_nodes_does() {
+        let proxy = TimingOut::new();
+        let http = Arc::new(ProxyHangs { api: Arc::new(Replay::new(|request: &WireRequest| answer(&serde_json::json!({}), side_of(request)))), proxy: proxy.clone() });
+        let listed = over(http).list_models().await.expect("the proxy's failure is swallowed");
+        assert!(listed.is_empty());
+        assert_eq!(recorded("grokProxyList")["thrown"]["resolved"], true);
+        let text = proxy.seen().first().unwrap().text.clone();
+        assert!(rejected("grokProxyList").contains(&text), "{text}");
+        assert_window("grokProxyList", &proxy);
+    }
+}

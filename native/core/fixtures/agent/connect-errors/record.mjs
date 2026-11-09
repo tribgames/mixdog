@@ -61,7 +61,7 @@ const realSetTimeout = globalThis.setTimeout;
 // `setTimeout(() => controller.abort())`, `AbortSignal.timeout`) are recorded and armed at 1 ms, against a server that
 // never answers: the site's own code throws what it throws when the timer fires, without waiting its 30 s.
 let site = null;
-const SITE_TIMER_CALLERS = ['stall-policy.mjs', 'anthropic-oauth-credentials.mjs', 'provider-admin.mjs', 'openai-oauth-tokens.mjs', 'cursor-wire-transport.mjs', 'opencode-go-usage.mjs'];
+const SITE_TIMER_CALLERS = ['stall-policy.mjs', 'anthropic-oauth-credentials.mjs', 'provider-admin.mjs', 'openai-oauth-tokens.mjs', 'cursor-wire-transport.mjs', 'opencode-go-usage.mjs', 'api-usage.mjs'];
 globalThis.setTimeout = (callback, ms, ...rest) => {
   const limit = Error.stackTraceLimit;
   Error.stackTraceLimit = 40;
@@ -353,6 +353,17 @@ async function recordSites() {
   const modelCatalog = await load('src/runtime/shared/llm/model-catalog.mjs');
   const openaiLogin = await load(`${providers}/openai-oauth-login.mjs`);
   const opencodeUsage = await load(`${providers}/opencode-go-usage.mjs`);
+  const { GrokOAuthProvider } = await load(`${providers}/grok-oauth.mjs`);
+  const { GeminiProvider } = await load(`${providers}/gemini.mjs`);
+  const oauthUsage = await load(`${providers}/oauth-usage.mjs`);
+  const apiUsage = await load(`${providers}/api-usage.mjs`);
+  const grokFile = join(scratch, 'grok-oauth.json');
+  process.env.GROK_OAUTH_CREDENTIALS_PATH = grokFile;
+  // A Grok provider holding a live sign-in, so its catalog reads go straight to the network.
+  const grokProvider = () => {
+    writeFileSync(grokFile, JSON.stringify({ access_token: 'a', refresh_token: 'r', expires_at: Date.now() + 86_400_000 }));
+    return new GrokOAuthProvider({ preconnect: false });
+  };
   process.env.MIXDOG_LLM_HEADERS_TIMEOUT_MS = String(TRANSPORT_TIMEOUT_MS);
   process.env.MIXDOG_LLM_BODY_TIMEOUT_MS = String(TRANSPORT_TIMEOUT_MS);
   // The credential files the refresh sites read, in the scratch tree.
@@ -450,6 +461,59 @@ async function recordSites() {
     },
     // The status read of the OpenCode Go usage meter: a bare `AbortController` timer, `redirect: 'error'`.
     opencodeGoUsage: () => opencodeUsage.fetchOpenCodeGoOAuthUsageSnapshot({ access_token: 'a', refresh_token: 'r', org_id: 'o' }),
+    // Both catalogs go out at once; the primary's failure propagates (`grok-oauth.mjs:497`).
+    grokModelList: () => grokProvider()._fetchAllModelItems(),
+    // The proxy catalog is best-effort: its failure is swallowed into `[]` (`grok-oauth.mjs:555`), so the site resolves.
+    grokProxyList: async () => ({ items: await grokProvider()._fetchProxyModelItems() }),
+    // The pasted-code path of the Claude login: the exchange is not exported, `completeCode` runs it.
+    anthropicCodeExchange: async () => {
+      const login = await anthropicCredentials.beginOAuthLogin({ openBrowser: false });
+      const settled = login.waitForCallback.catch(() => {});
+      try {
+        return await login.completeCode('abc');
+      } finally {
+        login.cancel();
+        await settled;
+      }
+    },
+    // `_createGeminiCache` runs the POST inside `withRetry`; it never rejects, it logs the failure and resolves null.
+    geminiCacheCreate: async () => {
+      const provider = new GeminiProvider({ preconnectFn: () => {} });
+      return {
+        entry: await provider._createGeminiCache({
+          apiKey: 'k',
+          model: 'gemini-2.5-pro',
+          ttlSeconds: 300,
+          request: { contents: [{ role: 'user', parts: [{ text: 'x' }] }] },
+          prefix: { cachePrefixContentCount: 1, cachePrefixHash: 'h' },
+          globalCacheKey: 'g',
+          credentialFingerprint: 'f',
+          priorCacheName: null,
+          canAttachState: false,
+          opts: {},
+          currentIter: 0,
+        }),
+      };
+    },
+    // The poll is a bare `fetch` with no timer of its own: it ends at the dispatcher, three failures in a row end the login.
+    cursorPoll: async () => {
+      const login = await cursorAuth.beginCursorOAuthLogin({ openBrowser: false, delayFn: async () => {} });
+      return login.waitForCallback;
+    },
+    opencodeConsoleGet: () => opencodeTokens.consoleGetJson('https://opencode.ai/api/user', { access_token: 'a', refresh_token: 'r' }),
+    // `fetchOptions` of `oauth-usage.mjs`: `AbortSignal.timeout`, `redirect: 'error'`.
+    oauthUsage: () => oauthUsage.fetchOpenAICodexResetCredits({ ensureAuth: async () => ({ access_token: 'a', account_id: 'x' }) }),
+    // `fetchJson` of `api-usage.mjs`: a bare `AbortController` timer.
+    apiUsage: async () => {
+      process.env.XAI_MANAGEMENT_API_KEY = 'k';
+      process.env.XAI_TEAM_ID = 't';
+      try {
+        return await apiUsage.fetchApiUsageSnapshot('xai', { force: true });
+      } finally {
+        delete process.env.XAI_MANAGEMENT_API_KEY;
+        delete process.env.XAI_TEAM_ID;
+      }
+    },
     vertexMetadataProbe: () => vertexAuth.probeVertexMetadata(),
     npmVersion: () => npmVersion.fetchRemoteVersion('https://registry.npmjs.org/@openai/codex/latest', npmVersion.parseNpmLatest),
     // Node's `callCursorUnary` against a server that never answers the handshake: its own timer ends it
@@ -488,7 +552,7 @@ async function recordSites() {
     const realWrite = process.stderr.write.bind(process.stderr);
     const logged = [];
     process.stderr.write = (chunk, ...rest) => {
-      if (String(chunk).startsWith('[model-catalog]')) logged.push(portless(String(chunk).trimEnd()));
+      if (String(chunk).startsWith('[model-catalog]') || String(chunk).startsWith('[gemini]')) logged.push(portless(String(chunk).trimEnd()));
       return realWrite(chunk, ...rest);
     };
     try {

@@ -14,10 +14,10 @@
       "command": "node native/core/fixtures/agent/record.mjs (plus record-text-only.mjs, record-tail-reminder.mjs and compact/record.mjs beside it; owned by the agent-loop work package)",
       "fileCount": 74,
       "manifest": "agent/MANIFEST.json",
-      "manifestSha256": "73f69d0f274d5411b9d51e6c74f4e24009f6ce417d51a267bc3d9422b543b3c4",
+      "manifestSha256": "b109e35170e921be0b7a8c53df206985e3df1048d3b1db376ada66dce32ebf87",
       "recorder": "native/core/fixtures/agent/record.mjs",
       "set": "agent",
-      "totalBytes": 4206943
+      "totalBytes": 4214382
     },
     {
       "command": "node benchmarks/rust-core/recorders/record-agent-effects.mjs --tree <tree>",
