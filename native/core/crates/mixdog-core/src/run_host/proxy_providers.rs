@@ -467,11 +467,16 @@ mod tests {
         let mut caller = Box::pin(providers.providers(false));
         assert!(futures::poll!(caller.as_mut()).is_pending());
         pc.started.notified().await;
-        let joined = providers.inner.state().joinable().expect("the read is in flight").1;
+        let mut joined = providers.inner.state().joinable().expect("the read is in flight").1;
         drop(caller);
         pc.gate.notify_one();
         // Nobody polls the read now but its own task: it still reaches the PC's answer.
-        pc.answered.notified().await;
+        // Biased: the answer precedes the join, so when both are ready the answer's kept permit is taken first.
+        tokio::select! {
+            biased;
+            () = pc.answered.notified() => {}
+            outcome = &mut joined => panic!("the read ended without the PC's answer (the join answered: {})", outcome.is_ok()),
+        }
         let outcome = joined.await;
         assert_eq!(without_traits(outcome.unwrap().unwrap()).keys().collect::<Vec<_>>(), ["openai"]);
         {

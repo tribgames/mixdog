@@ -79,26 +79,35 @@ fn ms(duration: Duration) -> u64 {
     u64::try_from(duration.as_millis()).unwrap()
 }
 
+/// The next message of `rx`, failing by assertion if the feed that should send it ends first: a feed that stops (or panics)
+/// without sending is the test's failure with its output shown, not a wait the paused clock can never end.
+async fn next<T>(rx: &mut mpsc::UnboundedReceiver<T>, feed: &mut tokio::task::JoinHandle<()>) -> T {
+    tokio::select! {
+        biased;
+        message = rx.recv() => message.expect("the channel closed"),
+        ended = feed => panic!("the feed ended before it sent: {ended:?}"),
+    }
+}
 #[tokio::test(start_paused = true)]
 async fn changes_are_published_at_a_bounded_rate_and_an_unchanged_ledger_is_never_read() {
     let (source, _reads) = scripted(vec![Ok(json!({})), Ok(json!({})), Ok(json!({}))]);
     let (publisher, mut published) = seen();
     let (changed, changes) = super::changes();
-    tokio::spawn(run(Arc::downgrade(&source), STATS_KEY, changes, None, push_into(publisher), REFRESH_INTERVAL));
+    let mut feed = tokio::spawn(run(Arc::downgrade(&source), STATS_KEY, changes, None, push_into(publisher), REFRESH_INTERVAL));
 
     // The first value is published at startup, with no change to wait for.
-    assert_eq!(inline(published.recv().await.unwrap())["at"], 0);
+    assert_eq!(inline(next(&mut published, &mut feed).await)["at"], 0);
 
     // A storm of changes inside the interval is one read, when the interval since the previous read began ends.
     for _ in 0..1000 {
         changed.usage_changed();
     }
-    assert_eq!(inline(published.recv().await.unwrap())["at"], ms(REFRESH_INTERVAL));
+    assert_eq!(inline(next(&mut published, &mut feed).await)["at"], ms(REFRESH_INTERVAL));
 
     // Nothing changed for a long time: no read. The next change is read at once, not a whole interval later.
     tokio::time::advance(REFRESH_INTERVAL * 5).await;
     changed.usage_changed();
-    assert_eq!(inline(published.recv().await.unwrap())["at"], ms(REFRESH_INTERVAL * 6));
+    assert_eq!(inline(next(&mut published, &mut feed).await)["at"], ms(REFRESH_INTERVAL * 6));
     assert!(published.try_recv().is_err(), "three reads for three bursts of changes");
 }
 
@@ -108,16 +117,16 @@ async fn a_failed_read_with_no_later_change_is_never_retried() {
     let (source, mut reads) = scripted(vec![Err("a statistics read".to_owned()), Ok(json!({}))]);
     let (publisher, mut published) = seen();
     let (changed, changes) = super::changes();
-    let feed = tokio::spawn(run(Arc::downgrade(&source), STATS_KEY, changes, None, push_into(publisher), REFRESH_INTERVAL));
+    let mut feed = tokio::spawn(run(Arc::downgrade(&source), STATS_KEY, changes, None, push_into(publisher), REFRESH_INTERVAL));
 
-    reads.recv().await.unwrap();
+    next(&mut reads, &mut feed).await;
     tokio::time::advance(REFRESH_INTERVAL * 100).await;
     assert!(published.try_recv().is_err());
     // The one scripted answer left goes to the next read, which only the change triggers: a timer that had retried the
     // failure would have taken it at the end of the interval, not now.
     changed.usage_changed();
-    assert_eq!(inline(published.recv().await.unwrap())["at"], ms(REFRESH_INTERVAL * 100));
-    reads.recv().await.unwrap();
+    assert_eq!(inline(next(&mut published, &mut feed).await)["at"], ms(REFRESH_INTERVAL * 100));
+    next(&mut reads, &mut feed).await;
     assert!(!feed.is_finished());
     drop(changed);
 }
@@ -130,20 +139,20 @@ async fn a_burst_of_changes_after_a_failed_read_stays_inside_the_bound() {
     let (source, mut reads) = scripted(vec![failure(), failure(), Ok(json!({ "ok": true }))]);
     let (publisher, mut published) = seen();
     let (changed, changes) = super::changes();
-    tokio::spawn(run(Arc::downgrade(&source), STATS_KEY, changes, None, push_into(publisher), REFRESH_INTERVAL));
+    let mut feed = tokio::spawn(run(Arc::downgrade(&source), STATS_KEY, changes, None, push_into(publisher), REFRESH_INTERVAL));
 
-    reads.recv().await.unwrap();
+    next(&mut reads, &mut feed).await;
     for _ in 0..1000 {
         changed.usage_changed();
     }
     // The burst is one read, an interval after the first began; it fails too, and a second burst is again one read an
     // interval after that one began.
-    reads.recv().await.unwrap();
+    next(&mut reads, &mut feed).await;
     assert!(reads.try_recv().is_err(), "a thousand changes were one read");
     for _ in 0..1000 {
         changed.usage_changed();
     }
-    let value = inline(published.recv().await.unwrap());
+    let value = inline(next(&mut published, &mut feed).await);
     assert_eq!((value["ok"].as_bool(), value["at"].as_u64()), (Some(true), Some(ms(REFRESH_INTERVAL * 2))));
     assert!(reads.try_recv().is_ok() && reads.try_recv().is_err(), "the third read, and no more");
 }
@@ -154,12 +163,12 @@ async fn statistics_over_the_inline_limit_are_not_published() {
     let (source, mut reads) = scripted(vec![Ok(oversize), Ok(json!({ "small": true }))]);
     let (publisher, mut published) = seen();
     let (changed, changes) = super::changes();
-    tokio::spawn(run(Arc::downgrade(&source), STATS_KEY, changes, None, push_into(publisher), REFRESH_INTERVAL));
+    let mut feed = tokio::spawn(run(Arc::downgrade(&source), STATS_KEY, changes, None, push_into(publisher), REFRESH_INTERVAL));
 
-    reads.recv().await.unwrap();
+    next(&mut reads, &mut feed).await;
     changed.usage_changed();
     // The startup read was not published; the next read's answer is the first publication.
-    assert_eq!(inline(published.recv().await.unwrap())["small"], true);
+    assert_eq!(inline(next(&mut published, &mut feed).await)["small"], true);
 }
 
 #[tokio::test(start_paused = true)]
@@ -175,8 +184,8 @@ async fn the_feed_ends_with_its_source_and_with_its_writer() {
 
     let (source, _reads) = scripted(vec![Ok(json!({}))]);
     let (changed, changes) = super::changes();
-    let feed = tokio::spawn(run(Arc::downgrade(&source), STATS_KEY, changes, None, push_into(publisher), REFRESH_INTERVAL));
-    inline(published.recv().await.unwrap());
+    let mut feed = tokio::spawn(run(Arc::downgrade(&source), STATS_KEY, changes, None, push_into(publisher), REFRESH_INTERVAL));
+    inline(next(&mut published, &mut feed).await);
     drop(changed);
     feed.await.unwrap();
 }
@@ -186,10 +195,10 @@ async fn the_dashboard_entry_has_its_own_interval() {
     let (source, _reads) = scripted(vec![Ok(json!({ "rows": [] })), Ok(json!({ "rows": [] }))]);
     let (publisher, mut published) = seen();
     let (changed, changes) = super::changes();
-    tokio::spawn(run(Arc::downgrade(&source), DASHBOARD_KEY, changes, None, push_into(publisher), DASHBOARD_INTERVAL));
-    assert_eq!(inline_of(DASHBOARD_KEY, published.recv().await.unwrap())["at"], 0);
+    let mut feed = tokio::spawn(run(Arc::downgrade(&source), DASHBOARD_KEY, changes, None, push_into(publisher), DASHBOARD_INTERVAL));
+    assert_eq!(inline_of(DASHBOARD_KEY, next(&mut published, &mut feed).await)["at"], 0);
     changed.usage_changed();
-    assert_eq!(inline_of(DASHBOARD_KEY, published.recv().await.unwrap())["at"], ms(DASHBOARD_INTERVAL));
+    assert_eq!(inline_of(DASHBOARD_KEY, next(&mut published, &mut feed).await)["at"], ms(DASHBOARD_INTERVAL));
     assert_eq!(DASHBOARD_INTERVAL, Duration::from_secs(300));
 }
 
@@ -206,13 +215,13 @@ async fn binding_the_dashboard_source_publishes_the_first_value_without_a_ledger
     let (publisher, mut published) = seen();
     let push = push_into(publisher);
     let (_changed, changes) = super::changes();
-    tokio::spawn(run(Arc::downgrade(&slot), DASHBOARD_KEY, changes, Some(slot.bindings()), push, DASHBOARD_INTERVAL));
+    let mut feed = tokio::spawn(run(Arc::downgrade(&slot), DASHBOARD_KEY, changes, Some(slot.bindings()), push, DASHBOARD_INTERVAL));
 
     // The feed started unbound; some time and a ledger change pass, and the first publication is the bound source's.
     tokio::time::advance(Duration::from_secs(10)).await;
     _changed.usage_changed();
     slot.bind(source).unwrap();
-    assert_eq!(inline_of(DASHBOARD_KEY, published.recv().await.unwrap())["at"], 10_000);
+    assert_eq!(inline_of(DASHBOARD_KEY, next(&mut published, &mut feed).await)["at"], 10_000);
     assert_eq!(slot.bind(scripted(vec![]).0), Err("the usage dashboard source is already bound"));
 }
 

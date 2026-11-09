@@ -1807,3 +1807,13 @@ pub async fn eventually_on<T>(wakes: &[&tokio::sync::Notify], mut probe: impl Fn
         futures::future::select_all(waits).await;
     }
 }
+
+/// `eventually_on`, failing by assertion when `task` (the work that should produce the signal) ends first: a task that returns
+/// without signalling is the test's failure with its output shown, not a wait that never ends. The signal wins a tie.
+pub async fn eventually_on_until<T, E: std::fmt::Debug>(wakes: &[&tokio::sync::Notify], probe: impl FnMut() -> Option<T>, task: &mut tokio::task::JoinHandle<E>) -> T {
+    tokio::select! {
+        biased;
+        value = eventually_on(wakes, probe) => value,
+        ended = task => panic!("the task ended before the signal it should have produced: {ended:?}"),
+    }
+}

@@ -752,9 +752,13 @@ mod tests {
         let pool = paths(&[("MIXDOG_COMPUTER_BIN", "/x/c")], &[], None).computer_sessions(stuck.clone(), plain(), quiet()).await.expect("helper");
         let backend = pool.backend("stuck");
         let read = ComputerRequest { action: ComputerAction::Clipboard, input: json!({"operation":"read"}) };
-        let call = tokio::spawn(async move { backend.run(read, CancellationToken::new()).await });
-        // The call's spawn is the helper that never answers.
-        stuck.0.notified().await;
+        let mut call = tokio::spawn(async move { backend.run(read, CancellationToken::new()).await });
+        // The call's spawn is the helper that never answers; a call that ends without spawning it is the failure.
+        tokio::select! {
+            biased;
+            () = stuck.0.notified() => {}
+            ended = &mut call => panic!("the call ended without spawning the helper: {ended:?}"),
+        }
         assert!(pool.entries().get("stuck").is_some_and(|entry| entry.process.is_bound()));
         let started = tokio::time::Instant::now();
         assert_eq!(pool.release_all().await, 0, "the stuck release is unconfirmed");

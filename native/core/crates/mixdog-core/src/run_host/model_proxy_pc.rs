@@ -590,11 +590,13 @@ mod tests {
                         counting.gated.store(true, Ordering::SeqCst);
                         let provider = at("provider");
                         let asks = futures::future::join_all(step["models"].as_array().unwrap().iter().map(|model| probe.usable(&provider, model.as_str().unwrap())));
-                        let release = async {
-                            counting.began.notified().await;
-                            counting.release.notify_one();
-                        };
-                        let (results, ()) = futures::future::join(asks, release).await;
+                        tokio::pin!(asks);
+                        tokio::select! {
+                            biased;
+                            () = counting.began.notified() => counting.release.notify_one(),
+                            _ = &mut asks => panic!("the burst ended before a measurement began"),
+                        }
+                        let results = asks.await;
                         counting.gated.store(false, Ordering::SeqCst);
                         results.iter().map(outcome).collect()
                     }

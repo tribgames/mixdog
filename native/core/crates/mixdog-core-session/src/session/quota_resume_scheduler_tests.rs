@@ -349,11 +349,11 @@ async fn overlapping_ticks_fire_once() {
     let host = GateHost::new();
     let clock = Arc::new(ManualClock::new(now));
     let scheduler = scheduler_over(&store, host.clone(), &clock, &Arc::default());
-    let first = tokio::spawn({
+    let mut first = tokio::spawn({
         let scheduler = scheduler.clone();
         async move { scheduler.tick().await }
     });
-    wait_until(&[&host.fired], || host.fires.lock().unwrap().len() == 1).await;
+    crate::session::testing::eventually_on_until(&[&host.fired], || (host.fires.lock().unwrap().len() == 1).then_some(()), &mut first).await;
     let second = tokio::spawn({
         let scheduler = scheduler.clone();
         async move { scheduler.tick().await }
