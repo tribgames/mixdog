@@ -26,6 +26,7 @@ use super::testing::Rig;
 use super::tests::eventually;
 use super::tests::eventually_on;
 use super::tests::idle;
+use super::tests::prompt_list;
 use super::tests::rows;
 use super::tests::start_thread;
 
@@ -222,6 +223,7 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         let name = case["name"].as_str().unwrap();
         let rig = Rig::new();
         let (directory, handle) = running(&rig).await;
+        let ahead = usize::from(case["busy"] == true);
         if case["busy"] == true {
             submit(&handle, 1, "op-busy", "running", "busy1").await.expect("the run ahead");
             eventually(|| (rows(&handle).len() == 1).then_some(())).await;
@@ -246,13 +248,12 @@ async fn every_recorded_submit_is_accepted_or_refused_as_nodes_is() {
         let node_queued: Vec<String> = case["after"]["queued"].as_array().unwrap().iter().map(|id| id.as_str().unwrap().to_owned()).collect();
         assert_eq!(queued, node_queued, "{name}: queued");
         let node_shown: Vec<String> = case["after"]["items"].as_array().unwrap().iter().map(|item| item["text"].as_str().unwrap().to_owned()).collect();
-        let shown = || -> Vec<String> { rows(&handle).into_iter().map(|(_, text)| text).filter(|text| text != "running").collect() };
-        // KNOWN DIFFERENCE, not replayed: a started prompt whose text is blank but whose `displayText` is given shows no
-        // user row here, where Node shows the display text (the started row is built from the prompt's own text).
-        if case["options"].get("displayText").is_some() && !node_shown.is_empty() {
-            assert!(shown().is_empty(), "{name}: the known difference changed; replay the row");
-            continue;
-        }
+        // The user rows the submit added, as the prompt history shows them (newest first, the run ahead last): what the
+        // transcript's user rows read (`ItemRecord.prompt`), in Node's order, oldest first.
+        let shown = || -> Vec<String> {
+            let list = prompt_list(&handle);
+            list[..list.len().saturating_sub(ahead)].iter().rev().cloned().collect()
+        };
         eventually(|| (shown().len() == node_shown.len()).then_some(())).await;
         assert_eq!(shown(), node_shown, "{name}: rows");
     }
