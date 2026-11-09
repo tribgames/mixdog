@@ -4,9 +4,12 @@
 //! tools, and the body the route's own codec encodes). It replaces the contract digest that
 //! `benchmarks/terminal-bench-2.1/analysis/contract-hash.mjs` took from Node's request builders.
 
-use mixdog_core_api::domain::provider::{Content, ContentPart, ModelRequest, ProviderAdapter, Role, ToolDefinition};
+use mixdog_core_api::domain::provider::{Content, ContentPart, Message, ModelRequest, ProviderAdapter, Role, ToolDefinition};
 use mixdog_store::schema::record::Header;
 use serde_json::{json, Map, Value};
+
+/// The user turn standing in for the one a thread has not had yet.
+pub const NO_USER_TURN: &str = "(no user turn yet)";
 
 fn tool_json(tool: &ToolDefinition) -> Value {
     let mut out = Map::new();
@@ -39,7 +42,18 @@ fn docs(header: &Header, key: &str) -> Value {
 
 /// The snapshot of `request` as `provider`'s codec encodes it, with the session documents of `header`.
 /// The wire headers are left out: the adapter adds the credentials to them.
+/// A thread that has had no user turn yet is encoded with a placeholder one: a codec such as Gemini's refuses a
+/// request with nothing to send, and the surface (system texts, tools) does not depend on the message.
 pub fn snapshot(header: &Header, provider: &dyn ProviderAdapter, request: &ModelRequest) -> Result<Value, String> {
+    let placeholder;
+    let request = if request.messages.iter().any(|message| message.role == Role::User) {
+        request
+    } else {
+        let mut messages = request.messages.clone();
+        messages.push(Message::new(Role::User, Content::Text(NO_USER_TURN.into())));
+        placeholder = ModelRequest { messages, ..request.clone() };
+        &placeholder
+    };
     let wire = provider.codec().encode(request).map_err(|error| format!("the {} request could not be encoded: {}", provider.id().as_str(), error.message))?;
     let body = serde_json::from_slice::<Value>(&wire.body).unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&wire.body).into_owned()));
     Ok(json!({
@@ -79,6 +93,7 @@ mod tests {
                 "model": request.model,
                 "instructions": request.messages.iter().filter(|m| m.role == Role::System).map(|m| text_of(&m.content)).collect::<Vec<_>>(),
                 "tools": request.tools.iter().map(|t| json!({"type": "function", "name": t.name, "parameters": t.input_schema})).collect::<Vec<_>>(),
+                "input": request.messages.iter().filter(|m| m.role != Role::System).map(|m| text_of(&m.content)).collect::<Vec<_>>(),
             });
             Ok(WireRequest { transport: TransportKind::Http1, method: "POST".into(), url: "https://example.invalid/v1/responses".into(), headers: vec![("authorization".into(), "never shown".into())], body: serde_json::to_vec(&body).unwrap() })
         }
@@ -150,6 +165,14 @@ mod tests {
         assert_eq!(got["body"]["instructions"], json!(["rules", "env"]));
         assert_eq!(got["body"]["tools"][0]["parameters"], schema);
         assert!(!got.to_string().contains("never shown"), "the wire headers carry credentials and stay out");
+    }
+
+    #[test]
+    fn a_thread_with_no_user_turn_is_encoded_with_a_placeholder_and_one_with_a_turn_is_not() {
+        let bare = ModelRequest { model: "m".into(), messages: vec![Message::new(Role::System, Content::Text("rules".into()))], tools: Vec::new(), options: RequestOptions::default() };
+        assert_eq!(snapshot(&Header::new(), &adapter(), &bare).unwrap()["body"]["input"], json!([NO_USER_TURN]));
+        let asked = ModelRequest { messages: vec![Message::new(Role::User, Content::Text("hi".into()))], ..bare };
+        assert_eq!(snapshot(&Header::new(), &adapter(), &asked).unwrap()["body"]["input"], json!(["hi"]));
     }
 
     #[test]

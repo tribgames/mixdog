@@ -38,25 +38,35 @@ jobs:
       - name: Verify embedding and core memory runtime
         run: node scripts/verify-embedding-runtime.mjs --core
 
-  # K1 replacement of memory-runtime: the Rust core's own ONNX runtime loads the effort-judge model on each
-  # platform (mixdog-services effort_judge::model), with no Node step.
+  # K1 replacement of memory-runtime's embedding probe: the Rust core installs the shipped embedding model into an
+  # empty cache and embeds the probe string through its own ONNX Runtime (mixdog-services memory::embed), loading
+  # the same onnxruntime library the desktop ships (stage-core.mjs `ORT_LIBRARY_FILE`). macOS x64 has no
+  # onnxruntime-node binding, so the core builds no models there and, like the Node step, it has nothing to verify.
   rust-onnx-runtime:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { platform: darwin, arch: arm64, runner: macos-15 }
-          - { platform: darwin, arch: x64, runner: macos-15-intel }
-          - { platform: linux, arch: x64, runner: ubuntu-22.04 }
-          - { platform: linux, arch: arm64, runner: ubuntu-22.04-arm }
+          - { platform: darwin, arch: arm64, runner: macos-15, library: libonnxruntime.1.dylib }
+          - { platform: linux, arch: x64, runner: ubuntu-22.04, library: libonnxruntime.so.1 }
+          - { platform: linux, arch: arm64, runner: ubuntu-22.04-arm, library: libonnxruntime.so.1 }
     name: rust-onnx-${{ matrix.platform }}-${{ matrix.arch }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Install the onnxruntime library
+        run: npm ci --prefer-offline --no-audit --no-fund
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: "1.99.1"
-      - name: Effort-judge model tests
+      - name: Embed the probe string with the shipped model
         working-directory: native/core
-        run: cargo test --locked -p mixdog-services effort_judge
+        env:
+          MIXDOG_ORT_LIBRARY: ${{ github.workspace }}/node_modules/onnxruntime-node/bin/napi-v6/${{ matrix.platform }}/${{ matrix.arch }}/${{ matrix.library }}
+        run: cargo test --locked -p mixdog-services the_shipped_model_installs_and_embeds_a_probe_string -- --ignored

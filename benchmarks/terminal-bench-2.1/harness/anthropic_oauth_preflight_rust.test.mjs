@@ -51,6 +51,7 @@ test('a preflight writes the owner-only snapshot only after the lease is establi
     assert.equal(lease.remainingMs, 3_600_000);
     assert.deepEqual(JSON.parse(readFileSync(snapshotPath, 'utf8')), { claudeAiOauth: { accessToken: 'tok-1234567890', expiresAt: NOW + 3_600_000 } });
     assert.deepEqual(calls.map(([name]) => name), ['account/refreshProviderSetup', 'subscribeApp', 'close']);
+    assert.deepEqual(calls[0][1], { force: true, refresh: true, renewCredential: 'anthropic-oauth', minimumValidityMs: 600_000 }, 'the core is asked to renew the token for the lease');
 
     setup.oauth = [row({ expiresAt: NOW + 10 })];
     rmSync(snapshotPath);

@@ -262,6 +262,14 @@
             "null"
           ]
         },
+        "minimumValidityMs": {
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
         "opId": {
           "type": "string"
         },
@@ -274,6 +282,13 @@
         "refresh": {
           "type": [
             "boolean",
+            "null"
+          ]
+        },
+        "renewCredential": {
+          "description": "A provider id whose current account's OAuth token is refreshed now unless it lasts `minimumValidityMs` more (the host preflight of a benchmark run); needs `minimumValidityMs`.",
+          "type": [
+            "string",
             "null"
           ]
         },

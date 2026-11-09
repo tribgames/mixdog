@@ -5,9 +5,9 @@
 // The credential's state is read from the user's own running `mixdogd` through its account status (the
 // `providerSetup` section of the app feed: `usable`, `reauthRequired`, `expiresAt` of the `anthropic-oauth` row), and
 // the lease is checked against it. The snapshot a container gets is the credentials file without its rotating refresh
-// token, as before. What the Node preflight also did and this does not: refresh a token that expires inside the
-// lease. The Rust core refreshes a credential when it uses it and has no call that forces one, so a short lease is
-// reported with that instruction (see the K1 table, row "anthropic_oauth_preflight").
+// token, as before. A token that expires inside the lease is refreshed first, by the core
+// (`account/refreshProviderSetup` with `renewCredential`/`minimumValidityMs`, `OAuthSession::ensure_lease`), as the
+// Node preflight's refresh did.
 //
 // Like its predecessor this file is copied into a TEMP harness snapshot, so it finds the repository through
 // MIXDOG_TB_REPO_ROOT (the agent passes it) and falls back to the in-repo layout.
@@ -45,7 +45,7 @@ export function leaseOf(row, requiredMs, now) {
   if (remainingMs < requiredMs) {
     throw new Error(
       `Anthropic OAuth host preflight cannot satisfy the ${Math.ceil(requiredMs / 1000)}s credential lease `
-        + `(the credential has ${Math.max(0, Math.floor(remainingMs / 1000))}s). Use Mixdog on this host so its core refreshes the token, then rerun.`,
+        + `(the credential has ${Math.max(0, Math.floor(remainingMs / 1000))}s).`,
     );
   }
   return { expiresAt, remainingMs };
@@ -67,17 +67,21 @@ function valueAfter(flag) {
 }
 
 export async function preflight({ credentialsPath, minimumValidityMs, snapshotPath, attach, now = () => Date.now() }) {
-  const raw = JSON.parse(readFileSync(credentialsPath, 'utf8'));
-  if (!raw?.claudeAiOauth?.accessToken) {
+  const present = JSON.parse(readFileSync(credentialsPath, 'utf8'));
+  if (!present?.claudeAiOauth?.accessToken) {
     throw new Error(`Anthropic OAuth host preflight found no credentials at ${credentialsPath}. Open /providers in mixdog to sign in.`);
   }
   const core = await attach();
   try {
     const { waitStore } = await core.library();
-    await core.client.call('account/refreshProviderSetup', { force: true, refresh: true });
+    // `renewCredential` is the core's preflightAnthropicOAuthCredentials: it refreshes the token now unless it lasts the
+    // lease, persists the rotated pair, and fails when the grant cannot give the lease.
+    await core.client.call('account/refreshProviderSetup', { force: true, refresh: true, renewCredential: PROVIDER, minimumValidityMs });
     await core.client.subscribeApp();
     const setup = await waitStore(core.client, () => core.client.store.section('providerSetup')?.value);
     const lease = leaseOf(anthropicRow(setup), minimumValidityMs, now());
+    // Read after the renewal: the snapshot carries the token the lease was established for.
+    const raw = JSON.parse(readFileSync(credentialsPath, 'utf8'));
     writeFileSync(snapshotPath, `${JSON.stringify(snapshotOf(raw), null, 2)}\n`, { mode: 0o600 });
     return lease;
   } finally {
