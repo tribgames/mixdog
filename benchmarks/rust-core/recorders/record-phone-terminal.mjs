@@ -11,7 +11,8 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { REPO_ROOT, commitStage, exactProductIdentity, importFrom, parseArgs, resolveTree, stageSet, writeJson, writeSetManifest } from './lib/common.mjs';
-import { play, terminalScript } from './lib/phone-terminal-script.mjs';
+import { mock } from 'node:test';
+import { play, sizeClaimScript, terminalScript } from './lib/phone-terminal-script.mjs';
 
 const REF = 'b6f10295a2f698afc85332467192de28500bd146';
 const ROOT = 'D:\\mixdog-build\\tmp\\ph2-terminal';
@@ -123,10 +124,15 @@ operations.subscribeTerminalData((event) => {
   events.output += event.data;
   changed();
 });
-const methods = createRemoteMethods(
-  { host: { invokeDesktopOperation: (name, params) => operations.invoke(name, params) }, userDataPath: join(ROOT, 'userdata'), terminals: operations.terminals },
-  { connectionId: () => CONNECTION }
-);
+const methodsOf = (connection) =>
+  createRemoteMethods(
+    { host: { invokeDesktopOperation: (name, params) => operations.invoke(name, params) }, userDataPath: join(ROOT, 'userdata'), terminals: operations.terminals },
+    { connectionId: () => connection }
+  );
+const methods = methodsOf(CONNECTION);
+// A second paired connection, for the size-claim cases: it reads no lane, and closing it only removes it from the relay's client table.
+const OTHER = 'conn-2';
+const otherMethods = methodsOf(OTHER);
 let frameId = 0;
 const driver = {
   async call(name, params) {
@@ -134,8 +140,19 @@ const driver = {
     if (!response.ok) throw new Error(response.error);
     return response.value;
   },
-  fire(name, params) {
-    void executeRemoteFrame(methods, JSON.stringify({ method: name, params }));
+  fire(name, params, from) {
+    void executeRemoteFrame(from === 'other' ? otherMethods : methods, JSON.stringify({ method: name, params }));
+  },
+  // The leases are Node timers; the virtual clock holds them from here and `advance` moves it.
+  clock() {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    clients.set(OTHER, { lanes: new Set(), channel: {} });
+  },
+  advance(ms) {
+    mock.timers.tick(ms);
+  },
+  close(who) {
+    if (who === 'other') clients.delete(OTHER);
   },
   lane(lane, on) {
     state.lanes[on ? 'add' : 'delete'](lane);
@@ -161,7 +178,15 @@ const driver = {
 // A script that never gets its event ends with the unsettled wait; this says where it stood.
 process.on('exit', () => process.stderr.write(`\nstate at exit: ${JSON.stringify({ ...events, output: events.output.slice(-200) })}\n`));
 // Node's folder watches are not persistent (the desktop's own loop is alive), so this process keeps its loop alive while it waits.
-const keepAlive = setInterval(() => {}, 1 << 30);const trace = await play(script, driver);
+const keepAlive = setInterval(() => {}, 1 << 30);
+// `play` returns the driver's own event lists; the first trace is copied before the second script reuses them.
+const trace = JSON.parse(JSON.stringify(await play(script, driver)));
+// The size-claim cases run after, on their own tabs; only the claims' events are theirs to compare (the tabs' prompts race each other).
+for (const list of Object.values(events)) if (Array.isArray(list)) list.length = 0;
+const claimScript = sizeClaimScript(ROOT);
+const claimTrace = await play(claimScript, driver);
+mock.timers.reset();
+trace.claims = { steps: claimTrace.steps, sizeOwner: claimTrace.sizeOwner };
 clearInterval(keepAlive);
 await operations.dispose();
 lanes.dispose();

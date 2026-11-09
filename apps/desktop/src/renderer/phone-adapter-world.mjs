@@ -33,7 +33,6 @@ export async function adapterWorld() {
   let seq = 0;
   let revision = 0;
   const push = (method, params) => leg.toPhone({ method, params, feed: { id: 'app', epoch: 'e', seq: (seq += 1) } });
-  console.error('FRAMES', frames.map((f) => f.method).join(','));
   await push('app/snapshot', { sections: [] });
   await world.advance(0);
   return {
