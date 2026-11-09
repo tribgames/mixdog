@@ -58,6 +58,9 @@ pub trait ReviewWorktrees: Send + Sync {
     async fn create(&self, worktree: &str) -> Option<Arc<dyn WorktreeBase>>;
     /// `noteTurnWorktreeChange(paths)`: a boundary signal; `None` means anything may have changed.
     fn note_change(&self, paths: Option<&[String]>);
+    /// `onTurnReviewChanged(listener)`: the listener runs once after the task that stamped a worktree
+    /// or changed a snapshot's review.
+    fn on_review_changed(&self, listener: Arc<dyn Fn() + Send + Sync>);
     /// `canonicalPath(path)`: the path with the symlinks of its nearest existing ancestor
     /// resolved, spelled the way Git reports the root.
     fn canonical_path(&self, path: &str) -> String;

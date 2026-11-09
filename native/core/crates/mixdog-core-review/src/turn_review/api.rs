@@ -5,6 +5,7 @@ use mixdog_core_api::turn_review::AgentReview;
 use mixdog_core_api::turn_review::CallChange;
 use mixdog_core_api::turn_review::ChangesRead;
 use mixdog_core_api::turn_review::Reply;
+use mixdog_core_api::turn_review::ReviewChanged;
 use mixdog_core_api::turn_review::ReviewError;
 use mixdog_core_api::turn_review::ReviewRead;
 use mixdog_core_api::turn_review::TurnOpen;
@@ -42,6 +43,11 @@ impl TurnReviewApi for TurnReview {
 
     fn note_change(&self, paths: Option<&[String]>) {
         self.inner.worktrees.note_change(paths);
+    }
+
+    fn on_review_changed(&self, listener: ReviewChanged) {
+        let bases = self.inner.bases.clone();
+        self.inner.worktrees.on_review_changed(std::sync::Arc::new(move || listener(&bases.threads())));
     }
 
     async fn begin_turn(&self, worktree: &str, session_id: &str, open: TurnOpen) -> Option<TurnToken> {

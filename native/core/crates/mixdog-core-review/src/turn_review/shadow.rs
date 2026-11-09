@@ -188,6 +188,33 @@ struct ReposShared {
     states: Mutex<IndexMap<String, Arc<Root>>>,
     maintained: Mutex<HashSet<PathBuf>>,
     temp_seq: AtomicU64,
+    /// `onTurnReviewChanged` listeners (`turn-boundary-signal.mjs`).
+    review_listeners: Mutex<Vec<Arc<dyn Fn() + Send + Sync>>>,
+    /// `reviewQueued`: a signal waits for its dispatch.
+    review_queued: AtomicBool,
+    /// The dispatches not yet delivered, for [`ShadowRepos::review_signal_delivered`].
+    review_dispatches: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+}
+
+impl ReposShared {
+    /// `noteTurnReviewChanged`: signals within one task reach the listeners once, after it (Node
+    /// queues a microtask; here the dispatch is a task spawned on the caller's runtime).
+    fn note_review_changed(self: &Arc<Self>) {
+        if self.review_queued.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let shared = self.clone();
+        let dispatch = tokio::spawn(async move {
+            shared.review_queued.store(false, Ordering::Release);
+            let listeners: Vec<_> = shared.review_listeners.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            for listener in listeners {
+                listener();
+            }
+        });
+        let mut dispatches = self.review_dispatches.lock().unwrap_or_else(|e| e.into_inner());
+        dispatches.retain(|task| !task.is_finished());
+        dispatches.push(dispatch);
+    }
 }
 
 pub struct ShadowRepos {
@@ -215,7 +242,24 @@ impl ShadowRepos {
                 states: Mutex::new(IndexMap::new()),
                 maintained: Mutex::new(HashSet::new()),
                 temp_seq: AtomicU64::new(0),
+                review_listeners: Mutex::new(Vec::new()),
+                review_queued: AtomicBool::new(false),
+                review_dispatches: Mutex::new(Vec::new()),
             }),
+        }
+    }
+
+    /// `onTurnReviewChanged(listener)`.
+    pub fn on_review_changed(&self, listener: Arc<dyn Fn() + Send + Sync>) {
+        self.shared.review_listeners.lock().unwrap_or_else(|e| e.into_inner()).push(listener);
+    }
+
+    /// Resolves once every signal raised so far has reached its listeners (what a Node caller gets
+    /// from one `await` after the signal's task).
+    pub async fn review_signal_delivered(&self) {
+        let dispatches = std::mem::take(&mut *self.shared.review_dispatches.lock().unwrap_or_else(|e| e.into_inner()));
+        for dispatch in dispatches {
+            let _ = dispatch.await;
         }
     }
 
@@ -266,6 +310,7 @@ impl ShadowRepos {
             for state in &states {
                 state.state.lock().unwrap_or_else(|e| e.into_inner()).change_stamp += 1;
             }
+            self.shared.note_review_changed();
             return;
         }
         let roots: Vec<(usize, String)> = states
@@ -297,8 +342,12 @@ impl ShadowRepos {
                 }
             }
         }
+        let any = !stamped.is_empty();
         for index in stamped {
             states[index].state.lock().unwrap_or_else(|e| e.into_inner()).change_stamp += 1;
+        }
+        if any {
+            self.shared.note_review_changed();
         }
     }
 
@@ -373,6 +422,11 @@ impl Root {
 
     pub(super) fn bump_change(&self) {
         self.st().change_stamp += 1;
+    }
+
+    /// `noteTurnReviewChanged()`: a capture changed what a review shows.
+    pub(super) fn note_review_changed(&self) {
+        self.repos.note_review_changed();
     }
 
     pub(super) fn change_stamp(&self) -> u64 {

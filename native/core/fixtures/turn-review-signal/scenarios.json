@@ -1,0 +1,1104 @@
+[
+ {
+  "name": "a command tool settling and file-change evidence, with two sessions on one worktree and one on another",
+  "platform": "win32",
+  "ops": [
+   {
+    "op": "settle",
+    "ws": "w1"
+   },
+   {
+    "op": "evidence",
+    "ws": "w1",
+    "paths": [
+     "a.txt"
+    ]
+   },
+   {
+    "op": "git",
+    "ws": "w1"
+   },
+   {
+    "op": "file",
+    "ws": "w1",
+    "path": "a.txt",
+    "content": {
+     "text": "one\ntwo\n"
+    }
+   },
+   {
+    "op": "file",
+    "ws": "w1",
+    "path": "sub/inner.txt",
+    "content": {
+     "text": "inner\n"
+    }
+   },
+   {
+    "op": "git",
+    "ws": "w2"
+   },
+   {
+    "op": "file",
+    "ws": "w2",
+    "path": "b.txt",
+    "content": {
+     "text": "bee\n"
+    }
+   },
+   {
+    "op": "begin",
+    "ws": "w1",
+    "session": "s1",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "begin",
+    "ws": "w1",
+    "session": "s2",
+    "checkpoint": "cp2"
+   },
+   {
+    "op": "begin",
+    "ws": "w2",
+    "session": "s3",
+    "checkpoint": "cp3"
+   },
+   {
+    "op": "settle",
+    "ws": "w1"
+   },
+   {
+    "op": "settle",
+    "ws": "w1",
+    "path": "sub"
+   },
+   {
+    "op": "settle",
+    "ws": "w2"
+   },
+   {
+    "op": "settle",
+    "cwd": null
+   },
+   {
+    "op": "settle",
+    "ws": "out"
+   },
+   {
+    "op": "evidence",
+    "ws": "w1",
+    "paths": [
+     "a.txt"
+    ]
+   },
+   {
+    "op": "evidence",
+    "ws": "out",
+    "paths": [
+     "x.txt"
+    ]
+   },
+   {
+    "op": "evidence",
+    "ws": "w2",
+    "paths": [
+     "b.txt"
+    ]
+   },
+   {
+    "op": "evidence",
+    "ws": "w1",
+    "paths": [
+     "sub"
+    ]
+   },
+   {
+    "op": "evidence",
+    "ws": "base",
+    "paths": [
+     ""
+    ]
+   },
+   {
+    "op": "burst",
+    "parts": [
+     {
+      "op": "settle",
+      "ws": "w1"
+     },
+     {
+      "op": "evidence",
+      "ws": "w2",
+      "paths": [
+       "b.txt"
+      ]
+     },
+     {
+      "op": "settle",
+      "cwd": null
+     }
+    ]
+   },
+   {
+    "op": "settle",
+    "cwd": null
+   }
+  ],
+  "results": [
+   {
+    "op": 0,
+    "fires": 0,
+    "sessions": []
+   },
+   {
+    "op": 1,
+    "fires": 0,
+    "sessions": [],
+    "delivered": [
+     "<w1>\\a.txt"
+    ]
+   },
+   {
+    "op": 2,
+    "fires": 0,
+    "sessions": []
+   },
+   {
+    "op": 3,
+    "fires": 0,
+    "sessions": []
+   },
+   {
+    "op": 4,
+    "fires": 0,
+    "sessions": []
+   },
+   {
+    "op": 5,
+    "fires": 0,
+    "sessions": []
+   },
+   {
+    "op": 6,
+    "fires": 0,
+    "sessions": []
+   },
+   {
+    "op": 7,
+    "fires": 0,
+    "sessions": [
+     "s1"
+    ]
+   },
+   {
+    "op": 8,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2"
+    ]
+   },
+   {
+    "op": 9,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ]
+   },
+   {
+    "op": 10,
+    "fires": 1,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ]
+   },
+   {
+    "op": 11,
+    "fires": 1,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ]
+   },
+   {
+    "op": 12,
+    "fires": 1,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ]
+   },
+   {
+    "op": 13,
+    "fires": 1,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ]
+   },
+   {
+    "op": 14,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ]
+   },
+   {
+    "op": 15,
+    "fires": 1,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "delivered": [
+     "<w1>\\a.txt"
+    ]
+   },
+   {
+    "op": 16,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "delivered": [
+     "<out>\\x.txt"
+    ]
+   },
+   {
+    "op": 17,
+    "fires": 1,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "delivered": [
+     "<w2>\\b.txt"
+    ]
+   },
+   {
+    "op": 18,
+    "fires": 1,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "delivered": [
+     "<w1>\\sub"
+    ]
+   },
+   {
+    "op": 19,
+    "fires": 1,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "delivered": [
+     "<base>"
+    ]
+   },
+   {
+    "op": 20,
+    "fires": 1,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "parts": [
+     {},
+     {
+      "delivered": [
+       "<w2>\\b.txt"
+      ]
+     },
+     {}
+    ]
+   },
+   {
+    "op": 21,
+    "fires": 1,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ]
+   }
+  ]
+ },
+ {
+  "name": "tool writes, reads and the turn-end capture of three sessions",
+  "platform": "win32",
+  "ops": [
+   {
+    "op": "git",
+    "ws": "w1"
+   },
+   {
+    "op": "file",
+    "ws": "w1",
+    "path": "a.txt",
+    "content": {
+     "text": "one\ntwo\n"
+    }
+   },
+   {
+    "op": "file",
+    "ws": "w1",
+    "path": "sub/inner.txt",
+    "content": {
+     "text": "inner\n"
+    }
+   },
+   {
+    "op": "git",
+    "ws": "w2"
+   },
+   {
+    "op": "file",
+    "ws": "w2",
+    "path": "b.txt",
+    "content": {
+     "text": "bee\n"
+    }
+   },
+   {
+    "op": "begin",
+    "ws": "w1",
+    "session": "s1",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "begin",
+    "ws": "w1",
+    "session": "s2",
+    "checkpoint": "cp2"
+   },
+   {
+    "op": "begin",
+    "ws": "w2",
+    "session": "s3",
+    "checkpoint": "cp3"
+   },
+   {
+    "op": "edit",
+    "ws": "w1",
+    "session": "s1",
+    "path": "a.txt",
+    "content": {
+     "text": "one\n2\n"
+    }
+   },
+   {
+    "op": "review",
+    "ws": "w1",
+    "session": "s1"
+   },
+   {
+    "op": "review",
+    "ws": "w1",
+    "session": "s1"
+   },
+   {
+    "op": "review",
+    "ws": "w1",
+    "session": "s2"
+   },
+   {
+    "op": "review",
+    "ws": "w2",
+    "session": "s3"
+   },
+   {
+    "op": "edit",
+    "ws": "w2",
+    "session": "s3",
+    "path": "b.txt",
+    "content": {
+     "text": "bee\nhive\n"
+    }
+   },
+   {
+    "op": "review",
+    "ws": "w2",
+    "session": "s3"
+   },
+   {
+    "op": "review",
+    "ws": "w2",
+    "session": "s3"
+   },
+   {
+    "op": "external",
+    "ws": "w2",
+    "path": "b.txt",
+    "content": {
+     "text": "bee\nhoney\n"
+    }
+   },
+   {
+    "op": "review",
+    "ws": "w2",
+    "session": "s3"
+   },
+   {
+    "op": "settle",
+    "ws": "w2"
+   },
+   {
+    "op": "review",
+    "ws": "w2",
+    "session": "s3"
+   },
+   {
+    "op": "sessionReview",
+    "ws": "w2",
+    "session": "s3"
+   },
+   {
+    "op": "sessionReview",
+    "ws": "w2",
+    "session": "s3"
+   },
+   {
+    "op": "external",
+    "ws": "w1",
+    "path": "a.txt",
+    "content": {
+     "text": "one\nthree\n"
+    }
+   },
+   {
+    "op": "review",
+    "ws": "w1",
+    "session": "s1"
+   },
+   {
+    "op": "settle",
+    "ws": "w1"
+   },
+   {
+    "op": "review",
+    "ws": "w1",
+    "session": "s1"
+   },
+   {
+    "op": "sessionReview",
+    "ws": "w1",
+    "session": "s1"
+   },
+   {
+    "op": "sessionReview",
+    "ws": "w1",
+    "session": "s2"
+   },
+   {
+    "op": "external",
+    "ws": "w2",
+    "path": "b.txt",
+    "content": {
+     "text": "bee\nsting\n"
+    }
+   },
+   {
+    "op": "settle",
+    "ws": "w2"
+   },
+   {
+    "op": "complete",
+    "session": "s3"
+   },
+   {
+    "op": "complete",
+    "session": "s1"
+   },
+   {
+    "op": "external",
+    "ws": "w1",
+    "path": "a.txt",
+    "content": {
+     "text": "one\nfour\n"
+    }
+   },
+   {
+    "op": "complete",
+    "session": "s2"
+   },
+   {
+    "op": "begin",
+    "ws": "w1",
+    "session": "s1",
+    "checkpoint": "cp4"
+   },
+   {
+    "op": "complete",
+    "session": "s1"
+   }
+  ],
+  "results": [
+   {
+    "op": 0,
+    "fires": 0,
+    "sessions": []
+   },
+   {
+    "op": 1,
+    "fires": 0,
+    "sessions": []
+   },
+   {
+    "op": 2,
+    "fires": 0,
+    "sessions": []
+   },
+   {
+    "op": 3,
+    "fires": 0,
+    "sessions": []
+   },
+   {
+    "op": 4,
+    "fires": 0,
+    "sessions": []
+   },
+   {
+    "op": 5,
+    "fires": 0,
+    "sessions": [
+     "s1"
+    ]
+   },
+   {
+    "op": 6,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2"
+    ]
+   },
+   {
+    "op": 7,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ]
+   },
+   {
+    "op": 8,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ]
+   },
+   {
+    "op": 9,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "files": [
+     "a.txt"
+    ]
+   },
+   {
+    "op": 10,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "files": [
+     "a.txt"
+    ]
+   },
+   {
+    "op": 11,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "files": []
+   },
+   {
+    "op": 12,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "files": []
+   },
+   {
+    "op": 13,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ]
+   },
+   {
+    "op": 14,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "files": [
+     "b.txt"
+    ]
+   },
+   {
+    "op": 15,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "files": [
+     "b.txt"
+    ]
+   },
+   {
+    "op": 16,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ]
+   },
+   {
+    "op": 17,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "files": [
+     "b.txt"
+    ]
+   },
+   {
+    "op": 18,
+    "fires": 1,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ]
+   },
+   {
+    "op": 19,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "files": [
+     "b.txt"
+    ]
+   },
+   {
+    "op": 20,
+    "fires": 1,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "files": [
+     "b.txt"
+    ]
+   },
+   {
+    "op": 21,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "files": [
+     "b.txt"
+    ]
+   },
+   {
+    "op": 22,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ]
+   },
+   {
+    "op": 23,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "files": [
+     "a.txt"
+    ]
+   },
+   {
+    "op": 24,
+    "fires": 1,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ]
+   },
+   {
+    "op": 25,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "files": [
+     "a.txt"
+    ]
+   },
+   {
+    "op": 26,
+    "fires": 1,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "files": [
+     "a.txt"
+    ]
+   },
+   {
+    "op": 27,
+    "fires": 1,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "files": []
+   },
+   {
+    "op": 28,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ]
+   },
+   {
+    "op": 29,
+    "fires": 1,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ]
+   },
+   {
+    "op": 30,
+    "fires": 1,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "completed": true
+   },
+   {
+    "op": 31,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "completed": true
+   },
+   {
+    "op": 32,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ]
+   },
+   {
+    "op": 33,
+    "fires": 1,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "completed": true
+   },
+   {
+    "op": 34,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ]
+   },
+   {
+    "op": 35,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2",
+     "s3"
+    ],
+    "completed": true
+   }
+  ]
+ },
+ {
+  "name": "Undo of a running turn and of a sealed one",
+  "platform": "win32",
+  "ops": [
+   {
+    "op": "git",
+    "ws": "w1"
+   },
+   {
+    "op": "file",
+    "ws": "w1",
+    "path": "a.txt",
+    "content": {
+     "text": "x\ny\n"
+    }
+   },
+   {
+    "op": "begin",
+    "ws": "w1",
+    "session": "s1",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "begin",
+    "ws": "w1",
+    "session": "s2",
+    "checkpoint": "cp2"
+   },
+   {
+    "op": "edit",
+    "ws": "w1",
+    "session": "s1",
+    "path": "a.txt",
+    "content": {
+     "text": "x\nY\n"
+    }
+   },
+   {
+    "op": "edit",
+    "ws": "w1",
+    "session": "s1",
+    "path": "n.txt",
+    "content": {
+     "text": "new\n"
+    }
+   },
+   {
+    "op": "revert",
+    "ws": "w1",
+    "session": "s1",
+    "file": "a.txt",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "revert",
+    "ws": "w1",
+    "session": "s1",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "edit",
+    "ws": "w1",
+    "session": "s1",
+    "path": "a.txt",
+    "content": {
+     "text": "x\nZ\n"
+    }
+   },
+   {
+    "op": "complete",
+    "session": "s1"
+   },
+   {
+    "op": "changes",
+    "session": "s1",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "undo",
+    "session": "s1",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "changes",
+    "session": "s1",
+    "checkpoint": "cp1"
+   },
+   {
+    "op": "redo",
+    "session": "s1",
+    "checkpoint": "cp1"
+   }
+  ],
+  "results": [
+   {
+    "op": 0,
+    "fires": 0,
+    "sessions": []
+   },
+   {
+    "op": 1,
+    "fires": 0,
+    "sessions": []
+   },
+   {
+    "op": 2,
+    "fires": 0,
+    "sessions": [
+     "s1"
+    ]
+   },
+   {
+    "op": 3,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2"
+    ]
+   },
+   {
+    "op": 4,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2"
+    ]
+   },
+   {
+    "op": 5,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2"
+    ]
+   },
+   {
+    "op": 6,
+    "fires": 2,
+    "sessions": [
+     "s1",
+     "s2"
+    ],
+    "ok": true
+   },
+   {
+    "op": 7,
+    "fires": 2,
+    "sessions": [
+     "s1",
+     "s2"
+    ],
+    "ok": true
+   },
+   {
+    "op": 8,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2"
+    ]
+   },
+   {
+    "op": 9,
+    "fires": 1,
+    "sessions": [
+     "s1",
+     "s2"
+    ],
+    "completed": true
+   },
+   {
+    "op": 10,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2"
+    ]
+   },
+   {
+    "op": 11,
+    "fires": 2,
+    "sessions": [
+     "s1",
+     "s2"
+    ],
+    "ok": true
+   },
+   {
+    "op": 12,
+    "fires": 0,
+    "sessions": [
+     "s1",
+     "s2"
+    ]
+   },
+   {
+    "op": 13,
+    "fires": 2,
+    "sessions": [
+     "s1",
+     "s2"
+    ],
+    "ok": true
+   }
+  ]
+ }
+]
