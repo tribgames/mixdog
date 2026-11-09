@@ -59,10 +59,12 @@ async function rig() {
     frames,
     answerNext,
     statusIs,
-    lose: (): Promise<void> => {
+    /** Resolves with the length of the frame log at the moment the client went `reconnecting`: what follows belongs to the next connection. */
+    lose: async (): Promise<number> => {
       const down = statusIs('reconnecting');
       conn.serverClose(1006);
-      return down;
+      await down;
+      return frames.length;
     },
     reconnect: async () => {
       const up = statusIs('ready');
@@ -73,6 +75,15 @@ async function rig() {
 }
 
 const CALL = 'thread/list';
+
+/** The call's frame comes after the `initialized` of the connection made after `reconnectingAt` (a log index), not after the original handshake's. */
+export function writtenAfterReconnectHandshake(methods: readonly (string | undefined)[], reconnectingAt: number): boolean {
+  const written = methods.indexOf(CALL);
+  if (written < 0) return false;
+  const initialized = methods.lastIndexOf('initialized', written);
+  return initialized >= reconnectingAt;
+}
+
 /** A claim that records what it was given; the promise it received is wrapped so awaiting the record does not wait for the frame. */
 const recorder = () => {
   const got: Array<Promise<void>> = [];
@@ -81,18 +92,25 @@ const recorder = () => {
 
 test('a call asked while the connection is down writes nothing then, and hands its frame to its claim once the connection is back', async () => {
   const { client, frames, lose, reconnect, answerNext } = await rig();
-  await lose();
+  const reconnectingAt = await lose();
   const mine = recorder();
   const call = client.call(CALL, {} as never, { sent: mine.claim });
   void call.catch(() => undefined);
   await reconnect();
-  const initialized = frames.findIndex((frame) => frame.body.method === 'initialized');
-  const written = frames.findIndex((frame) => frame.body.method === CALL);
+  const methods = frames.map((frame) => frame.body.method);
   // `initialized` is the last frame of the new handshake: the call's frame, if it had been written while down, would precede it.
-  assert.ok(written > initialized && initialized >= 0, 'the call is written after the new connection is ready');
+  assert.ok(writtenAfterReconnectHandshake(methods, reconnectingAt), 'the call is written after the new connection is ready');
+  const written = methods.indexOf(CALL);
   assert.ok(frames[written]?.sent, 'the frame carries this call\'s claim');
   await answerNext();
   assert.equal(mine.got.length, 1);
+});
+
+test('the order check rejects a call written between the original handshake and the reconnect handshake', () => {
+  // [original initialized, premature call, reconnect initialize/initialized]: the reconnecting status came after the first two frames.
+  assert.equal(writtenAfterReconnectHandshake(['initialize', 'initialized', CALL, 'initialize', 'initialized'], 2), false);
+  assert.equal(writtenAfterReconnectHandshake(['initialize', 'initialized', 'initialize', 'initialized', CALL], 2), true);
+  assert.equal(writtenAfterReconnectHandshake(['initialize', 'initialized'], 2), false, 'no call at all');
 });
 
 test('thread/resume passes its claim to its own frame', async () => {
