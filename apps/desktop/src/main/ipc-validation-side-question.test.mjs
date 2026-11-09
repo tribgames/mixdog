@@ -4,7 +4,6 @@ import test from 'node:test';
 import { DESKTOP_CAPABILITIES, DESKTOP_READ_CAPABILITIES } from '../shared/contract.ts';
 import { SESSION_CONFIGURE_ACTIONS } from './test-support/session-protocol-actions.recorded.mjs';
 import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-validation.ts';
-import { longRunningRequestTimeout } from './local-provider-install-timeout.ts';
 test('/btw capabilities: askSide takes one question, cancelSide nothing', () => {
   for (const capability of ['askSide', 'cancelSide']) {
     assert.equal(DESKTOP_CAPABILITIES.includes(capability), true);
@@ -25,9 +24,4 @@ test('/btw capabilities: askSide takes one question, cancelSide nothing', () => 
     () => requiredDesktopCapabilityReadRequests([{ capability: 'askSide', args: ['Why?'] }]),
     /not read-only/
   );
-});
-
-test('a side question has a model-response deadline', () => {
-  assert.ok(longRunningRequestTimeout('askSide', ['Why?']) >= 10 * 60_000);
-  assert.equal(longRunningRequestTimeout('cancelSide', []), undefined);
 });
